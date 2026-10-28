@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#4a5262"/>
+      <stop offset="0.55" stop-color="#2a303b"/>
+      <stop offset="1" stop-color="#151920"/>
+    </linearGradient>
+    <linearGradient id="glyph" gradientUnits="userSpaceOnUse" x1="0" y1="340" x2="0" y2="720">
+      <stop offset="0" stop-color="#fbf0d9"/>
+      <stop offset="1" stop-color="#d9bb86"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.4" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="0.72" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.16"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="20"/></filter>
+  </defs>
+
+  <rect x="92" y="92" width="840" height="840" rx="196" ry="196" fill="url(#tile)"/>
+
+  <g id="cleat" transform="translate(0 20)">
+    <path d="M228 380 Q 360 384 432 360 H 592 Q 664 384 796 380 Q 828 380 828 412 Q 828 444 796 444 Q 680 444 628 472 L 652 640 H 572 L 556 488 H 468 L 452 640 H 372 L 396 472 Q 344 444 228 444 Q 196 444 196 412 Q 196 380 228 380 Z" fill="#000" fill-opacity="0.45" filter="url(#shadow)" transform="translate(0 24)"/>
+    <path d="M228 380 Q 360 384 432 360 H 592 Q 664 384 796 380 Q 828 380 828 412 Q 828 444 796 444 Q 680 444 628 472 L 652 640 H 572 L 556 488 H 468 L 452 640 H 372 L 396 472 Q 344 444 228 444 Q 196 444 196 412 Q 196 380 228 380 Z" fill="url(#glyph)"/>
+    <rect x="340" y="624" width="144" height="56" rx="24" fill="url(#glyph)"/><rect x="540" y="624" width="144" height="56" rx="24" fill="url(#glyph)"/>
+  </g>
+
+  <rect x="92" y="92" width="840" height="840" rx="196" ry="196" fill="url(#sheen)"/>
+</svg>
