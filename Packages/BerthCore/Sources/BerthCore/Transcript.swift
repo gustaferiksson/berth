@@ -1,18 +1,26 @@
 import Foundation
 
+public struct PullRequestLink: Sendable, Hashable {
+    public let number: Int
+    public let url: URL
+    public let repository: String
+}
+
 public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let id: String
     public let cwd: String
     public let title: String
     public let modified: Date
     public let branch: String?
+    public let pullRequest: PullRequestLink?
 
-    public init(id: String, cwd: String, title: String, modified: Date, branch: String? = nil) {
+    public init(id: String, cwd: String, title: String, modified: Date, branch: String? = nil, pullRequest: PullRequestLink? = nil) {
         self.id = id
         self.cwd = cwd
         self.title = title
         self.modified = modified
         self.branch = branch
+        self.pullRequest = pullRequest
     }
 }
 
@@ -47,12 +55,17 @@ public enum Transcript {
         guard let title = recordedTitle ?? head.lazy.compactMap(\.promptText).first else { return nil }
         let oneLine = title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         let branch = tail.last { $0.gitBranch != nil }?.gitBranch
+        let link = tail.last { $0.type == "pr-link" && $0.prNumber != nil }
         return SessionSummary(
             id: id,
             cwd: cwd,
             title: String(oneLine.prefix(maxTitleLength)),
             modified: modified,
-            branch: branch == "HEAD" || branch?.isEmpty == true ? nil : branch
+            branch: branch == "HEAD" || branch?.isEmpty == true ? nil : branch,
+            pullRequest: link.flatMap { link in
+                guard let number = link.prNumber, let url = link.prUrl.flatMap(URL.init(string:)), let repository = link.prRepository else { return nil }
+                return PullRequestLink(number: number, url: url, repository: repository)
+            }
         )
     }
 
@@ -88,6 +101,9 @@ struct Record: Decodable {
     let type: String?
     let cwd: String?
     let gitBranch: String?
+    let prNumber: Int?
+    let prUrl: String?
+    let prRepository: String?
     let customTitle: String?
     let aiTitle: String?
     let agentName: String?

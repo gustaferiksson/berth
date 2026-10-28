@@ -10,7 +10,7 @@ struct ContentView: View {
         NavigationSplitView {
             Sidebar()
                 .scrollContentBackground(.hidden)
-                .background(store.theme.background?.opacity(0.4))
+                .background(store.theme.background ?? .clear)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 440)
         } detail: {
             ZStack {
@@ -25,6 +25,8 @@ struct ContentView: View {
                     ContentUnavailableView("No Open Session", systemImage: "terminal", description: Text("Pick a session in the sidebar, or start one with + on a project."))
                 }
             }
+            .background(store.theme.background ?? .clear)
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .navigationTitle(selected.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth")
             .navigationSubtitle(selected.map { ($0.cwd as NSString).abbreviatingWithTildeInPath } ?? "")
             .toolbar {
@@ -34,7 +36,7 @@ struct ContentView: View {
                 .help("New terminal")
             }
         }
-        .toolbarBackground(store.theme.background ?? .clear, for: .windowToolbar)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .containerBackground(store.theme.background ?? .clear, for: .window)
         .environment(\.ghosttyTheme, store.theme)
         .preferredColorScheme(store.theme.isDark ? .dark : .light)

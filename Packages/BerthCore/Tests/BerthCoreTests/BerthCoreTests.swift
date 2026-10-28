@@ -53,6 +53,18 @@ struct TranscriptTests {
         #expect(Transcript.summary(id: "b", modified: .now, head: head, tail: detached)?.branch == nil)
     }
 
+    @Test func pullRequestIsTheLastLinkedOne() {
+        let head = Transcript.records(in: Data(#"{"type":"user","cwd":"/x","message":{"content":"hi"}}"#.utf8), dropFirst: false, dropLast: false)
+        let tail = Transcript.records(in: Data("""
+        {"type":"pr-link","prNumber":7,"prUrl":"https://github.com/example/alpha/pull/7","prRepository":"example/alpha"}
+        {"type":"pr-link","prNumber":9,"prUrl":"https://github.com/example/alpha/pull/9","prRepository":"example/alpha"}
+        """.utf8), dropFirst: false, dropLast: false)
+        let pullRequest = Transcript.summary(id: "a", modified: .now, head: head, tail: tail)?.pullRequest
+        #expect(pullRequest?.number == 9)
+        #expect(pullRequest?.repository == "example/alpha")
+        #expect(Transcript.summary(id: "b", modified: .now, head: head, tail: [])?.pullRequest == nil)
+    }
+
     @Test func groupsSortByMostRecentActivity() {
         let now = Date()
         let groups = ProjectGroup.grouped([
