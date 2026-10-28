@@ -73,6 +73,13 @@ enum Snapshot {
         if archiveRow > 0, let sessions = store.groups.first(where: { !$0.sessions.isEmpty })?.sessions, archiveRow <= sessions.count {
             store.archive(sessions[archiveRow - 1].id)
         }
+        if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
+            for _ in 0..<2 { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
+            store.tabs = store.shells.map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: UUID().uuidString.lowercased(), terminal: $0.terminal) }
+            store.selectedTabID = store.tabs.last?.id
+            store.shells = []
+            store.isPanelOpen = false
+        }
         if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
             store.activate(.session(sessionID))
         }
@@ -111,6 +118,18 @@ enum Snapshot {
             try? await Task.sleep(for: .seconds(3))
             print("alive after close: \(processes.map(\.pid).filter { kill($0, 0) == 0 }.sorted())")
         }
+        if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
+            for tab in [store.tabs.first { $0.id != store.selectedTabID }, store.tabs.first { $0.id == store.selectedTabID }].compactMap(\.self) {
+                weak var view = tab.terminal.attachedPlatformView
+                let kind = tab.id == store.selectedTabID ? "selected" : "background"
+                if let view { window.makeFirstResponder(view) }
+                try? await Task.sleep(for: .seconds(1))
+                print("ptys before archive: \(ptys())")
+                store.archive(tab.sessionID ?? "")
+                try? await Task.sleep(for: .seconds(3))
+                print("archived \(kind) tab: view freed \(view == nil), ptys \(ptys())")
+            }
+        }
         let tab = store.tabs.first { $0.id == store.selectedTabID }
         window.title = tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"
         try? await Task.sleep(for: .milliseconds(500))
@@ -134,6 +153,17 @@ enum Snapshot {
         ProcessAncestry.hangUpDescendants()
         exit(0)
         #endif
+    }
+
+    private static func ptys() -> Int {
+        let lsof = Process()
+        let pipe = Pipe()
+        lsof.executableURL = URL(filePath: "/usr/sbin/lsof")
+        lsof.arguments = ["-p", "\(getpid())"]
+        lsof.standardOutput = pipe
+        try? lsof.run()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        return output.split(separator: "\n").filter { $0.contains("/dev/ptmx") }.count
     }
 
     private static func fail(_ message: String) -> Never {
