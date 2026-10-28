@@ -13,14 +13,14 @@ struct BerthApp: App {
         .defaultLaunchBehavior(Snapshot.output == nil ? .presented : .suppressed)
         .commands {
             CommandGroup(after: .newItem) {
-                Button("New Claude Session") {
-                    appDelegate.store.openClaude(cwd: appDelegate.store.tabs.first { $0.id == appDelegate.store.selectedTabID }?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
-                }
-                .keyboardShortcut("n")
-                Button("New Terminal") {
-                    appDelegate.store.openShell(cwd: appDelegate.store.tabs.first { $0.id == appDelegate.store.selectedTabID }?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
-                }
-                .keyboardShortcut("t")
+                Button("New Claude Session") { appDelegate.store.openClaude(cwd: appDelegate.store.currentCwd) }
+                    .keyboardShortcut("n")
+                Button("New Terminal") { appDelegate.store.openShell(cwd: appDelegate.store.currentCwd) }
+                    .keyboardShortcut("t")
+            }
+            CommandGroup(after: .sidebar) {
+                Button(appDelegate.store.isPanelOpen ? "Hide Terminal Panel" : "Show Terminal Panel") { appDelegate.store.toggleTerminalPanel() }
+                    .keyboardShortcut("j")
             }
         }
     }

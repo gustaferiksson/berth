@@ -13,26 +13,20 @@ struct ContentView: View {
                 .background(store.theme.background ?? .clear)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 440)
         } detail: {
-            ZStack {
-                ForEach(store.tabs) { tab in
-                    let isSelected = tab.id == store.selectedTabID
-                    TerminalSurfaceView(context: tab.terminal)
-                        .opacity(isSelected ? 1 : 0)
-                        .allowsHitTesting(isSelected)
-                        .onChange(of: isSelected, initial: true) { tab.terminal.isSurfaceVisible = isSelected }
-                }
-                if store.tabs.isEmpty {
-                    ContentUnavailableView("No Open Session", systemImage: "terminal", description: Text("Pick a session in the sidebar, or start one with + on a project."))
+            GeometryReader { geometry in
+                VStack(spacing: 0) {
+                    sessions
+                    TerminalPanel(maxHeight: geometry.size.height * 0.7)
                 }
             }
             .background(store.theme.background ?? .clear)
             .navigationTitle(selected.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth")
             .navigationSubtitle(selected.map { ($0.cwd as NSString).abbreviatingWithTildeInPath } ?? "")
             .toolbar {
-                Button("New Terminal", systemImage: "apple.terminal") {
-                    store.openShell(cwd: selected?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
+                Button(store.isPanelOpen ? "Hide Terminal Panel" : "Show Terminal Panel", systemImage: "apple.terminal") {
+                    store.toggleTerminalPanel()
                 }
-                .help("New terminal")
+                .help("Terminal panel (⌘J)")
             }
         }
         .containerBackground(store.theme.background ?? .clear, for: .window)
@@ -43,6 +37,24 @@ struct ContentView: View {
     }
 }
 
+
+extension ContentView {
+    private var sessions: some View {
+        ZStack {
+            ForEach(store.tabs) { tab in
+                let isSelected = tab.id == store.selectedTabID
+                TerminalSurfaceView(context: tab.terminal)
+                    .opacity(isSelected ? 1 : 0)
+                    .allowsHitTesting(isSelected)
+                    .onChange(of: isSelected, initial: true) { tab.terminal.isSurfaceVisible = isSelected }
+            }
+            if store.tabs.isEmpty {
+                ContentUnavailableView("No Open Session", systemImage: "terminal", description: Text("Pick a session in the sidebar, or start one with + on a project."))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
 
 private struct WindowChrome: NSViewRepresentable {
     let color: Color?

@@ -32,6 +32,7 @@ enum Snapshot {
         await store.waitForScan()
         if UserDefaults.standard.bool(forKey: "snapshotShell") {
             store.openShell(cwd: store.groups.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
+            store.openShell(cwd: store.groups.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path, command: "/bin/zsh -c 'printf \"\\033]2;npm run dev\\007\"; echo VITE ready; sleep 600'")
         }
         if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
             store.activate(.session(sessionID))
@@ -53,7 +54,7 @@ enum Snapshot {
         let items = window.toolbar?.items.map { "\($0.itemIdentifier.rawValue) label=\($0.label) tip=\($0.toolTip ?? "")" } ?? []
         print("window title: \(window.title) | subtitle: \(window.subtitle)")
         print("toolbar items (\(items.count)):\n" + items.joined(separator: "\n"))
-        for tab in store.tabs { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-")") }
+        for tab in store.tabs + store.shells { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-")") }
         guard !NSScreen.screens.contains(where: { $0.frame.intersects(window.frame) }) else { fail("window is on screen") }
         guard let image = image(of: window) else { fail("window capture failed: number \(window.windowNumber) visible \(window.isVisible) frame \(window.frame)") }
         guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),

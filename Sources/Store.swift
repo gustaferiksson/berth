@@ -41,6 +41,13 @@ final class Store {
         didSet { saveOpenTabs() }
     }
     var selectedTabID: Tab.ID?
+    var shells: [Tab] = [] {
+        didSet { saveOpenTabs() }
+    }
+    var selectedShellID: Tab.ID?
+    var isPanelOpen = UserDefaults.standard.bool(forKey: "terminalPanelOpen") {
+        didSet { if persistsTabs { UserDefaults.standard.set(isPanelOpen, forKey: "terminalPanelOpen") } }
+    }
     var lockedSessionID: String?
     private(set) var groups: [ProjectGroup] = []
     private(set) var liveBySession: [String: LiveSession] = [:]
@@ -199,8 +206,29 @@ final class Store {
         openClaude(cwd: session.cwd, resuming: session.id)
     }
 
-    func openShell(cwd: String) {
-        open(kind: .shell, cwd: cwd, sessionID: nil, command: nil)
+    var currentCwd: String {
+        tabs.first { $0.id == selectedTabID }?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    func openShell(cwd: String, command: String? = nil) {
+        let id = UUID()
+        shells.append(Tab(id: id, kind: .shell, cwd: cwd, sessionID: nil, terminal: terminal(cwd: cwd, command: command) { [weak self] in self?.close(id) }))
+        selectedShellID = id
+        isPanelOpen = true
+    }
+
+    func toggleTerminalPanel() {
+        if isPanelOpen {
+            isPanelOpen = false
+            tabs.first { $0.id == selectedTabID }?.terminal.requestFocus()
+            return
+        }
+        if shells.isEmpty {
+            openShell(cwd: currentCwd)
+        } else {
+            isPanelOpen = true
+        }
+        shells.first { $0.id == selectedShellID }?.terminal.requestFocus()
     }
 
     func openClaude(cwd: String, resuming sessionID: String? = nil) {
@@ -211,6 +239,11 @@ final class Store {
 
     private func open(kind: Tab.Kind, cwd: String, sessionID: String?, command: String?) {
         let id = UUID()
+        tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, terminal: terminal(cwd: cwd, command: command) { [weak self] in self?.close(id) }))
+        selectedTabID = id
+    }
+
+    private func terminal(cwd: String, command: String?, onClose: @escaping () -> Void) -> TerminalViewState {
         let terminal = TerminalViewState(controller: GhosttyConfig.controller)
         terminal.configuration = TerminalSurfaceOptions(
             backend: .exec,
@@ -218,14 +251,16 @@ final class Store {
             command: command,
             waitAfterCommand: false
         )
-        terminal.onClose = { [weak self] _ in self?.close(id) }
-        tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, terminal: terminal))
-        selectedTabID = id
+        terminal.onClose = { _ in onClose() }
+        return terminal
     }
 
     func close(_ id: Tab.ID) {
         tabs.removeAll { $0.id == id }
         if selectedTabID == id { selectedTabID = tabs.last?.id }
+        shells.removeAll { $0.id == id }
+        if selectedShellID == id { selectedShellID = shells.last?.id }
+        if shells.isEmpty, isPanelOpen { isPanelOpen = false }
     }
 
     private struct SavedTab: Codable {
@@ -236,7 +271,7 @@ final class Store {
 
     private func saveOpenTabs() {
         guard persistsTabs else { return }
-        let saved = tabs.map { SavedTab(kind: $0.kind, cwd: $0.cwd, sessionID: $0.sessionID) }
+        let saved = (tabs + shells).map { SavedTab(kind: $0.kind, cwd: $0.cwd, sessionID: $0.sessionID) }
         UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: "openTabs")
     }
 
@@ -247,7 +282,9 @@ final class Store {
         let known = Set(groups.flatMap { $0.sessions.map(\.id) })
         for tab in saved {
             if tab.kind == .shell {
+                let wasOpen = isPanelOpen
                 openShell(cwd: tab.cwd)
+                isPanelOpen = wasOpen
                 continue
             }
             guard let sessionID = tab.sessionID, known.contains(sessionID), liveBySession[sessionID] == nil else { continue }

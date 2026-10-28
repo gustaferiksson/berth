@@ -11,7 +11,6 @@ struct Sidebar: View {
     @FocusState private var isFocused: Bool
 
     private static let visibleSessions = 5
-    private static let terminalsID = "Terminals"
 
     private struct Group {
         let id: String
@@ -39,11 +38,14 @@ struct Sidebar: View {
     }
 
     private var groups: [Group] {
-        let projects = store.groups.map { group in
+        let known = Set(store.groups.map(\.cwd))
+        let newProjects = Array(Set(store.tabs.map(\.cwd).filter { !known.contains($0) })).sorted()
+            .map { ProjectGroup(cwd: $0, sessions: [], lastActivity: .now) }
+        return (newProjects + store.groups).map { group in
             let listed = Set(group.sessions.map(\.id))
             let isOpen = !isCollapsed(group.cwd)
             let sessions = expandedGroups.contains(group.cwd) ? group.sessions : Array(group.sessions.prefix(Self.visibleSessions))
-            let tabs = store.tabs.filter { $0.kind == .claude && $0.cwd == group.cwd && !($0.sessionID.map(listed.contains) ?? false) }
+            let tabs = store.tabs.filter { $0.cwd == group.cwd && !($0.sessionID.map(listed.contains) ?? false) }
             return Group(
                 id: group.cwd,
                 title: group.name,
@@ -54,11 +56,6 @@ struct Sidebar: View {
                 hiddenSessions: isOpen ? group.sessions.count - sessions.count : 0
             )
         }
-        let projectTabs = Set(projects.flatMap { group in store.tabs.filter { $0.kind == .claude && $0.cwd == group.cwd }.map(\.id) })
-        let terminals = store.tabs.filter { !projectTabs.contains($0.id) }
-        guard !terminals.isEmpty else { return projects }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return projects + [Group(id: Self.terminalsID, title: "Terminals", cwd: home, count: terminals.count, tabs: isCollapsed(Self.terminalsID) ? [] : terminals, sessions: [], hiddenSessions: 0)]
     }
 
     private var list: some View {
@@ -152,14 +149,13 @@ struct Sidebar: View {
                 .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
             }
         } header: {
-            let isTerminals = group.id == Self.terminalsID
             GroupHeader(
                 title: group.title,
                 cwd: group.cwd,
                 count: group.count,
                 isExpanded: expansion(of: group.id),
-                addLabel: isTerminals ? "New Terminal" : "New Claude Session",
-                add: isTerminals ? { store.openShell(cwd: group.cwd) } : { store.openClaude(cwd: group.cwd) }
+                addLabel: "New Claude Session",
+                add: { store.openClaude(cwd: group.cwd) }
             )
         }
     }
@@ -351,14 +347,7 @@ private struct TabRow: View {
     var body: some View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         Group {
-            if tab.kind == .shell {
-                CardRow(title: title, state: title == Tab.shellName ? nil : .working, isLocked: false, isLoaded: true, modified: nil) {
-                    Text((tab.cwd as NSString).abbreviatingWithTildeInPath)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(theme.secondary)
-                        .truncationMode(.middle)
-                }
-            } else {
+            if tab.kind == .claude {
                 CardRow(title: title, state: RowState(live: live), isLocked: false, isLoaded: true, modified: nil) {
                     Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary)
                 }
