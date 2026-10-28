@@ -206,6 +206,7 @@ final class Store {
               let session = (groups.flatMap(\.sessions) + archivedSessions).first(where: { $0.id == id })
         else { return }
         if archivedAt[id] != nil { unarchive(id) }
+        refreshLive()
         if let tab = tab(forSession: session.id) {
             guard liveBySession[session.id] == nil, tab.opened.timeIntervalSinceNow < -10 else {
                 selectedTabID = tab.id
