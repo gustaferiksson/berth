@@ -93,6 +93,17 @@ enum Snapshot {
         window.orderFrontRegardless()
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
         try? await Task.sleep(for: .seconds(UserDefaults.standard.integer(forKey: "snapshotHold")))
+        if UserDefaults.standard.bool(forKey: "snapshotToggleFrames") {
+            for phase in ["hide", "show"] {
+                let start = ContinuousClock.now
+                store.toggleTerminalPanel()
+                for frame in 0..<12 {
+                    try? await Task.sleep(until: start + .milliseconds(frame * 40))
+                    guard let image = image(of: window), let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { continue }
+                    try? png.write(to: output.deletingPathExtension().appendingPathExtension("\(phase)-\(frame * 40)ms.png"))
+                }
+            }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotCloseTabs") {
             let processes = ProcessAncestry.descendants()
             print("before close: \(processes.map(\.pid).sorted())")

@@ -12,6 +12,7 @@ struct ContentView: View {
     var body: some View {
         @Bindable var store = store
         let selected = store.tabs.first { $0.id == store.selectedTabID }
+        let isInspectorShown = panelPosition == .right && store.isPanelOpen && !store.shells.isEmpty
         NavigationSplitView {
             Sidebar()
                 .scrollContentBackground(.hidden)
@@ -47,13 +48,14 @@ struct ContentView: View {
                     }
                 }
             }
-            .inspector(isPresented: Binding(get: { panelPosition == .right && store.isPanelOpen && !store.shells.isEmpty }, set: { store.isPanelOpen = $0 })) {
+            .inspector(isPresented: Binding(get: { isInspectorShown }, set: { store.isPanelOpen = $0 })) {
                 PanelBody(isShown: true)
                     .background(store.theme.background ?? .clear)
                     .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
                     .onGeometryChange(for: Double.self) { $0.size.width } action: { panelWidth = $0 }
                     .inspectorColumnWidth(min: 240, ideal: panelWidth, max: 900)
             }
+            .transaction(value: isInspectorShown) { $0.disablesAnimations = true }
             .background(store.theme.background ?? .clear)
             .navigationTitle(selected.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth")
             .navigationSubtitle(selected.map { ($0.cwd as NSString).abbreviatingWithTildeInPath } ?? "")
