@@ -12,19 +12,18 @@ struct Tab: Identifiable {
 
     let id: UUID
     let kind: Kind
-    let cwd: String
+    var cwd: String
     var sessionID: String?
     let terminal: TerminalViewState
+    let opened = Date.now
 }
 
 extension Tab {
-    static let shellName = URL(filePath: ProcessInfo.processInfo.environment["SHELL"] ?? "zsh").lastPathComponent
-
     func title(terminalTitle: String, sessionTitle: String?) -> String {
         if let sessionTitle { return sessionTitle }
         if kind == .claude { return terminalTitle.isEmpty ? "New Claude Session" : terminalTitle }
         let isPath = terminalTitle.isEmpty || terminalTitle.hasPrefix("/") || terminalTitle.hasPrefix("~")
-        return isPath ? Self.shellName : terminalTitle
+        return isPath ? URL(filePath: terminal.workingDirectory ?? cwd).lastPathComponent : terminalTitle
     }
 }
 
@@ -142,6 +141,10 @@ final class Store {
             }.value
             self.index = updated
             self.summaries = summaries
+            for index in tabs.indices {
+                guard let cwd = summaries.first(where: { $0.id == tabs[index].sessionID })?.cwd, cwd != tabs[index].cwd else { continue }
+                tabs[index].cwd = cwd
+            }
             hasScanned = true
             applyGroups()
             refreshLive()
@@ -204,8 +207,11 @@ final class Store {
         else { return }
         if archivedAt[id] != nil { unarchive(id) }
         if let tab = tab(forSession: session.id) {
-            selectedTabID = tab.id
-            return
+            guard liveBySession[session.id] == nil, tab.opened.timeIntervalSinceNow < -10 else {
+                selectedTabID = tab.id
+                return
+            }
+            close(tab.id)
         }
         guard liveBySession[session.id] == nil else {
             lockedSessionID = session.id
@@ -215,7 +221,8 @@ final class Store {
     }
 
     var currentCwd: String {
-        tabs.first { $0.id == selectedTabID }?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
+        if let shell = shells.first(where: { $0.terminal.isFocused }) { return shell.terminal.workingDirectory ?? shell.cwd }
+        return tabs.first { $0.id == selectedTabID }?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     func openShell(cwd: String, command: String? = nil) {
@@ -275,7 +282,7 @@ final class Store {
     func openClaude(cwd: String, resuming sessionID: String? = nil) {
         let id = sessionID ?? UUID().uuidString.lowercased()
         let flag = sessionID == nil ? "--session-id" : "--resume"
-        open(kind: .claude, cwd: cwd, sessionID: id, command: "/bin/zsh -ilc 'claude \(flag) \(id); exec /bin/zsh -il'")
+        open(kind: .claude, cwd: cwd, sessionID: id, command: "/bin/zsh -ilc 'claude \(flag) \(id) || exec /bin/zsh -il'")
     }
 
     private func open(kind: Tab.Kind, cwd: String, sessionID: String?, command: String?) {
@@ -338,7 +345,6 @@ final class Store {
         guard let data = UserDefaults.standard.data(forKey: "openTabs"),
               let saved = try? JSONDecoder().decode([SavedTab].self, from: data)
         else { return }
-        let known = Set(groups.flatMap { $0.sessions.map(\.id) })
         for tab in saved {
             if tab.kind == .shell {
                 let wasOpen = isPanelOpen
@@ -346,8 +352,8 @@ final class Store {
                 isPanelOpen = wasOpen
                 continue
             }
-            guard let sessionID = tab.sessionID, known.contains(sessionID), liveBySession[sessionID] == nil else { continue }
-            openClaude(cwd: tab.cwd, resuming: sessionID)
+            guard let session = groups.lazy.flatMap(\.sessions).first(where: { $0.id == tab.sessionID }), liveBySession[session.id] == nil else { continue }
+            openClaude(cwd: session.cwd, resuming: session.id)
         }
     }
 }

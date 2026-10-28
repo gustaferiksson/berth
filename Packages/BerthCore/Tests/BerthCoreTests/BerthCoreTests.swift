@@ -25,6 +25,24 @@ struct TranscriptTests {
         #expect(summary("first-prompt")?.cwd == "/Users/example/Repos/gamma")
     }
 
+    @Test func movedSessionLivesInItsRelocatedFolder() {
+        #expect(summary("-Users-example-Repos-delta/moved")?.cwd == "/Users/example/Repos/delta")
+    }
+
+    @Test func folderIsTheCwdMatchingTheProjectSlugNotABashCd() {
+        let records = Transcript.records(in: Data("""
+        {"type":"user","cwd":"/Users/example/Repos/alpha","message":{"content":"hi"}}
+        {"type":"assistant","cwd":"/Users/example/Repos/delta"}
+        {"type":"assistant","cwd":"/Users/example/Repos/delta/docs"}
+        """.utf8), dropFirst: false, dropLast: false)
+        let movedOutOfTail = Transcript.summary(id: "a", folder: "-Users-example-Repos-delta", modified: .now, head: Array(records.prefix(1)), tail: Array(records.dropFirst()))
+        let bashCdOnly = Transcript.summary(id: "b", folder: "-Users-example-Repos-alpha", modified: .now, head: Array(records.prefix(1)), tail: Array(records.suffix(1)))
+        let unknownSlug = Transcript.summary(id: "c", folder: "ssh-1234", modified: .now, head: Array(records.prefix(1)), tail: Array(records.dropFirst()))
+        #expect(movedOutOfTail?.cwd == "/Users/example/Repos/delta")
+        #expect(bashCdOnly?.cwd == "/Users/example/Repos/alpha")
+        #expect(unknownSlug?.cwd == "/Users/example/Repos/alpha")
+    }
+
     @Test func transcriptWithoutCwdIsSkipped() {
         #expect(summary("no-cwd") == nil)
     }
@@ -49,8 +67,8 @@ struct TranscriptTests {
         {"type":"ai-title","aiTitle":"Cards"}
         """.utf8), dropFirst: false, dropLast: false)
         let detached = Transcript.records(in: Data(#"{"type":"assistant","gitBranch":"HEAD"}"#.utf8), dropFirst: false, dropLast: false)
-        #expect(Transcript.summary(id: "a", modified: .now, head: head, tail: tail)?.branch == "feat/cards")
-        #expect(Transcript.summary(id: "b", modified: .now, head: head, tail: detached)?.branch == nil)
+        #expect(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail)?.branch == "feat/cards")
+        #expect(Transcript.summary(id: "b", folder: "-x", modified: .now, head: head, tail: detached)?.branch == nil)
     }
 
     @Test func pullRequestIsTheLastLinkedOne() {
@@ -59,10 +77,10 @@ struct TranscriptTests {
         {"type":"pr-link","prNumber":7,"prUrl":"https://github.com/example/alpha/pull/7","prRepository":"example/alpha"}
         {"type":"pr-link","prNumber":9,"prUrl":"https://github.com/example/alpha/pull/9","prRepository":"example/alpha"}
         """.utf8), dropFirst: false, dropLast: false)
-        let pullRequest = Transcript.summary(id: "a", modified: .now, head: head, tail: tail)?.pullRequest
+        let pullRequest = Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail)?.pullRequest
         #expect(pullRequest?.number == 9)
         #expect(pullRequest?.repository == "example/alpha")
-        #expect(Transcript.summary(id: "b", modified: .now, head: head, tail: [])?.pullRequest == nil)
+        #expect(Transcript.summary(id: "b", folder: "-x", modified: .now, head: head, tail: [])?.pullRequest == nil)
     }
 
     @Test func resumingWithoutConversationKeepsTheOldActivity() throws {
@@ -79,8 +97,8 @@ struct TranscriptTests {
         {"type":"user","timestamp":"2026-10-28T09:00:01.000Z","isMeta":true,"message":{"content":"Caveat: local command"}}
         """.utf8), dropFirst: false, dropLast: false)
         let replied = resumed + Transcript.records(in: Data(#"{"type":"user","timestamp":"2026-10-28T09:01:00.000Z","message":{"content":"and the tests"}}"#.utf8), dropFirst: false, dropLast: false)
-        let resumedActivity = try #require(Transcript.summary(id: "a", modified: .now, head: head, tail: resumed)?.lastActivity)
-        let repliedActivity = try #require(Transcript.summary(id: "a", modified: .now, head: head, tail: replied)?.lastActivity)
+        let resumedActivity = try #require(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: resumed)?.lastActivity)
+        let repliedActivity = try #require(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: replied)?.lastActivity)
         #expect(resumedActivity == (try Date("2026-10-01T10:05:00.000Z", strategy: .iso8601)))
         #expect(repliedActivity == (try Date("2026-10-28T09:01:00.000Z", strategy: .iso8601)))
     }

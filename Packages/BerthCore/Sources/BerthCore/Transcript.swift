@@ -42,14 +42,20 @@ public enum Transcript {
         let tail = (try? handle.readToEnd()) ?? Data()
         return summary(
             id: url.deletingPathExtension().lastPathComponent,
+            folder: url.deletingLastPathComponent().lastPathComponent,
             modified: modified,
             head: records(in: head, dropFirst: false, dropLast: size > head.count),
             tail: records(in: tail, dropFirst: tailOffset > 0, dropLast: false)
         )
     }
 
-    static func summary(id: String, modified: Date, head: [Record], tail: [Record]) -> SessionSummary? {
-        guard let cwd = head.first(where: { $0.cwd != nil })?.cwd ?? tail.first(where: { $0.cwd != nil })?.cwd else { return nil }
+    static func summary(id: String, folder: String, modified: Date, head: [Record], tail: [Record]) -> SessionSummary? {
+        let relocated = tail.last { $0.relocatedCwd != nil }?.relocatedCwd
+        let inFolder = (tail.reversed() + head.reversed()).lazy.compactMap(\.cwd).first { cwd in
+            let slug = cwd.utf16.map { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) ? $0 : 45 }
+            return String(decoding: slug, as: UTF16.self) == folder
+        }
+        guard let cwd = relocated ?? inFolder ?? head.first(where: { $0.cwd != nil })?.cwd ?? tail.first(where: { $0.cwd != nil })?.cwd else { return nil }
         let titleKeys: [KeyPath<Record, String?>] = [\.customTitle, \.aiTitle, \.summary, \.agentName]
         let recordedTitle = titleKeys.lazy.compactMap { key in tail.last { $0[keyPath: key] != nil }?[keyPath: key] }.first
         guard let title = recordedTitle ?? head.lazy.compactMap(\.promptText).first else { return nil }
@@ -105,6 +111,7 @@ struct Record: Decodable {
 
     let type: String?
     let cwd: String?
+    let relocatedCwd: String?
     let gitBranch: String?
     let timestamp: String?
     let prNumber: Int?

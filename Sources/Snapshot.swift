@@ -47,6 +47,13 @@ enum Snapshot {
             store.openShell(cwd: store.groups.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
             store.openShell(cwd: store.groups.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path, command: "/bin/zsh -c 'printf \"\\033]2;npm run dev\\007\"; echo VITE ready; echo started >> \(NSTemporaryDirectory())berth-shell-starts; sleep 600'")
         }
+        if let path = UserDefaults.standard.string(forKey: "snapshotShellCd"), let shell = store.shells.first {
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                _ = shell.terminal.paste(text: "cd \(path)")
+                _ = shell.terminal.sendKey(.enter)
+            }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotTogglePanel") {
             try? await Task.sleep(for: .seconds(2))
             store.toggleTerminalPanel()
@@ -86,7 +93,7 @@ enum Snapshot {
         print("window title: \(window.title) | subtitle: \(window.subtitle)")
         print("toolbar items (\(items.count)):\n" + items.joined(separator: "\n"))
         print("shell starts: \((try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0)")
-        for tab in store.tabs + store.shells { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-")") }
+        for tab in store.tabs + store.shells { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-") pwd=\(tab.terminal.workingDirectory ?? "-") title=\(tab.terminal.title)") }
         guard !NSScreen.screens.contains(where: { $0.frame.intersects(window.frame) }) else { fail("window is on screen") }
         guard let image = image(of: window) else { fail("window capture failed: number \(window.windowNumber) visible \(window.isVisible) frame \(window.frame)") }
         guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),

@@ -97,7 +97,7 @@ private struct ShellTab: View {
         HStack(spacing: 4) {
             Image(systemName: "apple.terminal").imageScale(.small)
             Text(title).lineLimit(1)
-            if title != Tab.shellName {
+            if title == terminal.title {
                 WorkingDots(label: "Running")
             }
             Button("Close Terminal", systemImage: "xmark", action: close)
@@ -116,7 +116,7 @@ private struct ShellTab: View {
         .contentShape(.rect)
         .onTapGesture(perform: select)
         .onHover { isHovering = $0 }
-        .help((shell.cwd as NSString).abbreviatingWithTildeInPath)
+        .help(((terminal.workingDirectory ?? shell.cwd) as NSString).abbreviatingWithTildeInPath)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction(.default, select)

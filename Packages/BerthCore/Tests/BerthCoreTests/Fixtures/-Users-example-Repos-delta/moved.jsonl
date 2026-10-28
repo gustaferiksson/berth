@@ -1,0 +1,7 @@
+{"type":"permission-mode","permissionMode":"default","sessionId":"moved"}
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"Tidy the build script"},"uuid":"u1","timestamp":"2026-01-01T10:00:00Z","cwd":"/Users/example/Repos/alpha","sessionId":"moved"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done."}]},"cwd":"/Users/example/Repos/alpha/scripts","sessionId":"moved"}
+{"type":"relocated","sessionId":"moved","relocatedCwd":"/Users/example/Repos/delta"}
+{"type":"user","message":{"role":"user","content":"Now the docs"},"uuid":"u2","timestamp":"2026-01-01T10:05:00Z","cwd":"/Users/example/Repos/delta","sessionId":"moved"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done."}]},"cwd":"/Users/example/Repos/delta/docs","sessionId":"moved"}
+{"type":"ai-title","aiTitle":"Build and docs","sessionId":"moved"}
