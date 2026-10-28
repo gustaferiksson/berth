@@ -34,4 +34,8 @@ public struct TranscriptIndex: Sendable {
         entries = next
         return next.values.compactMap(\.summary)
     }
+
+    public func transcript(ofSession id: String) -> URL? {
+        entries.first { $0.value.summary?.id == id }.map { URL(filePath: $0.key) }
+    }
 }

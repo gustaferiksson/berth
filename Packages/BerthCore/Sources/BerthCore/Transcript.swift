@@ -93,6 +93,7 @@ struct Record: Decodable {
         struct Block: Decodable {
             let type: String
             let text: String?
+            let name: String?
         }
 
         let content: [Block]
@@ -100,7 +101,7 @@ struct Record: Decodable {
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             if let text = try? container.decode(String.self, forKey: .content) {
-                content = [Block(type: "text", text: text)]
+                content = [Block(type: "text", text: text, name: nil)]
             } else {
                 content = (try? container.decode([Block].self, forKey: .content)) ?? []
             }
@@ -123,7 +124,13 @@ struct Record: Decodable {
     let summary: String?
     let isMeta: Bool?
     let isSidechain: Bool?
+    let isCompactSummary: Bool?
+    let origin: Origin?
     let message: Message?
+
+    struct Origin: Decodable {
+        let kind: String?
+    }
 
     var isConversation: Bool {
         (type == "assistant" && isSidechain != true) || promptText != nil
@@ -132,7 +139,7 @@ struct Record: Decodable {
     var promptText: String? {
         guard type == "user", isMeta != true, isSidechain != true,
               let text = message?.content.first(where: { $0.type == "text" })?.text,
-              !text.contains("<command-name>"), !text.contains("<local-command"), !text.hasPrefix("Caveat:")
+              !text.contains("<command-name>"), !text.contains("<local-command"), !text.contains("<bash-stdout>"), !text.hasPrefix("Caveat:")
         else { return nil }
         let stripped = text.replacing(/<[^>]*>/, with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         return stripped.isEmpty ? nil : stripped

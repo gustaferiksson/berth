@@ -60,6 +60,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var keyMonitor: Any?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        guard Snapshot.output != nil || settingsSnapshot != nil else { return }
+        UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
         if let output = SettingsSnapshot.output {

@@ -45,6 +45,11 @@ struct Sidebar: View {
                     guard let cursor else { return }
                     withAnimation { proxy.scrollTo(cursor) }
                 }
+                .onChange(of: store.peekedSessionID) { _, id in
+                    guard let id else { return }
+                    isFocused = true
+                    if store.selection != .session(id) { cursor = .session(id) }
+                }
         }
     }
 
@@ -62,12 +67,15 @@ struct Sidebar: View {
         }
     }
 
+    private var items: [SidebarItem] {
+        groups.flatMap { $0.tabs.map { SidebarItem.tab($0.id) } + $0.sessions.map { SidebarItem.session($0.id) } }
+            + (isArchiveExpanded ? store.archivedSessions : []).map { SidebarItem.session($0.id) }
+    }
+
     private var list: some View {
         let groups = groups
         let selection = cursor ?? store.selection ?? Snapshot.forcedSelection(in: store.groups)
         let archived = isArchiveExpanded ? store.archivedSessions : []
-        let items = groups.flatMap { $0.tabs.map { SidebarItem.tab($0.id) } + $0.sessions.map { SidebarItem.session($0.id) } }
-            + archived.map { SidebarItem.session($0.id) }
         let custom = groups.prefix { if case .custom = $0.source.kind { true } else { false } }
         return List {
             ForEach(custom, id: \.id) { section($0, selection: selection) }
@@ -82,7 +90,10 @@ struct Sidebar: View {
                 Section {
                     ForEach(archived) { session in
                         sessionRow(session, in: nil, selection: selection)
-                            .contextMenu { Button("Unarchive") { store.unarchive(session.id) } }
+                            .contextMenu {
+                                Button("Peek") { store.peekedSessionID = session.id }
+                                Button("Unarchive") { store.unarchive(session.id) }
+                            }
                     }
                 } header: {
                     GroupHeader(title: "Archived", help: "Archived sessions", count: store.archivedSessions.count, isExpanded: $isArchiveExpanded) { _ in EmptyView() }
@@ -92,13 +103,7 @@ struct Sidebar: View {
         .focusable()
         .focused($isFocused)
         .focusEffectDisabled()
-        .onKeyPress(.downArrow) { move(by: 1, in: items) }
-        .onKeyPress(.upArrow) { move(by: -1, in: items) }
-        .onKeyPress(.return) {
-            guard let cursor else { return .ignored }
-            store.activate(cursor)
-            return .handled
-        }
+        .onKeyPress(keys: [.downArrow, .upArrow, .return, .space, .escape]) { handleKey($0.key) }
         .onKeyPress(.leftArrow) { setExpanded(false, around: selection, in: groups) }
         .onKeyPress(.rightArrow) { setExpanded(true, around: selection, in: groups) }
         .onHover { store.isPointerInSidebar = $0 }
@@ -116,6 +121,30 @@ struct Sidebar: View {
         }
     }
 
+    private func handleKey(_ key: KeyEquivalent) -> KeyPress.Result {
+        if key == .downArrow || key == .upArrow { return move(by: key == .downArrow ? 1 : -1, in: items) }
+        if key == .space { return togglePeek() }
+        if key == .escape {
+            guard store.peekedSessionID != nil else { return .ignored }
+            store.peekedSessionID = nil
+            return .handled
+        }
+        guard let item = store.peekedSessionID.map(SidebarItem.session) ?? cursor else { return .ignored }
+        store.peekedSessionID = nil
+        store.activate(item)
+        return .handled
+    }
+
+    private func togglePeek() -> KeyPress.Result {
+        if store.peekedSessionID != nil {
+            store.peekedSessionID = nil
+            return .handled
+        }
+        guard case let .session(id) = cursor ?? store.selection else { return .ignored }
+        store.peekedSessionID = id
+        return .handled
+    }
+
     private func move(by offset: Int, in items: [SidebarItem]) -> KeyPress.Result {
         guard !items.isEmpty else { return .ignored }
         let current = (cursor ?? store.selection).flatMap(items.firstIndex(of:))
@@ -124,6 +153,9 @@ struct Sidebar: View {
             cursor = next
         } else {
             store.activate(next)
+        }
+        if store.peekedSessionID != nil {
+            store.peekedSessionID = if case let .session(id) = next { id } else { nil }
         }
         return .handled
     }
@@ -152,6 +184,7 @@ struct Sidebar: View {
             ForEach(group.sessions) { session in
                 sessionRow(session, in: group.source, selection: selection)
                     .contextMenu {
+                        Button("Peek") { store.peekedSessionID = session.id }
                         if let tab = store.tab(forSession: session.id) { Button("Close Tab") { store.close(tab.id) } }
                         Button("Archive") { store.archive(session.id) }
                     }
@@ -276,6 +309,16 @@ struct Sidebar: View {
             select(.session(session.id))
         })
         .id(SidebarItem.session(session.id))
+        .popover(isPresented: Binding(get: { store.peekedSessionID == session.id }, set: { if !$0, store.peekedSessionID == session.id { store.peekedSessionID = nil } }), arrowEdge: .trailing) {
+            Peek(
+                session: session,
+                messages: store.peekMessages,
+                pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
+                isOpen: tab != nil,
+                handleKey: handleKey
+            )
+            .environment(\.ghosttyTheme, theme)
+        }
     }
 
     private func isCollapsed(_ id: String) -> Bool {
@@ -595,7 +638,7 @@ private struct StatusSlot: View {
     }
 }
 
-private struct PullRequestTag: View {
+struct PullRequestTag: View {
     let link: PullRequestLink
     let state: PullRequestState?
     @Environment(\.ghosttyTheme) private var theme
@@ -633,7 +676,7 @@ private struct PullRequestTag: View {
     }
 }
 
-private struct BranchText: View {
+struct BranchText: View {
     let branch: String
     @Environment(\.ghosttyTheme) private var theme
 
@@ -647,7 +690,7 @@ private struct BranchText: View {
     }
 }
 
-private struct CompactLabel: LabelStyle {
+struct CompactLabel: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 4) {
             configuration.icon.imageScale(.small)

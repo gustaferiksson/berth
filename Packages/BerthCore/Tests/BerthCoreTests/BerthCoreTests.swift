@@ -83,6 +83,70 @@ struct TranscriptTests {
         #expect(Transcript.summary(id: "b", folder: "-x", modified: .now, head: head, tail: [])?.pullRequest == nil)
     }
 
+    @Test func peekKeepsTheLastExchangesWithToolsCollapsedAndTheFinalReply() {
+        let records = Transcript.records(in: Data("""
+        {"type":"user","message":{"content":"first question"}}
+        {"type":"assistant","message":{"content":[{"type":"text","text":"first answer"}]}}
+        {"type":"user","message":{"content":"<command-name>/clear</command-name>"}}
+        {"type":"user","message":{"content":"second question"}}
+        {"type":"assistant","message":{"content":[{"type":"thinking","thinking":"hmm"}]}}
+        {"type":"assistant","message":{"content":[{"type":"text","text":"Let me look."}]}}
+        {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}
+        {"type":"user","message":{"content":[{"type":"tool_result","content":"ok"}]}}
+        {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}
+        {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read"}]}}
+        {"type":"assistant","message":{"content":[{"type":"tool_use","name":"WebSearch"}]}}
+        {"type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"subagent chatter"}]}}
+        {"type":"assistant","message":{"content":[{"type":"text","text":"## Result\\n\\n```swift\\nlet x = 1\\n```\\n\\n\\n\\nAll **good**."}]}}
+        {"type":"user","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>done</task-notification>"}}
+        {"type":"user","isCompactSummary":true,"message":{"content":"This session is being continued"}}
+        {"type":"user","message":{"content":"<bash-input>ls</bash-input>"}}
+        {"type":"user","message":{"content":"<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>"}}
+        {"type":"user","origin":{"kind":"human"},"message":{"content":"third question"}}
+        {"type":"user","message":{"content":"fourth question"}}
+        {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit"}]}}
+        """.utf8), dropFirst: false, dropLast: false)
+        let messages = Transcript.recentMessages(in: records, exchanges: 4)
+        #expect(messages == [
+            PeekMessage(kind: .prompt, text: "second question"),
+            PeekMessage(kind: .tools, text: "Ran 2 shell commands, read 1 file, used 1 tool"),
+            PeekMessage(kind: .reply, text: "Result\n\nlet x = 1\n\nAll **good**."),
+            PeekMessage(kind: .prompt, text: "ls"),
+            PeekMessage(kind: .prompt, text: "third question"),
+            PeekMessage(kind: .prompt, text: "fourth question"),
+            PeekMessage(kind: .tools, text: "Edited 1 file"),
+        ])
+    }
+
+    @Test func peekWithoutPromptsShowsTheLastTurnAndTrimsLongText() {
+        let long = String(repeating: "word ", count: 400)
+        let records = Transcript.records(in: Data("""
+        {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep"}]}}
+        {"type":"assistant","message":{"content":[{"type":"text","text":"\(long)"}]}}
+        """.utf8), dropFirst: false, dropLast: false)
+        let messages = Transcript.recentMessages(in: records, exchanges: 3)
+        #expect(messages.map(\.kind) == [.tools, .reply])
+        #expect(messages.first?.text == "Searched 1 time")
+        #expect(messages.last?.text.count == Transcript.maxReplyLength)
+        #expect(messages.last?.text.hasSuffix("…") == true)
+        #expect(Transcript.recentMessages(in: [], exchanges: 3).isEmpty)
+    }
+
+    @Test func peekReadsOnlyTheTailOfALargeTranscript() throws {
+        let filler = #"{"type":"user","message":{"content":"old question"}}"# + "\n"
+        let tail = """
+        {"type":"user","message":{"content":"recent question"}}
+        {"type":"assistant","message":{"content":[{"type":"text","text":"recent answer"}]}}
+        """
+        let url = FileManager.default.temporaryDirectory.appending(path: "peek-\(UUID().uuidString).jsonl")
+        let fillers = 2 * Transcript.peekBytes / filler.utf8.count
+        try Data((String(repeating: filler, count: fillers) + tail).utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(Transcript.recentMessages(of: url, exchanges: 1) == [PeekMessage(kind: .prompt, text: "recent question"), PeekMessage(kind: .reply, text: "recent answer")])
+        #expect(Transcript.recentMessages(of: url, exchanges: 2).count == 3)
+        #expect(Transcript.recentMessages(of: url, exchanges: .max).count == fillers + 2)
+    }
+
     @Test func resumingWithoutConversationKeepsTheOldActivity() throws {
         let head = Transcript.records(in: Data("""
         {"type":"user","cwd":"/x","timestamp":"2026-10-01T10:00:00.000Z","message":{"content":"fix the parser"}}
