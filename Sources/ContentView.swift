@@ -20,13 +20,15 @@ struct ContentView: View {
                 .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 440)
                 .toolbar {
-                    Menu {
-                        Section("Group By") { GroupingMenuItems(store: store) }
-                        Button("New Group…") { store.editingGroup = CustomGroup(name: "", rules: []) }
-                    } label: {
-                        Text(store.groupingMode.title)
+                    ToolbarSpacer(.flexible)
+                    ToolbarItem {
+                        Menu("Group By", systemImage: "square.grid.3x1.below.line.grid.1x2") {
+                            Section("Group By") { GroupingMenuItems(store: store) }
+                            Button("New Group…") { store.editingGroup = CustomGroup(name: "", rules: []) }
+                        }
+                        .menuIndicator(.hidden)
+                        .help("Group By")
                     }
-                    .help("Group sessions by")
                 }
         } detail: {
             GeometryReader { geometry in
