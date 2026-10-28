@@ -7,82 +7,81 @@ enum PanelPosition: String {
 }
 
 struct TerminalPanel: View {
-    let position: PanelPosition
     let available: CGSize
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("terminalPanelHeight") private var height = 240.0
-    @AppStorage("terminalPanelWidth") private var width = 420.0
     @State private var dragStart: Double?
 
     var body: some View {
-        let isBottom = position == .bottom
         let isShown = store.isPanelOpen && !store.shells.isEmpty
-        let lowerBound = isBottom ? 120.0 : 240.0
-        let upperBound = max(lowerBound, isBottom ? available.height * 0.7 : available.width * 0.6)
-        let size = min(max(isBottom ? height : width, lowerBound), upperBound)
-        let layout = isBottom ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
-        layout {
+        let upperBound = max(120, available.height * 0.7)
+        let size = min(max(height, 120), upperBound)
+        VStack(spacing: 0) {
             Rectangle()
                 .fill(theme.secondary.opacity(0.3))
-                .frame(width: isBottom ? nil : 1, height: isBottom ? 1 : nil)
-                .frame(maxWidth: isBottom ? .infinity : nil, maxHeight: isBottom ? nil : .infinity)
-                .padding(isBottom ? .vertical : .horizontal, 4)
+                .frame(height: 1)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
                 .contentShape(.rect)
-                .pointerStyle(isBottom ? .rowResize : .columnResize)
+                .pointerStyle(.rowResize)
                 .gesture(
                     DragGesture(minimumDistance: 1, coordinateSpace: .global)
                         .onChanged { drag in
                             let start = dragStart ?? size
                             dragStart = start
-                            let resized = min(max(start - (isBottom ? drag.translation.height : drag.translation.width), lowerBound), upperBound)
-                            if isBottom { height = resized } else { width = resized }
+                            height = min(max(start - drag.translation.height, 120), upperBound)
                         }
                         .onEnded { _ in dragStart = nil }
                 )
-            VStack(spacing: 0) {
-                tabStrip
-                ZStack {
-                    ForEach(store.shells) { shell in
-                        let isVisible = isShown && shell.id == store.selectedShellID
-                        TerminalSurfaceView(context: shell.terminal)
-                            .opacity(isVisible ? 1 : 0)
-                            .allowsHitTesting(isVisible)
-                            .onChange(of: isVisible, initial: true) { shell.terminal.isSurfaceVisible = isVisible }
-                    }
-                }
-            }
-            .padding(.top, isBottom ? 0 : 8)
+            PanelBody(isShown: isShown)
         }
-        .frame(width: isBottom ? nil : (isShown ? size : 0), height: isBottom ? (isShown ? size : 0) : nil)
+        .frame(height: isShown ? size : 0)
         .clipped()
         .opacity(isShown ? 1 : 0)
         .allowsHitTesting(isShown)
+    }
+}
+
+struct PanelBody: View {
+    let isShown: Bool
+    @Environment(Store.self) private var store
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                ForEach(store.shells) { shell in
+                    ShellTab(shell: shell, terminal: shell.terminal, isSelected: shell.id == store.selectedShellID) {
+                        store.selectedShellID = shell.id
+                    } close: {
+                        store.close(shell.id)
+                    }
+                }
+                Button("New Terminal", systemImage: "plus") { store.openShell(cwd: store.currentCwd) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.secondary)
+                    .frame(width: 24, height: 24)
+                    .help("New terminal (⌘T)")
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 4)
+            ZStack {
+                ForEach(store.shells) { shell in
+                    let isVisible = isShown && shell.id == store.selectedShellID
+                    TerminalSurfaceView(context: shell.terminal)
+                        .opacity(isVisible ? 1 : 0)
+                        .allowsHitTesting(isVisible)
+                        .onChange(of: isVisible, initial: true) { shell.terminal.isSurfaceVisible = isVisible }
+                }
+            }
+        }
         .onChange(of: store.selectedShellID) { _, id in
             store.shells.first { $0.id == id }?.terminal.requestFocus()
         }
-    }
-
-    private var tabStrip: some View {
-        HStack(spacing: 4) {
-            ForEach(store.shells) { shell in
-                ShellTab(shell: shell, terminal: shell.terminal, isSelected: shell.id == store.selectedShellID) {
-                    store.selectedShellID = shell.id
-                } close: {
-                    store.close(shell.id)
-                }
-            }
-            Button("New Terminal", systemImage: "plus") { store.openShell(cwd: store.currentCwd) }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .font(.system(size: 11))
-                .foregroundStyle(theme.secondary)
-                .frame(width: 24, height: 24)
-                .help("New terminal (⌘T)")
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 4)
     }
 }
 

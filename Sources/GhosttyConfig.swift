@@ -5,6 +5,10 @@ import SwiftUI
 enum GhosttyConfig {
     static let home = FileManager.default.homeDirectoryForCurrentUser.path
     static let directories = ["\(home)/.config/ghostty", "\(home)/Library/Application Support/com.mitchellh.ghostty"]
+    static let configFiles = directories.flatMap { ["\($0)/config", "\($0)/config.ghostty"] }.filter { FileManager.default.fileExists(atPath: $0) }
+    // App shortcuts the embedded surface would otherwise swallow: Settings, new session/terminal, quit, close window, fullscreen.
+    static let appKeybinds = ["super+comma", "super+shift+comma", "super+n", "super+t", "super+q", "super+shift+w", "super+alt+w", "super+enter"]
+        .map { "keybind = \($0)=unbind" }
 
     static let controller: TerminalController = {
         let controller = TerminalController(configSource: .generated(load().contents), theme: TerminalTheme())
@@ -20,8 +24,7 @@ enum GhosttyConfig {
         #else
         let override: String? = nil
         #endif
-        let userConfig = override ?? directories
-            .flatMap { ["\($0)/config", "\($0)/config.ghostty"] }
+        let userConfig = override ?? configFiles
             .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }
             .joined(separator: "\n")
         let lines = userConfig.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
@@ -36,7 +39,14 @@ enum GhosttyConfig {
             let entry = setting.value.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             if entry.count == 2 { values["palette-\(entry[0])"] = entry[1] }
         }
-        return (combined.joined(separator: "\n"), values)
+        return ((combined + appKeybinds).joined(separator: "\n"), values)
+    }
+
+    static var themeName: String? {
+        let lines = configFiles
+            .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+            .flatMap { $0.split(separator: "\n").map(String.init) }
+        return settings(in: lines).last { $0.key == "theme" }?.value
     }
 
     static func colorConfiguration(_ values: [String: String]) -> TerminalConfiguration {

@@ -1,22 +1,24 @@
 import SwiftUI
 
+enum SettingsTab: String {
+    case general, appearance, about
+}
+
 struct SettingsView: View {
-    @AppStorage("terminalPanelPosition") private var panelPosition = PanelPosition.bottom
+    @AppStorage("settingsTab") private var tab = SettingsTab.general
 
     var body: some View {
-        TabView {
-            SwiftUI.Tab("General", systemImage: "gearshape") {
-                Form {
-                    Picker("Terminal panel position", selection: $panelPosition) {
-                        Text("Bottom").tag(PanelPosition.bottom)
-                        Text("Right").tag(PanelPosition.right)
-                    }
-                    .pickerStyle(.segmented)
-                }
-                .formStyle(.grouped)
+        TabView(selection: $tab) {
+            SwiftUI.Tab("General", systemImage: "gearshape", value: .general) {
+                GeneralSettings()
+            }
+            SwiftUI.Tab("Appearance", systemImage: "paintpalette", value: .appearance) {
+                AppearanceSettings()
+            }
+            SwiftUI.Tab("About", systemImage: "info.circle", value: .about) {
+                AboutSettings()
             }
         }
-        .frame(width: 440)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 500)
     }
 }

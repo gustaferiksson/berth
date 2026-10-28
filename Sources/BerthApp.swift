@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+#if DEBUG
+private let settingsSnapshot = SettingsSnapshot.output
+#else
+private let settingsSnapshot: URL? = nil
+#endif
+
 @main
 struct BerthApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -11,7 +17,7 @@ struct BerthApp: App {
                 .environment(appDelegate.store)
         }
         .defaultSize(width: 1200, height: 760)
-        .defaultLaunchBehavior(Snapshot.output == nil ? .presented : .suppressed)
+        .defaultLaunchBehavior(Snapshot.output == nil && settingsSnapshot == nil ? .presented : .suppressed)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("New Claude Session") { appDelegate.store.openClaude(cwd: appDelegate.store.currentCwd) }
@@ -37,6 +43,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var keyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        #if DEBUG
+        if let output = SettingsSnapshot.output {
+            Task { await SettingsSnapshot.capture(to: output) }
+            return
+        }
+        #endif
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [store] event in
             guard event.window?.identifier?.rawValue.hasPrefix("main") == true,
                   event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command

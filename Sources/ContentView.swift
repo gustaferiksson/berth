@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(Store.self) private var store
     @AppStorage("terminalPanelPosition") private var panelPosition = PanelPosition.bottom
+    @AppStorage("terminalPanelWidth") private var panelWidth = 420.0
 
     var body: some View {
         @Bindable var store = store
@@ -15,11 +16,18 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 440)
         } detail: {
             GeometryReader { geometry in
-                let layout = panelPosition == .bottom ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
-                layout {
+                VStack(spacing: 0) {
                     sessions
-                    TerminalPanel(position: panelPosition, available: geometry.size)
+                    if panelPosition == .bottom {
+                        TerminalPanel(available: geometry.size)
+                    }
                 }
+            }
+            .inspector(isPresented: Binding(get: { panelPosition == .right && store.isPanelOpen && !store.shells.isEmpty }, set: { store.isPanelOpen = $0 })) {
+                PanelBody(isShown: true)
+                    .background(store.theme.background ?? .clear)
+                    .onGeometryChange(for: Double.self) { $0.size.width } action: { panelWidth = $0 }
+                    .inspectorColumnWidth(min: 240, ideal: panelWidth, max: 900)
             }
             .background(store.theme.background ?? .clear)
             .navigationTitle(selected.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth")
