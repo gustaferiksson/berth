@@ -32,7 +32,7 @@ enum Snapshot {
     }
 
     #if DEBUG
-    static let launcherQuery = UserDefaults.standard.string(forKey: "snapshotLauncher") ?? ""
+    static let launcherQuery = UserDefaults.standard.string(forKey: "snapshotLauncher") ?? UserDefaults.standard.string(forKey: "snapshotSearch") ?? ""
     #else
     static let launcherQuery = ""
     #endif
@@ -93,7 +93,8 @@ enum Snapshot {
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
             store.openClaude(cwd: cwd, prompt: UserDefaults.standard.string(forKey: "snapshotPrompt") ?? "")
         }
-        store.isLauncherPresented = UserDefaults.standard.string(forKey: "snapshotLauncher") != nil
+        if UserDefaults.standard.string(forKey: "snapshotLauncher") != nil { store.launcherMode = .newSession }
+        if UserDefaults.standard.string(forKey: "snapshotSearch") != nil { store.launcherMode = .search }
         let editedGroup = UserDefaults.standard.string(forKey: "snapshotEditGroup").map { name in
             store.customGroups.first { $0.name == name } ?? CustomGroup(name: "", rules: [])
         }
@@ -105,6 +106,17 @@ enum Snapshot {
         window.setContentSize(editedGroup == nil ? NSSize(width: 1200, height: 760) : hosting.view.fittingSize)
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderFrontRegardless()
+        if let query = UserDefaults.standard.string(forKey: "snapshotSearch") {
+            Task {
+                let start = ContinuousClock.now
+                let before = footprint()
+                while store.searchIndexVersion == 0 || store.searchIndexing != nil { try? await Task.sleep(for: .milliseconds(50)) }
+                print("search index: \(store.searchIndex.count) sessions in \(ContinuousClock.now - start), text \(store.searchIndex.textBytes / 1024) KB, footprint \(before / 1_048_576) → \(footprint() / 1_048_576) MB")
+                let clock = ContinuousClock.now
+                let hits = store.searchIndex.search(query, in: store.activeSessions + store.archivedSessions)
+                print("search \(query.count) chars: \(hits.count) hits, snippets \(hits.map(\.snippets.count)), \(ContinuousClock.now - clock)")
+            }
+        }
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
         try? await Task.sleep(for: .seconds(UserDefaults.standard.integer(forKey: "snapshotHold")))
         let peekRow = UserDefaults.standard.integer(forKey: "snapshotPeekRow")
@@ -212,6 +224,13 @@ enum Snapshot {
               let host = NSApp.windows.first(where: { $0 is UnconstrainedWindow })?.frame
         else { return frame }
         return NSRect(x: host.minX + 300, y: max(host.minY + 16, host.maxY - 160 - frame.height), width: frame.width, height: frame.height)
+    }
+
+    private static func footprint() -> Int {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        _ = withUnsafeMutablePointer(to: &info) { $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) } }
+        return Int(info.phys_footprint)
     }
 
     private static func ptys() -> Int {

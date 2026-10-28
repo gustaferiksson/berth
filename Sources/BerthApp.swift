@@ -22,8 +22,10 @@ struct BerthApp: App {
         .defaultLaunchBehavior(Snapshot.output == nil && settingsSnapshot == nil ? .presented : .suppressed)
         .commands {
             CommandGroup(after: .newItem) {
-                Button("New Session…") { appDelegate.store.isLauncherPresented = true }
+                Button("New Session…") { appDelegate.store.launcherMode = .newSession }
                     .keyboardShortcut("n")
+                Button("Search Sessions…") { appDelegate.store.launcherMode = .search }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
                 Button("New Terminal") { appDelegate.store.openShell(cwd: appDelegate.store.currentCwd) }
                     .keyboardShortcut("t")
                 Button("New Group…") { appDelegate.store.editingGroup = CustomGroup(name: "", rules: []) }

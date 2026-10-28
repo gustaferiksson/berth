@@ -35,12 +35,13 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     sessions
                         .overlay {
-                            if store.isLauncherPresented {
+                            if let mode = store.launcherMode {
                                 ZStack(alignment: .top) {
                                     Color.clear
                                         .contentShape(.rect)
-                                        .onTapGesture { store.isLauncherPresented = false }
-                                    Launcher()
+                                        .onTapGesture { store.launcherMode = nil }
+                                    Launcher(mode: mode)
+                                        .id(mode)
                                         .padding(.top, 120)
                                 }
                             }

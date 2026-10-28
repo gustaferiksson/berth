@@ -136,6 +136,10 @@ struct Record: Decodable {
         (type == "assistant" && isSidechain != true) || promptText != nil
     }
 
+    var typedPrompt: String? {
+        origin.map { $0.kind == "human" } ?? true && isCompactSummary != true ? promptText : nil
+    }
+
     var promptText: String? {
         guard type == "user", isMeta != true, isSidechain != true,
               let text = message?.content.first(where: { $0.type == "text" })?.text,

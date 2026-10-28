@@ -34,7 +34,7 @@ extension Transcript {
 
     static func recentMessages(in records: [Record], exchanges limit: Int) -> [PeekMessage] {
         let entries = records.flatMap { record -> [PeekMessage] in
-            if record.origin.map({ $0.kind == "human" }) ?? true, record.isCompactSummary != true, let prompt = record.promptText {
+            if let prompt = record.typedPrompt {
                 return [PeekMessage(kind: .prompt, text: prompt)]
             }
             guard record.type == "assistant", record.isSidechain != true else { return [] }

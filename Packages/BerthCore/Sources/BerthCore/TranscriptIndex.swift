@@ -35,6 +35,12 @@ public struct TranscriptIndex: Sendable {
         return next.values.compactMap(\.summary)
     }
 
+    public var searchSources: [TranscriptSearchIndex.Source] {
+        entries.compactMap { path, entry in
+            entry.summary.map { TranscriptSearchIndex.Source(sessionID: $0.id, url: URL(filePath: path), modified: entry.modified, size: entry.size) }
+        }
+    }
+
     public func transcript(ofSession id: String) -> URL? {
         entries.first { $0.value.summary?.id == id }.map { URL(filePath: $0.key) }
     }

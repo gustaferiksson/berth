@@ -59,9 +59,9 @@ final class Store {
     var missingFolder: String?
     var editingGroup: CustomGroup?
     var deletingGroup: CustomGroup?
-    var isLauncherPresented = false {
+    var launcherMode: LauncherMode? {
         didSet {
-            guard !isLauncherPresented, let terminal = tabs.first(where: { $0.id == selectedTabID })?.terminal else { return }
+            guard launcherMode == nil, let terminal = tabs.first(where: { $0.id == selectedTabID })?.terminal else { return }
             DispatchQueue.main.async { terminal.requestFocus() }
         }
     }
@@ -90,10 +90,14 @@ final class Store {
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
     private(set) var pullRequestStates: [URL: PullRequestState] = [:]
+    private(set) var searchIndexVersion = 0
+    private(set) var searchIndexing: (done: Int, total: Int)?
+    @ObservationIgnored private(set) var searchIndex = TranscriptSearchIndex()
 
     @ObservationIgnored var persistsTabs = true
     @ObservationIgnored private var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var searchIndexTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var themeWatcher: FileWatcher?
     @ObservationIgnored private var summaries: [SessionSummary] = []
@@ -205,8 +209,28 @@ final class Store {
             applyGroups()
             loadPeek()
             refreshLive()
+            if searchIndexTask != nil { updateSearchIndex() }
             let unknown = summaries.contains { $0.pullRequest.map { pullRequestStates[$0.url] == nil } ?? false }
             if unknown { refreshPullRequests() }
+        }
+    }
+
+    func updateSearchIndex() {
+        searchIndexTask = Task { [previous = searchIndexTask, refreshTask] in
+            await previous?.value
+            await refreshTask?.value
+            let sources = index.searchSources
+            let stale = searchIndex.stale(sources).sorted { $0.modified > $1.modified }
+            searchIndex.retain(sources)
+            searchIndexing = stale.isEmpty ? nil : (0, stale.count)
+            for start in stride(from: 0, to: stale.count, by: 10) {
+                let batch = stale[start..<min(start + 10, stale.count)]
+                searchIndex = await Task.detached { [searchIndex] in
+                    batch.reduce(into: searchIndex) { $0.index($1) }
+                }.value
+                searchIndexing = start + batch.count < stale.count ? (start + batch.count, stale.count) : nil
+                searchIndexVersion += 1
+            }
         }
     }
 
