@@ -15,4 +15,20 @@ enum ProcessAncestry {
         }
         return false
     }
+
+    static func hangUpDescendants() {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_UID, Int32(getuid())]
+        var size = 0
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0 else { return }
+        var processes = [kinfo_proc](repeating: kinfo_proc(), count: size / MemoryLayout<kinfo_proc>.stride + 16)
+        size = processes.count * MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, 4, &processes, &size, nil, 0) == 0 else { return }
+        let me = getpid()
+        let descendants = processes.prefix(size / MemoryLayout<kinfo_proc>.stride)
+            .map(\.kp_proc.p_pid)
+            .filter { $0 > 1 && $0 != me && isDescendant($0, of: me) }
+        for signal in [SIGHUP, SIGTERM] {
+            for pid in descendants { kill(pid, signal) }
+        }
+    }
 }

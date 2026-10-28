@@ -16,29 +16,39 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotShell") {
             store.openShell(cwd: store.groups.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
         }
+        if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
+            store.activate(.session(sessionID))
+        }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
             store.openClaude(cwd: cwd)
         }
         let hosting = NSHostingController(rootView: ContentView().environment(store))
-        hosting.sceneBridgingOptions = [.toolbars, .title]
+        hosting.sceneBridgingOptions = .all
         let window = UnconstrainedWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.toolbar = NSToolbar()
-        window.title = "Berth"
         window.setContentSize(NSSize(width: 1200, height: 760))
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderFrontRegardless()
-        try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil ? 3 : 10))
+        try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
+        if let tab = store.tabs.first(where: { $0.id == store.selectedTabID }) {
+            window.title = tab.title(terminalTitle: tab.terminal.title, sessionTitle: store.sessionTitle(of: tab))
+        }
+        let items = window.toolbar?.items.map { "\($0.itemIdentifier.rawValue) label=\($0.label) tip=\($0.toolTip ?? "")" } ?? []
+        print("window title: \(window.title) | subtitle: \(window.subtitle)")
+        print("toolbar items (\(items.count)):\n" + items.joined(separator: "\n"))
+        for tab in store.tabs { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-")") }
         guard !NSScreen.screens.contains(where: { $0.frame.intersects(window.frame) }) else { fail("window is on screen") }
         guard let image = image(of: window) else { fail("window capture failed: number \(window.windowNumber) visible \(window.isVisible) frame \(window.frame)") }
         guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
               (try? png.write(to: output)) != nil
         else { fail("could not write \(output.path)") }
+        ProcessAncestry.hangUpDescendants()
         exit(0)
         #endif
     }
 
     private static func fail(_ message: String) -> Never {
+        ProcessAncestry.hangUpDescendants()
         FileHandle.standardError.write(Data("snapshot: \(message)\n".utf8))
         exit(1)
     }
