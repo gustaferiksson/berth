@@ -33,6 +33,7 @@ enum Snapshot {
         if let tab = store.tabs.first(where: { $0.id == store.selectedTabID }) {
             window.title = tab.title(terminalTitle: tab.terminal.title, sessionTitle: store.sessionTitle(of: tab))
         }
+        try? await Task.sleep(for: .milliseconds(500))
         let items = window.toolbar?.items.map { "\($0.itemIdentifier.rawValue) label=\($0.label) tip=\($0.toolTip ?? "")" } ?? []
         print("window title: \(window.title) | subtitle: \(window.subtitle)")
         print("toolbar items (\(items.count)):\n" + items.joined(separator: "\n"))
