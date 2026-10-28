@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 @main
@@ -19,9 +20,13 @@ struct BerthApp: App {
                     .keyboardShortcut("t")
             }
             CommandGroup(after: .sidebar) {
-                Button(appDelegate.store.isPanelOpen ? "Hide Terminal Panel" : "Show Terminal Panel") { appDelegate.store.toggleTerminalPanel() }
+                Button("Toggle Terminal Panel") { appDelegate.store.toggleTerminalPanel() }
                     .keyboardShortcut("j")
             }
+        }
+
+        Settings {
+            SettingsView()
         }
     }
 }
@@ -29,7 +34,23 @@ struct BerthApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = Store()
 
+    private var keyMonitor: Any?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [store] event in
+            guard event.window?.identifier?.rawValue.hasPrefix("main") == true,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
+            else { return event }
+            if event.charactersIgnoringModifiers == "j" {
+                store.toggleTerminalPanel()
+                return nil
+            }
+            if event.charactersIgnoringModifiers == "t" {
+                store.openShell(cwd: store.currentCwd)
+                return nil
+            }
+            return event
+        }
         for key in ProcessInfo.processInfo.environment.keys where key == "CLAUDECODE" || key.hasPrefix("CLAUDE_CODE_") {
             unsetenv(key)
         }

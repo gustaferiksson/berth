@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(Store.self) private var store
+    @AppStorage("terminalPanelPosition") private var panelPosition = PanelPosition.bottom
 
     var body: some View {
         @Bindable var store = store
@@ -14,9 +15,10 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 440)
         } detail: {
             GeometryReader { geometry in
-                VStack(spacing: 0) {
+                let layout = panelPosition == .bottom ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+                layout {
                     sessions
-                    TerminalPanel(maxHeight: geometry.size.height * 0.7)
+                    TerminalPanel(position: panelPosition, available: geometry.size)
                 }
             }
             .background(store.theme.background ?? .clear)
