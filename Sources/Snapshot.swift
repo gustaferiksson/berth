@@ -32,6 +32,12 @@ enum Snapshot {
     }
 
     #if DEBUG
+    static let launcherQuery = UserDefaults.standard.string(forKey: "snapshotLauncher") ?? ""
+    #else
+    static let launcherQuery = ""
+    #endif
+
+    #if DEBUG
     static let forcedHover = Set((UserDefaults.standard.string(forKey: "snapshotHover") ?? "").split(separator: "|").map(String.init))
     #else
     static let forcedHover: Set<String> = []
@@ -71,8 +77,9 @@ enum Snapshot {
             store.activate(.session(sessionID))
         }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
-            store.openClaude(cwd: cwd)
+            store.openClaude(cwd: cwd, prompt: UserDefaults.standard.string(forKey: "snapshotPrompt") ?? "")
         }
+        store.isLauncherPresented = UserDefaults.standard.string(forKey: "snapshotLauncher") != nil
         let editedGroup = UserDefaults.standard.string(forKey: "snapshotEditGroup").map { name in
             store.customGroups.first { $0.name == name } ?? CustomGroup(name: "", rules: [])
         }

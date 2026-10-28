@@ -107,7 +107,7 @@ struct GroupEditor: View {
         let sessions = store.activeSessions.filter { session in group.matches(session.cwd) && !earlier.contains { $0.matches(session.cwd) } }
         let projects = Dictionary(grouping: sessions, by: \.cwd).sorted { $0.value.count > $1.value.count }
         return VStack(alignment: .leading, spacing: 8) {
-            Text(sessions.isEmpty ? "No sessions yet" : "^[\(sessions.count) session](inflect: true) in ^[\(projects.count) project](inflect: true)")
+            (sessions.isEmpty ? Text("No sessions yet") : Text("^[\(sessions.count) session](inflect: true) in ^[\(projects.count) project](inflect: true)"))
                 .fontWeight(.medium)
             if !projects.isEmpty {
                 HStack(spacing: 4) {

@@ -21,7 +21,7 @@ struct BerthApp: App {
         .defaultLaunchBehavior(Snapshot.output == nil && settingsSnapshot == nil ? .presented : .suppressed)
         .commands {
             CommandGroup(after: .newItem) {
-                Button("New Claude Session") { appDelegate.store.openClaude(cwd: appDelegate.store.currentCwd) }
+                Button("New Session…") { appDelegate.store.isLauncherPresented = true }
                     .keyboardShortcut("n")
                 Button("New Terminal") { appDelegate.store.openShell(cwd: appDelegate.store.currentCwd) }
                     .keyboardShortcut("t")

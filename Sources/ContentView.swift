@@ -31,6 +31,17 @@ struct ContentView: View {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
                     sessions
+                        .overlay {
+                            if store.isLauncherPresented {
+                                ZStack(alignment: .top) {
+                                    Color.clear
+                                        .contentShape(.rect)
+                                        .onTapGesture { store.isLauncherPresented = false }
+                                    Launcher()
+                                        .padding(.top, 120)
+                                }
+                            }
+                        }
                     if panelPosition == .bottom {
                         TerminalPanel(available: geometry.size)
                     }
@@ -85,7 +96,7 @@ extension ContentView {
                     .onChange(of: isSelected, initial: true) { tab.terminal.isSurfaceVisible = isSelected }
             }
             if store.tabs.isEmpty {
-                ContentUnavailableView("No Open Session", systemImage: "terminal", description: Text("Pick a session in the sidebar, or start one with + on a project."))
+                ContentUnavailableView("No Open Session", systemImage: "terminal", description: Text("Pick a session in the sidebar, or start one with ⌘N."))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

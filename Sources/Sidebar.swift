@@ -559,15 +559,6 @@ private struct CardRow<Detail: View>: View {
             StatusSlot(state: state).offset(x: -8, y: 8)
         }
     }
-
-    private func age(since modified: Date) -> String {
-        let seconds = max(0, Int(Date.now.timeIntervalSince(modified)))
-        if seconds < 60 { return "now" }
-        if seconds < 3600 { return "\(seconds / 60)m" }
-        if seconds < 86400 { return "\(seconds / 3600)h" }
-        if seconds < 7 * 86400 { return "\(seconds / 86400)d" }
-        return "\(seconds / (7 * 86400))w"
-    }
 }
 
 private struct StatusSlot: View {
@@ -667,4 +658,13 @@ private struct OverlayScroller: NSViewRepresentable {
             }
         }
     }
+}
+
+func age(since date: Date) -> String {
+    let seconds = max(0, Int(Date.now.timeIntervalSince(date)))
+    if seconds < 60 { return "now" }
+    if seconds < 3600 { return "\(seconds / 60)m" }
+    if seconds < 86400 { return "\(seconds / 3600)h" }
+    if seconds < 7 * 86400 { return "\(seconds / 86400)d" }
+    return "\(seconds / (7 * 86400))w"
 }
