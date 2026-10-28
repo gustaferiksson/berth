@@ -38,25 +38,26 @@ struct Group {
     let translucency: Double
 }
 
-func card(inset: CGFloat, top: CGFloat, radius: CGFloat) -> Path {
-    Path(roundedRect: CGRect(x: 200 + inset, y: top, width: 624 - inset * 2, height: 416), cornerRadius: radius, style: .continuous)
+func card(scale: CGFloat, top: CGFloat) -> Path {
+    let width = 624 * scale
+    return Path(roundedRect: CGRect(x: (canvas - width) / 2, y: top, width: width, height: 416 * scale), cornerRadius: 104 * scale, style: .continuous)
 }
 
 let prompt: Path = {
     var chevron = Path()
-    chevron.move(to: CGPoint(x: 344, y: 500))
-    chevron.addLine(to: CGPoint(x: 412, y: 568))
-    chevron.addLine(to: CGPoint(x: 344, y: 636))
+    chevron.move(to: CGPoint(x: 344, y: 484))
+    chevron.addLine(to: CGPoint(x: 412, y: 552))
+    chevron.addLine(to: CGPoint(x: 344, y: 620))
     let stroke = chevron.strokedPath(StrokeStyle(lineWidth: 64, lineCap: .round, lineJoin: .round))
-    let cursor = Path(roundedRect: CGRect(x: 468, y: 606, width: 212, height: 60), cornerRadius: 30)
+    let cursor = Path(roundedRect: CGRect(x: 468, y: 590, width: 212, height: 60), cornerRadius: 30)
     return Path(stroke.cgPath.union(cursor.cgPath))
 }()
 
 let groups = [
     Group(layer: Layer(name: "prompt", shape: prompt, light: color(0.42), dark: color(1)), opacity: 1, translucency: 0),
-    Group(layer: Layer(name: "front", shape: card(inset: 0, top: 360, radius: 104), light: white, dark: color(0.44)), opacity: 1, translucency: 0),
-    Group(layer: Layer(name: "middle", shape: card(inset: 48, top: 296, radius: 88), light: white, dark: color(0.36)), opacity: 0.75, translucency: 0.3),
-    Group(layer: Layer(name: "back", shape: card(inset: 96, top: 232, radius: 72), light: white, dark: color(0.30)), opacity: 0.5, translucency: 0.5),
+    Group(layer: Layer(name: "front", shape: card(scale: 1, top: 344), light: white, dark: color(0.44)), opacity: 1, translucency: 0),
+    Group(layer: Layer(name: "middle", shape: card(scale: 0.92, top: 296), light: white, dark: color(0.36)), opacity: 0.75, translucency: 0.3),
+    Group(layer: Layer(name: "back", shape: card(scale: 0.84, top: 248), light: white, dark: color(0.30)), opacity: 0.5, translucency: 0.5),
 ]
 
 @MainActor
