@@ -18,9 +18,7 @@ struct TerminalPanel: View {
         let upperBound = max(120, available.height * 0.7)
         let size = min(max(height, 120), upperBound)
         VStack(spacing: 0) {
-            Rectangle()
-                .fill(theme.secondary.opacity(0.3))
-                .frame(height: 1)
+            Hairline(axis: .horizontal)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 4)
                 .contentShape(.rect)

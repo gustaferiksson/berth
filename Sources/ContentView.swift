@@ -13,6 +13,7 @@ struct ContentView: View {
             Sidebar()
                 .scrollContentBackground(.hidden)
                 .background(store.theme.background ?? .clear)
+                .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 440)
         } detail: {
             GeometryReader { geometry in
@@ -26,6 +27,7 @@ struct ContentView: View {
             .inspector(isPresented: Binding(get: { panelPosition == .right && store.isPanelOpen && !store.shells.isEmpty }, set: { store.isPanelOpen = $0 })) {
                 PanelBody(isShown: true)
                     .background(store.theme.background ?? .clear)
+                    .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
                     .onGeometryChange(for: Double.self) { $0.size.width } action: { panelWidth = $0 }
                     .inspectorColumnWidth(min: 240, ideal: panelWidth, max: 900)
             }
@@ -63,6 +65,18 @@ extension ContentView {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct Hairline: View {
+    let axis: Axis
+    @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        Rectangle()
+            .fill(theme.foreground.opacity(0.1))
+            .frame(width: axis == .vertical ? 1 / displayScale : nil, height: axis == .horizontal ? 1 / displayScale : nil)
     }
 }
 
