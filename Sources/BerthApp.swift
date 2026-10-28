@@ -49,7 +49,7 @@ struct BerthApp: App {
                 AppAction.expandAllGroups.menuButton(appDelegate.store)
                 Divider()
                 AppAction.showStats.menuButton(appDelegate.store)
-                AppAction.harbor.menuButton(appDelegate.store)
+                Toggle(AppAction.harbor.title, isOn: Bindable(appDelegate.store).isHarborShown)
             }
         }
 

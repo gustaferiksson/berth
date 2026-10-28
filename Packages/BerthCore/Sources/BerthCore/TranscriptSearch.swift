@@ -71,7 +71,7 @@ public struct TranscriptSearchIndex: Sendable {
             size: source.size,
             offset: scan.offset,
             text: text,
-            folded: text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil),
+            folded: [previous?.folded ?? "", added.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)].filter { !$0.isEmpty }.joined(separator: String(Self.separator)),
             activity: SessionActivity(prompts: (previous?.activity.prompts ?? []) + scan.activity.prompts, replies: (previous?.activity.replies ?? []) + scan.activity.replies),
             lastMessageID: scan.lastMessageID
         )

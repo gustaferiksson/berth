@@ -65,7 +65,12 @@ final class Store {
     var missingFolder: String?
     var editingGroup: CustomGroup?
     var isStatsRequested = false
-    var isHarborShown = false
+    var isHarborShown = false {
+        didSet {
+            guard oldValue, !isHarborShown, let terminal = focusedTerminal else { return }
+            DispatchQueue.main.async { terminal.requestFocus() }
+        }
+    }
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
         willSet {
@@ -77,7 +82,6 @@ final class Store {
             let panelShell = isPanelOpen ? selectedShellID : nil
             let returnsToPanel = panelShell != nil && selectedTabID == launcherOrigin?.tab && (launcherOrigin?.focusedShell != nil || panelShell != launcherOrigin?.panelShell)
             launcherOrigin = nil
-            launcherQuery = ""
             guard !isHarborShown, let terminal = (returnsToPanel ? shells.first { $0.id == panelShell } : tabs.first { $0.id == selectedTabID })?.terminal else { return }
             DispatchQueue.main.async { terminal.requestFocus() }
         }
@@ -244,7 +248,7 @@ final class Store {
                 return left != right ? right : lhs.modified > rhs.modified
             }
             searchIndex.retain(sources)
-            searchIndexing = stale.isEmpty ? nil : (0, stale.count)
+            searchIndexing = stale.count > 10 ? (0, stale.count) : nil
             for start in stride(from: 0, to: stale.count, by: 10) {
                 let batch = stale[start..<min(start + 10, stale.count)]
                 searchIndex = await Task.detached { [searchIndex] in
@@ -253,6 +257,7 @@ final class Store {
                 searchIndexing = start + batch.count < stale.count ? (start + batch.count, stale.count) : nil
                 searchIndexVersion += 1
             }
+            if searchIndexVersion == 0 { searchIndexVersion = 1 }
         }
     }
 

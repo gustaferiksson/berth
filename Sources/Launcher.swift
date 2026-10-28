@@ -117,6 +117,7 @@ struct Launcher: View {
         .onExitCommand { store.launcherMode = nil }
         .onAppear {
             query = store.launcherQuery
+            store.launcherQuery = ""
             focus = .query
             if mode == .search { store.updateSearchIndex() }
             guard mode == .newSession else { return }

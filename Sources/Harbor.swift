@@ -128,10 +128,7 @@ struct Harbor: View {
         .focusEffectDisabled()
         .focused($isFocused)
         .onAppear { isFocused = true }
-        .onExitCommand {
-            store.isHarborShown = false
-            store.focusedTerminal?.requestFocus()
-        }
+        .onExitCommand { store.isHarborShown = false }
     }
 
     private func layout(in size: CGSize) -> ([Pier], [Boat]) {
@@ -265,8 +262,10 @@ private struct Bobbing: NSViewRepresentable {
             layer.removeAllAnimations()
             return
         }
-        guard layer.animationKeys()?.isEmpty ?? true else { return }
         let motions = [("transform.translation.y", boat.mooring.bob, 2 * .pi / 1.6), ("transform.translation.x", boat.mooring == .anchored ? 8 : 0, 2 * .pi / 0.2)]
+        let running = motions.map { keyPath, amplitude, _ in (layer.animation(forKey: keyPath) as? CABasicAnimation)?.toValue as? Double ?? 0 == amplitude }
+        guard running.contains(false) else { return }
+        layer.removeAllAnimations()
         for (keyPath, amplitude, period) in motions where amplitude > 0 {
             let animation = CABasicAnimation(keyPath: keyPath)
             animation.fromValue = -amplitude

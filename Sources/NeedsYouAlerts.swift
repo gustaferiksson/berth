@@ -8,7 +8,8 @@ enum NeedsYouAlerts {
     private static var authorization: Task<Bool, Never>?
 
     static func update(entered: [LiveSession], waitingCount: Int, store: Store) {
-        NSApp.dockTile.badgeLabel = waitingCount == 0 ? nil : "\(waitingCount)"
+        let badge = waitingCount == 0 ? nil : "\(waitingCount)"
+        if NSApp.dockTile.badgeLabel != badge { NSApp.dockTile.badgeLabel = badge }
         if logsInsteadOfPosting { print("badge: \(NSApp.dockTile.badgeLabel ?? "nil")") }
         guard UserDefaults.standard.object(forKey: notifiesKey) == nil || UserDefaults.standard.bool(forKey: notifiesKey) else { return }
         let selectedSession = store.tabs.first { $0.id == store.selectedTabID }?.sessionID
