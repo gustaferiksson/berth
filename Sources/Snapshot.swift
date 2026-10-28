@@ -73,11 +73,15 @@ enum Snapshot {
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
             store.openClaude(cwd: cwd)
         }
-        let hosting = NSHostingController(rootView: ContentView().environment(store))
+        let editedGroup = UserDefaults.standard.string(forKey: "snapshotEditGroup").map { name in
+            store.customGroups.first { $0.name == name } ?? CustomGroup(name: "", rules: [])
+        }
+        let root = editedGroup.map { AnyView(GroupEditor(group: $0).environment(\.ghosttyTheme, store.theme).preferredColorScheme(store.theme.isDark ? .dark : .light)) } ?? AnyView(ContentView())
+        let hosting = NSHostingController(rootView: root.environment(store))
         hosting.sceneBridgingOptions = .all
         let window = UnconstrainedWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.setContentSize(NSSize(width: 1200, height: 760))
+        window.setContentSize(editedGroup == nil ? NSSize(width: 1200, height: 760) : hosting.view.fittingSize)
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderFrontRegardless()
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
