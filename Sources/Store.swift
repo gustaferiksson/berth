@@ -19,7 +19,7 @@ struct Tab: Identifiable {
 
 enum SidebarItem: Hashable {
     case tab(Tab.ID)
-    case session(SessionSummary)
+    case session(String)
 }
 
 @Observable
@@ -96,9 +96,8 @@ final class Store {
 
     var selection: SidebarItem? {
         guard let tab = tabs.first(where: { $0.id == selectedTabID }) else { return nil }
-        if let sessionID = tab.sessionID,
-           let session = groups.first(where: { $0.cwd == tab.cwd })?.sessions.first(where: { $0.id == sessionID }) {
-            return .session(session)
+        if let sessionID = tab.sessionID, groups.contains(where: { group in group.sessions.contains { $0.id == sessionID } }) {
+            return .session(sessionID)
         }
         return .tab(tab.id)
     }
@@ -109,7 +108,9 @@ final class Store {
             selectedTabID = id
             return
         }
-        guard case let .session(session) = item else { return }
+        guard case let .session(id) = item,
+              let session = groups.lazy.flatMap(\.sessions).first(where: { $0.id == id })
+        else { return }
         if let tab = tab(forSession: session.id) {
             selectedTabID = tab.id
             return

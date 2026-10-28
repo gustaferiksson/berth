@@ -53,8 +53,8 @@ struct Sidebar: View {
             ForEach(visible) { session in
                 let tab = store.tab(forSession: session.id)
                 SessionRow(session: session, live: store.liveBySession[session.id], isOpen: tab != nil)
-                    .tag(SidebarItem.session(session))
-                    .id(SidebarItem.session(session))
+                    .tag(SidebarItem.session(session.id))
+                    .id(SidebarItem.session(session.id))
                     .contextMenu {
                         if let tab { Button("Close Tab") { store.close(tab.id) } }
                     }
