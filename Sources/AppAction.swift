@@ -4,11 +4,11 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, newSession, searchSessions, newTerminal, toggleTerminalPanel, clearTerminal, archiveCurrentSession
     case groupBy(GroupingMode)
-    case newGroup, collapseAllGroups, expandAllGroups, showStats, settings
+    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, settings
 
     static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .toggleTerminalPanel, .clearTerminal, .archiveCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
-        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .settings]
+        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .settings]
     static let routedPastTerminal: [AppAction] = [.commandPalette, .toggleTerminalPanel, .newTerminal, .clearTerminal]
 
     var title: String {
@@ -25,6 +25,7 @@ enum AppAction: Hashable {
         case .collapseAllGroups: "Collapse All Groups"
         case .expandAllGroups: "Expand All Groups"
         case .showStats: "Show Stats"
+        case .harbor: "Harbor"
         case .settings: "Settings…"
         }
     }
@@ -38,6 +39,7 @@ enum AppAction: Hashable {
         case .clearTerminal: "screen scrollback"
         case .groupBy: "sidebar"
         case .showStats: "usage tokens charts activity"
+        case .harbor: "ambient boats piers overview"
         case .settings: "preferences"
         default: ""
         }
@@ -57,6 +59,7 @@ enum AppAction: Hashable {
         case .collapseAllGroups: "rectangle.compress.vertical"
         case .expandAllGroups: "rectangle.expand.vertical"
         case .showStats: "chart.bar.xaxis"
+        case .harbor: "sailboat"
         case .settings: "gear"
         }
     }
@@ -99,6 +102,7 @@ enum AppAction: Hashable {
         case .collapseAllGroups: store.setGroupsExpanded(false)
         case .expandAllGroups: store.setGroupsExpanded(true)
         case .showStats: store.isStatsRequested = true
+        case .harbor: store.isHarborShown.toggle()
         case .settings: break
         }
     }

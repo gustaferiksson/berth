@@ -87,6 +87,15 @@ enum Snapshot {
             store.shells = []
             store.isPanelOpen = false
         }
+        if UserDefaults.standard.bool(forKey: "snapshotHarbor") {
+            let faked = store.liveBySession.values.filter { $0.pid == 1 }
+            for _ in faked { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
+            store.tabs = zip(store.shells, faked).map { Tab(id: $0.id, kind: .claude, cwd: $1.cwd, sessionID: $1.sessionId, terminal: $0.terminal) }
+            store.selectedTabID = store.tabs.first?.id
+            store.shells = []
+            store.isPanelOpen = false
+            store.isHarborShown = true
+        }
         if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
             store.activate(.session(sessionID))
         }
@@ -185,7 +194,7 @@ enum Snapshot {
             }
         }
         let tab = store.tabs.first { $0.id == store.selectedTabID }
-        window.title = showsStats ? "Stats" : tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"
+        window.title = showsStats ? "Stats" : store.isHarborShown ? "Harbor" : tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"
         try? await Task.sleep(for: .milliseconds(500))
         let items = window.toolbar?.items.map { "\($0.itemIdentifier.rawValue) label=\($0.label) tip=\($0.toolTip ?? "")" } ?? []
         print("window title: \(window.title) | subtitle: \(window.subtitle)")

@@ -65,6 +65,7 @@ final class Store {
     var missingFolder: String?
     var editingGroup: CustomGroup?
     var isStatsRequested = false
+    var isHarborShown = false
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
         willSet {
@@ -77,7 +78,7 @@ final class Store {
             let returnsToPanel = panelShell != nil && selectedTabID == launcherOrigin?.tab && (launcherOrigin?.focusedShell != nil || panelShell != launcherOrigin?.panelShell)
             launcherOrigin = nil
             launcherQuery = ""
-            guard let terminal = (returnsToPanel ? shells.first { $0.id == panelShell } : tabs.first { $0.id == selectedTabID })?.terminal else { return }
+            guard !isHarborShown, let terminal = (returnsToPanel ? shells.first { $0.id == panelShell } : tabs.first { $0.id == selectedTabID })?.terminal else { return }
             DispatchQueue.main.async { terminal.requestFocus() }
         }
     }
@@ -318,6 +319,7 @@ final class Store {
         guard let item else { return }
         if case let .tab(id) = item {
             selectedTabID = id
+            isHarborShown = false
             return
         }
         guard case let .session(id) = item,
@@ -328,6 +330,7 @@ final class Store {
         if let tab = tab(forSession: session.id) {
             guard liveBySession[session.id] == nil, tab.opened.timeIntervalSinceNow < -10 else {
                 selectedTabID = tab.id
+                isHarborShown = false
                 return
             }
             close(tab.id)
@@ -336,6 +339,7 @@ final class Store {
             lockedSessionID = session.id
             return
         }
+        isHarborShown = false
         openClaude(cwd: session.cwd, resuming: session.id)
     }
 
@@ -395,7 +399,12 @@ final class Store {
     }
 
     private func focus(_ tab: Tab, inPanel: Bool) {
-        if inPanel { selectedShellID = tab.id } else { selectedTabID = tab.id }
+        if inPanel {
+            selectedShellID = tab.id
+        } else {
+            selectedTabID = tab.id
+            isHarborShown = false
+        }
         DispatchQueue.main.async { tab.terminal.requestFocus() }
     }
 

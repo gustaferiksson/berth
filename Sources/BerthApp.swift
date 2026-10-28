@@ -49,6 +49,7 @@ struct BerthApp: App {
                 AppAction.expandAllGroups.menuButton(appDelegate.store)
                 Divider()
                 AppAction.showStats.menuButton(appDelegate.store)
+                AppAction.harbor.menuButton(appDelegate.store)
             }
         }
 

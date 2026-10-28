@@ -61,8 +61,8 @@ struct ContentView: View {
             }
             .transaction(value: isInspectorShown) { $0.disablesAnimations = true }
             .background(store.theme.background ?? .clear)
-            .navigationTitle(selected.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth")
-            .navigationSubtitle(selected.map { ($0.cwd as NSString).abbreviatingWithTildeInPath } ?? "")
+            .navigationTitle(store.isHarborShown ? "Harbor" : selected.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth")
+            .navigationSubtitle(store.isHarborShown ? "" : selected.map { ($0.cwd as NSString).abbreviatingWithTildeInPath } ?? "")
             .toolbar {
                 Button(store.isPanelOpen ? "Hide Terminal Panel" : "Show Terminal Panel", systemImage: "apple.terminal") {
                     store.toggleTerminalPanel()
@@ -100,13 +100,15 @@ extension ContentView {
     private var sessions: some View {
         ZStack {
             ForEach(store.tabs) { tab in
-                let isSelected = tab.id == store.selectedTabID
+                let isSelected = tab.id == store.selectedTabID && !store.isHarborShown
                 TerminalSurfaceView(context: tab.terminal)
                     .opacity(isSelected ? 1 : 0)
                     .allowsHitTesting(isSelected)
                     .onChange(of: isSelected, initial: true) { tab.terminal.isSurfaceVisible = isSelected }
             }
-            if store.tabs.isEmpty {
+            if store.isHarborShown {
+                Harbor()
+            } else if store.tabs.isEmpty {
                 ContentUnavailableView("No Open Session", systemImage: "terminal", description: Text("Pick a session in the sidebar, or start one with ⌘N."))
             }
         }
