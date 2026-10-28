@@ -9,6 +9,12 @@ enum Snapshot {
     static let output: URL? = nil
     #endif
 
+    #if DEBUG
+    static let forcesPulse = UserDefaults.standard.bool(forKey: "snapshotPulse")
+    #else
+    static let forcesPulse = false
+    #endif
+
     static func forcedSelection(in groups: [ProjectGroup]) -> SidebarItem? {
         #if DEBUG
         let index = UserDefaults.standard.integer(forKey: "snapshotSelectRow")
@@ -55,6 +61,7 @@ enum Snapshot {
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderFrontRegardless()
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
+        try? await Task.sleep(for: .seconds(UserDefaults.standard.integer(forKey: "snapshotHold")))
         let tab = store.tabs.first { $0.id == store.selectedTabID }
         window.title = tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"
         try? await Task.sleep(for: .milliseconds(500))

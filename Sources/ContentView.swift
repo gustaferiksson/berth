@@ -5,6 +5,8 @@ struct ContentView: View {
     @Environment(Store.self) private var store
     @AppStorage("terminalPanelPosition") private var panelPosition = PanelPosition.bottom
     @AppStorage("terminalPanelWidth") private var panelWidth = 420.0
+    @Environment(\.appearsActive) private var appearsActive
+    @State private var pulse = WorkingPulse()
 
     var body: some View {
         @Bindable var store = store
@@ -43,6 +45,8 @@ struct ContentView: View {
         }
         .containerBackground(store.theme.background ?? .clear, for: .window)
         .environment(\.ghosttyTheme, store.theme)
+        .environment(pulse)
+        .onChange(of: appearsActive, initial: true) { pulse.isRunning = appearsActive || Snapshot.forcesPulse }
         .preferredColorScheme(store.theme.isDark ? .dark : .light)
         .background(WindowChrome(color: store.theme.background))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in store.refreshPullRequests() }

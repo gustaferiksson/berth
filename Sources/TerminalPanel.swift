@@ -98,11 +98,7 @@ private struct ShellTab: View {
             Image(systemName: "apple.terminal").imageScale(.small)
             Text(title).lineLimit(1)
             if title != Tab.shellName {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 9, weight: .black))
-                    .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeat(.continuous))
-                    .foregroundStyle(theme.working)
-                    .accessibilityLabel("Running")
+                WorkingDots(label: "Running")
             }
             Button("Close Terminal", systemImage: "xmark", action: close)
                 .labelStyle(.iconOnly)

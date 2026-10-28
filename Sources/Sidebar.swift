@@ -412,12 +412,7 @@ private struct StatusSlot: View {
     var body: some View {
         ZStack {
             if state == .working {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 9, weight: .black))
-                    .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeat(.continuous))
-                    .foregroundStyle(theme.working)
-                    .help("Working")
-                    .accessibilityLabel("Working")
+                WorkingDots(label: "Working")
             } else if case let .needsYou(reason) = state {
                 Circle()
                     .fill(theme.needsYou)
