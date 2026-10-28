@@ -1,6 +1,7 @@
 import AppKit
 import BerthCore
 import SwiftUI
+import UserNotifications
 
 #if DEBUG
 private let settingsSnapshot = SettingsSnapshot.output
@@ -97,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             unsetenv(key)
         }
         guard let output = Snapshot.output else {
+            UNUserNotificationCenter.current().delegate = self
             store.start(restoringTabs: true)
             return
         }

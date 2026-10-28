@@ -99,6 +99,10 @@ final class Store {
     }
     @ObservationIgnored private var pullRequestsFetchedAt = Date.distantPast
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
+    @ObservationIgnored private var waitingSessionIDs: Set<String>?
+    #if DEBUG
+    @ObservationIgnored var fakeWaiting: Bool?
+    #endif
 
     func start(restoringTabs: Bool) {
         let sessions = Self.claudeDirectory.appending(path: "sessions").path
@@ -200,6 +204,9 @@ final class Store {
     func refreshLive() {
         let live = fakeLive + LiveSession.load(from: Self.claudeDirectory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
         liveBySession = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
+        let needsYou = NeedsYou.update(previous: waitingSessionIDs, live: Array(liveBySession.values))
+        waitingSessionIDs = needsYou.waiting
+        NeedsYouAlerts.update(entered: needsYou.entered, waitingCount: needsYou.waiting.count, store: self)
         let claimed = Set(tabs.compactMap(\.sessionID))
         let orphans = live.filter { !claimed.contains($0.sessionId) && ProcessAncestry.isDescendant($0.pid, of: getpid()) }
         for session in orphans {
@@ -213,8 +220,8 @@ final class Store {
 
     private var fakeLive: [LiveSession] {
         #if DEBUG
-        guard UserDefaults.standard.bool(forKey: "snapshotFakeStatus") else { return [] }
-        let statuses = [#""status":"waiting","waitingFor":"permission""#, #""status":"busy""#]
+        let statuses = fakeWaiting.map { [$0 ? #""status":"waiting","waitingFor":"permission""# : #""status":"busy""#] }
+            ?? (UserDefaults.standard.bool(forKey: "snapshotFakeStatus") ? [#""status":"waiting","waitingFor":"permission""#, #""status":"busy""#] : [])
         return zip(groups.first { !$0.sessions.isEmpty }?.sessions ?? [], statuses).compactMap { session, status in
             let json = #"{"pid":1,"sessionId":"\#(session.id)","cwd":"\#(session.cwd)",\#(status)}"#
             return try? JSONDecoder().decode(LiveSession.self, from: Data(json.utf8))

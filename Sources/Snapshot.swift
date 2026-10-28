@@ -51,6 +51,13 @@ enum Snapshot {
             store.customGroups = (try? JSONDecoder().decode([CustomGroup].self, from: data)) ?? []
         }
         await store.waitForScan()
+        if UserDefaults.standard.bool(forKey: "snapshotFakeWaiting") {
+            for waiting in [false, true, true, false, true] {
+                print("fake first session waiting: \(waiting)")
+                store.fakeWaiting = waiting
+                store.refreshLive()
+            }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotShell") {
             try? FileManager.default.removeItem(atPath: NSTemporaryDirectory() + "berth-shell-starts")
             store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)

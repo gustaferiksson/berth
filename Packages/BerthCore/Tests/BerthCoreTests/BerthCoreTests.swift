@@ -272,3 +272,33 @@ struct ClaudeLaunchTests {
         #expect(ClaudeLaunch.command(.resume, prompt: "") == #"/bin/zsh -ilc 'claude --resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
     }
 }
+
+struct NeedsYouTests {
+    func live(_ id: String, _ status: String) -> LiveSession {
+        LiveSession(pid: 1, sessionId: id, cwd: "/Users/example/Repos/alpha", kind: nil, status: status, waitingFor: nil, statusUpdatedAt: nil, startedAt: nil)
+    }
+
+    @Test func firstScanSeedsWithoutAlerting() {
+        let result = NeedsYou.update(previous: nil, live: [live("a", "waiting"), live("b", "busy")])
+        #expect(result.waiting == ["a"])
+        #expect(result.entered.isEmpty)
+    }
+
+    @Test func alertsOnceOnEnteringAndReArmsAfterLeaving() {
+        var waiting: Set<String> = []
+        var alerts: [[String]] = []
+        for status in ["busy", "waiting", "waiting", "idle", "waiting"] {
+            let result = NeedsYou.update(previous: waiting, live: [live("a", status), live("b", "busy")])
+            waiting = result.waiting
+            alerts.append(result.entered.map(\.sessionId))
+        }
+        #expect(alerts == [[], ["a"], [], [], ["a"]])
+    }
+
+    @Test func endedSessionLeavesWaiting() {
+        let result = NeedsYou.update(previous: ["a", "b"], live: [live("b", "waiting")])
+        #expect(result.waiting == ["b"])
+        #expect(result.entered.isEmpty)
+        #expect(NeedsYou.update(previous: result.waiting, live: [live("a", "waiting"), live("b", "waiting")]).entered.map(\.sessionId) == ["a"])
+    }
+}

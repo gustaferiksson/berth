@@ -33,6 +33,10 @@ struct Sidebar: View {
                     guard let selection else { return }
                     Task { withAnimation { proxy.scrollTo(selection) } }
                 }
+                .onChange(of: store.lockedSessionID) { _, id in
+                    guard let id else { return }
+                    Task { withAnimation { proxy.scrollTo(SidebarItem.session(id)) } }
+                }
                 .onChange(of: store.archivedSessions.last?.id, initial: true) { _, id in
                     guard Snapshot.scrollsToArchive, let id else { return }
                     Task { proxy.scrollTo(SidebarItem.session(id)) }
