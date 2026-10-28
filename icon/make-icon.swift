@@ -9,12 +9,13 @@ let hues = [
     "mocha": "8c6a5a",
     "stone": "a69b8f",
 ]
-let arguments = CommandLine.arguments
-guard arguments.count == 3, let hex = hues[arguments[1]], let rgb = UInt32(hex, radix: 16) else {
-    FileHandle.standardError.write(Data("usage: swift make-icon.swift <\(hues.keys.sorted().joined(separator: "|"))> <out.icon>\n".utf8))
+let arguments = CommandLine.arguments.dropFirst()
+let hueName = arguments.count == 2 ? arguments.first! : "mocha"
+guard (1...2).contains(arguments.count), let hex = hues[hueName], let rgb = UInt32(hex, radix: 16) else {
+    FileHandle.standardError.write(Data("usage: swift make-icon.swift [\(hues.keys.sorted().joined(separator: "|"))] <out.icon>\n".utf8))
     exit(1)
 }
-let bundle = URL(fileURLWithPath: arguments[2])
+let bundle = URL(fileURLWithPath: arguments.last!)
 let canvas: CGFloat = 1024
 let hue = [rgb >> 16, rgb >> 8 & 0xff, rgb & 0xff].map { Double($0) / 255 }
 
@@ -54,8 +55,8 @@ let prompt: Path = {
 let groups = [
     Group(layer: Layer(name: "prompt", shape: prompt, light: color(0.42), dark: color(1)), opacity: 1, translucency: 0),
     Group(layer: Layer(name: "front", shape: card(inset: 0, top: 360, radius: 104), light: white, dark: color(0.44)), opacity: 1, translucency: 0),
-    Group(layer: Layer(name: "middle", shape: card(inset: 48, top: 280, radius: 88), light: white, dark: color(0.36)), opacity: 0.75, translucency: 0.3),
-    Group(layer: Layer(name: "back", shape: card(inset: 96, top: 200, radius: 72), light: white, dark: color(0.30)), opacity: 0.5, translucency: 0.5),
+    Group(layer: Layer(name: "middle", shape: card(inset: 48, top: 296, radius: 88), light: white, dark: color(0.36)), opacity: 0.75, translucency: 0.3),
+    Group(layer: Layer(name: "back", shape: card(inset: 96, top: 232, radius: 72), light: white, dark: color(0.30)), opacity: 0.5, translucency: 0.5),
 ]
 
 @MainActor
