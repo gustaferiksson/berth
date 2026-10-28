@@ -69,8 +69,7 @@ struct Launcher: View {
                 TextField("First Prompt", text: $prompt, prompt: Text("First prompt (optional)"))
                     .textFieldStyle(.plain)
                     .focused($focus, equals: .prompt)
-                    .onKeyPress(keys: [.tab]) { press in
-                        guard press.modifiers.contains(.shift) else { return .ignored }
+                    .onKeyPress(.tab) {
                         focus = .query
                         return .handled
                     }
@@ -91,7 +90,7 @@ struct Launcher: View {
         .frame(maxWidth: 560)
         .glassEffect(.regular, in: .rect(cornerRadius: 20))
         .padding(.horizontal, 24)
-        .onExitCommand(perform: close)
+        .onExitCommand { store.isLauncherPresented = false }
         .onAppear {
             let known = store.knownFolders
             let current = store.currentCwd
@@ -164,12 +163,7 @@ struct Launcher: View {
     }
 
     private func start(in path: String) {
-        store.isLauncherPresented = false
         store.openClaude(cwd: path, prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    private func close() {
         store.isLauncherPresented = false
-        store.tabs.first { $0.id == store.selectedTabID }?.terminal.requestFocus()
     }
 }

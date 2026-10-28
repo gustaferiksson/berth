@@ -8,6 +8,7 @@ struct GroupEditor: View {
     @State var group: CustomGroup
     @State private var selectedPath: String?
     @State private var isImporting = false
+    @State private var isConfirmingDelete = false
     @FocusState private var isNameFocused: Bool
 
     private static let visibleChips = 4
@@ -27,10 +28,15 @@ struct GroupEditor: View {
             .formStyle(.columns)
             HStack {
                 if !isNew {
-                    Button("Delete Group…", role: .destructive) {
-                        dismiss()
-                        store.deletingGroup = group
-                    }
+                    Button("Delete Group…", role: .destructive) { isConfirmingDelete = true }
+                        .confirmationDialog("Delete “\(store.customGroups.first { $0.id == group.id }?.name ?? group.name)”?", isPresented: $isConfirmingDelete) {
+                            Button("Delete Group", role: .destructive) {
+                                store.customGroups.removeAll { $0.id == group.id }
+                                dismiss()
+                            }
+                        } message: {
+                            Text("Its sessions go back to their automatic groups. No transcripts are deleted.")
+                        }
                 }
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }

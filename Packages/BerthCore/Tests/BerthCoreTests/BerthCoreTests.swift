@@ -258,7 +258,7 @@ struct ClaudeLaunchTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
         let process = Process()
         process.executableURL = URL(filePath: "/bin/sh")
-        process.arguments = ["-c", ClaudeLaunch.command(resuming: false, hasPrompt: true).replacing("/bin/zsh -ilc", with: "/bin/zsh -fc")]
+        process.arguments = ["-c", ClaudeLaunch.command(.new, prompt: prompt).replacing("/bin/zsh -ilc", with: "/bin/zsh -fc")]
         process.environment = ["PATH": directory.path + ":/usr/bin:/bin", ClaudeLaunch.sessionVariable: "abc", ClaudeLaunch.promptVariable: prompt]
         try process.run()
         process.waitUntilExit()
@@ -268,6 +268,6 @@ struct ClaudeLaunchTests {
     }
 
     @Test func noPromptMeansNoSeparator() {
-        #expect(ClaudeLaunch.command(resuming: true, hasPrompt: false) == #"/bin/zsh -ilc 'claude --resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
+        #expect(ClaudeLaunch.command(.resume, prompt: "") == #"/bin/zsh -ilc 'claude --resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
     }
 }

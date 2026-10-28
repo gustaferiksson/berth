@@ -51,7 +51,12 @@ final class Store {
     var missingFolder: String?
     var editingGroup: CustomGroup?
     var deletingGroup: CustomGroup?
-    var isLauncherPresented = false
+    var isLauncherPresented = false {
+        didSet {
+            guard !isLauncherPresented, let terminal = tabs.first(where: { $0.id == selectedTabID })?.terminal else { return }
+            DispatchQueue.main.async { terminal.requestFocus() }
+        }
+    }
     var groupingMode = GroupingMode(rawValue: UserDefaults.standard.string(forKey: "groupingMode") ?? "") ?? .project {
         didSet {
             if persistsTabs { UserDefaults.standard.set(groupingMode.rawValue, forKey: "groupingMode") }
@@ -334,7 +339,7 @@ final class Store {
         let id = UUID()
         let session = sessionID ?? UUID().uuidString.lowercased()
         let environment = [ClaudeLaunch.sessionVariable: session, ClaudeLaunch.promptVariable: prompt].filter { !$0.value.isEmpty }
-        let command = ClaudeLaunch.command(resuming: sessionID != nil, hasPrompt: !prompt.isEmpty)
+        let command = ClaudeLaunch.command(sessionID == nil ? .new : .resume, prompt: prompt)
         tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }))
         selectedTabID = id
     }
@@ -419,7 +424,7 @@ final class Store {
                 isPanelOpen = wasOpen
                 continue
             }
-            guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id] == nil else { continue }
+            guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id] == nil, FileManager.default.fileExists(atPath: session.cwd) else { continue }
             openClaude(cwd: session.cwd, resuming: session.id)
         }
     }

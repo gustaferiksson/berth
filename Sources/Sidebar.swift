@@ -171,10 +171,6 @@ struct Sidebar: View {
     private func header(_ group: Group) -> some View {
         let source = group.source
         let custom: CustomGroup? = if case let .custom(custom) = source.kind { custom } else { nil }
-        let folders = custom.map { custom in
-            let candidates = store.knownFolders.map(\.path).filter(custom.matches) + custom.rules.filter { !$0.includesSubfolders }.map(\.path)
-            return NSOrderedSet(array: candidates).array.compactMap { $0 as? String }.filter { FileManager.default.fileExists(atPath: $0) }
-        }
         let singleFolder = source.folder ?? custom.flatMap { $0.rules.count == 1 && !$0.rules[0].includesSubfolders ? $0.rules[0].path : nil }
         return GroupHeader(
             title: source.title,
@@ -189,9 +185,9 @@ struct Sidebar: View {
                     .help("New session in \(URL(filePath: singleFolder).lastPathComponent)")
                     .labelStyle(.iconOnly)
                     .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
-            } else if let custom, let folders {
+            } else if let custom {
                 Menu {
-                    startItems(custom, folders: folders)
+                    startItems(custom)
                 } label: {
                     Label("New Session", systemImage: "plus").labelStyle(.iconOnly)
                 }
@@ -204,15 +200,17 @@ struct Sidebar: View {
         }
         .contextMenu {
             if let custom {
-                customGroupMenu(custom, folders: folders ?? [], singleFolder: singleFolder)
+                customGroupMenu(custom, singleFolder: singleFolder)
             } else if let folder = source.folder {
-                folderGroupMenu(folder, title: source.title)
+                folderGroupMenu(Array(Set(source.sessions.map(\.cwd)).union([folder])).sorted(), root: folder, title: source.title)
             }
         }
     }
 
     @ViewBuilder
-    private func startItems(_ custom: CustomGroup, folders: [String]) -> some View {
+    private func startItems(_ custom: CustomGroup) -> some View {
+        let candidates = store.knownFolders.map(\.path).filter(custom.matches) + custom.rules.filter { !$0.includesSubfolders }.map(\.path)
+        let folders = NSOrderedSet(array: candidates).array.compactMap { $0 as? String }.filter { FileManager.default.fileExists(atPath: $0) }
         Section("Start in") {
             ForEach(folders, id: \.self) { folder in
                 Button(URL(filePath: folder).lastPathComponent) { store.openClaude(cwd: folder) }
@@ -226,12 +224,12 @@ struct Sidebar: View {
     }
 
     @ViewBuilder
-    private func customGroupMenu(_ custom: CustomGroup, folders: [String], singleFolder: String?) -> some View {
+    private func customGroupMenu(_ custom: CustomGroup, singleFolder: String?) -> some View {
         let index = store.customGroups.firstIndex { $0.id == custom.id } ?? 0
         if let singleFolder {
             Button("New Session") { store.openClaude(cwd: singleFolder) }
         } else {
-            Menu("New Session in") { startItems(custom, folders: folders) }
+            Menu("New Session in") { startItems(custom) }
         }
         Divider()
         Button("Edit Group…") { store.editingGroup = custom }
@@ -243,21 +241,21 @@ struct Sidebar: View {
     }
 
     @ViewBuilder
-    private func folderGroupMenu(_ folder: String, title: String) -> some View {
-        Button("New Session") { store.openClaude(cwd: folder) }
+    private func folderGroupMenu(_ folders: [String], root: String, title: String) -> some View {
+        Button("New Session") { store.openClaude(cwd: root) }
         Menu("Add to Group") {
             ForEach(store.customGroups) { custom in
-                Button(custom.name) { store.addFolder(folder, to: custom.id) }
+                Button(custom.name) { for folder in folders { store.addFolder(folder, to: custom.id) } }
             }
             if !store.customGroups.isEmpty { Divider() }
-            Button("New Group from \(title)…") { store.editingGroup = CustomGroup(name: title, rules: [FolderRule(path: folder, includesSubfolders: false)]) }
+            Button("New Group from \(title)…") { store.editingGroup = CustomGroup(name: title, rules: folders.map { FolderRule(path: $0, includesSubfolders: false) }) }
         }
         Divider()
         Button("Copy Path") {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(folder, forType: .string)
+            NSPasteboard.general.setString(root, forType: .string)
         }
-        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: folder)]) }
+        Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: root)]) }
     }
 
     private func sessionRow(_ session: SessionSummary, in group: SessionGroup?, selection: SidebarItem?) -> some View {
@@ -295,10 +293,15 @@ struct GroupingMenuItems: View {
     @Bindable var store: Store
 
     var body: some View {
-        ForEach(Array(GroupingMode.allCases.enumerated()), id: \.element) { index, mode in
-            Toggle(mode.title, isOn: Binding(get: { store.groupingMode == mode }, set: { _ in store.groupingMode = mode }))
-                .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [.control, .command])
+        Picker("Group By", selection: $store.groupingMode) {
+            ForEach(Array(GroupingMode.allCases.enumerated()), id: \.element) { index, mode in
+                Text(mode.title)
+                    .tag(mode)
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [.control, .command])
+            }
         }
+        .pickerStyle(.inline)
+        .labelsHidden()
         Divider()
         Toggle("Show Custom Groups", isOn: $store.showsCustomGroups)
     }
@@ -319,50 +322,39 @@ private struct GroupHeader<Accessory: View>: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Button {
-                withAnimation(.snappy) { isExpanded.toggle() }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .foregroundStyle(theme.secondary)
-                        .frame(width: 16)
-                        .padding(.trailing, 4)
-                    if let renaming {
-                        TextField("Group Name", text: $name)
-                            .textFieldStyle(.plain)
-                            .fontWeight(.semibold)
-                            .focused($isNameFocused)
-                            .onAppear {
-                                name = title
-                                isNameFocused = true
-                            }
-                            .onSubmit {
-                                let trimmed = name.trimmingCharacters(in: .whitespaces)
-                                if var group = renaming.wrappedValue, !trimmed.isEmpty {
-                                    group.name = trimmed
-                                    commitRename(group)
-                                }
-                                renaming.wrappedValue = nil
-                            }
-                            .onExitCommand { renaming.wrappedValue = nil }
-                            .onChange(of: isNameFocused) { if !isNameFocused { renaming.wrappedValue = nil } }
-                    } else {
+            if let renaming {
+                chevron
+                TextField("Group Name", text: $name)
+                    .textFieldStyle(.plain)
+                    .fontWeight(.semibold)
+                    .focused($isNameFocused)
+                    .onAppear {
+                        name = title
+                        isNameFocused = true
+                    }
+                    .onSubmit { commit(renaming) }
+                    .onExitCommand { renaming.wrappedValue = nil }
+                    .onChange(of: isNameFocused) { if !isNameFocused { commit(renaming) } }
+            } else {
+                Button {
+                    withAnimation(.snappy) { isExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        chevron
                         Text(title)
                             .fontWeight(.semibold)
                             .foregroundStyle(theme.secondary)
                             .lineLimit(1)
+                        Text(count, format: .number)
+                            .monospacedDigit()
+                            .foregroundStyle(theme.secondary.opacity(0.6))
                     }
-                    Text(count, format: .number)
-                        .monospacedDigit()
-                        .foregroundStyle(theme.secondary.opacity(0.6))
+                    .contentShape(.rect)
                 }
-                .contentShape(.rect)
+                .buttonStyle(.plain)
+                .help(help)
+                .accessibilityLabel("\(title), \(count) items, \(isExpanded ? "expanded" : "collapsed")")
             }
-            .buttonStyle(.plain)
-            .help(help)
-            .accessibilityLabel("\(title), \(count) items, \(isExpanded ? "expanded" : "collapsed")")
             Spacer(minLength: 4)
             accessory(isHovering)
         }
@@ -374,6 +366,24 @@ private struct GroupHeader<Accessory: View>: View {
         .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
+    }
+
+    private var chevron: some View {
+        Image(systemName: "chevron.right")
+            .font(.system(size: 11, weight: .semibold))
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            .foregroundStyle(theme.secondary)
+            .frame(width: 16)
+            .padding(.trailing, 4)
+    }
+
+    private func commit(_ renaming: Binding<CustomGroup?>) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        if var group = renaming.wrappedValue, !trimmed.isEmpty {
+            group.name = trimmed
+            commitRename(group)
+        }
+        renaming.wrappedValue = nil
     }
 }
 
@@ -465,16 +475,16 @@ private struct SessionRow: View {
                 if session.pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {
                         if let projectName {
-                            Text(projectName)
-                                .font(.caption)
-                                .foregroundStyle(theme.secondary)
-                                .fixedSize()
-                            if session.pullRequest != nil || session.branch != nil {
-                                Text(verbatim: "·")
-                                    .font(.caption)
-                                    .foregroundStyle(theme.secondary.opacity(0.6))
-                                    .padding(.horizontal, -4)
+                            HStack(spacing: 4) {
+                                Text(projectName)
+                                    .foregroundStyle(theme.secondary)
+                                if session.pullRequest != nil || session.branch != nil {
+                                    Text(verbatim: "·")
+                                        .foregroundStyle(theme.secondary.opacity(0.6))
+                                }
                             }
+                            .font(.caption)
+                            .fixedSize()
                         }
                         if let pullRequest = session.pullRequest {
                             PullRequestTag(link: pullRequest, state: pullRequestState)

@@ -2,9 +2,13 @@ public enum ClaudeLaunch {
     public static let sessionVariable = "BERTH_SESSION_ID"
     public static let promptVariable = "BERTH_PROMPT"
 
-    public static func command(resuming: Bool, hasPrompt: Bool) -> String {
-        let flag = resuming ? "--resume" : "--session-id"
-        let prompt = hasPrompt ? " -- \"$\(promptVariable)\"" : ""
-        return "/bin/zsh -ilc 'claude \(flag) \"$\(sessionVariable)\"\(prompt) || exec /bin/zsh -il'"
+    public enum Start: Sendable {
+        case new, resume
+    }
+
+    public static func command(_ start: Start, prompt: String) -> String {
+        let flag = start == .resume ? "--resume" : "--session-id"
+        let argument = prompt.isEmpty ? "" : " -- \"$\(promptVariable)\""
+        return "/bin/zsh -ilc 'claude \(flag) \"$\(sessionVariable)\"\(argument) || exec /bin/zsh -il'"
     }
 }
