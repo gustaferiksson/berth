@@ -1,4 +1,5 @@
 import AppKit
+import BerthCore
 import SwiftUI
 
 #if DEBUG
@@ -24,6 +25,7 @@ struct BerthApp: App {
                     .keyboardShortcut("n")
                 Button("New Terminal") { appDelegate.store.openShell(cwd: appDelegate.store.currentCwd) }
                     .keyboardShortcut("t")
+                Button("New Group…") { appDelegate.store.editingGroup = CustomGroup(name: "", rules: []) }
             }
             CommandGroup(before: .windowList) {
                 Button("Show Next Tab") { appDelegate.store.cycleTab(by: 1) }
@@ -41,6 +43,8 @@ struct BerthApp: App {
             CommandGroup(after: .sidebar) {
                 Button("Toggle Terminal Panel") { appDelegate.store.toggleTerminalPanel() }
                     .keyboardShortcut("j")
+                Divider()
+                Menu("Group By") { GroupingMenuItems(store: appDelegate.store) }
             }
         }
 

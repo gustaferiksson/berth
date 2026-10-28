@@ -48,7 +48,30 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(isPanelOpen, forKey: "terminalPanelOpen") } }
     }
     var lockedSessionID: String?
-    private(set) var groups: [ProjectGroup] = []
+    var missingFolder: String?
+    var editingGroup: CustomGroup?
+    var deletingGroup: CustomGroup?
+    var isLauncherPresented = false
+    var groupingMode = GroupingMode(rawValue: UserDefaults.standard.string(forKey: "groupingMode") ?? "") ?? .project {
+        didSet {
+            if persistsTabs { UserDefaults.standard.set(groupingMode.rawValue, forKey: "groupingMode") }
+            applyGroups()
+        }
+    }
+    var showsCustomGroups = UserDefaults.standard.object(forKey: "showsCustomGroups") == nil || UserDefaults.standard.bool(forKey: "showsCustomGroups") {
+        didSet {
+            if persistsTabs { UserDefaults.standard.set(showsCustomGroups, forKey: "showsCustomGroups") }
+            applyGroups()
+        }
+    }
+    var customGroups = (UserDefaults.standard.string(forKey: "customGroups")?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([CustomGroup].self, from: $0) } ?? [] {
+        didSet {
+            if persistsTabs, let data = try? JSONEncoder().encode(customGroups) { UserDefaults.standard.set(String(decoding: data, as: UTF8.self), forKey: "customGroups") }
+            applyGroups()
+        }
+    }
+    private(set) var groups: [SessionGroup] = []
+    private(set) var activeSessions: [SessionSummary] = []
     private(set) var archivedSessions: [SessionSummary] = []
     private(set) var liveBySession: [String: LiveSession] = [:]
     private(set) var hasScanned = false
@@ -62,6 +85,7 @@ final class Store {
     @ObservationIgnored private var themeWatcher: FileWatcher?
     @ObservationIgnored private var summaries: [SessionSummary] = []
     @ObservationIgnored private var groupOrder: [String] = []
+    @ObservationIgnored private var repositoryRoots: [String: String] = [:]
     @ObservationIgnored private var archivedAt = UserDefaults.standard.dictionary(forKey: "archivedSessions") as? [String: Date] ?? [:] {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
     }
@@ -100,16 +124,28 @@ final class Store {
         let split = SessionArchive.split(summaries, archivedAt: archivedAt)
         if hasScanned, split.kept != archivedAt { archivedAt = split.kept }
         archivedSessions = split.archived
-        let fresh = ProjectGroup.grouped(split.active)
+        activeSessions = split.active
+        let fresh = grouping.groups(split.active)
+        let folders = fresh.compactMap(\.folder)
         let known = Set(groupOrder)
-        groupOrder = fresh.map(\.cwd).filter { !known.contains($0) } + groupOrder.filter { cwd in fresh.contains { $0.cwd == cwd } }
-        let previous = Dictionary(uniqueKeysWithValues: groups.map { ($0.cwd, $0) })
-        groups = groupOrder.compactMap { cwd in
-            guard let group = fresh.first(where: { $0.cwd == cwd }) else { return nil }
-            guard isPointerInSidebar, let shown = previous[cwd] else { return group }
+        groupOrder = folders.filter { !known.contains($0) } + groupOrder.filter(folders.contains)
+        let ordered = fresh.filter { $0.folder == nil } + groupOrder.compactMap { folder in fresh.first { $0.folder == folder } }
+        let previous = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
+        groups = ordered.map { group in
+            guard isPointerInSidebar, let shown = previous[group.id] else { return group }
             let rank = Dictionary(uniqueKeysWithValues: shown.sessions.enumerated().map { ($1.id, $0) })
-            return ProjectGroup(cwd: cwd, sessions: group.sessions.sorted { rank[$0.id, default: -1] < rank[$1.id, default: -1] }, lastActivity: group.lastActivity)
+            return SessionGroup(kind: group.kind, sessions: group.sessions.sorted { rank[$0.id, default: -1] < rank[$1.id, default: -1] })
         }
+    }
+
+    var grouping: SessionGrouping {
+        SessionGrouping(mode: groupingMode, customGroups: showsCustomGroups ? customGroups : [], repositoryRoots: repositoryRoots)
+    }
+
+    var knownFolders: [(path: String, sessions: Int, lastActivity: Date)] {
+        Dictionary(grouping: activeSessions + archivedSessions, by: \.cwd)
+            .map { (path: $0.key, sessions: $0.value.count, lastActivity: $0.value.map(\.lastActivity).max() ?? .distantPast) }
+            .sorted { $0.lastActivity > $1.lastActivity }
     }
 
     func refreshPullRequests() {
@@ -135,12 +171,15 @@ final class Store {
     func refresh() {
         refreshTask = Task { [previous = refreshTask, index] in
             await previous?.value
-            let (updated, summaries) = await Task.detached {
+            let (updated, summaries, roots) = await Task.detached { [roots = repositoryRoots] in
                 var index = index
-                return (index, index.refresh())
+                let summaries = index.refresh()
+                let unresolved = Set(summaries.map(\.cwd)).filter { roots[$0] == nil }
+                return (index, summaries, roots.merging(unresolved.map { ($0, RepositoryRoot.resolve($0)) }) { $1 })
             }.value
             self.index = updated
             self.summaries = summaries
+            repositoryRoots = roots
             for index in tabs.indices {
                 guard let cwd = summaries.first(where: { $0.id == tabs[index].sessionID })?.cwd, cwd != tabs[index].cwd else { continue }
                 tabs[index].cwd = cwd
@@ -170,7 +209,7 @@ final class Store {
         #if DEBUG
         guard UserDefaults.standard.bool(forKey: "snapshotFakeStatus") else { return [] }
         let statuses = [#""status":"waiting","waitingFor":"permission""#, #""status":"busy""#]
-        return zip(groups.first?.sessions ?? [], statuses).compactMap { session, status in
+        return zip(groups.first { !$0.sessions.isEmpty }?.sessions ?? [], statuses).compactMap { session, status in
             let json = #"{"pid":1,"sessionId":"\#(session.id)","cwd":"\#(session.cwd)",\#(status)}"#
             return try? JSONDecoder().decode(LiveSession.self, from: Data(json.utf8))
         }
@@ -181,7 +220,7 @@ final class Store {
 
     func sessionTitle(of tab: Tab) -> String? {
         guard let id = tab.sessionID else { return nil }
-        return groups.lazy.flatMap(\.sessions).first { $0.id == id }?.title
+        return activeSessions.first { $0.id == id }?.title
     }
 
     func tab(forSession id: String) -> Tab? {
@@ -190,7 +229,7 @@ final class Store {
 
     var selection: SidebarItem? {
         guard let tab = tabs.first(where: { $0.id == selectedTabID }) else { return nil }
-        if let sessionID = tab.sessionID, groups.contains(where: { group in group.sessions.contains { $0.id == sessionID } }) {
+        if let sessionID = tab.sessionID, activeSessions.contains(where: { $0.id == sessionID }) {
             return .session(sessionID)
         }
         return .tab(tab.id)
@@ -203,7 +242,7 @@ final class Store {
             return
         }
         guard case let .session(id) = item,
-              let session = (groups.flatMap(\.sessions) + archivedSessions).first(where: { $0.id == id })
+              let session = (activeSessions + archivedSessions).first(where: { $0.id == id })
         else { return }
         if archivedAt[id] != nil { unarchive(id) }
         refreshLive()
@@ -233,15 +272,22 @@ final class Store {
         isPanelOpen = true
     }
 
+    var sidebarGroups: [(group: SessionGroup, tabs: [Tab])] {
+        let listed = Set(activeSessions.map(\.id))
+        let unlisted = tabs.filter { !($0.sessionID.map(listed.contains) ?? false) }
+        let grouping = grouping
+        let placed = Dictionary(grouping: unlisted) { SessionGroup(kind: grouping.kind(forFolder: $0.cwd, lastActivity: $0.opened), sessions: []).id }
+        let known = Set(groups.map(\.id))
+        let extra = Array(Set(unlisted.map { grouping.kind(forFolder: $0.cwd, lastActivity: $0.opened) }))
+            .map { SessionGroup(kind: $0, sessions: []) }
+            .filter { !known.contains($0.id) }
+            .sorted { $0.id < $1.id }
+        let custom = groups.filter { if case .custom = $0.kind { true } else { false } }
+        return (custom + extra + groups.dropFirst(custom.count)).map { ($0, placed[$0.id] ?? []) }
+    }
+
     var sidebarOrderedTabs: [Tab] {
-        let known = Set(groups.map(\.cwd))
-        let cwds = Array(Set(tabs.map(\.cwd).filter { !known.contains($0) })).sorted() + groups.map(\.cwd)
-        return cwds.flatMap { cwd in
-            let sessions = groups.first { $0.cwd == cwd }?.sessions ?? []
-            let listed = Set(sessions.map(\.id))
-            let unlisted = tabs.filter { $0.cwd == cwd && !($0.sessionID.map(listed.contains) ?? false) }
-            return unlisted + sessions.compactMap { tab(forSession: $0.id) }
-        }
+        sidebarGroups.flatMap { $0.tabs + $0.group.sessions.compactMap { tab(forSession: $0.id) } }
     }
 
     func selectTab(number: Int) {
@@ -280,28 +326,48 @@ final class Store {
         shells.first { $0.id == selectedShellID }?.terminal.requestFocus()
     }
 
-    func openClaude(cwd: String, resuming sessionID: String? = nil) {
-        let id = sessionID ?? UUID().uuidString.lowercased()
-        let flag = sessionID == nil ? "--session-id" : "--resume"
-        open(kind: .claude, cwd: cwd, sessionID: id, command: "/bin/zsh -ilc 'claude \(flag) \(id) || exec /bin/zsh -il'")
-    }
-
-    private func open(kind: Tab.Kind, cwd: String, sessionID: String?, command: String?) {
+    func openClaude(cwd: String, resuming sessionID: String? = nil, prompt: String = "") {
+        guard FileManager.default.fileExists(atPath: cwd) else {
+            missingFolder = cwd
+            return
+        }
         let id = UUID()
-        tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, terminal: terminal(cwd: cwd, command: command) { [weak self] in self?.close(id) }))
+        let session = sessionID ?? UUID().uuidString.lowercased()
+        let environment = [ClaudeLaunch.sessionVariable: session, ClaudeLaunch.promptVariable: prompt].filter { !$0.value.isEmpty }
+        let command = ClaudeLaunch.command(resuming: sessionID != nil, hasPrompt: !prompt.isEmpty)
+        tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }))
         selectedTabID = id
     }
 
-    private func terminal(cwd: String, command: String?, onClose: @escaping () -> Void) -> TerminalViewState {
+    private func terminal(cwd: String, command: String?, environment: [String: String] = [:], onClose: @escaping () -> Void) -> TerminalViewState {
         let terminal = TerminalViewState(controller: GhosttyConfig.controller)
         terminal.configuration = TerminalSurfaceOptions(
             backend: .exec,
             workingDirectory: cwd,
+            envVars: environment,
             command: command,
             waitAfterCommand: false
         )
         terminal.onClose = { _ in onClose() }
         return terminal
+    }
+
+    func save(_ group: CustomGroup) {
+        if let index = customGroups.firstIndex(where: { $0.id == group.id }) {
+            customGroups[index] = group
+        } else {
+            customGroups.append(group)
+        }
+    }
+
+    func addFolder(_ folder: String, to groupID: CustomGroup.ID) {
+        guard let index = customGroups.firstIndex(where: { $0.id == groupID }), !customGroups[index].rules.contains(where: { $0.path == folder }) else { return }
+        customGroups[index].rules.append(FolderRule(path: folder, includesSubfolders: false))
+    }
+
+    func moveGroup(_ groupID: CustomGroup.ID, by offset: Int) {
+        guard let index = customGroups.firstIndex(where: { $0.id == groupID }), customGroups.indices.contains(index + offset) else { return }
+        customGroups.swapAt(index, index + offset)
     }
 
     func archive(_ sessionID: String) {
@@ -353,7 +419,7 @@ final class Store {
                 isPanelOpen = wasOpen
                 continue
             }
-            guard let session = groups.lazy.flatMap(\.sessions).first(where: { $0.id == tab.sessionID }), liveBySession[session.id] == nil else { continue }
+            guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id] == nil else { continue }
             openClaude(cwd: session.cwd, resuming: session.id)
         }
     }

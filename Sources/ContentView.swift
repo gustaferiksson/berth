@@ -1,3 +1,4 @@
+import BerthCore
 import GhosttyTerminal
 import SwiftUI
 
@@ -17,6 +18,15 @@ struct ContentView: View {
                 .background(store.theme.background ?? .clear)
                 .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 440)
+                .toolbar {
+                    Menu {
+                        Section("Group By") { GroupingMenuItems(store: store) }
+                        Button("New Group…") { store.editingGroup = CustomGroup(name: "", rules: []) }
+                    } label: {
+                        Text(store.groupingMode.title)
+                    }
+                    .help("Group sessions by")
+                }
         } detail: {
             GeometryReader { geometry in
                 VStack(spacing: 0) {
@@ -50,6 +60,15 @@ struct ContentView: View {
         .preferredColorScheme(store.theme.isDark ? .dark : .light)
         .background(WindowChrome(color: store.theme.background))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in store.refreshPullRequests() }
+        .confirmationDialog("Delete “\(store.deletingGroup?.name ?? "")”?", isPresented: Binding(get: { store.deletingGroup != nil }, set: { if !$0 { store.deletingGroup = nil } }), presenting: store.deletingGroup) { group in
+            Button("Delete Group", role: .destructive) { store.customGroups.removeAll { $0.id == group.id } }
+        } message: { _ in
+            Text("Its sessions go back to their automatic groups. No transcripts are deleted.")
+        }
+        .alert("Folder Not Found", isPresented: Binding(get: { store.missingFolder != nil }, set: { if !$0 { store.missingFolder = nil } }), presenting: store.missingFolder) { _ in
+        } message: { folder in
+            Text("\((folder as NSString).abbreviatingWithTildeInPath) no longer exists, so Claude can’t start there.")
+        }
     }
 }
 

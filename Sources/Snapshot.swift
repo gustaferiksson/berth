@@ -21,10 +21,10 @@ enum Snapshot {
     static let scrollsToArchive = false
     #endif
 
-    static func forcedSelection(in groups: [ProjectGroup]) -> SidebarItem? {
+    static func forcedSelection(in groups: [SessionGroup]) -> SidebarItem? {
         #if DEBUG
         let index = UserDefaults.standard.integer(forKey: "snapshotSelectRow")
-        guard index > 0, let sessions = groups.first?.sessions, index <= sessions.count else { return nil }
+        guard index > 0, let sessions = groups.first(where: { !$0.sessions.isEmpty })?.sessions, index <= sessions.count else { return nil }
         return .session(sessions[index - 1].id)
         #else
         return nil
@@ -41,11 +41,14 @@ enum Snapshot {
         #if DEBUG
         NSApp.setActivationPolicy(.accessory)
         if UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" { NSApp.appearance = NSAppearance(named: .darkAqua) }
+        if let path = UserDefaults.standard.string(forKey: "snapshotCustomGroups"), let data = FileManager.default.contents(atPath: path) {
+            store.customGroups = (try? JSONDecoder().decode([CustomGroup].self, from: data)) ?? []
+        }
         await store.waitForScan()
         if UserDefaults.standard.bool(forKey: "snapshotShell") {
             try? FileManager.default.removeItem(atPath: NSTemporaryDirectory() + "berth-shell-starts")
-            store.openShell(cwd: store.groups.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
-            store.openShell(cwd: store.groups.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path, command: "/bin/zsh -c 'printf \"\\033]2;npm run dev\\007\"; echo VITE ready; echo started >> \(NSTemporaryDirectory())berth-shell-starts; sleep 600'")
+            store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
+            store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path, command: "/bin/zsh -c 'printf \"\\033]2;npm run dev\\007\"; echo VITE ready; echo started >> \(NSTemporaryDirectory())berth-shell-starts; sleep 600'")
         }
         if let path = UserDefaults.standard.string(forKey: "snapshotShellCd"), let shell = store.shells.first {
             Task {
@@ -61,7 +64,7 @@ enum Snapshot {
             store.toggleTerminalPanel()
         }
         let archiveRow = UserDefaults.standard.integer(forKey: "snapshotArchiveRow")
-        if archiveRow > 0, let sessions = store.groups.first?.sessions, archiveRow <= sessions.count {
+        if archiveRow > 0, let sessions = store.groups.first(where: { !$0.sessions.isEmpty })?.sessions, archiveRow <= sessions.count {
             store.archive(sessions[archiveRow - 1].id)
         }
         if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
@@ -92,6 +95,13 @@ enum Snapshot {
         let items = window.toolbar?.items.map { "\($0.itemIdentifier.rawValue) label=\($0.label) tip=\($0.toolTip ?? "")" } ?? []
         print("window title: \(window.title) | subtitle: \(window.subtitle)")
         print("toolbar items (\(items.count)):\n" + items.joined(separator: "\n"))
+        let menus = (NSApp.mainMenu?.items ?? []).compactMap(\.submenu) + (window.toolbar?.items ?? []).compactMap { ($0 as? NSMenuToolbarItem)?.menu }
+        for menu in menus where menu.items.contains(where: { $0.title.hasPrefix("Group By") || $0.title.hasPrefix("New ") }) {
+            print("menu \(menu.title):")
+            for item in menu.items + menu.items.compactMap(\.submenu).flatMap(\.items) where !item.isSeparatorItem {
+                print("  \(item.state == .on ? "✓" : " ") \(item.title) \(item.keyEquivalentModifierMask.contains(.control) ? "⌃" : "")\(item.keyEquivalent)")
+            }
+        }
         print("shell starts: \((try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0)")
         for tab in store.tabs + store.shells { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-") pwd=\(tab.terminal.workingDirectory ?? "-") title=\(tab.terminal.title)") }
         guard !NSScreen.screens.contains(where: { $0.frame.intersects(window.frame) }) else { fail("window is on screen") }
