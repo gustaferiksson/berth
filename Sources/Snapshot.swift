@@ -12,8 +12,9 @@ enum Snapshot {
         #if DEBUG
         NSApp.setActivationPolicy(.accessory)
         if UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" { NSApp.appearance = NSAppearance(named: .darkAqua) }
+        await store.waitForScan()
         if UserDefaults.standard.bool(forKey: "snapshotShell") {
-            store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path)
+            store.openShell(cwd: store.groups.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
         }
         let hosting = NSHostingController(rootView: ContentView().environment(store))
         hosting.sceneBridgingOptions = [.toolbars, .title]

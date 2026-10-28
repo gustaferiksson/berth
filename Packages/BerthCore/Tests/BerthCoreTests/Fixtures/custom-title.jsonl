@@ -1,0 +1,7 @@
+{"type":"mode","mode":"normal","sessionId":"aaaa"}
+{"type":"permission-mode","permissionMode":"default","sessionId":"aaaa"}
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"Add a widget to the dashboard"},"uuid":"u1","timestamp":"2026-01-01T10:00:00Z","cwd":"/Users/example/Repos/alpha","sessionId":"aaaa","version":"2.1.312"}
+{"type":"ai-title","aiTitle":"Dashboard widget","sessionId":"aaaa"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done."}]},"cwd":"/Users/example/Repos/alpha","sessionId":"aaaa"}
+{"type":"custom-title","customTitle":"widget work","sessionId":"aaaa"}
+{"type":"ai-title","aiTitle":"Dashboard widget","sessionId":"aaaa"}

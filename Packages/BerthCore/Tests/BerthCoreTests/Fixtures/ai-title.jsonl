@@ -1,0 +1,5 @@
+{"type":"mode","mode":"normal","sessionId":"bbbb"}
+{"parentUuid":null,"isSidechain":false,"type":"user","message":{"role":"user","content":"Fix the login bug"},"cwd":"/Users/example/Repos/beta","sessionId":"bbbb"}
+{"type":"ai-title","aiTitle":"Old title","sessionId":"bbbb"}
+{"type":"attachment","attachment":{"type":"x"},"cwd":"/Users/example/Repos/beta","sessionId":"bbbb"}
+{"type":"ai-title","aiTitle":"Login bug fix","sessionId":"bbbb"}

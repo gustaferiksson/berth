@@ -18,7 +18,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = Store()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        guard let output = Snapshot.output else { return }
+        guard let output = Snapshot.output else {
+            store.start(restoringTabs: true)
+            return
+        }
+        store.persistsTabs = false
+        store.start(restoringTabs: false)
         Task { await Snapshot.capture(to: output, store: store) }
     }
 
