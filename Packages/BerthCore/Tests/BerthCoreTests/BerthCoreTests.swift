@@ -65,12 +65,32 @@ struct TranscriptTests {
         #expect(Transcript.summary(id: "b", modified: .now, head: head, tail: [])?.pullRequest == nil)
     }
 
+    @Test func resumingWithoutConversationKeepsTheOldActivity() throws {
+        let head = Transcript.records(in: Data("""
+        {"type":"user","cwd":"/x","timestamp":"2026-10-01T10:00:00.000Z","message":{"content":"fix the parser"}}
+        {"type":"assistant","timestamp":"2026-10-01T10:05:00.000Z","message":{"content":[{"type":"text","text":"Done."}]}}
+        """.utf8), dropFirst: false, dropLast: false)
+        let resumed = Transcript.records(in: Data("""
+        {"type":"assistant","timestamp":"2026-10-01T10:05:00.000Z","message":{"content":[{"type":"text","text":"Done."}]}}
+        {"type":"ai-title","aiTitle":"Parser fix"}
+        {"type":"permission-mode","permissionMode":"auto"}
+        {"type":"file-history-snapshot"}
+        {"type":"system","timestamp":"2026-10-28T09:00:00.000Z"}
+        {"type":"user","timestamp":"2026-10-28T09:00:01.000Z","isMeta":true,"message":{"content":"Caveat: local command"}}
+        """.utf8), dropFirst: false, dropLast: false)
+        let replied = resumed + Transcript.records(in: Data(#"{"type":"user","timestamp":"2026-10-28T09:01:00.000Z","message":{"content":"and the tests"}}"#.utf8), dropFirst: false, dropLast: false)
+        let resumedActivity = try #require(Transcript.summary(id: "a", modified: .now, head: head, tail: resumed)?.lastActivity)
+        let repliedActivity = try #require(Transcript.summary(id: "a", modified: .now, head: head, tail: replied)?.lastActivity)
+        #expect(resumedActivity == (try Date("2026-10-01T10:05:00.000Z", strategy: .iso8601)))
+        #expect(repliedActivity == (try Date("2026-10-28T09:01:00.000Z", strategy: .iso8601)))
+    }
+
     @Test func groupsSortByMostRecentActivity() {
         let now = Date()
         let groups = ProjectGroup.grouped([
-            SessionSummary(id: "1", cwd: "/a", title: "one", modified: now.addingTimeInterval(-100)),
-            SessionSummary(id: "2", cwd: "/b", title: "two", modified: now.addingTimeInterval(-50)),
-            SessionSummary(id: "3", cwd: "/a", title: "three", modified: now),
+            SessionSummary(id: "1", cwd: "/a", title: "one", lastActivity: now.addingTimeInterval(-100)),
+            SessionSummary(id: "2", cwd: "/b", title: "two", lastActivity: now.addingTimeInterval(-50)),
+            SessionSummary(id: "3", cwd: "/a", title: "three", lastActivity: now),
         ])
         #expect(groups.map(\.cwd) == ["/a", "/b"])
         #expect(groups.first?.sessions.map(\.id) == ["3", "1"])

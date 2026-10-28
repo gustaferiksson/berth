@@ -20,15 +20,17 @@ struct Sidebar: View {
     }
 
     private var list: some View {
-        List(selection: Binding(get: { store.selection ?? Snapshot.forcedSelection(in: store.groups) }, set: { store.activate($0) })) {
+        let selection = store.selection ?? Snapshot.forcedSelection(in: store.groups)
+        return List {
             ForEach(store.groups) { group in
-                section(id: group.cwd, title: group.name, cwd: group.cwd, sessions: group.sessions)
+                section(id: group.cwd, title: group.name, cwd: group.cwd, sessions: group.sessions, selection: selection)
             }
             let terminals = store.tabs.filter { tab in !store.groups.contains { $0.cwd == tab.cwd } }
             if !terminals.isEmpty {
-                section(id: Store.terminalsGroupID, title: "Terminals", cwd: FileManager.default.homeDirectoryForCurrentUser.path, sessions: [])
+                section(id: Store.terminalsGroupID, title: "Terminals", cwd: FileManager.default.homeDirectoryForCurrentUser.path, sessions: [], selection: selection)
             }
         }
+        .onHover { store.isPointerInSidebar = $0 }
         .overlay {
             if store.hasScanned, store.groups.isEmpty, store.tabs.isEmpty {
                 ContentUnavailableView("No Claude Sessions", systemImage: "bubble.left.and.text.bubble.right", description: Text("Sessions you start with claude show up here, grouped by project."))
@@ -36,7 +38,7 @@ struct Sidebar: View {
         }
     }
 
-    private func section(id: String, title: String, cwd: String, sessions: [SessionSummary]) -> some View {
+    private func section(id: String, title: String, cwd: String, sessions: [SessionSummary], selection: SidebarItem?) -> some View {
         let listed = Set(sessions.map(\.id))
         let tabs = store.tabs.filter { tab in
             let inGroup = id == Store.terminalsGroupID ? !store.groups.contains { $0.cwd == tab.cwd } : tab.cwd == id
@@ -48,7 +50,7 @@ struct Sidebar: View {
         return Section {
             ForEach(isOpen.wrappedValue ? tabs : []) { tab in
                 TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
-                    .tag(SidebarItem.tab(tab.id))
+                    .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { store.activate(.tab(tab.id)) })
                     .id(SidebarItem.tab(tab.id))
                     .contextMenu { Button("Close Tab") { store.close(tab.id) } }
             }
@@ -61,8 +63,10 @@ struct Sidebar: View {
                     pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
                     showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
                 )
-                    .tag(SidebarItem.session(session.id))
-                    .id(SidebarItem.session(session.id))
+                .modifier(RowChrome(id: session.title, isSelected: selection == .session(session.id), isLocked: tab == nil && store.liveBySession[session.id] != nil) {
+                    store.activate(.session(session.id))
+                })
+                .id(SidebarItem.session(session.id))
                     .contextMenu {
                         if let tab { Button("Close Tab") { store.close(tab.id) } }
                     }
@@ -75,7 +79,8 @@ struct Sidebar: View {
                 .font(.subheadline)
                 .foregroundStyle(theme.secondary)
                 .pointerStyle(.link)
-                .selectionDisabled()
+                .padding(.leading, 8)
+                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
             }
         } header: {
             GroupHeader(
@@ -116,10 +121,11 @@ private struct GroupHeader: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 11, weight: .semibold))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .foregroundStyle(theme.secondary.opacity(isHovering ? 1 : 0.6))
-                        .frame(width: 12)
+                        .foregroundStyle(theme.secondary)
+                        .frame(width: 16)
+                        .padding(.trailing, 4)
                     Text(title)
                         .fontWeight(.semibold)
                         .foregroundStyle(theme.secondary)
@@ -148,6 +154,8 @@ private struct GroupHeader: View {
         }
         .font(.system(size: 11))
         .padding(.top, 16)
+        .padding(.leading, -6)
+        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
     }
@@ -170,9 +178,9 @@ private struct HeaderButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(.body.weight(.medium))
-                .foregroundStyle(isHeaderHovered ? theme.foreground : theme.secondary.opacity(0.6))
+                .foregroundStyle(theme.secondary.opacity(isHeaderHovered ? 1 : 0.6))
                 .frame(width: 24, height: 24)
-                .background(.quaternary.opacity(configuration.isPressed ? 2 : isHovering ? 1 : 0), in: .rect(cornerRadius: 8))
+                .background(theme.foreground.opacity(configuration.isPressed ? 0.12 : isHovering ? 0.06 : 0), in: .rect(cornerRadius: 8))
                 .contentShape(.rect)
                 .onHover { isHovering = $0 }
                 .pointerStyle(.link)
@@ -180,25 +188,28 @@ private struct HeaderButtonStyle: ButtonStyle {
     }
 }
 
-private struct RowHover: ViewModifier {
+private struct RowChrome: ViewModifier {
     let id: String
-    var isLocked = false
-    @State private var isHovering: Bool
-
-    init(id: String, isLocked: Bool = false) {
-        self.id = id
-        self.isLocked = isLocked
-        _isHovering = State(initialValue: Snapshot.forcedHover.contains(id))
-    }
+    let isSelected: Bool
+    let isLocked: Bool
+    let select: () -> Void
+    @State private var isHovering = false
+    @Environment(\.ghosttyTheme) private var theme
 
     func body(content: Content) -> some View {
+        let isHighlighted = isHovering || Snapshot.forcedHover.contains(id)
+        let fill = isSelected ? 0.1 : isHighlighted && !isLocked ? 0.05 : 0
         content
             .contentShape(.rect)
+            .onTapGesture(perform: select)
             .onHover { isHovering = $0 }
-            .pointerStyle(isLocked ? nil : .link)
+            .pointerStyle(isLocked || isSelected ? nil : .link)
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction(.default, select)
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
             .listRowBackground(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(.quaternary.opacity(isHovering && !isLocked ? 0.6 : 0))
+                    .fill(theme.foreground.opacity(fill))
                     .padding(.horizontal, 8)
             )
     }
@@ -232,7 +243,7 @@ private struct SessionRow: View {
             title: session.title,
             state: RowState(live: live),
             isLocked: isLocked,
-            modified: session.modified,
+            modified: session.lastActivity,
             detail: {
                 if session.pullRequest != nil || session.branch != nil {
                     HStack(spacing: 8) {
@@ -260,7 +271,6 @@ private struct SessionRow: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(16)
         }
-        .modifier(RowHover(id: session.title, isLocked: isLocked))
     }
 }
 
@@ -274,19 +284,25 @@ private struct TabRow: View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         Group {
             if tab.kind == .shell {
-                Label {
-                    Text(title).foregroundStyle(theme.foreground).lineLimit(1)
-                } icon: {
-                    Image(systemName: "apple.terminal").foregroundStyle(theme.secondary)
-                }
-                .padding(.vertical, 8)
+                Text(title)
+                    .foregroundStyle(theme.foreground)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 8)
+                    .padding(.vertical, 8)
+                    .overlay(alignment: .leading) {
+                        Image(systemName: "apple.terminal")
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.secondary)
+                            .frame(width: 16)
+                            .offset(x: -12)
+                    }
             } else {
                 CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil) {
                     Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary)
                 }
             }
         }
-        .modifier(RowHover(id: tab.id.uuidString))
     }
 }
 
@@ -299,32 +315,34 @@ private struct CardRow<Detail: View>: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            StatusSlot(state: state)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(title)
-                        .foregroundStyle(theme.foreground)
-                        .lineLimit(1)
-                        .opacity(isLocked ? 0.6 : 1)
-                    Spacer(minLength: 0)
-                    if let modified {
-                        Text(age(since: modified))
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(theme.secondary)
-                    }
-                }
-                ZStack(alignment: .leading) {
-                    Color.clear
-                    detail
-                }
-                .lineLimit(1)
-                .frame(height: 16)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .foregroundStyle(theme.foreground)
+                    .lineLimit(1)
                     .opacity(isLocked ? 0.6 : 1)
+                Spacer(minLength: 0)
+                if let modified {
+                    Text(age(since: modified))
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(theme.secondary)
+                }
             }
+            ZStack(alignment: .leading) {
+                Color.clear
+                detail
+            }
+            .lineLimit(1)
+            .frame(height: 16)
+            .opacity(isLocked ? 0.6 : 1)
         }
+        .padding(.leading, 8)
+        .padding(.trailing, 8)
         .padding(.vertical, 8)
+        .overlay(alignment: .topLeading) {
+            StatusSlot(state: state).offset(x: -8, y: 8)
+        }
     }
 
     private func age(since modified: Date) -> String {
@@ -358,7 +376,7 @@ private struct StatusSlot: View {
                     .accessibilityLabel("Needs you")
             }
         }
-        .frame(width: 12, height: 16)
+        .frame(width: 8, height: 16)
     }
 }
 

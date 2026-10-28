@@ -54,6 +54,11 @@ final class Store {
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var themeWatcher: FileWatcher?
+    @ObservationIgnored private var summaries: [SessionSummary] = []
+    @ObservationIgnored private var groupOrder: [String] = []
+    @ObservationIgnored var isPointerInSidebar = false {
+        didSet { if !isPointerInSidebar { applyGroups() } }
+    }
     @ObservationIgnored private var pullRequestsFetchedAt = Date.distantPast
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
 
@@ -79,6 +84,19 @@ final class Store {
         Task {
             await refreshTask?.value
             restoreOpenTabs()
+        }
+    }
+
+    private func applyGroups() {
+        let fresh = ProjectGroup.grouped(summaries)
+        let known = Set(groupOrder)
+        groupOrder = fresh.map(\.cwd).filter { !known.contains($0) } + groupOrder.filter { cwd in fresh.contains { $0.cwd == cwd } }
+        let previous = Dictionary(uniqueKeysWithValues: groups.map { ($0.cwd, $0) })
+        groups = groupOrder.compactMap { cwd in
+            guard let group = fresh.first(where: { $0.cwd == cwd }) else { return nil }
+            guard isPointerInSidebar, let shown = previous[cwd] else { return group }
+            let rank = Dictionary(uniqueKeysWithValues: shown.sessions.enumerated().map { ($1.id, $0) })
+            return ProjectGroup(cwd: cwd, sessions: group.sessions.sorted { rank[$0.id, default: -1] < rank[$1.id, default: -1] }, lastActivity: group.lastActivity)
         }
     }
 
@@ -110,7 +128,8 @@ final class Store {
                 return (index, index.refresh())
             }.value
             self.index = updated
-            groups = ProjectGroup.grouped(summaries)
+            self.summaries = summaries
+            applyGroups()
             refreshLive()
             hasScanned = true
             let unknown = summaries.contains { $0.pullRequest.map { pullRequestStates[$0.url] == nil } ?? false }

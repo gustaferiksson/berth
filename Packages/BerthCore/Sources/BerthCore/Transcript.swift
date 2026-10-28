@@ -10,15 +10,15 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let id: String
     public let cwd: String
     public let title: String
-    public let modified: Date
+    public let lastActivity: Date
     public let branch: String?
     public let pullRequest: PullRequestLink?
 
-    public init(id: String, cwd: String, title: String, modified: Date, branch: String? = nil, pullRequest: PullRequestLink? = nil) {
+    public init(id: String, cwd: String, title: String, lastActivity: Date, branch: String? = nil, pullRequest: PullRequestLink? = nil) {
         self.id = id
         self.cwd = cwd
         self.title = title
-        self.modified = modified
+        self.lastActivity = lastActivity
         self.branch = branch
         self.pullRequest = pullRequest
     }
@@ -60,13 +60,18 @@ public enum Transcript {
             id: id,
             cwd: cwd,
             title: String(oneLine.prefix(maxTitleLength)),
-            modified: modified,
+            lastActivity: lastConversation(in: tail) ?? lastConversation(in: head) ?? modified,
             branch: branch == "HEAD" || branch?.isEmpty == true ? nil : branch,
             pullRequest: link.flatMap { link in
                 guard let number = link.prNumber, let url = link.prUrl.flatMap(URL.init(string:)), let repository = link.prRepository else { return nil }
                 return PullRequestLink(number: number, url: url, repository: repository)
             }
         )
+    }
+
+    static func lastConversation(in records: [Record]) -> Date? {
+        records.last { $0.isConversation && $0.timestamp != nil }?.timestamp
+            .flatMap { try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0) }
     }
 
     static func records(in data: Data, dropFirst: Bool, dropLast: Bool) -> [Record] {
@@ -101,6 +106,7 @@ struct Record: Decodable {
     let type: String?
     let cwd: String?
     let gitBranch: String?
+    let timestamp: String?
     let prNumber: Int?
     let prUrl: String?
     let prRepository: String?
@@ -111,6 +117,10 @@ struct Record: Decodable {
     let isMeta: Bool?
     let isSidechain: Bool?
     let message: Message?
+
+    var isConversation: Bool {
+        (type == "assistant" && isSidechain != true) || promptText != nil
+    }
 
     var promptText: String? {
         guard type == "user", isMeta != true, isSidechain != true,
