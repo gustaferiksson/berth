@@ -45,7 +45,7 @@ struct Sidebar: View {
         let visible = isExpanded ? sessions : Array(sessions.prefix(Self.visibleSessions))
         return Section(isExpanded: expansion(of: id)) {
             ForEach(tabs) { tab in
-                TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] })
+                TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
                     .tag(SidebarItem.tab(tab.id))
                     .id(SidebarItem.tab(tab.id))
                     .contextMenu { Button("Close Tab") { store.close(tab.id) } }
@@ -101,16 +101,13 @@ private struct SessionRow: View {
     let isOpen: Bool
 
     var body: some View {
-        Label {
-            HStack(spacing: 4) {
-                Text(session.title)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 4)
-                StatusBadge(live: live, isOpen: isOpen)
-            }
-        } icon: {
-            Image(systemName: isOpen ? "bubble.left.fill" : "bubble.left")
+        HStack(spacing: 4) {
+            Text(session.title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(live != nil && !isOpen ? .secondary : .primary)
+            Spacer(minLength: 4)
+            StatusBadge(live: live, isOpen: isOpen)
         }
         .help("\(session.title)\n\(session.modified.formatted(.relative(presentation: .named)))")
     }
@@ -119,28 +116,22 @@ private struct SessionRow: View {
 private struct TabRow: View {
     let tab: Tab
     let live: LiveSession?
-
-    var body: some View {
-        Label {
-            HStack(spacing: 4) {
-                TabTitle(terminal: tab.terminal, fallback: tab.kind == .shell ? "Terminal" : "New Claude Session")
-                Spacer(minLength: 4)
-                if tab.kind == .claude { StatusBadge(live: live, isOpen: true) }
-            }
-        } icon: {
-            Image(systemName: tab.kind == .shell ? "apple.terminal" : "bubble.left.fill")
-        }
-    }
-}
-
-private struct TabTitle: View {
     @ObservedObject var terminal: TerminalViewState
-    let fallback: String
 
     var body: some View {
-        Text(terminal.title.isEmpty ? fallback : terminal.title)
-            .lineLimit(1)
-            .truncationMode(.tail)
+        let title = HStack(spacing: 4) {
+            Text(tab.title(terminalTitle: terminal.title, sessionTitle: nil))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 4)
+            if tab.kind == .claude { StatusBadge(live: live, isOpen: true) }
+        }
+        if tab.kind == .shell {
+            Label { title } icon: { Image(systemName: "apple.terminal") }
+        } else {
+            title
+        }
     }
 }
 

@@ -17,6 +17,17 @@ struct Tab: Identifiable {
     let terminal: TerminalViewState
 }
 
+extension Tab {
+    static let shellName = URL(filePath: ProcessInfo.processInfo.environment["SHELL"] ?? "zsh").lastPathComponent
+
+    func title(terminalTitle: String, sessionTitle: String?) -> String {
+        if let sessionTitle { return sessionTitle }
+        if kind == .claude { return terminalTitle.isEmpty ? "New Claude Session" : terminalTitle }
+        let isPath = terminalTitle.isEmpty || terminalTitle.hasPrefix("/") || terminalTitle.hasPrefix("~")
+        return isPath ? Self.shellName : terminalTitle
+    }
+}
+
 enum SidebarItem: Hashable {
     case tab(Tab.ID)
     case session(String)
@@ -88,6 +99,11 @@ final class Store {
             }) else { continue }
             tabs[position].sessionID = session.sessionId
         }
+    }
+
+    func sessionTitle(of tab: Tab) -> String? {
+        guard let id = tab.sessionID else { return nil }
+        return groups.lazy.flatMap(\.sessions).first { $0.id == id }?.title
     }
 
     func tab(forSession id: String) -> Tab? {
