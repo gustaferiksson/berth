@@ -20,7 +20,7 @@ struct Sidebar: View {
     }
 
     private var list: some View {
-        List(selection: Binding(get: { store.selection }, set: { store.activate($0) })) {
+        List(selection: Binding(get: { store.selection ?? Snapshot.forcedSelection(in: store.groups) }, set: { store.activate($0) })) {
             ForEach(store.groups) { group in
                 section(id: group.cwd, title: group.name, cwd: group.cwd, sessions: group.sessions)
             }
@@ -54,7 +54,13 @@ struct Sidebar: View {
             }
             ForEach(visible) { session in
                 let tab = store.tab(forSession: session.id)
-                SessionRow(session: session, live: store.liveBySession[session.id], isOpen: tab != nil)
+                SessionRow(
+                    session: session,
+                    live: store.liveBySession[session.id],
+                    isOpen: tab != nil,
+                    pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
+                    showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
+                )
                     .tag(SidebarItem.session(session.id))
                     .id(SidebarItem.session(session.id))
                     .contextMenu {
@@ -110,17 +116,17 @@ private struct GroupHeader: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.bold))
+                        .font(.system(size: 9, weight: .bold))
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .foregroundStyle(theme.secondary.opacity(isHovering ? 1 : 0.6))
                         .frame(width: 12)
                     Text(title)
                         .fontWeight(.semibold)
-                        .foregroundStyle(theme.foreground)
+                        .foregroundStyle(theme.secondary)
                         .lineLimit(1)
                     Text(count, format: .number)
                         .monospacedDigit()
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(theme.secondary.opacity(0.6))
                 }
                 .contentShape(.rect)
             }
@@ -140,8 +146,8 @@ private struct GroupHeader: View {
             .labelStyle(.iconOnly)
             .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
         }
-        .font(.subheadline)
-        .padding(.top, 12)
+        .font(.system(size: 11))
+        .padding(.top, 16)
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
     }
@@ -176,10 +182,12 @@ private struct HeaderButtonStyle: ButtonStyle {
 
 private struct RowHover: ViewModifier {
     let id: String
+    var isLocked = false
     @State private var isHovering: Bool
 
-    init(id: String) {
+    init(id: String, isLocked: Bool = false) {
         self.id = id
+        self.isLocked = isLocked
         _isHovering = State(initialValue: Snapshot.forcedHover.contains(id))
     }
 
@@ -187,10 +195,10 @@ private struct RowHover: ViewModifier {
         content
             .contentShape(.rect)
             .onHover { isHovering = $0 }
-            .pointerStyle(.link)
+            .pointerStyle(isLocked ? nil : .link)
             .listRowBackground(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(.quaternary.opacity(isHovering ? 0.6 : 0))
+                    .fill(.quaternary.opacity(isHovering && !isLocked ? 0.6 : 0))
                     .padding(.horizontal, 8)
             )
     }
@@ -199,15 +207,13 @@ private struct RowHover: ViewModifier {
 private enum RowState: Equatable {
     case working
     case needsYou(String?)
-    case idle
-    case elsewhere
 
-    init?(live: LiveSession?, isOpen: Bool) {
+    init?(live: LiveSession?) {
         guard let live else { return nil }
         switch live.activity {
         case .working: self = .working
         case let .needsInput(reason): self = .needsYou(reason)
-        case .idle: self = isOpen ? .idle : .elsewhere
+        case .idle: return nil
         }
     }
 }
@@ -216,11 +222,46 @@ private struct SessionRow: View {
     let session: SessionSummary
     let live: LiveSession?
     let isOpen: Bool
+    let pullRequestState: PullRequestState?
+    @Binding var showsLockedNotice: Bool
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        CardRow(title: session.title, state: RowState(live: live, isOpen: isOpen), modified: session.modified, branch: session.branch)
-            .help("\(session.title)\n\(session.modified.formatted(.relative(presentation: .named)))")
-            .modifier(RowHover(id: session.title))
+        let isLocked = live != nil && !isOpen
+        CardRow(
+            title: session.title,
+            state: RowState(live: live),
+            isLocked: isLocked,
+            modified: session.modified,
+            detail: {
+                if session.pullRequest != nil || session.branch != nil {
+                    HStack(spacing: 8) {
+                        if let pullRequest = session.pullRequest {
+                            PullRequestTag(link: pullRequest, state: pullRequestState)
+                        }
+                        if let branch = session.branch {
+                            BranchText(branch: branch)
+                        }
+                    }
+                } else if let prompt = session.lastPrompt {
+                    Label(prompt, systemImage: "text.bubble")
+                        .labelStyle(CompactLabel())
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
+                }
+            }
+        )
+        .help(isLocked ? "Running in another terminal" : session.title)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(isLocked ? "locked, running in another terminal" : "")
+        .popover(isPresented: $showsLockedNotice, arrowEdge: .trailing) {
+            Text("“\(session.title)” is running in another terminal. Quit it there to open it here, so the transcript isn’t written by two processes.")
+                .font(.callout)
+                .frame(width: 280)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(16)
+        }
+        .modifier(RowHover(id: session.title, isLocked: isLocked))
     }
 }
 
@@ -239,49 +280,52 @@ private struct TabRow: View {
                 } icon: {
                     Image(systemName: "apple.terminal").foregroundStyle(theme.secondary)
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 8)
             } else {
-                CardRow(title: title, state: RowState(live: live, isOpen: true), modified: nil, branch: nil)
+                CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil) {
+                    Text("New session").font(.caption).foregroundStyle(theme.secondary)
+                }
             }
         }
         .modifier(RowHover(id: tab.id.uuidString))
     }
 }
 
-private struct CardRow: View {
+private struct CardRow<Detail: View>: View {
     let title: String
     let state: RowState?
+    let isLocked: Bool
     let modified: Date?
-    let branch: String?
+    @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(title)
-                    .fontWeight(state.isNeedsYou ? .semibold : nil)
-                    .foregroundStyle(state == .elsewhere ? theme.secondary : theme.foreground)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if let modified {
-                    Text(age(since: modified))
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(theme.secondary)
-                }
-            }
-            if state.isActive || branch != nil {
-                HStack(spacing: 8) {
-                    if state.isActive {
-                        StateTag(state: state)
-                    }
-                    if let branch {
-                        BranchTag(branch: branch)
+        HStack(alignment: .top, spacing: 8) {
+            StatusSlot(state: state)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title)
+                        .foregroundStyle(theme.foreground)
+                        .lineLimit(1)
+                        .opacity(isLocked ? 0.6 : 1)
+                    Spacer(minLength: 0)
+                    if let modified {
+                        Text(age(since: modified))
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(theme.secondary)
                     }
                 }
+                ZStack(alignment: .leading) {
+                    Color.clear
+                    detail
+                }
+                .lineLimit(1)
+                .frame(height: 16)
+                    .opacity(isLocked ? 0.6 : 1)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
     }
 
     private func age(since modified: Date) -> String {
@@ -294,59 +338,89 @@ private struct CardRow: View {
     }
 }
 
-private extension RowState? {
-    var isNeedsYou: Bool {
-        if case .needsYou = self { return true }
-        return false
-    }
-
-    var isActive: Bool {
-        isNeedsYou || self == .working
-    }
-}
-
-private struct StateGlyph: View {
+private struct StatusSlot: View {
     let state: RowState?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        if state == .working {
-            Image(systemName: "ellipsis")
-                .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeat(.continuous))
-                .fontWeight(.bold)
-                .foregroundStyle(theme.working)
-        } else if state.isNeedsYou {
-            Image(systemName: "hand.raised.fill")
-                .foregroundStyle(theme.needsYou)
+        ZStack {
+            if state == .working {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 9, weight: .black))
+                    .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeat(.continuous))
+                    .foregroundStyle(theme.working)
+                    .help("Working")
+                    .accessibilityLabel("Working")
+            } else if case let .needsYou(reason) = state {
+                Circle()
+                    .fill(theme.needsYou)
+                    .frame(width: 8, height: 8)
+                    .help("Needs you\(reason.map { ": \($0)" } ?? "")")
+                    .accessibilityLabel("Needs you")
+            }
         }
+        .frame(width: 12, height: 16)
     }
 }
 
-private struct StateTag: View {
-    let state: RowState?
+private struct PullRequestTag: View {
+    let link: PullRequestLink
+    let state: PullRequestState?
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.openURL) private var openURL
+    @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            StateGlyph(state: state).imageScale(.small)
-            Text(state.isNeedsYou ? "Needs you" : "Working")
+        let color = color(for: state)
+        Button {
+            openURL(link.url)
+        } label: {
+            Label {
+                Text(verbatim: "#\(link.number)")
+            } icon: {
+                Image(systemName: "arrow.triangle.pull")
+            }
+            .labelStyle(CompactLabel())
+            .font(.caption.monospaced())
+            .foregroundStyle(color)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
         }
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(state.isNeedsYou ? theme.needsYou : theme.working)
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .pointerStyle(.link)
+        .help("Open pull request #\(link.number)")
+    }
+
+    private func color(for state: PullRequestState?) -> Color {
+        guard let state else { return theme.secondary }
+        if state == .open { return theme.working }
+        if state == .merged { return theme.merged }
+        if state == .closed { return theme.closed }
+        return theme.secondary
     }
 }
 
-private struct BranchTag: View {
+private struct BranchText: View {
     let branch: String
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
+        Label(branch, systemImage: "arrow.triangle.branch")
+            .labelStyle(CompactLabel())
+            .font(.caption.monospaced())
+            .foregroundStyle(theme.branch.opacity(0.8))
+            .truncationMode(.middle)
+            .layoutPriority(-1)
+    }
+}
+
+private struct CompactLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: "arrow.triangle.branch").imageScale(.small)
-            Text(branch).truncationMode(.middle)
+            configuration.icon.imageScale(.small)
+            configuration.title
         }
-        .font(.caption.monospaced())
-        .foregroundStyle(theme.branch.opacity(0.8))
-        .lineLimit(1)
     }
 }

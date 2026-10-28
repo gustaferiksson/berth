@@ -42,17 +42,20 @@ final class Store {
         didSet { saveOpenTabs() }
     }
     var selectedTabID: Tab.ID?
-    var notice: String?
+    var lockedSessionID: String?
     private(set) var groups: [ProjectGroup] = []
     private(set) var liveBySession: [String: LiveSession] = [:]
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
+    private(set) var pullRequestStates: [URL: PullRequestState] = [:]
 
     @ObservationIgnored var persistsTabs = true
     @ObservationIgnored private var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var themeWatcher: FileWatcher?
+    @ObservationIgnored private var pullRequestsFetchedAt = Date.distantPast
+    @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
 
     func start(restoringTabs: Bool) {
         let sessions = Self.claudeDirectory.appending(path: "sessions").path
@@ -65,11 +68,27 @@ final class Store {
             }
         }
         themeWatcher = FileWatcher(paths: GhosttyConfig.directories, latency: 0.5) { [weak self] _ in self?.reloadTheme() }
+        pullRequestPolling = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(300))
+                self?.refreshPullRequests()
+            }
+        }
         refresh()
         guard restoringTabs else { return }
         Task {
             await refreshTask?.value
             restoreOpenTabs()
+        }
+    }
+
+    func refreshPullRequests() {
+        let links = Set(groups.flatMap { $0.sessions.compactMap(\.pullRequest) })
+        guard !links.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
+        pullRequestsFetchedAt = .now
+        Task {
+            let states = await Task.detached { await PullRequestStatus.fetch(links) }.value
+            pullRequestStates.merge(states) { $1 }
         }
     }
 
@@ -94,6 +113,8 @@ final class Store {
             groups = ProjectGroup.grouped(summaries)
             refreshLive()
             hasScanned = true
+            let unknown = summaries.contains { $0.pullRequest.map { pullRequestStates[$0.url] == nil } ?? false }
+            if unknown { refreshPullRequests() }
         }
     }
 
@@ -154,7 +175,7 @@ final class Store {
             return
         }
         guard liveBySession[session.id] == nil else {
-            notice = "“\(session.title)” is running in another terminal. Quit it there to open it here, so the transcript isn’t written by two processes."
+            lockedSessionID = session.id
             return
         }
         openClaude(cwd: session.cwd, resuming: session.id)

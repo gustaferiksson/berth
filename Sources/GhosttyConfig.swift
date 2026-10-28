@@ -73,6 +73,8 @@ struct GhosttyTheme: Equatable {
     let needsYou: Color
     let working: Color
     let branch: Color
+    let merged: Color
+    let closed: Color
 
     init(values: [String: String]) {
         let background = values["background"].flatMap(RGB.init(hex:))
@@ -88,6 +90,8 @@ struct GhosttyTheme: Equatable {
         needsYou = readable("palette-3", .orange)
         working = readable("palette-2", .green)
         branch = readable("palette-6", .teal)
+        merged = readable("palette-5", .purple)
+        closed = readable("palette-1", .red)
     }
 }
 

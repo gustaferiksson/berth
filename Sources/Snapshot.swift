@@ -1,3 +1,4 @@
+import BerthCore
 import AppKit
 import SwiftUI
 
@@ -7,6 +8,16 @@ enum Snapshot {
     #else
     static let output: URL? = nil
     #endif
+
+    static func forcedSelection(in groups: [ProjectGroup]) -> SidebarItem? {
+        #if DEBUG
+        let index = UserDefaults.standard.integer(forKey: "snapshotSelectRow")
+        guard index > 0, let sessions = groups.first?.sessions, index <= sessions.count else { return nil }
+        return .session(sessions[index - 1].id)
+        #else
+        return nil
+        #endif
+    }
 
     #if DEBUG
     static let forcedHover = Set((UserDefaults.standard.string(forKey: "snapshotHover") ?? "").split(separator: "|").map(String.init))

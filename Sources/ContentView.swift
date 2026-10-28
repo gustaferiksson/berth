@@ -40,11 +40,22 @@ struct ContentView: View {
         .containerBackground(store.theme.background ?? .clear, for: .window)
         .environment(\.ghosttyTheme, store.theme)
         .preferredColorScheme(store.theme.isDark ? .dark : .light)
-        .alert("Running Elsewhere", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })) {
-            Button("OK") {}
-        } message: {
-            Text(store.notice ?? "")
-        }
+        .background(WindowChrome(color: store.theme.background))
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in store.refreshPullRequests() }
     }
 }
 
+
+private struct WindowChrome: NSViewRepresentable {
+    let color: Color?
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.titlebarAppearsTransparent = color != nil
+            window.backgroundColor = color.map(NSColor.init) ?? .windowBackgroundColor
+        }
+    }
+}
