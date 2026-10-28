@@ -36,8 +36,16 @@ public struct TranscriptIndex: Sendable {
     }
 
     public var searchSources: [TranscriptSearchIndex.Source] {
-        entries.compactMap { path, entry in
-            entry.summary.map { TranscriptSearchIndex.Source(sessionID: $0.id, url: URL(filePath: path), modified: entry.modified, size: entry.size) }
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
+        return entries.flatMap { path, entry -> [TranscriptSearchIndex.Source] in
+            guard let summary = entry.summary else { return [] }
+            let url = URL(filePath: path)
+            let subagents = (try? FileManager.default.contentsOfDirectory(at: url.deletingPathExtension().appending(path: "subagents"), includingPropertiesForKeys: Array(keys))) ?? []
+            return [TranscriptSearchIndex.Source(sessionID: summary.id, url: url, modified: entry.modified, size: entry.size)]
+                + subagents.compactMap { file in
+                    guard file.pathExtension == "jsonl", let values = try? file.resourceValues(forKeys: keys), let modified = values.contentModificationDate, let size = values.fileSize else { return nil }
+                    return TranscriptSearchIndex.Source(sessionID: summary.id, url: file, modified: modified, size: size)
+                }
         }
     }
 

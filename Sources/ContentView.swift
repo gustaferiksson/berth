@@ -8,6 +8,7 @@ struct ContentView: View {
     @AppStorage("terminalPanelWidth") private var panelWidth = 420.0
     @Environment(\.appearsActive) private var appearsActive
     @State private var pulse = WorkingPulse()
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var store = store
@@ -76,6 +77,11 @@ struct ContentView: View {
         .preferredColorScheme(store.theme.isDark ? .dark : .light)
         .background(WindowChrome(color: store.theme.background))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in store.refreshPullRequests() }
+        .onChange(of: store.isStatsRequested) {
+            guard store.isStatsRequested else { return }
+            store.isStatsRequested = false
+            openWindow(id: "stats")
+        }
         .sheet(item: $store.editingGroup) { GroupEditor(group: $0) }
         .confirmationDialog("Delete “\(store.deletingGroup?.name ?? "")”?", isPresented: Binding(get: { store.deletingGroup != nil }, set: { if !$0 { store.deletingGroup = nil } }), presenting: store.deletingGroup) { group in
             Button("Delete Group", role: .destructive) { store.customGroups.removeAll { $0.id == group.id } }
@@ -120,7 +126,7 @@ struct Hairline: View {
     }
 }
 
-private struct WindowChrome: NSViewRepresentable {
+struct WindowChrome: NSViewRepresentable {
     let color: Color?
 
     func makeNSView(context: Context) -> NSView { NSView() }

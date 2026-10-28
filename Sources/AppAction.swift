@@ -4,11 +4,11 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, newSession, searchSessions, newTerminal, toggleTerminalPanel, clearTerminal, archiveCurrentSession
     case groupBy(GroupingMode)
-    case newGroup, collapseAllGroups, expandAllGroups, settings
+    case newGroup, collapseAllGroups, expandAllGroups, showStats, settings
 
     static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .toggleTerminalPanel, .clearTerminal, .archiveCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
-        + [.newGroup, .collapseAllGroups, .expandAllGroups, .settings]
+        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .settings]
     static let routedPastTerminal: [AppAction] = [.commandPalette, .toggleTerminalPanel, .newTerminal, .clearTerminal]
 
     var title: String {
@@ -24,6 +24,7 @@ enum AppAction: Hashable {
         case .newGroup: "New Group…"
         case .collapseAllGroups: "Collapse All Groups"
         case .expandAllGroups: "Expand All Groups"
+        case .showStats: "Show Stats"
         case .settings: "Settings…"
         }
     }
@@ -36,6 +37,7 @@ enum AppAction: Hashable {
         case .toggleTerminalPanel: "show hide shell"
         case .clearTerminal: "screen scrollback"
         case .groupBy: "sidebar"
+        case .showStats: "usage tokens charts activity"
         case .settings: "preferences"
         default: ""
         }
@@ -54,6 +56,7 @@ enum AppAction: Hashable {
         case .newGroup: "folder.badge.plus"
         case .collapseAllGroups: "rectangle.compress.vertical"
         case .expandAllGroups: "rectangle.expand.vertical"
+        case .showStats: "chart.bar.xaxis"
         case .settings: "gear"
         }
     }
@@ -67,6 +70,7 @@ enum AppAction: Hashable {
         case .toggleTerminalPanel: KeyboardShortcut("j")
         case .clearTerminal: KeyboardShortcut("k", modifiers: [.command, .option])
         case let .groupBy(mode): KeyboardShortcut(KeyEquivalent(Character("\((GroupingMode.allCases.firstIndex(of: mode) ?? 0) + 1)")), modifiers: [.control, .command])
+        case .showStats: KeyboardShortcut("s", modifiers: [.command, .shift])
         case .settings: KeyboardShortcut(",")
         default: nil
         }
@@ -94,6 +98,7 @@ enum AppAction: Hashable {
         case .newGroup: store.editingGroup = CustomGroup(name: "", rules: [])
         case .collapseAllGroups: store.setGroupsExpanded(false)
         case .expandAllGroups: store.setGroupsExpanded(true)
+        case .showStats: store.isStatsRequested = true
         case .settings: break
         }
     }

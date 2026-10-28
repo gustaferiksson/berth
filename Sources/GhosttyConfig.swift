@@ -88,23 +88,28 @@ struct GhosttyTheme: Equatable {
     let branch: Color
     let merged: Color
     let closed: Color
+    let series: [Color]
 
     init(values: [String: String]) {
         let background = values["background"].flatMap(RGB.init(hex:))
         let surface = background ?? RGB(red: 1, green: 1, blue: 1)
-        let readable = { (key: String, fallback: Color) -> Color in
-            guard let rgb = values[key].flatMap(RGB.init(hex:)), rgb.contrast(with: surface) >= 4.5 else { return fallback }
+        let readable = { (key: String, fallback: Color, minimum: Double) -> Color in
+            guard let rgb = values[key].flatMap(RGB.init(hex:)), rgb.contrast(with: surface) >= minimum else { return fallback }
             return rgb.color
         }
         isDark = surface.luminance < 0.18
         self.background = background?.color
-        foreground = readable("foreground", .primary)
+        foreground = readable("foreground", .primary, 4.5)
         secondary = foreground.opacity(0.6)
-        needsYou = readable("palette-3", .orange)
-        working = readable("palette-2", .green)
-        branch = readable("palette-6", .teal)
-        merged = readable("palette-5", .purple)
-        closed = readable("palette-1", .red)
+        needsYou = readable("palette-3", .orange, 4.5)
+        working = readable("palette-2", .green, 4.5)
+        branch = readable("palette-6", .teal, 4.5)
+        merged = readable("palette-5", .purple, 4.5)
+        closed = readable("palette-1", .red, 4.5)
+        let slots = [("palette-6", Color.teal), ("palette-1", .red), ("palette-4", .blue), ("palette-3", .yellow), ("palette-5", .purple), ("palette-2", .green)]
+        series = slots.enumerated().map { index, slot in
+            slots[(index + 1)...].contains { values[$0.0] == values[slot.0] } ? slot.1 : readable(slot.0, slot.1, 3)
+        }
     }
 }
 

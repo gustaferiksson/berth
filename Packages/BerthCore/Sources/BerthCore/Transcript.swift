@@ -96,10 +96,25 @@ struct Record: Decodable {
             let name: String?
         }
 
+        struct Usage: Decodable {
+            let input: Int?
+            let output: Int?
+            let cacheRead: Int?
+            let cacheWrite: Int?
+
+            enum CodingKeys: String, CodingKey {
+                case input = "input_tokens", output = "output_tokens", cacheRead = "cache_read_input_tokens", cacheWrite = "cache_creation_input_tokens"
+            }
+        }
+
         let content: [Block]
+        let id: String?
+        let usage: Usage?
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try? container.decode(String.self, forKey: .id)
+            usage = try? container.decode(Usage.self, forKey: .usage)
             if let text = try? container.decode(String.self, forKey: .content) {
                 content = [Block(type: "text", text: text, name: nil)]
             } else {
@@ -107,7 +122,7 @@ struct Record: Decodable {
             }
         }
 
-        enum CodingKeys: String, CodingKey { case content }
+        enum CodingKeys: String, CodingKey { case content, id, usage }
     }
 
     let type: String?

@@ -47,8 +47,18 @@ struct BerthApp: App {
                 Menu("Group By") { GroupingMenuItems(store: appDelegate.store) }
                 AppAction.collapseAllGroups.menuButton(appDelegate.store)
                 AppAction.expandAllGroups.menuButton(appDelegate.store)
+                Divider()
+                AppAction.showStats.menuButton(appDelegate.store)
             }
         }
+
+        Window("Stats", id: "stats") {
+            StatsView()
+                .environment(appDelegate.store)
+        }
+        .defaultSize(width: 960, height: 800)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
 
         Settings {
             SettingsView()

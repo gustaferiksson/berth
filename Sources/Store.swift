@@ -64,6 +64,7 @@ final class Store {
     private(set) var peekMessages: [PeekMessage]?
     var missingFolder: String?
     var editingGroup: CustomGroup?
+    var isStatsRequested = false
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
         willSet {
@@ -236,8 +237,11 @@ final class Store {
         searchIndexTask = Task { [previous = searchIndexTask, refreshTask] in
             await previous?.value
             await refreshTask?.value
-            let sources = index.searchSources
-            let stale = searchIndex.stale(sources).sorted { $0.modified > $1.modified }
+            let sources = await Task.detached { [index] in index.searchSources }.value
+            let stale = searchIndex.stale(sources).sorted { lhs, rhs in
+                let (left, right) = (lhs.url.path.contains("/subagents/"), rhs.url.path.contains("/subagents/"))
+                return left != right ? right : lhs.modified > rhs.modified
+            }
             searchIndex.retain(sources)
             searchIndexing = stale.isEmpty ? nil : (0, stale.count)
             for start in stride(from: 0, to: stale.count, by: 10) {

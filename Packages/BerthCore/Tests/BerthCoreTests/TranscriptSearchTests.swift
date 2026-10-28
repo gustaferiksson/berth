@@ -104,4 +104,52 @@ struct TranscriptSearchTests {
         #expect(index.search("ibis", in: sessions).isEmpty)
         #expect(index.textBytes <= 2 * 41)
     }
+
+    func usage(_ id: String, at time: String, output: Int, sidechain: Bool = false) -> String {
+        #"{"type":"assistant","isSidechain":\#(sidechain),"timestamp":"2026-03-04T\#(time)Z","message":{"model":"claude-x","id":"\#(id)","content":[{"type":"tool_use","name":"Bash","input":{}}],"usage":{"input_tokens":1,"cache_creation_input_tokens":10,"cache_read_input_tokens":100,"output_tokens":\#(output)}}}"#
+    }
+
+    @Test func collectsPromptTimesAndUsageOncePerMessage() throws {
+        var index = TranscriptSearchIndex(maxTextPerSession: 4)
+        index.index(try source("a", [
+            #"{"type":"user","timestamp":"2026-03-04T10:00:00.000Z","message":{"content":"typed prompt beyond the text cap"}}"#,
+            #"{"type":"user","isMeta":true,"timestamp":"2026-03-04T10:00:01.000Z","message":{"content":"meta"}}"#,
+            usage("m1", at: "10:00:02.000", output: 5),
+            usage("m1", at: "10:00:03.000", output: 5),
+            usage("m2", at: "10:00:04.000", output: 7),
+            #"{"type":"user","timestamp":"2026-03-04T10:01:00.000Z","message":{"content":"second prompt"}}"#,
+        ]))
+        let activity = try #require(index.activities["a"])
+        #expect(activity.prompts.count == 2)
+        #expect(activity.replies.map(\.tokens.output) == [5, 7])
+        #expect(activity.replies[0].tokens == TokenUsage(input: 1, output: 5, cacheRead: 100, cacheWrite: 10))
+    }
+
+    @Test func subagentUsageCountsTowardsItsSessionButIsNotSearchable() throws {
+        var index = TranscriptSearchIndex()
+        index.index(try source("a", [prompt("main grebe"), usage("m1", at: "10:00:00.000", output: 3)]))
+        let subagent = try source("agent-1", [
+            #"{"type":"user","isSidechain":true,"timestamp":"2026-03-04T10:00:01.000Z","message":{"content":"delegated tern"}}"#,
+            usage("s1", at: "10:00:02.000", output: 4, sidechain: true),
+        ])
+        index.index(TranscriptSearchIndex.Source(sessionID: "a", url: subagent.url, modified: subagent.modified, size: subagent.size))
+        #expect(index.activities["a"]?.replies.map(\.tokens.output).sorted() == [3, 4])
+        #expect(index.activities["a"]?.prompts.isEmpty == true)
+        let sessions = [session("a", minutesAgo: 1)]
+        #expect(index.search("grebe", in: sessions).count == 1)
+        #expect(index.search("tern", in: sessions).isEmpty)
+    }
+
+    @Test func appendedStreamingRecordsOfTheSameMessageCountOnce() throws {
+        var index = TranscriptSearchIndex()
+        let first = try source("a", [usage("m1", at: "10:00:00.000", output: 5)])
+        index.index(first)
+        let handle = try FileHandle(forWritingTo: first.url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((usage("m1", at: "10:00:01.000", output: 5) + "\n" + usage("m2", at: "10:00:02.000", output: 6) + "\n").utf8))
+        try handle.close()
+        let values = try first.url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        index.index(TranscriptSearchIndex.Source(sessionID: "a", url: first.url, modified: values.contentModificationDate ?? .now, size: values.fileSize ?? 0))
+        #expect(index.activities["a"]?.replies.map(\.tokens.output) == [5, 6])
+    }
 }

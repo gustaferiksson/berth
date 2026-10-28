@@ -21,12 +21,14 @@ public struct TranscriptSearchIndex: Sendable {
     }
 
     struct Document: Sendable {
-        let path: String
+        let sessionID: String
         let modified: Date
         let size: Int
         let offset: UInt64
         let text: String
         let folded: String
+        let activity: SessionActivity
+        let lastMessageID: String?
     }
 
     static let separator: Character = "\u{1E}"
@@ -48,29 +50,38 @@ public struct TranscriptSearchIndex: Sendable {
 
     public func stale(_ sources: [Source]) -> [Source] {
         sources.filter { source in
-            guard let document = documents[source.sessionID] else { return true }
-            return document.path != source.url.path || document.modified != source.modified || document.size != source.size
+            guard let document = documents[source.url.path] else { return true }
+            return document.sessionID != source.sessionID || document.modified != source.modified || document.size != source.size
         }
     }
 
     public mutating func retain(_ sources: [Source]) {
-        let kept = Set(sources.map(\.sessionID))
+        let kept = Set(sources.map(\.url.path))
         documents = documents.filter { kept.contains($0.key) }
     }
 
     public mutating func index(_ source: Source) {
-        let previous = documents[source.sessionID].flatMap { $0.path == source.url.path && $0.size <= source.size ? $0 : nil }
-        let (messages, offset) = Self.messages(in: source.url, from: previous?.offset ?? 0, budget: maxTextPerSession - (previous?.text.utf8.count ?? 0))
-        let added = messages.map { String($0.filter { $0 != Self.separator }) }.joined(separator: String(Self.separator))
+        let previous = documents[source.url.path].flatMap { $0.sessionID == source.sessionID && $0.size <= source.size ? $0 : nil }
+        let scan = Self.scan(source.url, from: previous?.offset ?? 0, budget: maxTextPerSession - (previous?.text.utf8.count ?? 0), lastMessageID: previous?.lastMessageID)
+        let added = scan.messages.map { String($0.filter { $0 != Self.separator }) }.joined(separator: String(Self.separator))
         let text = [previous?.text ?? "", added].filter { !$0.isEmpty }.joined(separator: String(Self.separator))
-        documents[source.sessionID] = Document(
-            path: source.url.path,
+        documents[source.url.path] = Document(
+            sessionID: source.sessionID,
             modified: source.modified,
             size: source.size,
-            offset: offset,
+            offset: scan.offset,
             text: text,
-            folded: text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            folded: text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil),
+            activity: SessionActivity(prompts: (previous?.activity.prompts ?? []) + scan.activity.prompts, replies: (previous?.activity.replies ?? []) + scan.activity.replies),
+            lastMessageID: scan.lastMessageID
         )
+    }
+
+    public var activities: [String: SessionActivity] {
+        documents.values.reduce(into: [:]) { result, document in
+            result[document.sessionID, default: SessionActivity()].prompts += document.activity.prompts
+            result[document.sessionID, default: SessionActivity()].replies += document.activity.replies
+        }
     }
 
     public func search(_ query: String, in sessions: [SessionSummary], limit: Int = 50) -> [SearchHit] {
@@ -78,8 +89,9 @@ public struct TranscriptSearchIndex: Sendable {
         guard !words.isEmpty else { return [] }
         let needles = words.map { Array($0.utf8) }
         let contains = { (text: Substring, needle: [UInt8]) in text.utf8.withContiguousStorageIfAvailable { memmem($0.baseAddress, $0.count, needle, needle.count) != nil } ?? false }
+        let transcripts = Dictionary(documents.values.filter { !$0.text.isEmpty }.map { ($0.sessionID, $0) }) { first, _ in first }
         let matching = sessions.sorted { $0.lastActivity > $1.lastActivity }.lazy.compactMap { session -> (SessionSummary, Document)? in
-            guard let document = self.documents[session.id], needles.allSatisfy({ contains(Substring(document.folded), $0) }) else { return nil }
+            guard let document = transcripts[session.id], needles.allSatisfy({ contains(Substring(document.folded), $0) }) else { return nil }
             return (session, document)
         }
         return matching.prefix(limit).map { session, document in
@@ -111,15 +123,18 @@ public struct TranscriptSearchIndex: Sendable {
         return SearchSnippet(text: text, highlights: highlights)
     }
 
-    static func messages(in url: URL, from offset: UInt64, budget: Int) -> (messages: [String], offset: UInt64) {
-        guard budget > 0, let handle = try? FileHandle(forReadingFrom: url), (try? handle.seek(toOffset: offset)) != nil else { return ([], offset) }
+    static func scan(_ url: URL, from offset: UInt64, budget: Int, lastMessageID: String?) -> (messages: [String], activity: SessionActivity, lastMessageID: String?, offset: UInt64) {
+        guard let handle = try? FileHandle(forReadingFrom: url), (try? handle.seek(toOffset: offset)) != nil else { return ([], SessionActivity(), lastMessageID, offset) }
         defer { try? handle.close() }
         var messages: [String] = []
+        var activity = SessionActivity()
+        var lastMessageID = lastMessageID
         var used = 0
         var consumed = offset
         var pending = Data()
         let decoder = JSONDecoder()
-        while used < budget, let chunk = autoreleasepool(invoking: { try? handle.read(upToCount: 1 << 20) }), !chunk.isEmpty {
+        let timestamps = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        while let chunk = autoreleasepool(invoking: { try? handle.read(upToCount: 1 << 20) }), !chunk.isEmpty {
             pending.append(chunk)
             let (lines, complete) = pending.withUnsafeBytes { buffer -> ([Data], Int) in
                 guard let base = buffer.baseAddress else { return ([], 0) }
@@ -135,8 +150,16 @@ public struct TranscriptSearchIndex: Sendable {
             }
             consumed += UInt64(complete)
             pending = Data(pending.dropFirst(complete))
-            for line in lines where used < budget {
+            for line in lines {
                 guard let record = try? decoder.decode(Record.self, from: line) else { continue }
+                let messageID = record.message?.id
+                if let usage = record.message?.usage, record.type == "assistant", messageID == nil || messageID != lastMessageID,
+                   let date = record.timestamp.flatMap({ try? timestamps.parse($0) }) {
+                    lastMessageID = messageID
+                    activity.replies.append(SessionActivity.Reply(date: date, tokens: TokenUsage(input: usage.input ?? 0, output: usage.output ?? 0, cacheRead: usage.cacheRead ?? 0, cacheWrite: usage.cacheWrite ?? 0)))
+                }
+                if record.typedPrompt != nil, let date = record.timestamp.flatMap({ try? timestamps.parse($0) }) { activity.prompts.append(date) }
+                guard record.isSidechain != true else { continue }
                 let texts = record.typedPrompt.map { [$0] } ?? (record.type == "assistant" ? (record.message?.content ?? []).compactMap { $0.type == "text" ? $0.text : nil } : [])
                 for text in texts where !text.allSatisfy(\.isWhitespace) && used < budget {
                     let kept = String(decoding: text.utf8.prefix(budget - used), as: UTF8.self)
@@ -145,13 +168,13 @@ public struct TranscriptSearchIndex: Sendable {
                 }
             }
         }
-        return (messages, consumed)
+        return (messages, activity, lastMessageID, consumed)
     }
 
     static func isCandidate(_ line: UnsafeRawBufferPointer) -> Bool {
         let has = { (pattern: StaticString) in memmem(line.baseAddress, line.count, pattern.utf8Start, pattern.utf8CodeUnitCount) != nil }
-        guard !has(#""isSidechain":true"#), !has(#""isMeta":true"#) else { return false }
-        if has(#""type":"assistant""#) { return has(#""type":"text""#) }
-        return has(#""type":"user""#) && !has(#""type":"tool_result""#)
+        if has(#""type":"user""#) { return !has(#""type":"tool_result""#) && !has(#""isSidechain":true"#) && !has(#""isMeta":true"#) }
+        guard has(#""type":"assistant""#) else { return false }
+        return has(#""usage":{"#) || has(#""type":"text""#) && !has(#""isSidechain":true"#)
     }
 }
