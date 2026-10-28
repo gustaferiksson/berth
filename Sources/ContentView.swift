@@ -9,6 +9,8 @@ struct ContentView: View {
         let selected = store.tabs.first { $0.id == store.selectedTabID }
         NavigationSplitView {
             Sidebar()
+                .scrollContentBackground(.hidden)
+                .background(store.theme.background?.opacity(0.4))
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 440)
         } detail: {
             ZStack {
@@ -32,6 +34,10 @@ struct ContentView: View {
                 .help("New terminal")
             }
         }
+        .toolbarBackground(store.theme.background ?? .clear, for: .windowToolbar)
+        .containerBackground(store.theme.background ?? .clear, for: .window)
+        .environment(\.ghosttyTheme, store.theme)
+        .preferredColorScheme(store.theme.isDark ? .dark : .light)
         .alert("Running Elsewhere", isPresented: Binding(get: { store.notice != nil }, set: { if !$0 { store.notice = nil } })) {
             Button("OK") {}
         } message: {

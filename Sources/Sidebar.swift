@@ -4,6 +4,7 @@ import SwiftUI
 
 struct Sidebar: View {
     @Environment(Store.self) private var store
+    @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedGroups") private var collapsedGroups = ""
     @State private var expandedGroups: Set<String> = []
 
@@ -65,7 +66,7 @@ struct Sidebar: View {
                 }
                 .buttonStyle(.plain)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(theme.secondary)
                 .pointerStyle(.link)
                 .selectionDisabled()
             }
@@ -97,20 +98,20 @@ private struct GroupHeader: View {
     let newTerminal: () -> Void
     let newClaude: (() -> Void)?
     @State private var isHovering = false
-
-    private static let folderColors: [Color] = [.blue, .purple, .pink, .teal, .indigo, .cyan, .mint, .brown]
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "folder.fill")
-                .foregroundStyle(Self.folderColors[cwd.utf8.reduce(0) { ($0 &* 31 &+ Int($1)) & 0xFFFF } % Self.folderColors.count])
+                .foregroundStyle(theme.folder)
                 .imageScale(.small)
             Text(title)
                 .lineLimit(1)
+                .foregroundStyle(theme.secondary)
                 .help(cwd)
             Text(count, format: .number)
                 .monospacedDigit()
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(theme.secondary.opacity(0.6))
             Spacer(minLength: 4)
             Button("New Terminal", systemImage: "apple.terminal", action: newTerminal)
                 .help("New terminal in \(title)")
@@ -120,7 +121,7 @@ private struct GroupHeader: View {
             }
         }
         .labelStyle(.iconOnly)
-        .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering))
+        .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
         .accessibilityElement(children: .contain)
@@ -129,20 +130,22 @@ private struct GroupHeader: View {
 
 private struct HeaderButtonStyle: ButtonStyle {
     let isHeaderHovered: Bool
+    let theme: GhosttyTheme
 
     func makeBody(configuration: Configuration) -> some View {
-        HeaderButton(configuration: configuration, isHeaderHovered: isHeaderHovered)
+        HeaderButton(configuration: configuration, isHeaderHovered: isHeaderHovered, theme: theme)
     }
 
     private struct HeaderButton: View {
         let configuration: ButtonStyleConfiguration
         let isHeaderHovered: Bool
+        let theme: GhosttyTheme
         @State private var isHovering = false
 
         var body: some View {
             configuration.label
                 .font(.body.weight(.medium))
-                .foregroundStyle(isHeaderHovered ? .primary : .tertiary)
+                .foregroundStyle(isHeaderHovered ? theme.foreground : theme.secondary.opacity(0.6))
                 .frame(width: 24, height: 24)
                 .background(.quaternary.opacity(configuration.isPressed ? 2 : isHovering ? 1 : 0), in: .rect(cornerRadius: 8))
                 .contentShape(.rect)
@@ -198,11 +201,11 @@ private enum RowState: Equatable {
         }
     }
 
-    var color: Color {
+    func color(in theme: GhosttyTheme) -> Color {
         switch self {
-        case .working: .green
-        case .needsYou: .orange
-        case .idle, .elsewhere: .secondary
+        case .working: theme.working
+        case .needsYou: theme.needsYou
+        case .idle, .elsewhere: theme.secondary
         }
     }
 
@@ -216,6 +219,7 @@ private struct SessionRow: View {
     let session: SessionSummary
     let live: LiveSession?
     let isOpen: Bool
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         let state = RowState(live: live, isOpen: isOpen)
@@ -223,7 +227,7 @@ private struct SessionRow: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(session.title)
                     .fontWeight(state?.isNeedsYou == true ? .semibold : nil)
-                    .foregroundStyle(state == .elsewhere ? .secondary : .primary)
+                    .foregroundStyle(state == .elsewhere ? theme.secondary : theme.foreground)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Metadata(state: state, modified: session.modified, branch: session.branch)
@@ -240,13 +244,14 @@ private struct Metadata: View {
     let state: RowState?
     let modified: Date?
     let branch: String?
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         HStack(spacing: 4) {
             if let state {
                 Text(state.word)
                     .fontWeight(state.isNeedsYou ? .semibold : nil)
-                    .foregroundStyle(state.color)
+                    .foregroundStyle(state.color(in: theme))
             }
             if let modified {
                 if state != nil { Text("·") }
@@ -263,7 +268,7 @@ private struct Metadata: View {
             }
         }
         .font(.subheadline)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(theme.secondary)
         .lineLimit(1)
     }
 
@@ -290,11 +295,13 @@ private struct TabRow: View {
     let tab: Tab
     let live: LiveSession?
     @ObservedObject var terminal: TerminalViewState
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         let title = Text(tab.title(terminalTitle: terminal.title, sessionTitle: nil))
             .lineLimit(1)
             .truncationMode(.tail)
+            .foregroundStyle(theme.foreground)
         if tab.kind == .shell {
             Label { title } icon: { Image(systemName: "apple.terminal") }
                 .modifier(RowHover(id: tab.id.uuidString))
@@ -315,18 +322,19 @@ private struct TabRow: View {
 
 private struct StatusIndicator: View {
     let state: RowState?
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         if state == .working {
             Image(systemName: "ellipsis")
                 .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeat(.continuous))
                 .fontWeight(.bold)
-                .foregroundStyle(.green)
+                .foregroundStyle(theme.working)
                 .help("Working")
         } else if case let .needsYou(reason) = state {
             Image(systemName: "hand.raised.circle.fill")
                 .symbolRenderingMode(.palette)
-                .foregroundStyle(.white, .orange)
+                .foregroundStyle(theme.background ?? .white, theme.needsYou)
                 .font(.title3)
                 .help("Needs you\(reason.map { ": \($0)" } ?? "")")
         }

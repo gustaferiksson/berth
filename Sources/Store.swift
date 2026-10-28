@@ -46,11 +46,13 @@ final class Store {
     private(set) var groups: [ProjectGroup] = []
     private(set) var liveBySession: [String: LiveSession] = [:]
     private(set) var hasScanned = false
+    private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
 
     @ObservationIgnored var persistsTabs = true
     @ObservationIgnored private var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FileWatcher?
+    @ObservationIgnored private var themeWatcher: FileWatcher?
 
     func start(restoringTabs: Bool) {
         let sessions = Self.claudeDirectory.appending(path: "sessions").path
@@ -62,12 +64,19 @@ final class Store {
                 refresh()
             }
         }
+        themeWatcher = FileWatcher(paths: GhosttyConfig.directories, latency: 0.5) { [weak self] _ in self?.reloadTheme() }
         refresh()
         guard restoringTabs else { return }
         Task {
             await refreshTask?.value
             restoreOpenTabs()
         }
+    }
+
+    private func reloadTheme() {
+        let values = GhosttyConfig.load().values
+        theme = GhosttyTheme(values: values)
+        GhosttyConfig.controller.setTerminalConfiguration(GhosttyConfig.colorConfiguration(values))
     }
 
     func waitForScan() async {
