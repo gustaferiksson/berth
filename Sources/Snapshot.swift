@@ -16,6 +16,9 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotShell") {
             store.openShell(cwd: store.groups.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
         }
+        if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
+            store.openClaude(cwd: cwd)
+        }
         let hosting = NSHostingController(rootView: ContentView().environment(store))
         hosting.sceneBridgingOptions = [.toolbars, .title]
         let window = UnconstrainedWindow(contentViewController: hosting)
@@ -25,7 +28,7 @@ enum Snapshot {
         window.setContentSize(NSSize(width: 1200, height: 760))
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderFrontRegardless()
-        try? await Task.sleep(for: .seconds(3))
+        try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil ? 3 : 10))
         guard !NSScreen.screens.contains(where: { $0.frame.intersects(window.frame) }) else { fail("window is on screen") }
         guard let image = image(of: window) else { fail("window capture failed: number \(window.windowNumber) visible \(window.isVisible) frame \(window.frame)") }
         guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),

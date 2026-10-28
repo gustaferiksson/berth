@@ -80,11 +80,12 @@ final class Store {
     func refreshLive() {
         let live = LiveSession.load(from: Self.claudeDirectory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
         liveBySession = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
-        for session in live {
-            guard let tabID = ProcessEnvironment.tabID(of: session.pid),
-                  let position = tabs.firstIndex(where: { $0.id == tabID }),
-                  tabs[position].sessionID != session.sessionId
-            else { continue }
+        let claimed = Set(tabs.compactMap(\.sessionID))
+        let orphans = live.filter { !claimed.contains($0.sessionId) && ProcessAncestry.isDescendant($0.pid, of: getpid()) }
+        for session in orphans {
+            guard let position = tabs.firstIndex(where: { tab in
+                tab.kind == .claude && tab.cwd == session.cwd && tab.sessionID.map { liveBySession[$0] == nil } ?? true
+            }) else { continue }
             tabs[position].sessionID = session.sessionId
         }
     }
@@ -136,7 +137,6 @@ final class Store {
         terminal.configuration = TerminalSurfaceOptions(
             backend: .exec,
             workingDirectory: cwd,
-            envVars: [ProcessEnvironment.tabKey: id.uuidString],
             command: command,
             waitAfterCommand: false
         )

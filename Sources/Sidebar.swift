@@ -10,6 +10,15 @@ struct Sidebar: View {
     private static let visibleSessions = 5
 
     var body: some View {
+        ScrollViewReader { proxy in
+            list.onChange(of: store.selection, initial: true) { _, selection in
+                guard let selection else { return }
+                Task { withAnimation { proxy.scrollTo(selection) } }
+            }
+        }
+    }
+
+    private var list: some View {
         List(selection: Binding(get: { store.selection }, set: { store.activate($0) })) {
             ForEach(store.groups) { group in
                 section(id: group.cwd, title: group.name, cwd: group.cwd, sessions: group.sessions)
@@ -38,12 +47,14 @@ struct Sidebar: View {
             ForEach(tabs) { tab in
                 TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] })
                     .tag(SidebarItem.tab(tab.id))
+                    .id(SidebarItem.tab(tab.id))
                     .contextMenu { Button("Close Tab") { store.close(tab.id) } }
             }
             ForEach(visible) { session in
                 let tab = store.tab(forSession: session.id)
                 SessionRow(session: session, live: store.liveBySession[session.id], isOpen: tab != nil)
                     .tag(SidebarItem.session(session))
+                    .id(SidebarItem.session(session))
                     .contextMenu {
                         if let tab { Button("Close Tab") { store.close(tab.id) } }
                     }

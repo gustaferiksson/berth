@@ -39,7 +39,7 @@ public enum Transcript {
     }
 
     static func summary(id: String, modified: Date, head: [Record], tail: [Record]) -> SessionSummary? {
-        guard let cwd = tail.last(where: { $0.cwd != nil })?.cwd ?? head.first(where: { $0.cwd != nil })?.cwd else { return nil }
+        guard let cwd = head.first(where: { $0.cwd != nil })?.cwd ?? tail.first(where: { $0.cwd != nil })?.cwd else { return nil }
         let titleKeys: [KeyPath<Record, String?>] = [\.customTitle, \.aiTitle, \.summary, \.agentName]
         let recordedTitle = titleKeys.lazy.compactMap { key in tail.last { $0[keyPath: key] != nil }?[keyPath: key] }.first
         guard let title = recordedTitle ?? head.lazy.compactMap(\.promptText).first else { return nil }

@@ -17,6 +17,7 @@ struct TranscriptTests {
 
     @Test func lastAITitleWins() {
         #expect(summary("ai-title")?.title == "Login bug fix")
+        #expect(summary("ai-title")?.cwd == "/Users/example/Repos/beta")
     }
 
     @Test func firstRealPromptIsCleanedUp() {
