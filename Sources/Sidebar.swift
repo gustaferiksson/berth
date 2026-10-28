@@ -64,6 +64,7 @@ struct Sidebar: View {
                     if isExpanded { expandedGroups.remove(id) } else { expandedGroups.insert(id) }
                 }
                 .buttonStyle(.plain)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .selectionDisabled()
             }
@@ -98,18 +99,9 @@ private struct GroupHeader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Label {
-                Text(title)
-                    .font(.subheadline)
-                    .bold()
-                    .foregroundStyle(.primary)
-            } icon: {
-                Image(systemName: "folder")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-            }
-            .lineLimit(1)
-            .help(cwd)
+            Text(title)
+                .lineLimit(1)
+                .help(cwd)
             Spacer(minLength: 4)
             ZStack(alignment: .trailing) {
                 Text(count, format: .number)
