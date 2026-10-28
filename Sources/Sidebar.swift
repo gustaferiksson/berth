@@ -7,29 +7,79 @@ struct Sidebar: View {
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedGroups") private var collapsedGroups = ""
     @State private var expandedGroups: Set<String> = []
+    @State private var cursor: SidebarItem?
+    @FocusState private var isFocused: Bool
 
     private static let visibleSessions = 5
+    private static let terminalsID = "Terminals"
+
+    private struct Group {
+        let id: String
+        let title: String
+        let cwd: String
+        let count: Int
+        let tabs: [Tab]
+        let sessions: [SessionSummary]
+        let hiddenSessions: Int
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
-            list.onChange(of: store.selection, initial: true) { _, selection in
-                guard let selection else { return }
-                Task { withAnimation { proxy.scrollTo(selection) } }
-            }
+            list
+                .onChange(of: store.selection, initial: true) { _, selection in
+                    cursor = nil
+                    guard let selection else { return }
+                    Task { withAnimation { proxy.scrollTo(selection) } }
+                }
+                .onChange(of: cursor) { _, cursor in
+                    guard let cursor else { return }
+                    withAnimation { proxy.scrollTo(cursor) }
+                }
         }
     }
 
-    private var list: some View {
-        let selection = store.selection ?? Snapshot.forcedSelection(in: store.groups)
-        return List {
-            ForEach(store.groups) { group in
-                section(id: group.cwd, title: group.name, cwd: group.cwd, sessions: group.sessions, selection: selection)
-            }
-            let terminals = store.tabs.filter { tab in !store.groups.contains { $0.cwd == tab.cwd } }
-            if !terminals.isEmpty {
-                section(id: Store.terminalsGroupID, title: "Terminals", cwd: FileManager.default.homeDirectoryForCurrentUser.path, sessions: [], selection: selection)
-            }
+    private var groups: [Group] {
+        let projects = store.groups.map { group in
+            let listed = Set(group.sessions.map(\.id))
+            let isOpen = !isCollapsed(group.cwd)
+            let sessions = expandedGroups.contains(group.cwd) ? group.sessions : Array(group.sessions.prefix(Self.visibleSessions))
+            let tabs = store.tabs.filter { $0.kind == .claude && $0.cwd == group.cwd && !($0.sessionID.map(listed.contains) ?? false) }
+            return Group(
+                id: group.cwd,
+                title: group.name,
+                cwd: group.cwd,
+                count: tabs.count + group.sessions.count,
+                tabs: isOpen ? tabs : [],
+                sessions: isOpen ? sessions : [],
+                hiddenSessions: isOpen ? group.sessions.count - sessions.count : 0
+            )
         }
+        let projectTabs = Set(projects.flatMap { group in store.tabs.filter { $0.kind == .claude && $0.cwd == group.cwd }.map(\.id) })
+        let terminals = store.tabs.filter { !projectTabs.contains($0.id) }
+        guard !terminals.isEmpty else { return projects }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return projects + [Group(id: Self.terminalsID, title: "Terminals", cwd: home, count: terminals.count, tabs: isCollapsed(Self.terminalsID) ? [] : terminals, sessions: [], hiddenSessions: 0)]
+    }
+
+    private var list: some View {
+        let groups = groups
+        let selection = cursor ?? store.selection ?? Snapshot.forcedSelection(in: store.groups)
+        let items = groups.flatMap { $0.tabs.map { SidebarItem.tab($0.id) } + $0.sessions.map { SidebarItem.session($0.id) } }
+        return List {
+            ForEach(groups, id: \.id) { section($0, selection: selection) }
+        }
+        .focusable()
+        .focused($isFocused)
+        .focusEffectDisabled()
+        .onKeyPress(.downArrow) { move(by: 1, in: items) }
+        .onKeyPress(.upArrow) { move(by: -1, in: items) }
+        .onKeyPress(.return) {
+            guard let cursor else { return .ignored }
+            store.activate(cursor)
+            return .handled
+        }
+        .onKeyPress(.leftArrow) { setExpanded(false, around: selection, in: groups) }
+        .onKeyPress(.rightArrow) { setExpanded(true, around: selection, in: groups) }
         .onHover { store.isPointerInSidebar = $0 }
         .overlay {
             if store.hasScanned, store.groups.isEmpty, store.tabs.isEmpty {
@@ -38,23 +88,40 @@ struct Sidebar: View {
         }
     }
 
-    private func section(id: String, title: String, cwd: String, sessions: [SessionSummary], selection: SidebarItem?) -> some View {
-        let listed = Set(sessions.map(\.id))
-        let tabs = store.tabs.filter { tab in
-            let inGroup = id == Store.terminalsGroupID ? !store.groups.contains { $0.cwd == tab.cwd } : tab.cwd == id
-            return inGroup && !(tab.sessionID.map(listed.contains) ?? false)
+    private func move(by offset: Int, in items: [SidebarItem]) -> KeyPress.Result {
+        guard !items.isEmpty else { return .ignored }
+        let current = (cursor ?? store.selection).flatMap(items.firstIndex(of:))
+        let next = items[min(max((current ?? (offset > 0 ? -1 : items.count)) + offset, 0), items.count - 1)]
+        if case let .session(id) = next, store.tab(forSession: id) == nil {
+            cursor = next
+        } else {
+            store.activate(next)
         }
-        let isExpanded = expandedGroups.contains(id)
-        let isOpen = expansion(of: id)
-        let visible = !isOpen.wrappedValue ? [] : isExpanded ? sessions : Array(sessions.prefix(Self.visibleSessions))
-        return Section {
-            ForEach(isOpen.wrappedValue ? tabs : []) { tab in
+        return .handled
+    }
+
+    private func setExpanded(_ expanded: Bool, around item: SidebarItem?, in groups: [Group]) -> KeyPress.Result {
+        guard let item, let group = groups.first(where: { group in
+            group.tabs.contains { .tab($0.id) == item } || group.sessions.contains { .session($0.id) == item }
+        }) else { return .ignored }
+        expansion(of: group.id).wrappedValue = expanded
+        return .handled
+    }
+
+    private func select(_ item: SidebarItem) {
+        isFocused = true
+        store.activate(item)
+    }
+
+    private func section(_ group: Group, selection: SidebarItem?) -> some View {
+        Section {
+            ForEach(group.tabs) { tab in
                 TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
-                    .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { store.activate(.tab(tab.id)) })
+                    .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { select(.tab(tab.id)) })
                     .id(SidebarItem.tab(tab.id))
                     .contextMenu { Button("Close Tab") { store.close(tab.id) } }
             }
-            ForEach(visible) { session in
+            ForEach(group.sessions) { session in
                 let tab = store.tab(forSession: session.id)
                 SessionRow(
                     session: session,
@@ -64,16 +131,17 @@ struct Sidebar: View {
                     showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
                 )
                 .modifier(RowChrome(id: session.title, isSelected: selection == .session(session.id), isLocked: tab == nil && store.liveBySession[session.id] != nil) {
-                    store.activate(.session(session.id))
+                    select(.session(session.id))
                 })
                 .id(SidebarItem.session(session.id))
-                    .contextMenu {
-                        if let tab { Button("Close Tab") { store.close(tab.id) } }
-                    }
+                .contextMenu {
+                    if let tab { Button("Close Tab") { store.close(tab.id) } }
+                }
             }
-            if isOpen.wrappedValue, sessions.count > Self.visibleSessions {
-                Button(isExpanded ? "Show Less" : "Show \(sessions.count - Self.visibleSessions) More") {
-                    if isExpanded { expandedGroups.remove(id) } else { expandedGroups.insert(id) }
+            if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && !group.sessions.isEmpty {
+                let isExpanded = expandedGroups.contains(group.id)
+                Button(isExpanded ? "Show Less" : "Show \(group.hiddenSessions) More") {
+                    if isExpanded { expandedGroups.remove(group.id) } else { expandedGroups.insert(group.id) }
                 }
                 .buttonStyle(.plain)
                 .font(.subheadline)
@@ -83,20 +151,25 @@ struct Sidebar: View {
                 .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
             }
         } header: {
+            let isTerminals = group.id == Self.terminalsID
             GroupHeader(
-                title: title,
-                cwd: cwd,
-                count: tabs.count + sessions.count,
-                isExpanded: isOpen,
-                newTerminal: { store.openShell(cwd: cwd) },
-                newClaude: id == Store.terminalsGroupID ? nil : { store.openClaude(cwd: cwd) }
+                title: group.title,
+                cwd: group.cwd,
+                count: group.count,
+                isExpanded: expansion(of: group.id),
+                addLabel: isTerminals ? "New Terminal" : "New Claude Session",
+                add: isTerminals ? { store.openShell(cwd: group.cwd) } : { store.openClaude(cwd: group.cwd) }
             )
         }
     }
 
+    private func isCollapsed(_ id: String) -> Bool {
+        collapsedGroups.split(separator: "\n").contains { $0 == id }
+    }
+
     private func expansion(of id: String) -> Binding<Bool> {
         Binding {
-            !collapsedGroups.split(separator: "\n").contains { $0 == id }
+            !isCollapsed(id)
         } set: { expanded in
             let others = collapsedGroups.split(separator: "\n").filter { $0 != id }.map(String.init)
             collapsedGroups = (expanded ? others : others + [id]).joined(separator: "\n")
@@ -109,8 +182,8 @@ private struct GroupHeader: View {
     let cwd: String
     let count: Int
     @Binding var isExpanded: Bool
-    let newTerminal: () -> Void
-    let newClaude: (() -> Void)?
+    let addLabel: String
+    let add: () -> Void
     @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
 
@@ -141,15 +214,9 @@ private struct GroupHeader: View {
             .help(cwd)
             .accessibilityLabel("\(title), \(count) items, \(isExpanded ? "expanded" : "collapsed")")
             Spacer(minLength: 4)
-            HStack(spacing: 4) {
-                Button("New Terminal", systemImage: "apple.terminal", action: newTerminal)
-                    .help("New terminal in \(title)")
-                if let newClaude {
-                    Button("New Claude Session", systemImage: "plus", action: newClaude)
-                        .help("New Claude session in \(title)")
-                }
-            }
-            .labelStyle(.iconOnly)
+            Button(addLabel, systemImage: "plus", action: add)
+                .help("\(addLabel) in \(title)")
+                .labelStyle(.iconOnly)
             .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
         }
         .font(.system(size: 11))
@@ -243,6 +310,7 @@ private struct SessionRow: View {
             title: session.title,
             state: RowState(live: live),
             isLocked: isLocked,
+            isLoaded: isOpen,
             modified: session.lastActivity,
             detail: {
                 if session.pullRequest != nil || session.branch != nil {
@@ -284,21 +352,14 @@ private struct TabRow: View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         Group {
             if tab.kind == .shell {
-                Text(title)
-                    .foregroundStyle(theme.foreground)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 8)
-                    .padding(.vertical, 8)
-                    .overlay(alignment: .leading) {
-                        Image(systemName: "apple.terminal")
-                            .font(.system(size: 10))
-                            .foregroundStyle(theme.secondary)
-                            .frame(width: 16)
-                            .offset(x: -12)
-                    }
+                CardRow(title: title, state: title == Tab.shellName ? nil : .working, isLocked: false, isLoaded: true, modified: nil) {
+                    Text((tab.cwd as NSString).abbreviatingWithTildeInPath)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(theme.secondary)
+                        .truncationMode(.middle)
+                }
             } else {
-                CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil) {
+                CardRow(title: title, state: RowState(live: live), isLocked: false, isLoaded: true, modified: nil) {
                     Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary)
                 }
             }
@@ -310,6 +371,7 @@ private struct CardRow<Detail: View>: View {
     let title: String
     let state: RowState?
     let isLocked: Bool
+    let isLoaded: Bool
     let modified: Date?
     @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
@@ -320,13 +382,12 @@ private struct CardRow<Detail: View>: View {
                 Text(title)
                     .foregroundStyle(theme.foreground)
                     .lineLimit(1)
-                    .opacity(isLocked ? 0.6 : 1)
                 Spacer(minLength: 0)
                 if let modified {
                     Text(age(since: modified))
-                        .font(.caption)
+                        .font(.caption.weight(isLoaded ? .medium : .regular))
                         .monospacedDigit()
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(isLoaded ? theme.working : theme.secondary)
                 }
             }
             ZStack(alignment: .leading) {
@@ -335,8 +396,8 @@ private struct CardRow<Detail: View>: View {
             }
             .lineLimit(1)
             .frame(height: 16)
-            .opacity(isLocked ? 0.6 : 1)
         }
+        .opacity(isLocked ? 0.55 : 1)
         .padding(.leading, 8)
         .padding(.trailing, 8)
         .padding(.vertical, 8)

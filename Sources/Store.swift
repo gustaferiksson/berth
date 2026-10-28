@@ -36,7 +36,6 @@ enum SidebarItem: Hashable {
 @Observable
 final class Store {
     static let claudeDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude")
-    static let terminalsGroupID = "Terminals"
 
     var tabs: [Tab] = [] {
         didSet { saveOpenTabs() }
