@@ -5,12 +5,14 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let cwd: String
     public let title: String
     public let modified: Date
+    public let branch: String?
 
-    public init(id: String, cwd: String, title: String, modified: Date) {
+    public init(id: String, cwd: String, title: String, modified: Date, branch: String? = nil) {
         self.id = id
         self.cwd = cwd
         self.title = title
         self.modified = modified
+        self.branch = branch
     }
 }
 
@@ -44,7 +46,14 @@ public enum Transcript {
         let recordedTitle = titleKeys.lazy.compactMap { key in tail.last { $0[keyPath: key] != nil }?[keyPath: key] }.first
         guard let title = recordedTitle ?? head.lazy.compactMap(\.promptText).first else { return nil }
         let oneLine = title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        return SessionSummary(id: id, cwd: cwd, title: String(oneLine.prefix(maxTitleLength)), modified: modified)
+        let branch = tail.last { $0.gitBranch != nil }?.gitBranch
+        return SessionSummary(
+            id: id,
+            cwd: cwd,
+            title: String(oneLine.prefix(maxTitleLength)),
+            modified: modified,
+            branch: branch == "HEAD" || branch?.isEmpty == true ? nil : branch
+        )
     }
 
     static func records(in data: Data, dropFirst: Bool, dropLast: Bool) -> [Record] {
@@ -78,6 +87,7 @@ struct Record: Decodable {
 
     let type: String?
     let cwd: String?
+    let gitBranch: String?
     let customTitle: String?
     let aiTitle: String?
     let agentName: String?

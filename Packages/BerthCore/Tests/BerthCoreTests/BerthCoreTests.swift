@@ -41,6 +41,18 @@ struct TranscriptTests {
         #expect(records.first?.aiTitle == "Tail title")
     }
 
+    @Test func branchIsTheLastRecordedOneAndDetachedHeadIsDropped() {
+        let head = Transcript.records(in: Data(#"{"type":"user","cwd":"/x","gitBranch":"main","message":{"content":"hi"}}"#.utf8), dropFirst: false, dropLast: false)
+        let tail = Transcript.records(in: Data("""
+        {"type":"assistant","gitBranch":"main"}
+        {"type":"assistant","gitBranch":"feat/cards"}
+        {"type":"ai-title","aiTitle":"Cards"}
+        """.utf8), dropFirst: false, dropLast: false)
+        let detached = Transcript.records(in: Data(#"{"type":"assistant","gitBranch":"HEAD"}"#.utf8), dropFirst: false, dropLast: false)
+        #expect(Transcript.summary(id: "a", modified: .now, head: head, tail: tail)?.branch == "feat/cards")
+        #expect(Transcript.summary(id: "b", modified: .now, head: head, tail: detached)?.branch == nil)
+    }
+
     @Test func groupsSortByMostRecentActivity() {
         let now = Date()
         let groups = ProjectGroup.grouped([

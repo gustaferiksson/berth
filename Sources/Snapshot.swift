@@ -30,9 +30,8 @@ enum Snapshot {
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderFrontRegardless()
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
-        if let tab = store.tabs.first(where: { $0.id == store.selectedTabID }) {
-            window.title = tab.title(terminalTitle: tab.terminal.title, sessionTitle: store.sessionTitle(of: tab))
-        }
+        let tab = store.tabs.first { $0.id == store.selectedTabID }
+        window.title = tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"
         try? await Task.sleep(for: .milliseconds(500))
         let items = window.toolbar?.items.map { "\($0.itemIdentifier.rawValue) label=\($0.label) tip=\($0.toolTip ?? "")" } ?? []
         print("window title: \(window.title) | subtitle: \(window.subtitle)")

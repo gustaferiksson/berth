@@ -89,7 +89,7 @@ final class Store {
     }
 
     func refreshLive() {
-        let live = LiveSession.load(from: Self.claudeDirectory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
+        let live = fakeLive + LiveSession.load(from: Self.claudeDirectory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
         liveBySession = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
         let claimed = Set(tabs.compactMap(\.sessionID))
         let orphans = live.filter { !claimed.contains($0.sessionId) && ProcessAncestry.isDescendant($0.pid, of: getpid()) }
@@ -99,6 +99,19 @@ final class Store {
             }) else { continue }
             tabs[position].sessionID = session.sessionId
         }
+    }
+
+    private var fakeLive: [LiveSession] {
+        #if DEBUG
+        guard UserDefaults.standard.bool(forKey: "snapshotFakeStatus") else { return [] }
+        let statuses = [#""status":"waiting","waitingFor":"permission""#, #""status":"busy""#]
+        return zip(groups.first?.sessions ?? [], statuses).compactMap { session, status in
+            let json = #"{"pid":1,"sessionId":"\#(session.id)","cwd":"\#(session.cwd)",\#(status)}"#
+            return try? JSONDecoder().decode(LiveSession.self, from: Data(json.utf8))
+        }
+        #else
+        return []
+        #endif
     }
 
     func sessionTitle(of tab: Tab) -> String? {
