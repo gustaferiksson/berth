@@ -32,6 +32,12 @@ enum SidebarItem: Hashable {
     case session(String)
 }
 
+private struct LauncherOrigin {
+    let focusedShell: Tab.ID?
+    let panelShell: Tab.ID?
+    let tab: Tab.ID?
+}
+
 @Observable
 final class Store {
     static let claudeDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude")
@@ -60,11 +66,21 @@ final class Store {
     var editingGroup: CustomGroup?
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
+        willSet {
+            guard launcherMode == nil else { return }
+            launcherOrigin = LauncherOrigin(focusedShell: shells.first { $0.terminal.isFocused }?.id, panelShell: isPanelOpen ? selectedShellID : nil, tab: selectedTabID)
+        }
         didSet {
-            guard launcherMode == nil, let terminal = tabs.first(where: { $0.id == selectedTabID })?.terminal else { return }
+            guard launcherMode == nil else { return }
+            let panelShell = isPanelOpen ? selectedShellID : nil
+            let returnsToPanel = panelShell != nil && selectedTabID == launcherOrigin?.tab && (launcherOrigin?.focusedShell != nil || panelShell != launcherOrigin?.panelShell)
+            launcherOrigin = nil
+            launcherQuery = ""
+            guard let terminal = (returnsToPanel ? shells.first { $0.id == panelShell } : tabs.first { $0.id == selectedTabID })?.terminal else { return }
             DispatchQueue.main.async { terminal.requestFocus() }
         }
     }
+    @ObservationIgnored var launcherQuery = Snapshot.launcherQuery
     var groupingMode = GroupingMode(rawValue: UserDefaults.standard.string(forKey: "groupingMode") ?? "") ?? .project {
         didSet {
             if persistsTabs { UserDefaults.standard.set(groupingMode.rawValue, forKey: "groupingMode") }
@@ -112,6 +128,7 @@ final class Store {
     @ObservationIgnored private var pullRequestsFetchedAt = Date.distantPast
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var waitingSessionIDs: Set<String>?
+    @ObservationIgnored private var launcherOrigin: LauncherOrigin?
     #if DEBUG
     @ObservationIgnored var fakeWaiting: Bool?
     #endif
@@ -318,9 +335,17 @@ final class Store {
         openClaude(cwd: session.cwd, resuming: session.id)
     }
 
+    private var focusedShell: Tab? {
+        shells.first { $0.terminal.isFocused || $0.id == launcherOrigin?.focusedShell }
+    }
+
     var currentCwd: String {
-        if let shell = shells.first(where: { $0.terminal.isFocused }) { return shell.terminal.workingDirectory ?? shell.cwd }
+        if let shell = focusedShell { return shell.terminal.workingDirectory ?? shell.cwd }
         return tabs.first { $0.id == selectedTabID }?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    var focusedTerminal: TerminalViewState? {
+        (focusedShell ?? tabs.first { $0.id == selectedTabID })?.terminal
     }
 
     func openShell(cwd: String, command: String? = nil) {
@@ -426,6 +451,14 @@ final class Store {
     func moveGroup(_ groupID: CustomGroup.ID, by offset: Int) {
         guard let index = customGroups.firstIndex(where: { $0.id == groupID }), customGroups.indices.contains(index + offset) else { return }
         customGroups.swapAt(index, index + offset)
+    }
+
+    func setGroupsExpanded(_ expanded: Bool) {
+        guard persistsTabs else { return }
+        let current = Set(sidebarGroups.map(\.group.id))
+        let others = (UserDefaults.standard.string(forKey: "collapsedGroups") ?? "").split(separator: "\n").map(String.init).filter { !current.contains($0) }
+        let listed = current.filter { Sidebar.collapsedByDefault.contains($0) == expanded }.sorted()
+        UserDefaults.standard.set((others + listed).joined(separator: "\n"), forKey: "collapsedGroups")
     }
 
     func archive(_ sessionID: String) {

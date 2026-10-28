@@ -24,7 +24,7 @@ struct ContentView: View {
                     ToolbarItem {
                         Menu("Group By", systemImage: "square.grid.3x1.below.line.grid.1x2") {
                             Section("Group By") { GroupingMenuItems(store: store) }
-                            Button("New Group…") { store.editingGroup = CustomGroup(name: "", rules: []) }
+                            AppAction.newGroup.menuButton(store)
                         }
                         .menuIndicator(.hidden)
                         .help("Group By")

@@ -366,3 +366,43 @@ struct NeedsYouTests {
         #expect(NeedsYou.update(previous: result.waiting, live: [live("a", "waiting"), live("b", "waiting")]).entered.map(\.sessionId) == ["a"])
     }
 }
+
+struct CommandPaletteTests {
+    let items = [
+        PaletteItem(id: "recent", section: .recentSession, title: "Settings migration", detail: "/r/alpha"),
+        PaletteItem(id: "settings", section: .action, title: "Settings…", detail: "preferences"),
+        PaletteItem(id: "tab", section: .openTab, title: "Fix login", detail: "/r/beta"),
+        PaletteItem(id: "panel", section: .action, title: "Toggle Terminal Panel", detail: "show hide shell"),
+        PaletteItem(id: "tab2", section: .openTab, title: "Set up CI", detail: "/r/gamma"),
+    ]
+
+    func ranked(_ query: String) -> [String] {
+        CommandPalette.rank(query, items: items).map(\.id)
+    }
+
+    @Test func emptyQueryListsOpenTabsThenActionsWithoutRecents() {
+        #expect(ranked("") == ["tab", "tab2", "settings", "panel"])
+        #expect(ranked("  ") == ranked(""))
+    }
+
+    @Test func typingMixesSectionsByScore() {
+        #expect(ranked("set") == ["tab2", "settings", "recent"])
+        #expect(ranked("tog") == ["panel"])
+        #expect(ranked("ttp") == ["panel"])
+    }
+
+    @Test func detailMatchesRankBelowTitleMatches() {
+        #expect(ranked("shell") == ["panel"])
+        #expect(ranked("beta") == ["tab"])
+        #expect(ranked("prefe") == ["settings"])
+        #expect(ranked("zzz").isEmpty)
+    }
+
+    @Test func resultsAreCapped() {
+        let many = (0..<80).map { PaletteItem(id: "\($0)", section: .recentSession, title: "session \($0)", detail: "") }
+        #expect(CommandPalette.rank("session", items: many).count == 50)
+        #expect(CommandPalette.rank("session", items: many, limit: 3).map(\.id) == ["0", "1", "2"])
+        let actions = (0..<13).map { PaletteItem(id: "\($0)", section: .action, title: "action \($0)", detail: "") }
+        #expect(CommandPalette.rank("", items: actions, limit: 12).count == 13)
+    }
+}

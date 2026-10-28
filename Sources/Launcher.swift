@@ -2,7 +2,7 @@ import BerthCore
 import SwiftUI
 
 enum LauncherMode {
-    case newSession, search
+    case newSession, search, palette
 }
 
 struct Launcher: View {
@@ -16,11 +16,24 @@ struct Launcher: View {
         case query, prompt
     }
 
+    private enum PaletteTarget {
+        case item(SidebarItem)
+        case action(AppAction)
+    }
+
+    private struct PaletteRow {
+        let item: PaletteItem
+        let target: PaletteTarget
+        let symbol: String
+        let trailing: String
+    }
+
     let mode: LauncherMode
 
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
-    @State private var query = Snapshot.launcherQuery
+    @Environment(\.openSettings) private var openSettings
+    @State private var query = ""
     @State private var prompt = ""
     @State private var highlighted = 0
     @State private var folders: [Folder] = []
@@ -34,13 +47,15 @@ struct Launcher: View {
 
     var body: some View {
         let matches = mode == .newSession ? matches : []
+        let rows = mode == .palette ? paletteRows : []
         let target = matches.indices.contains(highlighted) ? matches[highlighted] : nil
-        let count = mode == .newSession ? matches.count : hits.count
+        let row = rows.indices.contains(highlighted) ? rows[highlighted] : nil
+        let count = mode == .newSession ? matches.count : mode == .palette ? rows.count : hits.count
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: mode == .newSession ? "chevron.right" : "magnifyingglass")
+                Image(systemName: mode == .newSession ? "chevron.right" : mode == .palette ? "command" : "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Query", text: $query, prompt: Text(mode == .newSession ? "Search folders or type a path" : "Search all sessions"))
+                TextField("Query", text: $query, prompt: Text(mode == .newSession ? "Search folders or type a path" : mode == .palette ? "Type a command or session" : "Search all sessions"))
                     .textFieldStyle(.plain)
                     .font(.title3)
                     .focused($focus, equals: .query)
@@ -51,7 +66,10 @@ struct Launcher: View {
                         focus = .prompt
                         return .handled
                     }
-                    .onSubmit { submit(target) }
+                    .onSubmit {
+                        guard mode == .palette else { return submit(target) }
+                        if let row { run(row.target) }
+                    }
                     .onChange(of: query) { highlighted = 0 }
                 if mode == .newSession {
                     Button("Browse…") { isBrowsing = true }
@@ -66,7 +84,7 @@ struct Launcher: View {
             if mode == .newSession {
                 folderList(matches)
             } else {
-                results
+                results(rows)
             }
             Divider()
             HStack(spacing: 16) {
@@ -74,6 +92,9 @@ struct Launcher: View {
                     hint("↩", target.map { "Start in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start")
                     hint("⇥", "Prompt")
                     hint("↑↓", "Folder")
+                } else if mode == .palette {
+                    hint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
+                    hint("↑↓", "Select")
                 } else {
                     hint("↩", "Open")
                     hint("↑↓", "Session")
@@ -95,11 +116,10 @@ struct Launcher: View {
         .padding(.horizontal, 24)
         .onExitCommand { store.launcherMode = nil }
         .onAppear {
+            query = store.launcherQuery
             focus = .query
-            guard mode == .newSession else {
-                store.updateSearchIndex()
-                return
-            }
+            if mode == .search { store.updateSearchIndex() }
+            guard mode == .newSession else { return }
             let known = store.knownFolders
             let current = store.currentCwd
             let promoted = current == FileManager.default.homeDirectoryForCurrentUser.path ? [] : [known.first { $0.path == current } ?? (path: current, sessions: 0, lastActivity: .distantPast)]
@@ -150,16 +170,33 @@ struct Launcher: View {
         }
     }
 
-    private var results: some View {
+    private func results(_ rows: [PaletteRow]) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(Array(hits.enumerated()), id: \.element.id) { index, hit in
-                        hitRow(hit, isHighlighted: index == highlighted)
-                            .id(index)
-                            .onTapGesture { open(hit) }
+                    if mode == .palette {
+                        ForEach(Array(rows.enumerated()), id: \.element.item) { index, row in
+                            if query.allSatisfy(\.isWhitespace), index == 0 || rows[index - 1].item.section != row.item.section {
+                                Text(row.item.section == .openTab ? "Sessions" : "Actions")
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 8)
+                                    .padding(.top, index == 0 ? 4 : 12)
+                                    .padding(.bottom, 4)
+                            }
+                            paletteRow(row, isHighlighted: index == highlighted)
+                                .id(index)
+                                .onTapGesture { run(row.target) }
+                        }
+                    } else {
+                        ForEach(Array(hits.enumerated()), id: \.element.id) { index, hit in
+                            hitRow(hit, isHighlighted: index == highlighted)
+                                .id(index)
+                                .onTapGesture { open(hit) }
+                        }
                     }
-                    if hits.isEmpty {
+                    if mode == .search, hits.isEmpty {
                         Text(query.allSatisfy(\.isWhitespace) ? "Type to search every session’s prompts and replies" : store.searchIndexing == nil && searchedQuery == query ? "No matching sessions" : "Searching…")
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, minHeight: 48)
@@ -207,6 +244,62 @@ struct Launcher: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .frame(minHeight: 44)
+        .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
+        .contentShape(.rect)
+    }
+
+    private var paletteRows: [PaletteRow] {
+        let openTabs = store.sidebarOrderedTabs.map { tab in
+            PaletteRow(
+                item: PaletteItem(id: tab.id.uuidString, section: .openTab, title: tab.title(terminalTitle: tab.terminal.title, sessionTitle: store.sessionTitle(of: tab)), detail: tab.cwd),
+                target: .item(.tab(tab.id)),
+                symbol: tab.id == store.selectedTabID ? "checkmark" : "terminal",
+                trailing: URL(filePath: tab.cwd).lastPathComponent
+            )
+        }
+        let actions = AppAction.palette.filter { $0.isAvailable(in: store) }.map { action in
+            PaletteRow(
+                item: PaletteItem(id: action.title, section: .action, title: action.title, detail: action.keywords),
+                target: .action(action),
+                symbol: action.symbol,
+                trailing: action.shortcut.map { shortcut in
+                    [(EventModifiers.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")].filter { shortcut.modifiers.contains($0.0) }.map(\.1).joined() + String(shortcut.key.character).uppercased()
+                } ?? ""
+            )
+        }
+        let open = Set(store.tabs.compactMap(\.sessionID))
+        let recents = store.activeSessions.filter { !open.contains($0.id) }.sorted { $0.lastActivity > $1.lastActivity }.map { session in
+            PaletteRow(
+                item: PaletteItem(id: session.id, section: .recentSession, title: session.title, detail: session.cwd),
+                target: .item(.session(session.id)),
+                symbol: "clock.arrow.circlepath",
+                trailing: "\(URL(filePath: session.cwd).lastPathComponent) · \(age(since: session.lastActivity))"
+            )
+        }
+        let all = openTabs + actions + recents
+        let byID = Dictionary(all.map { ($0.item.id, $0) }) { first, _ in first }
+        let ranked = CommandPalette.rank(query, items: all.map(\.item), limit: 12).compactMap { byID[$0.id] }
+        let typed = query.trimmingCharacters(in: .whitespaces)
+        guard !typed.isEmpty, let search = actions.first(where: { $0.item.id == AppAction.searchSessions.title }) else { return ranked }
+        let searchRow = PaletteRow(item: PaletteItem(id: search.item.id, section: .action, title: "Search Sessions for “\(typed)”", detail: ""), target: search.target, symbol: search.symbol, trailing: search.trailing)
+        return ranked.map { $0.item.id == searchRow.item.id ? searchRow : $0 } + (ranked.contains { $0.item.id == searchRow.item.id } ? [] : [searchRow])
+    }
+
+    private func paletteRow(_ row: PaletteRow, isHighlighted: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: row.symbol)
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+            Text(row.item.title)
+            Spacer(minLength: 8)
+            Text(row.trailing)
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .lineLimit(1)
+        .padding(.horizontal, 8)
+        .frame(minHeight: 32)
         .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
         .contentShape(.rect)
     }
@@ -277,6 +370,23 @@ struct Launcher: View {
         hits = found
         searchedQuery = query
         highlighted = min(highlighted, max(found.count - 1, 0))
+    }
+
+    private func run(_ target: PaletteTarget) {
+        switch target {
+        case let .item(item):
+            store.activate(item)
+            store.launcherMode = nil
+        case .action(.settings):
+            store.launcherMode = nil
+            openSettings()
+        case .action(.searchSessions):
+            store.launcherQuery = query.trimmingCharacters(in: .whitespaces)
+            store.launcherMode = .search
+        case let .action(action):
+            action.perform(on: store)
+            if store.launcherMode == .palette { store.launcherMode = nil }
+        }
     }
 
     private func open(_ hit: SearchHit) {

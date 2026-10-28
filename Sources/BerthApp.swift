@@ -22,13 +22,10 @@ struct BerthApp: App {
         .defaultLaunchBehavior(Snapshot.output == nil && settingsSnapshot == nil ? .presented : .suppressed)
         .commands {
             CommandGroup(after: .newItem) {
-                Button("New Session…") { appDelegate.store.launcherMode = .newSession }
-                    .keyboardShortcut("n")
-                Button("Search Sessions…") { appDelegate.store.launcherMode = .search }
-                    .keyboardShortcut("f", modifiers: [.command, .shift])
-                Button("New Terminal") { appDelegate.store.openShell(cwd: appDelegate.store.currentCwd) }
-                    .keyboardShortcut("t")
-                Button("New Group…") { appDelegate.store.editingGroup = CustomGroup(name: "", rules: []) }
+                ForEach([AppAction.newSession, .searchSessions, .newTerminal, .newGroup], id: \.self) { $0.menuButton(appDelegate.store) }
+            }
+            CommandGroup(after: .pasteboard) {
+                AppAction.clearTerminal.menuButton(appDelegate.store)
             }
             CommandGroup(before: .windowList) {
                 Button("Show Next Tab") { appDelegate.store.cycleTab(by: 1) }
@@ -44,10 +41,12 @@ struct BerthApp: App {
                 Divider()
             }
             CommandGroup(after: .sidebar) {
-                Button("Toggle Terminal Panel") { appDelegate.store.toggleTerminalPanel() }
-                    .keyboardShortcut("j")
+                AppAction.commandPalette.menuButton(appDelegate.store)
+                AppAction.toggleTerminalPanel.menuButton(appDelegate.store)
                 Divider()
                 Menu("Group By") { GroupingMenuItems(store: appDelegate.store) }
+                AppAction.collapseAllGroups.menuButton(appDelegate.store)
+                AppAction.expandAllGroups.menuButton(appDelegate.store)
             }
         }
 
@@ -86,15 +85,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.cycleTab(by: flags.contains(.shift) ? -1 : 1)
                 return nil
             }
+            let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && $0.shortcut.map { String($0.key.character) } == event.charactersIgnoringModifiers }) {
+                action.perform(on: store)
+                return nil
+            }
             guard flags == .command else { return event }
-            if event.charactersIgnoringModifiers == "j" {
-                store.toggleTerminalPanel()
-                return nil
-            }
-            if event.charactersIgnoringModifiers == "t" {
-                store.openShell(cwd: store.currentCwd)
-                return nil
-            }
             if let number = event.charactersIgnoringModifiers.flatMap(Int.init), (1...9).contains(number) {
                 store.selectTab(number: number)
                 return nil

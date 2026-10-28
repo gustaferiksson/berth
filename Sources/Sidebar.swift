@@ -14,7 +14,7 @@ struct Sidebar: View {
     @FocusState private var isFocused: Bool
 
     private static let visibleSessions = 5
-    private static let collapsedByDefault: Set = ["recent:older"]
+    static let collapsedByDefault: Set = ["recent:older"]
 
     private struct Group {
         let source: SessionGroup
@@ -341,10 +341,10 @@ struct GroupingMenuItems: View {
 
     var body: some View {
         Picker("Group By", selection: $store.groupingMode) {
-            ForEach(Array(GroupingMode.allCases.enumerated()), id: \.element) { index, mode in
+            ForEach(GroupingMode.allCases, id: \.self) { mode in
                 Text(mode.title)
                     .tag(mode)
-                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: [.control, .command])
+                    .keyboardShortcut(AppAction.groupBy(mode).shortcut)
             }
         }
         .pickerStyle(.inline)
