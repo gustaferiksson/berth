@@ -28,7 +28,7 @@ targets:
     platform: macOS
     sources:
       - path: Sources
-      - path: Resources/Assets.xcassets
+      - path: Resources/AppIcon.icon
     dependencies:
       - package: BerthCore
       - package: GhosttyKit

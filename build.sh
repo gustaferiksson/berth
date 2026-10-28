@@ -20,9 +20,6 @@ fi
 MARKETING_VERSION="${MARKETING_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)-local}"
 SIGN_ARGS+=( "MARKETING_VERSION=${MARKETING_VERSION}" )
 
-echo "▸ Generating app icon…"
-./icon/generate-icons.sh
-
 echo "▸ Generating Xcode project…"
 xcodegen generate --quiet
 
