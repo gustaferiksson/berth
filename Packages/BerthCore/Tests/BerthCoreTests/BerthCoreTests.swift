@@ -65,6 +65,13 @@ struct TranscriptTests {
         #expect(Transcript.summary(id: "b", modified: .now, head: head, tail: [])?.pullRequest == nil)
     }
 
+    @Test func lastPromptComesFromTheTail() {
+        let head = Transcript.records(in: Data(#"{"type":"user","cwd":"/x","message":{"content":"first ask"}}"#.utf8), dropFirst: false, dropLast: false)
+        let tail = Transcript.records(in: Data(#"{"type":"user","message":{"content":"latest\n  ask"}}"#.utf8), dropFirst: false, dropLast: false)
+        #expect(Transcript.summary(id: "a", modified: .now, head: head, tail: tail)?.lastPrompt == "latest ask")
+        #expect(Transcript.summary(id: "b", modified: .now, head: head, tail: [])?.lastPrompt == "first ask")
+    }
+
     @Test func groupsSortByMostRecentActivity() {
         let now = Date()
         let groups = ProjectGroup.grouped([

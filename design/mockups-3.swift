@@ -37,6 +37,7 @@ struct Session {
 }
 
 enum SecondLine { case centered, preview, cwd }
+enum LockStyle { case trailing, lineTwo, hoverTime }
 
 struct ProjectGroup {
     let name: String
@@ -79,6 +80,8 @@ struct Variant {
     let spacing: Spacing
     var branchTag = false
     var secondLine = SecondLine.preview
+    var lock = LockStyle.trailing
+    var hovered = false
 }
 
 let variants = [
@@ -184,10 +187,18 @@ struct Row: View {
                         .foregroundStyle(session.status == .elsewhere ? Palette.dim.opacity(0.7) : Palette.foreground)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    Text(session.time).font(.system(size: 11)).monospacedDigit().foregroundStyle(Palette.faint)
+                    let locked = session.status == .elsewhere
+                    if variant.lock == .trailing {
+                        Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Palette.faint).opacity(locked ? 1 : 0).frame(width: 12)
+                    }
+                    if variant.lock == .hoverTime, locked, variant.hovered {
+                        Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(Palette.dim).frame(width: 24, alignment: .trailing)
+                    } else {
+                        Text(session.time).font(.system(size: 11)).monospacedDigit().foregroundStyle(Palette.faint).frame(width: 24, alignment: .trailing)
+                    }
                 }
                 if session.pr == nil, session.branch == nil, variant.secondLine != .centered {
-                    Label(variant.secondLine == .preview ? (session.preview ?? "") : session.folder, systemImage: variant.secondLine == .preview ? "text.bubble" : "folder")
+                    Label(variant.secondLine == .preview ? (session.preview ?? "") : session.folder, systemImage: variant.lock == .lineTwo && session.status == .elsewhere ? "lock.fill" : variant.secondLine == .preview ? "text.bubble" : "folder")
                         .labelStyle(CompactLabel())
                         .font(.system(size: 11))
                         .foregroundStyle(Palette.faint)
@@ -222,7 +233,7 @@ struct Row: View {
         .padding(.leading, 8)
         .padding(.trailing, 12)
         .padding(.vertical, variant.spacing.rowPadding)
-        .background(session.selected ? Palette.selection.opacity(0.8) : .clear, in: .rect(cornerRadius: 8))
+        .background(session.selected ? Palette.selection.opacity(0.8) : variant.hovered && session.status == .elsewhere ? Palette.selection.opacity(0.3) : .clear, in: .rect(cornerRadius: 8))
     }
 }
 
@@ -347,6 +358,27 @@ MainActor.assumeIsolated {
                 }
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Locked (running elsewhere) rows").font(.system(size: 15, weight: .semibold)).foregroundStyle(.black)
+                HStack(alignment: .top, spacing: 24) {
+                    ForEach([("L1 trailing lock slot (wired)", LockStyle.trailing, false), ("L2 lock as line-2 prefix", .lineTwo, false), ("L3 lock replaces time on hover", .hoverTime, true)], id: \.0) { label, lock, hovered in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(label).font(.system(size: 13, weight: .semibold)).foregroundStyle(.black)
+                            VStack(spacing: 8) {
+                                Row(session: groups[0].sessions[2], variant: Variant(letter: "", working: .ellipsis, spacing: roomy, lock: lock, hovered: hovered))
+                                Row(session: groups[0].sessions[3], variant: Variant(letter: "", working: .ellipsis, spacing: roomy, lock: lock))
+                            }
+                            .padding(8)
+                            .frame(width: 320)
+                            .background(Palette.background, in: .rect(cornerRadius: 12))
+                        }
+                    }
+                }
+            }
+            .offset(y: 260)
+        }
+        .padding(.bottom, 260)
         .padding(32)
         .background(.white),
         to: "\(directory)/sheet-3.png"
