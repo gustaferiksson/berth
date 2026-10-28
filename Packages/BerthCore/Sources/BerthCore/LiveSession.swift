@@ -14,6 +14,7 @@ public struct LiveSession: Sendable, Hashable, Decodable {
     public let status: String?
     public let waitingFor: String?
     public let statusUpdatedAt: Double?
+    public let startedAt: Double?
 
     public var activity: Activity {
         if status == "busy" { return .working }

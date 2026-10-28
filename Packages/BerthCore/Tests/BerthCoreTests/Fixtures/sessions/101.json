@@ -1,1 +1,1 @@
-{"pid":101,"sessionId":"aaaa","cwd":"/Users/example/Repos/alpha","kind":"interactive","status":"busy","statusUpdatedAt":2000}
+{"pid":101,"sessionId":"aaaa","cwd":"/Users/example/Repos/alpha","kind":"interactive","startedAt":1500,"status":"busy","statusUpdatedAt":2000}

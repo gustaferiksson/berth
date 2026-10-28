@@ -131,6 +131,7 @@ struct LiveSessionTests {
         let bySession = Dictionary(uniqueKeysWithValues: live.map { ($0.sessionId, $0) })
         #expect(bySession.count == 2)
         #expect(bySession["aaaa"]?.pid == 101)
+        #expect(bySession["aaaa"]?.startedAt == 1500)
         #expect(bySession["aaaa"]?.activity == .working)
         #expect(bySession["bbbb"]?.activity == .needsInput("permission"))
         #expect(bySession["cccc"] == nil)

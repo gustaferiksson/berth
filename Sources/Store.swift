@@ -205,6 +205,7 @@ final class Store {
         for session in orphans {
             guard let position = tabs.firstIndex(where: { tab in
                 tab.kind == .claude && tab.cwd == session.cwd && tab.sessionID.map { liveBySession[$0] == nil } ?? true
+                    && session.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) >= tab.opened } ?? false
             }) else { continue }
             tabs[position].sessionID = session.sessionId
         }
@@ -388,6 +389,9 @@ final class Store {
 
     func close(_ id: Tab.ID) {
         let processes = ProcessAncestry.descendants()
+        if let pid = tabs.first(where: { $0.id == id })?.sessionID.flatMap({ liveBySession[$0]?.pid }), ProcessAncestry.isDescendant(pid, of: getpid()) {
+            for signal in [SIGHUP, SIGTERM] { kill(pid, signal) }
+        }
         Task {
             try? await Task.sleep(for: .seconds(1))
             ProcessAncestry.hangUpOrphans(of: processes)
