@@ -23,8 +23,8 @@ struct ContentView: View {
                     ContentUnavailableView("No Open Session", systemImage: "terminal", description: Text("Pick a session in the sidebar, or start one with + on a project."))
                 }
             }
-            .navigationTitle(selected.map { URL(filePath: $0.cwd).lastPathComponent } ?? "Berth")
-            .navigationSubtitle(selected?.cwd ?? "")
+            .navigationTitle(selected.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth")
+            .navigationSubtitle(selected.map { ($0.cwd as NSString).abbreviatingWithTildeInPath } ?? "")
             .toolbar {
                 Button("New Terminal", systemImage: "apple.terminal") {
                     store.openShell(cwd: selected?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
@@ -39,3 +39,4 @@ struct ContentView: View {
         }
     }
 }
+
