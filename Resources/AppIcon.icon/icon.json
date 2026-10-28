@@ -1,17 +1,17 @@
 {
   "fill" : {
-    "automatic-gradient" : "display-p3:0.839,0.690,0.447,1.00000"
+    "automatic-gradient" : "display-p3:0.851,0.439,0.541,1.00000"
   },
   "fill-specializations" : [
     {
       "value" : {
-        "automatic-gradient" : "display-p3:0.839,0.690,0.447,1.00000"
+        "automatic-gradient" : "display-p3:0.851,0.439,0.541,1.00000"
       }
     },
     {
       "appearance" : "dark",
       "value" : {
-        "automatic-gradient" : "display-p3:0.130,0.095,0.045,1.00000"
+        "automatic-gradient" : "display-p3:0.136,0.070,0.087,1.00000"
       }
     }
   ],
@@ -22,42 +22,24 @@
           "fill-specializations" : [
             {
               "value" : {
-                "solid" : "display-p3:0.380,0.255,0.090,1.00000"
+                "solid" : "display-p3:0.357,0.184,0.227,1.00000"
               }
             },
             {
               "appearance" : "dark",
               "value" : {
-                "solid" : "display-p3:0.839,0.690,0.447,1.00000"
+                "solid" : "display-p3:0.851,0.439,0.541,1.00000"
               }
             }
           ],
-          "image-name" : "active.png",
-          "name" : "active",
-          "opacity" : 1
-        },
-        {
-          "fill-specializations" : [
-            {
-              "value" : {
-                "solid" : "display-p3:0.380,0.255,0.090,1.00000"
-              }
-            },
-            {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "display-p3:0.839,0.690,0.447,1.00000"
-              }
-            }
-          ],
-          "image-name" : "docked.png",
-          "name" : "docked",
-          "opacity" : 0.45000000000000001
+          "image-name" : "prompt.png",
+          "name" : "prompt"
         }
       ],
-      "name" : "Sessions",
+      "name" : "Prompt",
+      "opacity" : 1,
       "shadow" : {
-        "kind" : "neutral",
+        "kind" : "layer-color",
         "opacity" : 0.5
       },
       "specular" : true,
@@ -78,24 +60,88 @@
             {
               "appearance" : "dark",
               "value" : {
-                "solid" : "display-p3:0.300,0.250,0.180,1.00000"
+                "solid" : "display-p3:0.374,0.193,0.238,1.00000"
               }
             }
           ],
-          "image-name" : "window.png",
-          "name" : "window",
-          "opacity" : 1
+          "image-name" : "front.png",
+          "name" : "front"
         }
       ],
-      "name" : "Window",
+      "name" : "Front",
+      "opacity" : 1,
       "shadow" : {
-        "kind" : "neutral",
+        "kind" : "layer-color",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "display-p3:1.000,1.000,1.000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "display-p3:0.306,0.158,0.195,1.00000"
+              }
+            }
+          ],
+          "image-name" : "middle.png",
+          "name" : "middle"
+        }
+      ],
+      "name" : "Middle",
+      "opacity" : 0.75,
+      "shadow" : {
+        "kind" : "layer-color",
         "opacity" : 0.5
       },
       "specular" : true,
       "translucency" : {
         "enabled" : true,
-        "value" : 0.25
+        "value" : 0.29999999999999999
+      }
+    },
+    {
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "display-p3:1.000,1.000,1.000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "display-p3:0.255,0.132,0.162,1.00000"
+              }
+            }
+          ],
+          "image-name" : "back.png",
+          "name" : "back"
+        }
+      ],
+      "name" : "Back",
+      "opacity" : 0.5,
+      "shadow" : {
+        "kind" : "layer-color",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
       }
     }
   ],
