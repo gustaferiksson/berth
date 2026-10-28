@@ -15,6 +15,12 @@ enum Snapshot {
     static let forcesPulse = false
     #endif
 
+    #if DEBUG
+    static let scrollsToArchive = UserDefaults.standard.integer(forKey: "snapshotArchiveRow") > 0
+    #else
+    static let scrollsToArchive = false
+    #endif
+
     static func forcedSelection(in groups: [ProjectGroup]) -> SidebarItem? {
         #if DEBUG
         let index = UserDefaults.standard.integer(forKey: "snapshotSelectRow")
@@ -47,6 +53,10 @@ enum Snapshot {
             try? await Task.sleep(for: .seconds(1))
             store.toggleTerminalPanel()
         }
+        let archiveRow = UserDefaults.standard.integer(forKey: "snapshotArchiveRow")
+        if archiveRow > 0, let sessions = store.groups.first?.sessions, archiveRow <= sessions.count {
+            store.archive(sessions[archiveRow - 1].id)
+        }
         if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
             store.activate(.session(sessionID))
         }
@@ -62,6 +72,13 @@ enum Snapshot {
         window.orderFrontRegardless()
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
         try? await Task.sleep(for: .seconds(UserDefaults.standard.integer(forKey: "snapshotHold")))
+        if UserDefaults.standard.bool(forKey: "snapshotCloseTabs") {
+            let processes = ProcessAncestry.descendants()
+            print("before close: \(processes.map(\.pid).sorted())")
+            for tab in store.tabs + store.shells { store.close(tab.id) }
+            try? await Task.sleep(for: .seconds(3))
+            print("alive after close: \(processes.map(\.pid).filter { kill($0, 0) == 0 }.sorted())")
+        }
         let tab = store.tabs.first { $0.id == store.selectedTabID }
         window.title = tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"
         try? await Task.sleep(for: .milliseconds(500))

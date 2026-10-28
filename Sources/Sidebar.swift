@@ -6,6 +6,7 @@ struct Sidebar: View {
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedGroups") private var collapsedGroups = ""
+    @AppStorage("archivedExpanded") private var isArchiveExpanded = false
     @State private var expandedGroups: Set<String> = []
     @State private var cursor: SidebarItem?
     @FocusState private var isFocused: Bool
@@ -29,6 +30,10 @@ struct Sidebar: View {
                     cursor = nil
                     guard let selection else { return }
                     Task { withAnimation { proxy.scrollTo(selection) } }
+                }
+                .onChange(of: store.archivedSessions.last?.id, initial: true) { _, id in
+                    guard Snapshot.scrollsToArchive, let id else { return }
+                    Task { proxy.scrollTo(SidebarItem.session(id)) }
                 }
                 .onChange(of: cursor) { _, cursor in
                     guard let cursor else { return }
@@ -61,9 +66,21 @@ struct Sidebar: View {
     private var list: some View {
         let groups = groups
         let selection = cursor ?? store.selection ?? Snapshot.forcedSelection(in: store.groups)
+        let archived = isArchiveExpanded ? store.archivedSessions : []
         let items = groups.flatMap { $0.tabs.map { SidebarItem.tab($0.id) } + $0.sessions.map { SidebarItem.session($0.id) } }
+            + archived.map { SidebarItem.session($0.id) }
         return List {
             ForEach(groups, id: \.id) { section($0, selection: selection) }
+            if !store.archivedSessions.isEmpty {
+                Section {
+                    ForEach(archived) { session in
+                        sessionRow(session, selection: selection)
+                            .contextMenu { Button("Unarchive") { store.unarchive(session.id) } }
+                    }
+                } header: {
+                    GroupHeader(title: "Archived", help: "Archived sessions", count: store.archivedSessions.count, isExpanded: $isArchiveExpanded, add: nil)
+                }
+            }
         }
         .focusable()
         .focused($isFocused)
@@ -121,21 +138,11 @@ struct Sidebar: View {
                     .contextMenu { Button("Close Tab") { store.close(tab.id) } }
             }
             ForEach(group.sessions) { session in
-                let tab = store.tab(forSession: session.id)
-                SessionRow(
-                    session: session,
-                    live: store.liveBySession[session.id],
-                    isOpen: tab != nil,
-                    pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
-                    showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
-                )
-                .modifier(RowChrome(id: session.title, isSelected: selection == .session(session.id), isLocked: tab == nil && store.liveBySession[session.id] != nil) {
-                    select(.session(session.id))
-                })
-                .id(SidebarItem.session(session.id))
-                .contextMenu {
-                    if let tab { Button("Close Tab") { store.close(tab.id) } }
-                }
+                sessionRow(session, selection: selection)
+                    .contextMenu {
+                        if let tab = store.tab(forSession: session.id) { Button("Close Tab") { store.close(tab.id) } }
+                        Button("Archive") { store.archive(session.id) }
+                    }
             }
             if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && !group.sessions.isEmpty {
                 let isExpanded = expandedGroups.contains(group.id)
@@ -151,13 +158,27 @@ struct Sidebar: View {
         } header: {
             GroupHeader(
                 title: group.title,
-                cwd: group.cwd,
+                help: group.cwd,
                 count: group.count,
                 isExpanded: expansion(of: group.id),
-                addLabel: "New Claude Session",
-                add: { store.openClaude(cwd: group.cwd) }
+                add: (label: "New Claude Session", action: { store.openClaude(cwd: group.cwd) })
             )
         }
+    }
+
+    private func sessionRow(_ session: SessionSummary, selection: SidebarItem?) -> some View {
+        let tab = store.tab(forSession: session.id)
+        return SessionRow(
+            session: session,
+            live: store.liveBySession[session.id],
+            isOpen: tab != nil,
+            pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
+            showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
+        )
+        .modifier(RowChrome(id: session.title, isSelected: selection == .session(session.id), isLocked: tab == nil && store.liveBySession[session.id] != nil) {
+            select(.session(session.id))
+        })
+        .id(SidebarItem.session(session.id))
     }
 
     private func isCollapsed(_ id: String) -> Bool {
@@ -176,11 +197,10 @@ struct Sidebar: View {
 
 private struct GroupHeader: View {
     let title: String
-    let cwd: String
+    let help: String
     let count: Int
     @Binding var isExpanded: Bool
-    let addLabel: String
-    let add: () -> Void
+    let add: (label: String, action: () -> Void)?
     @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
 
@@ -207,14 +227,17 @@ private struct GroupHeader: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .help(cwd)
+            .help(help)
             .accessibilityLabel("\(title), \(count) items, \(isExpanded ? "expanded" : "collapsed")")
             Spacer(minLength: 4)
-            Button(addLabel, systemImage: "plus", action: add)
-                .help("\(addLabel) in \(title)")
-                .labelStyle(.iconOnly)
-            .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
+            if let add {
+                Button(add.label, systemImage: "plus", action: add.action)
+                    .help("\(add.label) in \(title)")
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
+            }
         }
+        .frame(height: 24)
         .font(.system(size: 11))
         .padding(.top, 16)
         .padding(.leading, -6)

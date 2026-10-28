@@ -96,6 +96,25 @@ struct TranscriptTests {
         #expect(groups.first?.sessions.map(\.id) == ["3", "1"])
         #expect(groups.first?.name == "a")
     }
+
+    @Test func archiveHidesUntilNewActivityAndPrunesMissingTranscripts() {
+        let now = Date()
+        let sessions = [
+            SessionSummary(id: "quiet", cwd: "/a", title: "quiet", lastActivity: now.addingTimeInterval(-100)),
+            SessionSummary(id: "older", cwd: "/a", title: "older", lastActivity: now.addingTimeInterval(-200)),
+            SessionSummary(id: "replied", cwd: "/a", title: "replied", lastActivity: now),
+            SessionSummary(id: "open", cwd: "/a", title: "open", lastActivity: now),
+        ]
+        let split = SessionArchive.split(sessions, archivedAt: [
+            "quiet": now.addingTimeInterval(-50),
+            "older": now.addingTimeInterval(-50),
+            "replied": now.addingTimeInterval(-10),
+            "deleted": now,
+        ])
+        #expect(split.active.map(\.id) == ["replied", "open"])
+        #expect(split.archived.map(\.id) == ["quiet", "older"])
+        #expect(Set(split.kept.keys) == ["quiet", "older"])
+    }
 }
 
 struct LiveSessionTests {

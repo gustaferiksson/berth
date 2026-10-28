@@ -50,6 +50,7 @@ final class Store {
     }
     var lockedSessionID: String?
     private(set) var groups: [ProjectGroup] = []
+    private(set) var archivedSessions: [SessionSummary] = []
     private(set) var liveBySession: [String: LiveSession] = [:]
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
@@ -62,6 +63,9 @@ final class Store {
     @ObservationIgnored private var themeWatcher: FileWatcher?
     @ObservationIgnored private var summaries: [SessionSummary] = []
     @ObservationIgnored private var groupOrder: [String] = []
+    @ObservationIgnored private var archivedAt = UserDefaults.standard.dictionary(forKey: "archivedSessions") as? [String: Date] ?? [:] {
+        didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
+    }
     @ObservationIgnored var isPointerInSidebar = false {
         didSet { if !isPointerInSidebar { applyGroups() } }
     }
@@ -94,7 +98,10 @@ final class Store {
     }
 
     private func applyGroups() {
-        let fresh = ProjectGroup.grouped(summaries)
+        let split = SessionArchive.split(summaries, archivedAt: archivedAt)
+        if hasScanned, split.kept != archivedAt { archivedAt = split.kept }
+        archivedSessions = split.archived
+        let fresh = ProjectGroup.grouped(split.active)
         let known = Set(groupOrder)
         groupOrder = fresh.map(\.cwd).filter { !known.contains($0) } + groupOrder.filter { cwd in fresh.contains { $0.cwd == cwd } }
         let previous = Dictionary(uniqueKeysWithValues: groups.map { ($0.cwd, $0) })
@@ -135,9 +142,9 @@ final class Store {
             }.value
             self.index = updated
             self.summaries = summaries
+            hasScanned = true
             applyGroups()
             refreshLive()
-            hasScanned = true
             let unknown = summaries.contains { $0.pullRequest.map { pullRequestStates[$0.url] == nil } ?? false }
             if unknown { refreshPullRequests() }
         }
@@ -193,8 +200,9 @@ final class Store {
             return
         }
         guard case let .session(id) = item,
-              let session = groups.lazy.flatMap(\.sessions).first(where: { $0.id == id })
+              let session = (groups.flatMap(\.sessions) + archivedSessions).first(where: { $0.id == id })
         else { return }
+        if archivedAt[id] != nil { unarchive(id) }
         if let tab = tab(forSession: session.id) {
             selectedTabID = tab.id
             return
@@ -288,7 +296,25 @@ final class Store {
         return terminal
     }
 
+    func archive(_ sessionID: String) {
+        archivedAt[sessionID] = .now
+        applyGroups()
+        if let tab = tab(forSession: sessionID) { close(tab.id) }
+    }
+
+    func unarchive(_ sessionID: String) {
+        archivedAt[sessionID] = nil
+        applyGroups()
+    }
+
     func close(_ id: Tab.ID) {
+        let processes = ProcessAncestry.descendants()
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            ProcessAncestry.hangUpOrphans(of: processes)
+            try? await Task.sleep(for: .seconds(1))
+            refreshLive()
+        }
         tabs.removeAll { $0.id == id }
         if selectedTabID == id { selectedTabID = tabs.last?.id }
         shells.removeAll { $0.id == id }
