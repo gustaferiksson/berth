@@ -81,6 +81,8 @@ struct Sidebar: View {
         .onKeyPress(.leftArrow) { setExpanded(false, around: selection, in: groups) }
         .onKeyPress(.rightArrow) { setExpanded(true, around: selection, in: groups) }
         .onHover { store.isPointerInSidebar = $0 }
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .background(OverlayScroller())
         .overlay {
             if store.hasScanned, store.groups.isEmpty, store.tabs.isEmpty {
                 ContentUnavailableView("No Claude Sessions", systemImage: "bubble.left.and.text.bubble.right", description: Text("Sessions you start with claude show up here, grouped by project."))
@@ -146,7 +148,6 @@ struct Sidebar: View {
                 .buttonStyle(.plain)
                 .font(.subheadline)
                 .foregroundStyle(theme.secondary)
-                .pointerStyle(.link)
                 .padding(.leading, 8)
                 .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
             }
@@ -210,7 +211,6 @@ private struct GroupHeader: View {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .pointerStyle(.link)
             .help(cwd)
             .accessibilityLabel("\(title), \(count) items, \(isExpanded ? "expanded" : "collapsed")")
             Spacer(minLength: 4)
@@ -222,6 +222,7 @@ private struct GroupHeader: View {
         .font(.system(size: 11))
         .padding(.top, 16)
         .padding(.leading, -6)
+        .padding(.trailing, 8)
         .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
@@ -250,7 +251,6 @@ private struct HeaderButtonStyle: ButtonStyle {
                 .background(theme.foreground.opacity(configuration.isPressed ? 0.12 : isHovering ? 0.06 : 0), in: .rect(cornerRadius: 8))
                 .contentShape(.rect)
                 .onHover { isHovering = $0 }
-                .pointerStyle(.link)
         }
     }
 }
@@ -270,7 +270,6 @@ private struct RowChrome: ViewModifier {
             .contentShape(.rect)
             .onTapGesture(perform: select)
             .onHover { isHovering = $0 }
-            .pointerStyle(isLocked || isSelected ? nil : .link)
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction(.default, select)
             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
@@ -278,6 +277,7 @@ private struct RowChrome: ViewModifier {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(theme.foreground.opacity(fill))
                     .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
             )
     }
 }
@@ -399,7 +399,7 @@ private struct CardRow<Detail: View>: View {
         }
         .opacity(isLocked ? 0.55 : 1)
         .padding(.leading, 8)
-        .padding(.trailing, 8)
+        .padding(.trailing, -8)
         .padding(.vertical, 8)
         .overlay(alignment: .topLeading) {
             StatusSlot(state: state).offset(x: -8, y: 8)
@@ -467,7 +467,6 @@ private struct PullRequestTag: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .pointerStyle(.link)
         .help("Open pull request #\(link.number)")
     }
 
@@ -499,6 +498,24 @@ private struct CompactLabel: LabelStyle {
         HStack(spacing: 4) {
             configuration.icon.imageScale(.small)
             configuration.title
+        }
+    }
+}
+
+private struct OverlayScroller: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            var candidates = view.window?.contentView.map { [$0] } ?? []
+            while let next = candidates.popLast() {
+                if let scrollView = next as? NSScrollView {
+                    scrollView.scrollerStyle = .overlay
+                    scrollView.autohidesScrollers = true
+                    scrollView.tile()
+                }
+                candidates.append(contentsOf: next.subviews)
+            }
         }
     }
 }

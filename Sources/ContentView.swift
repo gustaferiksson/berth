@@ -26,7 +26,6 @@ struct ContentView: View {
                 }
             }
             .background(store.theme.background ?? .clear)
-            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .navigationTitle(selected.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth")
             .navigationSubtitle(selected.map { ($0.cwd as NSString).abbreviatingWithTildeInPath } ?? "")
             .toolbar {
@@ -36,7 +35,6 @@ struct ContentView: View {
                 .help("New terminal")
             }
         }
-        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .containerBackground(store.theme.background ?? .clear, for: .window)
         .environment(\.ghosttyTheme, store.theme)
         .preferredColorScheme(store.theme.isDark ? .dark : .light)
