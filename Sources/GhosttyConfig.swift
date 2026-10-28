@@ -6,9 +6,12 @@ enum GhosttyConfig {
     static let home = FileManager.default.homeDirectoryForCurrentUser.path
     static let directories = ["\(home)/.config/ghostty", "\(home)/Library/Application Support/com.mitchellh.ghostty"]
     static let configFiles = directories.flatMap { ["\($0)/config", "\($0)/config.ghostty"] }.filter { FileManager.default.fileExists(atPath: $0) }
-    // App shortcuts the embedded surface would otherwise swallow: Settings, new session/terminal, quit, close window, fullscreen.
-    static let appKeybinds = ["super+comma", "super+shift+comma", "super+n", "super+t", "super+q", "super+shift+w", "super+alt+w", "super+enter"]
-        .map { "keybind = \($0)=unbind" }
+    // App shortcuts the embedded surface would otherwise swallow (Settings, new, quit, close window, fullscreen, tab switching).
+    static let appKeybinds = (
+        ["super+comma", "super+shift+comma", "super+n", "super+t", "super+q", "super+shift+w", "super+alt+w", "super+enter"]
+            + ["super+9", "super+shift+[", "super+shift+]", "ctrl+tab", "ctrl+shift+tab"]
+            + (1...8).flatMap { ["super+\($0)", "super+digit_\($0)"] }
+    ).map { "keybind = \($0)=unbind" }
 
     static let controller: TerminalController = {
         let controller = TerminalController(configSource: .generated(load().contents), theme: TerminalTheme())

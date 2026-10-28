@@ -25,6 +25,19 @@ struct BerthApp: App {
                 Button("New Terminal") { appDelegate.store.openShell(cwd: appDelegate.store.currentCwd) }
                     .keyboardShortcut("t")
             }
+            CommandGroup(before: .windowList) {
+                Button("Show Next Tab") { appDelegate.store.cycleTab(by: 1) }
+                    .keyboardShortcut("]", modifiers: [.command, .shift])
+                Button("Show Previous Tab") { appDelegate.store.cycleTab(by: -1) }
+                    .keyboardShortcut("[", modifiers: [.command, .shift])
+                ForEach(1..<9) { number in
+                    Button("Select Tab \(number)") { appDelegate.store.selectTab(number: number) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(number)")))
+                }
+                Button("Select Last Tab") { appDelegate.store.selectTab(number: 9) }
+                    .keyboardShortcut("9")
+                Divider()
+            }
             CommandGroup(after: .sidebar) {
                 Button("Toggle Terminal Panel") { appDelegate.store.toggleTerminalPanel() }
                     .keyboardShortcut("j")
@@ -50,15 +63,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [store] event in
-            guard event.window?.identifier?.rawValue.hasPrefix("main") == true,
-                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command
-            else { return event }
+            guard event.window?.identifier?.rawValue.hasPrefix("main") == true else { return event }
+            let flags = event.modifierFlags.intersection([.command, .shift, .control, .option])
+            let isTab = event.keyCode == 48
+            if flags == [.command, .shift], event.keyCode == 30 || event.keyCode == 33 {
+                store.cycleTab(by: event.keyCode == 30 ? 1 : -1)
+                return nil
+            }
+            if isTab, flags == .control || flags == [.control, .shift] {
+                store.cycleTab(by: flags.contains(.shift) ? -1 : 1)
+                return nil
+            }
+            guard flags == .command else { return event }
             if event.charactersIgnoringModifiers == "j" {
                 store.toggleTerminalPanel()
                 return nil
             }
             if event.charactersIgnoringModifiers == "t" {
                 store.openShell(cwd: store.currentCwd)
+                return nil
+            }
+            if let number = event.charactersIgnoringModifiers.flatMap(Int.init), (1...9).contains(number) {
+                store.selectTab(number: number)
                 return nil
             }
             return event

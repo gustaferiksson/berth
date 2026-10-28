@@ -217,6 +217,39 @@ final class Store {
         isPanelOpen = true
     }
 
+    var sidebarOrderedTabs: [Tab] {
+        let known = Set(groups.map(\.cwd))
+        let cwds = Array(Set(tabs.map(\.cwd).filter { !known.contains($0) })).sorted() + groups.map(\.cwd)
+        return cwds.flatMap { cwd in
+            let sessions = groups.first { $0.cwd == cwd }?.sessions ?? []
+            let listed = Set(sessions.map(\.id))
+            let unlisted = tabs.filter { $0.cwd == cwd && !($0.sessionID.map(listed.contains) ?? false) }
+            return unlisted + sessions.compactMap { tab(forSession: $0.id) }
+        }
+    }
+
+    func selectTab(number: Int) {
+        let isPanel = shells.contains { $0.terminal.isFocused }
+        let candidates = isPanel ? shells : sidebarOrderedTabs
+        guard !candidates.isEmpty else { return }
+        let target = number >= 9 ? candidates[candidates.count - 1] : candidates.indices.contains(number - 1) ? candidates[number - 1] : nil
+        guard let target else { return }
+        focus(target, inPanel: isPanel)
+    }
+
+    func cycleTab(by offset: Int) {
+        let isPanel = shells.contains { $0.terminal.isFocused }
+        let candidates = isPanel ? shells : sidebarOrderedTabs
+        guard !candidates.isEmpty else { return }
+        let current = candidates.firstIndex { $0.id == (isPanel ? selectedShellID : selectedTabID) } ?? 0
+        focus(candidates[(current + offset + candidates.count) % candidates.count], inPanel: isPanel)
+    }
+
+    private func focus(_ tab: Tab, inPanel: Bool) {
+        if inPanel { selectedShellID = tab.id } else { selectedTabID = tab.id }
+        DispatchQueue.main.async { tab.terminal.requestFocus() }
+    }
+
     func toggleTerminalPanel() {
         if isPanelOpen {
             isPanelOpen = false
