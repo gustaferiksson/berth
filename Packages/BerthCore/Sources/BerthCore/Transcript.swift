@@ -13,16 +13,14 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let modified: Date
     public let branch: String?
     public let pullRequest: PullRequestLink?
-    public let lastPrompt: String?
 
-    public init(id: String, cwd: String, title: String, modified: Date, branch: String? = nil, pullRequest: PullRequestLink? = nil, lastPrompt: String? = nil) {
+    public init(id: String, cwd: String, title: String, modified: Date, branch: String? = nil, pullRequest: PullRequestLink? = nil) {
         self.id = id
         self.cwd = cwd
         self.title = title
         self.modified = modified
         self.branch = branch
         self.pullRequest = pullRequest
-        self.lastPrompt = lastPrompt
     }
 }
 
@@ -56,8 +54,6 @@ public enum Transcript {
         let recordedTitle = titleKeys.lazy.compactMap { key in tail.last { $0[keyPath: key] != nil }?[keyPath: key] }.first
         guard let title = recordedTitle ?? head.lazy.compactMap(\.promptText).first else { return nil }
         let oneLine = title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
-        let lastPrompt = (tail.last { $0.promptText != nil } ?? head.last { $0.promptText != nil })?.promptText
-            .map { $0.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
         let branch = tail.last { $0.gitBranch != nil }?.gitBranch
         let link = tail.last { $0.type == "pr-link" && $0.prNumber != nil }
         return SessionSummary(
@@ -69,8 +65,7 @@ public enum Transcript {
             pullRequest: link.flatMap { link in
                 guard let number = link.prNumber, let url = link.prUrl.flatMap(URL.init(string:)), let repository = link.prRepository else { return nil }
                 return PullRequestLink(number: number, url: url, repository: repository)
-            },
-            lastPrompt: lastPrompt.map { String($0.prefix(maxTitleLength)) }
+            }
         )
     }
 

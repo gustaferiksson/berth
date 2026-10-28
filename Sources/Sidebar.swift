@@ -243,10 +243,9 @@ private struct SessionRow: View {
                             BranchText(branch: branch)
                         }
                     }
-                } else if let prompt = session.lastPrompt {
-                    Label(prompt, systemImage: "text.bubble")
-                        .labelStyle(CompactLabel())
-                        .font(.caption)
+                } else {
+                    Text(verbatim: "–")
+                        .font(.caption.monospaced())
                         .foregroundStyle(theme.secondary)
                 }
             }
@@ -283,7 +282,7 @@ private struct TabRow: View {
                 .padding(.vertical, 8)
             } else {
                 CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil) {
-                    Text("New session").font(.caption).foregroundStyle(theme.secondary)
+                    Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary)
                 }
             }
         }
