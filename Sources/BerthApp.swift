@@ -10,10 +10,7 @@ struct BerthApp: App {
                 .environment(appDelegate.store)
         }
         .defaultSize(width: 1200, height: 760)
-        .defaultWindowPlacement { _, _ in
-            Snapshot.output == nil ? WindowPlacement() : WindowPlacement(Snapshot.offscreen, size: CGSize(width: 1200, height: 760))
-        }
-        .restorationBehavior(Snapshot.output == nil ? .automatic : .disabled)
+        .defaultLaunchBehavior(Snapshot.output == nil ? .presented : .suppressed)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("New Claude Session") {
@@ -31,10 +28,6 @@ struct BerthApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = Store()
-
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        if Snapshot.output != nil { Snapshot.prepare() }
-    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         for key in ProcessInfo.processInfo.environment.keys where key == "CLAUDECODE" || key.hasPrefix("CLAUDE_CODE_") {

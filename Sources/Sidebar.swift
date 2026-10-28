@@ -66,6 +66,7 @@ struct Sidebar: View {
                 .buttonStyle(.plain)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .pointerStyle(.link)
                 .selectionDisabled()
             }
         } header: {
@@ -97,35 +98,79 @@ private struct GroupHeader: View {
     let newClaude: (() -> Void)?
     @State private var isHovering = false
 
+    private static let folderColors: [Color] = [.blue, .purple, .pink, .teal, .indigo, .cyan, .mint, .brown]
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
+            Image(systemName: "folder.fill")
+                .foregroundStyle(Self.folderColors[cwd.utf8.reduce(0) { ($0 &* 31 &+ Int($1)) & 0xFFFF } % Self.folderColors.count])
+                .imageScale(.small)
             Text(title)
                 .lineLimit(1)
                 .help(cwd)
+            Text(count, format: .number)
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
             Spacer(minLength: 4)
-            ZStack(alignment: .trailing) {
-                Text(count, format: .number)
-                    .monospacedDigit()
-                    .foregroundStyle(.tertiary)
-                    .opacity(isHovering ? 0 : 1)
-                HStack(spacing: 4) {
-                    Button("New Terminal", systemImage: "apple.terminal", action: newTerminal)
-                        .help("New terminal in \(title)")
-                    if let newClaude {
-                        Button("New Claude Session", systemImage: "plus", action: newClaude)
-                            .help("New Claude session in \(title)")
-                    }
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .opacity(isHovering ? 1 : 0)
+            Button("New Terminal", systemImage: "apple.terminal", action: newTerminal)
+                .help("New terminal in \(title)")
+            if let newClaude {
+                Button("New Claude Session", systemImage: "plus", action: newClaude)
+                    .help("New Claude session in \(title)")
             }
         }
+        .labelStyle(.iconOnly)
+        .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering))
         .onHover { isHovering = $0 }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(count) items")
-        .accessibilityAction(named: "New Terminal", newTerminal)
-        .accessibilityAction(named: "New Claude Session") { newClaude?() }
+        .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct HeaderButtonStyle: ButtonStyle {
+    let isHeaderHovered: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        HeaderButton(configuration: configuration, isHeaderHovered: isHeaderHovered)
+    }
+
+    private struct HeaderButton: View {
+        let configuration: ButtonStyleConfiguration
+        let isHeaderHovered: Bool
+        @State private var isHovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.body.weight(.medium))
+                .foregroundStyle(isHeaderHovered ? .primary : .tertiary)
+                .frame(width: 24, height: 24)
+                .background(.quaternary.opacity(configuration.isPressed ? 2 : isHovering ? 1 : 0), in: .rect(cornerRadius: 8))
+                .contentShape(.rect)
+                .onHover { isHovering = $0 }
+                .pointerStyle(.link)
+        }
+    }
+}
+
+private struct RowHover: ViewModifier {
+    let id: String
+    @State private var isHovering: Bool
+
+    init(id: String) {
+        self.id = id
+        _isHovering = State(initialValue: Snapshot.forcedHover.contains(id))
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(.rect)
+            .onHover { isHovering = $0 }
+            .pointerStyle(.link)
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.quaternary.opacity(isHovering ? 0.6 : 0))
+                    .padding(.horizontal, 8)
+            )
     }
 }
 
@@ -153,6 +198,14 @@ private enum RowState: Equatable {
         }
     }
 
+    var color: Color {
+        switch self {
+        case .working: .green
+        case .needsYou: .orange
+        case .idle, .elsewhere: .secondary
+        }
+    }
+
     var isNeedsYou: Bool {
         if case .needsYou = self { return true }
         return false
@@ -166,7 +219,7 @@ private struct SessionRow: View {
 
     var body: some View {
         let state = RowState(live: live, isOpen: isOpen)
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(session.title)
                     .fontWeight(state?.isNeedsYou == true ? .semibold : nil)
@@ -176,10 +229,10 @@ private struct SessionRow: View {
                 Metadata(state: state, modified: session.modified, branch: session.branch)
             }
             Spacer(minLength: 0)
-            StatusIndicator(state: state, isOpen: isOpen)
+            StatusIndicator(state: state)
         }
-        .padding(.vertical, 4)
         .help("\(session.title)\n\(session.modified.formatted(.relative(presentation: .named)))")
+        .modifier(RowHover(id: session.title))
     }
 }
 
@@ -193,7 +246,7 @@ private struct Metadata: View {
             if let state {
                 Text(state.word)
                     .fontWeight(state.isNeedsYou ? .semibold : nil)
-                    .foregroundStyle(state.isNeedsYou ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(state.color)
             }
             if let modified {
                 if state != nil { Text("·") }
@@ -244,53 +297,38 @@ private struct TabRow: View {
             .truncationMode(.tail)
         if tab.kind == .shell {
             Label { title } icon: { Image(systemName: "apple.terminal") }
+                .modifier(RowHover(id: tab.id.uuidString))
         } else {
             let state = RowState(live: live, isOpen: true)
-            HStack(spacing: 8) {
+            HStack(spacing: 4) {
                 VStack(alignment: .leading, spacing: 0) {
                     title.fontWeight(state?.isNeedsYou == true ? .semibold : nil)
                     Metadata(state: state ?? .idle, modified: nil, branch: nil)
                 }
                 Spacer(minLength: 0)
-                StatusIndicator(state: state, isOpen: true)
+                StatusIndicator(state: state)
             }
-            .padding(.vertical, 4)
+            .modifier(RowHover(id: tab.id.uuidString))
         }
     }
 }
 
 private struct StatusIndicator: View {
     let state: RowState?
-    let isOpen: Bool
 
     var body: some View {
-        Group {
-            switch state {
-            case .working:
-                Image(systemName: "ellipsis")
-                    .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeat(.continuous))
-                    .fontWeight(.bold)
-                    .foregroundStyle(.tint)
-                    .help("Working")
-            case let .needsYou(reason):
-                Image(systemName: "hand.raised.circle.fill")
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .orange)
-                    .font(.title3)
-                    .help("Needs you\(reason.map { ": \($0)" } ?? "")")
-            case .elsewhere:
-                Image(systemName: "arrow.up.forward.square")
-                    .foregroundStyle(.tertiary)
-                    .help("Running in another terminal")
-            case .idle, nil:
-                if isOpen {
-                    Image(systemName: "circle.fill")
-                        .font(.system(size: 8))
-                        .foregroundStyle(.tint)
-                        .help("Open in Berth")
-                }
-            }
+        if state == .working {
+            Image(systemName: "ellipsis")
+                .symbolEffect(.variableColor.iterative.dimInactiveLayers, options: .repeat(.continuous))
+                .fontWeight(.bold)
+                .foregroundStyle(.green)
+                .help("Working")
+        } else if case let .needsYou(reason) = state {
+            Image(systemName: "hand.raised.circle.fill")
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(.white, .orange)
+                .font(.title3)
+                .help("Needs you\(reason.map { ": \($0)" } ?? "")")
         }
-        .frame(minWidth: 20)
     }
 }
