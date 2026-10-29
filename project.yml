@@ -57,4 +57,7 @@ targets:
           - UTTypeIdentifier: dev.gustaf.berth.group
             UTTypeDescription: Berth Sidebar Group
             UTTypeConformsTo: [public.data]
+          - UTTypeIdentifier: dev.gustaf.berth.pin
+            UTTypeDescription: Berth Pinned Session
+            UTTypeConformsTo: [public.data]
     scheme: {}

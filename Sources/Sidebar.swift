@@ -16,6 +16,7 @@ struct Sidebar: View {
 
     private static let visibleSessions = 5
     static let collapsedByDefault: Set = ["recent:older"]
+    private static let pinnedID = "pinned"
 
     private struct Group {
         let source: SessionGroup
@@ -64,7 +65,8 @@ struct Sidebar: View {
     }
 
     private var items: [SidebarItem] {
-        groups.flatMap { $0.tabs.map { SidebarItem.tab($0.id) } + $0.sessions.map { SidebarItem.session($0.id) } }
+        (isCollapsed(Self.pinnedID) ? [] : store.pinnedSessions).map { SidebarItem.session($0.id) }
+            + groups.flatMap { $0.tabs.map { SidebarItem.tab($0.id) } + $0.sessions.map { SidebarItem.session($0.id) } }
             + (isArchiveExpanded ? store.archivedSessions : []).map { SidebarItem.session($0.id) }
     }
 
@@ -72,21 +74,34 @@ struct Sidebar: View {
         let groups = groups
         let selection = cursor ?? store.selection ?? Snapshot.forcedSelection(in: store.groups)
         let archived = isArchiveExpanded ? store.archivedSessions : []
+        let pinned = isCollapsed(Self.pinnedID) ? [] : store.pinnedSessions
         return List {
+            if !store.pinnedSessions.isEmpty {
+                Section {
+                    ForEach(Array(pinned.enumerated()), id: \.element.id) { index, session in
+                        sessionRow(session, projectName: URL(filePath: session.cwd).lastPathComponent, selection: selection)
+                            .draggable(PinDrag(id: session.id))
+                            .modifier(GroupDropTarget<PinDrag>(indicatorOffset: 0) { movePin($0, onto: index) })
+                            .contextMenu { sessionMenu(session) }
+                    }
+                } header: {
+                    GroupHeader(title: "Pinned", help: "Pinned sessions", count: store.pinnedSessions.count, isExpanded: expansion(of: Self.pinnedID), menu: { EmptyView() }) { _ in EmptyView() }
+                }
+            }
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                 section(group, at: index, in: groups, selection: selection)
             }
             if groups.contains(where: { $0.source.custom != nil }) {
                 Color.clear
                     .frame(height: 12)
-                    .modifier(GroupDropTarget(indicatorOffset: 2) { moveGroup($0, to: groups.count, in: groups) })
+                    .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 2) { moveGroup($0, to: groups.count, in: groups) })
                     .listRowInsets(EdgeInsets())
                     .accessibilityHidden(true)
             }
             if !store.archivedSessions.isEmpty {
                 Section {
                     ForEach(archived) { session in
-                        sessionRow(session, in: nil, selection: selection)
+                        sessionRow(session, projectName: nil, selection: selection)
                             .contextMenu { Button("Unarchive") { store.unarchive(session.id) } }
                     }
                 } header: {
@@ -115,7 +130,7 @@ struct Sidebar: View {
         }
         .fileDialogDefaultDirectory(browseRoot.map { URL(filePath: $0) })
         .overlay {
-            if store.hasScanned, store.groups.isEmpty, store.tabs.isEmpty {
+            if store.hasScanned, store.groups.isEmpty, store.pinnedSessions.isEmpty, store.tabs.isEmpty {
                 ContentUnavailableView("No Claude Sessions", systemImage: "bubble.left.and.text.bubble.right", description: Text("Sessions you start with claude show up here, grouped by project."))
             }
         }
@@ -139,6 +154,10 @@ struct Sidebar: View {
     }
 
     private func setExpanded(_ expanded: Bool, around item: SidebarItem?, in groups: [Group]) -> KeyPress.Result {
+        if case let .session(id) = item, store.pinnedSessions.contains(where: { $0.id == id }) {
+            expansion(of: Self.pinnedID).wrappedValue = expanded
+            return .handled
+        }
         guard let item, let group = groups.first(where: { group in
             group.tabs.contains { .tab($0.id) == item } || group.sessions.contains { .session($0.id) == item }
         }) else { return .ignored }
@@ -157,6 +176,11 @@ struct Sidebar: View {
         return true
     }
 
+    private func movePin(_ id: String, onto index: Int) -> Bool {
+        withAnimation(.snappy) { store.movePin(id, onto: index) }
+        return true
+    }
+
     private func section(_ group: Group, at index: Int, in groups: [Group], selection: SidebarItem?) -> some View {
         Section {
             ForEach(group.tabs) { tab in
@@ -166,11 +190,8 @@ struct Sidebar: View {
                     .contextMenu { Button("Close Tab") { store.close(tab.id) } }
             }
             ForEach(group.sessions) { session in
-                sessionRow(session, in: group.source, selection: selection)
-                    .contextMenu {
-                        if let tab = store.tab(forSession: session.id) { Button("Close Tab") { store.close(tab.id) } }
-                        Button("Archive") { store.archive(session.id) }
-                    }
+                sessionRow(session, projectName: group.source.folder == session.cwd ? nil : URL(filePath: session.cwd).lastPathComponent, selection: selection)
+                    .contextMenu { sessionMenu(session) }
             }
             if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && !group.sessions.isEmpty {
                 let isExpanded = expandedGroups.contains(group.id)
@@ -279,11 +300,22 @@ struct Sidebar: View {
         Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: root)]) }
     }
 
-    private func sessionRow(_ session: SessionSummary, in group: SessionGroup?, selection: SidebarItem?) -> some View {
+    @ViewBuilder
+    private func sessionMenu(_ session: SessionSummary) -> some View {
+        if let tab = store.tab(forSession: session.id) { Button("Close Tab") { store.close(tab.id) } }
+        if store.pinnedSessions.contains(where: { $0.id == session.id }) {
+            Button("Unpin") { store.unpin(session.id) }
+        } else {
+            Button("Pin") { store.pin(session.id) }
+        }
+        Button("Archive") { store.archive(session.id) }
+    }
+
+    private func sessionRow(_ session: SessionSummary, projectName: String?, selection: SidebarItem?) -> some View {
         let tab = store.tab(forSession: session.id)
         return SessionRow(
             session: session,
-            projectName: group.flatMap { $0.folder == session.cwd ? nil : URL(filePath: session.cwd).lastPathComponent },
+            projectName: projectName,
             live: store.liveBySession[session.id],
             isOpen: tab != nil,
             pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
@@ -356,7 +388,7 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
         .padding(.top, 16)
         .padding(.leading, -6)
         .padding(.trailing, 6)
-        .modifier(GroupDropTarget(indicatorOffset: 4, drop: drop))
+        .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 4, drop: drop))
         .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
@@ -425,7 +457,7 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
     }
 }
 
-private struct GroupDrag: Codable, Transferable {
+private struct GroupDrag: Codable, Transferable, Identifiable {
     let id: String
 
     static var transferRepresentation: some TransferRepresentation {
@@ -433,7 +465,15 @@ private struct GroupDrag: Codable, Transferable {
     }
 }
 
-private struct GroupDropTarget: ViewModifier {
+private struct PinDrag: Codable, Transferable, Identifiable {
+    let id: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: UTType(exportedAs: "dev.gustaf.berth.pin"))
+    }
+}
+
+private struct GroupDropTarget<Drag: Transferable & Identifiable<String>>: ViewModifier {
     let indicatorOffset: Double
     let drop: ((String) -> Bool)?
     @State private var isTargeted = false
@@ -454,7 +494,7 @@ private struct GroupDropTarget: ViewModifier {
                     .allowsHitTesting(false)
                 }
             }
-            .dropDestination(for: GroupDrag.self) { drags, _ in
+            .dropDestination(for: Drag.self) { drags, _ in
                 drags.first.flatMap { drop?($0.id) } ?? false
             } isTargeted: {
                 isTargeted = drop != nil && $0
