@@ -25,8 +25,8 @@ struct AboutSettings: View {
                         .controlSize(.small)
                         .accessibilityLabel(updater.status == .checking ? "Checking" : "Downloading")
                 }
-                if let staged = updater.staged {
-                    Button("Install Berth \(staged.version) and Relaunch", action: updater.installAndRelaunch)
+                if updater.staged != nil {
+                    Button("Install and Relaunch", action: updater.installAndRelaunch)
                 } else {
                     Button("Check for Updates") { updater.check(.manual) }
                         .disabled(updater.isBusy)
@@ -49,7 +49,7 @@ struct AboutSettings: View {
         } else if case .upToDate(let version) = status {
             Text("Berth \(version) is the latest version.").foregroundStyle(.secondary)
         } else if case .ready(let version) = status {
-            Text("Berth \(version) is ready to install.")
+            Text("Berth \(version) will be installed when sessions are idle.")
         } else if case .blocked(let message) = status {
             Text(message).foregroundStyle(.orange)
         } else if case .failed(let message) = status {

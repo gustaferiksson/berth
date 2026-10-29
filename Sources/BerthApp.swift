@@ -90,6 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [store] event in
             guard event.window?.identifier?.rawValue.hasPrefix("main") == true else { return event }
+            store.lastKeyInput = .now
             let flags = event.modifierFlags.intersection([.command, .shift, .control, .option])
             let isTab = event.keyCode == 48
             if flags == [.command, .shift], event.keyCode == 30 || event.keyCode == 33 {
