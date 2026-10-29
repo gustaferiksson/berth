@@ -209,6 +209,9 @@ enum Snapshot {
                 print("archived \(kind) tab: view freed \(view == nil), ptys \(ptys())")
             }
         }
+        if UserDefaults.standard.bool(forKey: "snapshotDrop") {
+            await dropFiles(in: window, store: store)
+        }
         if UserDefaults.standard.bool(forKey: "snapshotActivateFocus") {
             for step in ["open tab", "new tab"] {
                 store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path)
@@ -249,6 +252,51 @@ enum Snapshot {
         #endif
     }
 
+    #if DEBUG
+    private static func dropFiles(in window: NSWindow, store: Store) async {
+        let folder = URL(filePath: NSTemporaryDirectory()).appending(path: "berth-drop")
+        try? FileManager.default.removeItem(at: folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let files = [folder.appending(path: "plain.png"), folder.appending(path: "it's a \"quoted\" (copy).png")]
+        for file in files { FileManager.default.createFile(atPath: file.path, contents: Data()) }
+        let names = ["tab-1", "tab-2", "shell-1", "shell-2"]
+        for name in names { store.openShell(cwd: folder.path, command: "/bin/sh -c 'stty -echo; cat > \(folder.path)/\(name)'") }
+        store.tabs = store.shells.prefix(2).map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: nil, terminal: $0.terminal) }
+        store.shells.removeFirst(2)
+        store.selectedTabID = store.tabs.first?.id
+        store.selectedShellID = store.shells.first?.id
+        try? await Task.sleep(for: .seconds(2))
+        let terminals = (store.tabs + store.shells).map(\.terminal)
+        for index in [0, 2, 1] {
+            if index == 1 {
+                store.selectedTabID = store.tabs.last?.id
+                try? await Task.sleep(for: .seconds(1))
+            }
+            let label = "\(names[index]) selected"
+            guard let view = terminals[index].attachedPlatformView, let frameView = window.contentView?.superview else { continue }
+            for (kind, files) in [("files", files), ("group", [])] {
+                let pasteboard = NSPasteboard(name: NSPasteboard.Name("berth-drop-\(UUID().uuidString)"))
+                pasteboard.clearContents()
+                if files.isEmpty { pasteboard.setData(Data("{}".utf8), forType: NSPasteboard.PasteboardType("dev.gustaf.berth.group")) } else { pasteboard.writeObjects(files.map { $0 as NSURL }) }
+                var location = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+                let info = FakeDrag(pasteboard: pasteboard, location: location, window: window)
+                // NSWindow's own draggingEntered: rejects a synthesized NSDraggingInfo, so this calls the destination lookup it uses.
+                typealias DragHitTest = @convention(c) (NSView, Selector, UnsafeMutablePointer<NSPoint>, NSSet) -> NSView?
+                let dragHitTest = Selector(("_hitTest:dragTypes:"))
+                let destination = unsafeBitCast(frameView.method(for: dragHitTest), to: DragHitTest.self)(frameView, dragHitTest, &location, NSSet(array: (pasteboard.types ?? []).map(\.rawValue)))
+                let owner = terminals.firstIndex { $0.attachedPlatformView === destination }.map { names[$0] } ?? destination.map { "\(type(of: $0))" } ?? "none"
+                let operation = destination?.draggingEntered(info) ?? []
+                let performed = !operation.isEmpty && destination?.performDragOperation(info) == true
+                print("drop \(kind) on \(label): destination \(owner), operation \(operation.rawValue), performed \(performed)")
+                pasteboard.releaseGlobally()
+            }
+        }
+        for terminal in terminals { _ = terminal.sendKey(.enter) }
+        try? await Task.sleep(for: .seconds(1))
+        for name in names { print("received \(name): \((try? String(contentsOf: folder.appending(path: name), encoding: .utf8)) ?? "-")") }
+    }
+    #endif
+
     private static func footprint() -> Int {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
@@ -285,3 +333,30 @@ enum Snapshot {
 private final class UnconstrainedWindow: NSWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
+
+#if DEBUG
+private final class FakeDrag: NSObject, NSDraggingInfo {
+    let draggingPasteboard: NSPasteboard
+    let draggingLocation: NSPoint
+    let draggingDestinationWindow: NSWindow?
+    let draggingSourceOperationMask: NSDragOperation = [.copy, .generic, .link]
+    let draggedImageLocation = NSPoint.zero
+    let draggedImage: NSImage? = nil
+    let draggingSource: Any? = nil
+    let draggingSequenceNumber = 1
+    var draggingFormation = NSDraggingFormation.default
+    var animatesToDestination = false
+    var numberOfValidItemsForDrop = 1
+    let springLoadingHighlight = NSSpringLoadingHighlight.none
+
+    init(pasteboard: NSPasteboard, location: NSPoint, window: NSWindow) {
+        draggingPasteboard = pasteboard
+        draggingLocation = location
+        draggingDestinationWindow = window
+    }
+
+    func slideDraggedImage(to screenPoint: NSPoint) {}
+    func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?, classes classArray: [AnyClass], searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:], using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
+    func resetSpringLoading() {}
+}
+#endif
