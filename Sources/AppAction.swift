@@ -9,7 +9,7 @@ enum AppAction: Hashable {
     static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .toggleTerminalPanel, .clearTerminal, .archiveCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
         + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .settings, .checkForUpdates]
-    static let routedPastTerminal: [AppAction] = [.commandPalette, .toggleTerminalPanel, .newTerminal, .clearTerminal]
+    static let routedPastTerminal = ([.commandPalette] + palette).filter { $0.shortcut != nil }
 
     var title: String {
         switch self {
@@ -106,7 +106,7 @@ enum AppAction: Hashable {
         case .expandAllGroups: store.setGroupsExpanded(true)
         case .showStats: store.isStatsRequested = true
         case .harbor: store.isHarborShown.toggle()
-        case .settings: break
+        case .settings: store.isSettingsRequested = true
         case .checkForUpdates: store.updater.check(.manual)
         }
     }

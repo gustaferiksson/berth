@@ -24,7 +24,7 @@ enum SettingsSnapshot {
         exit(0)
     }
 
-    private static func keepWindowsOffScreen() {
+    static func keepWindowsOffScreen() {
         let unconstrained: @convention(block) (NSWindow, NSRect, NSScreen?) -> NSRect = { _, frame, _ in frame }
         let noAutosave: @convention(block) (NSWindow, String) -> Bool = { _, _ in true }
         for (selector, block) in [(#selector(NSWindow.constrainFrameRect(_:to:)), unconstrained as Any), (#selector(NSWindow.setFrameAutosaveName(_:)), noAutosave as Any)] {

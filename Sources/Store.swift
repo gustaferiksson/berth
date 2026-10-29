@@ -59,6 +59,7 @@ final class Store {
     var missingFolder: String?
     var editingGroup: CustomGroup?
     var isStatsRequested = false
+    var isSettingsRequested = false
     var isHarborShown = false {
         didSet {
             guard oldValue, !isHarborShown, let terminal = focusedTerminal else { return }
