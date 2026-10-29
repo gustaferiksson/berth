@@ -17,7 +17,7 @@ final class AppUpdater {
     }
 
     private enum AfterSwap: String {
-        case open, quiet
+        case open, background, quiet
     }
 
     nonisolated static let releasesURL = URL(string: "https://github.com/gustaferiksson/berth/releases/latest")!
@@ -146,12 +146,12 @@ final class AppUpdater {
             panel.alertStyle = .warning
             panel.messageText = working == 1 ? "1 session is working" : "\(working) sessions are working"
             panel.informativeText = "Installing now stops \(working == 1 ? "it" : "them") mid-turn. Berth resumes \(working == 1 ? "it" : "them") after it relaunches, but the work in progress is lost."
-            panel.addButton(withTitle: "Install and Relaunch").hasDestructiveAction = true
             panel.addButton(withTitle: "Cancel")
+            panel.addButton(withTitle: "Install and Relaunch").hasDestructiveAction = true
             NSApp.activate()
-            guard panel.runModal() == .alertFirstButtonReturn else { return }
+            guard panel.runModal() == .alertSecondButtonReturn else { return }
         }
-        relaunch()
+        relaunch(then: .open)
     }
 
     private func relaunchIfSettled() {
@@ -162,11 +162,11 @@ final class AppUpdater {
         let since = idleSince ?? .now
         idleSince = since
         guard since.timeIntervalSinceNow <= -Self.idleSettle else { return }
-        relaunch()
+        relaunch(then: NSApp.isActive ? .open : .background)
     }
 
-    private func relaunch() {
-        if let reason = spawnSwap(then: .open) {
+    private func relaunch(then after: AfterSwap) {
+        if let reason = spawnSwap(then: after) {
             if !isBusy { status = .blocked(reason) }
             return
         }
@@ -305,7 +305,7 @@ final class AppUpdater {
     fi
     rm -rf "$backup"
     rm -rf "$(dirname "$staged")"
-    if [ "$relaunch" = "open" ]; then open "$target"; fi
+    if [ "$relaunch" = "open" ]; then open "$target"; elif [ "$relaunch" = "background" ]; then open -g "$target"; fi
     rm -f "$0"
     exit 0
     """
