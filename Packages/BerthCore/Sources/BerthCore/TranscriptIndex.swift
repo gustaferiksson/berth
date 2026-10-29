@@ -29,7 +29,8 @@ public struct TranscriptIndex: Sendable {
                 result[file.path] = cached
                 return
             }
-            result[file.path] = Entry(modified: modified, size: size, summary: Transcript.summary(of: file))
+            let known = entries[file.path].flatMap { entry in entry.summary.map { (size: entry.size, lastPrompt: $0.lastPrompt) } }
+            result[file.path] = Entry(modified: modified, size: size, summary: Transcript.summary(of: file, after: known))
         }
         entries = next
         return next.values.compactMap(\.summary)

@@ -367,9 +367,9 @@ final class Store {
         let listed = Set(activeSessions.map(\.id))
         let unlisted = tabs.filter { !($0.sessionID.map(listed.contains) ?? false) }
         let grouping = grouping
-        let placed = Dictionary(grouping: unlisted) { SessionGroup(kind: grouping.kind(forFolder: $0.cwd, lastActivity: $0.opened), sessions: []).id }
+        let placed = Dictionary(grouping: unlisted) { SessionGroup(kind: grouping.kind(forFolder: $0.cwd, lastPrompt: $0.opened), sessions: []).id }
         let known = Set(groups.map(\.id))
-        let extra = Array(Set(unlisted.map { grouping.kind(forFolder: $0.cwd, lastActivity: $0.opened) }))
+        let extra = Array(Set(unlisted.map { grouping.kind(forFolder: $0.cwd, lastPrompt: $0.opened) }))
             .map { SessionGroup(kind: $0, sessions: []) }
             .filter { !known.contains($0.id) }
             .sorted { $0.id < $1.id }

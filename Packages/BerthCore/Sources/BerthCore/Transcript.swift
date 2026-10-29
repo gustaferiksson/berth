@@ -11,14 +11,16 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let cwd: String
     public let title: String
     public let lastActivity: Date
+    public let lastPrompt: Date
     public let branch: String?
     public let pullRequest: PullRequestLink?
 
-    public init(id: String, cwd: String, title: String, lastActivity: Date, branch: String? = nil, pullRequest: PullRequestLink? = nil) {
+    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, pullRequest: PullRequestLink? = nil) {
         self.id = id
         self.cwd = cwd
         self.title = title
         self.lastActivity = lastActivity
+        self.lastPrompt = lastPrompt ?? lastActivity
         self.branch = branch
         self.pullRequest = pullRequest
     }
@@ -27,9 +29,10 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
 public enum Transcript {
     static let headBytes = 32 * 1024
     static let tailBytes = 64 * 1024
+    static let promptScanBytes = 1024 * 1024
     static let maxTitleLength = 120
 
-    public static func summary(of url: URL) -> SessionSummary? {
+    public static func summary(of url: URL, after known: (size: Int, lastPrompt: Date)? = nil) -> SessionSummary? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = (attributes[.size] as? NSNumber)?.intValue, size > 0,
               let modified = attributes[.modificationDate] as? Date,
@@ -40,16 +43,24 @@ public enum Transcript {
         let tailOffset = max(0, size - tailBytes)
         guard (try? handle.seek(toOffset: UInt64(tailOffset))) != nil else { return nil }
         let tail = (try? handle.readToEnd()) ?? Data()
+        let tailRecords = records(in: tail, dropFirst: tailOffset > 0, dropLast: false)
+        let known = known.flatMap { $0.size <= size ? $0 : nil }
+        let earlierPrompt = tailOffset == 0 || lastPrompt(in: tailRecords) != nil ? nil : lastPrompt(
+            in: handle,
+            before: tailOffset + (tail.firstIndex(of: UInt8(ascii: "\n")).map { $0 - tail.startIndex } ?? tail.count),
+            floor: max(tailOffset - promptScanBytes, (known?.size ?? 0) - tailBytes, 0)
+        ) ?? known?.lastPrompt
         return summary(
             id: url.deletingPathExtension().lastPathComponent,
             folder: url.deletingLastPathComponent().lastPathComponent,
             modified: modified,
             head: records(in: head, dropFirst: false, dropLast: size > head.count),
-            tail: records(in: tail, dropFirst: tailOffset > 0, dropLast: false)
+            tail: tailRecords,
+            earlierPrompt: earlierPrompt
         )
     }
 
-    static func summary(id: String, folder: String, modified: Date, head: [Record], tail: [Record]) -> SessionSummary? {
+    static func summary(id: String, folder: String, modified: Date, head: [Record], tail: [Record], earlierPrompt: Date? = nil) -> SessionSummary? {
         let relocated = tail.last { $0.relocatedCwd != nil }?.relocatedCwd
         let inFolder = (tail.reversed() + head.reversed()).lazy.compactMap(\.cwd).first { cwd in
             let slug = cwd.utf16.map { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) ? $0 : 45 }
@@ -67,6 +78,7 @@ public enum Transcript {
             cwd: cwd,
             title: String(oneLine.prefix(maxTitleLength)),
             lastActivity: lastConversation(in: tail) ?? lastConversation(in: head) ?? modified,
+            lastPrompt: lastPrompt(in: tail) ?? earlierPrompt ?? lastPrompt(in: head) ?? head.lazy.compactMap(\.date).first ?? modified,
             branch: branch == "HEAD" || branch?.isEmpty == true ? nil : branch,
             pullRequest: link.flatMap { link in
                 guard let number = link.prNumber, let url = link.prUrl.flatMap(URL.init(string:)), let repository = link.prRepository else { return nil }
@@ -76,8 +88,31 @@ public enum Transcript {
     }
 
     static func lastConversation(in records: [Record]) -> Date? {
-        records.last { $0.isConversation && $0.timestamp != nil }?.timestamp
-            .flatMap { try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0) }
+        records.last { $0.isConversation && $0.timestamp != nil }?.date
+    }
+
+    static func lastPrompt(in records: [Record]) -> Date? {
+        records.last { $0.typedPrompt != nil && $0.timestamp != nil }?.date
+    }
+
+    static func lastPrompt(in handle: FileHandle, before end: Int, floor: Int) -> Date? {
+        let decoder = JSONDecoder()
+        var end = end
+        var carry = Data()
+        while end > floor {
+            let start = max(floor, end - tailBytes)
+            guard (try? handle.seek(toOffset: UInt64(start))) != nil, let chunk = try? handle.read(upToCount: end - start) else { return nil }
+            let lines = (chunk + carry).split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false)
+            carry = start > floor ? Data(lines.first ?? Data()) : Data()
+            let candidates = lines.dropFirst(start > floor ? 1 : 0).filter { line in
+                line.range(of: Data(#""type":"user""#.utf8)) != nil
+                    && line.range(of: Data(#""type":"tool_result""#.utf8)) == nil
+                    && line.range(of: Data(#""isCompactSummary":true"#.utf8)) == nil
+            }
+            if let date = lastPrompt(in: candidates.compactMap { try? decoder.decode(Record.self, from: Data($0)) }) { return date }
+            end = start
+        }
+        return nil
     }
 
     static func records(in data: Data, dropFirst: Bool, dropLast: Bool) -> [Record] {
@@ -144,6 +179,10 @@ struct Record: Decodable {
 
     struct Origin: Decodable {
         let kind: String?
+    }
+
+    var date: Date? {
+        timestamp.flatMap { try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0) }
     }
 
     var isConversation: Bool {
