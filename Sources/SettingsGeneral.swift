@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GeneralSettings: View {
     @AppStorage("terminalPanelPosition") private var panelPosition = PanelPosition.bottom
+    @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
 
     var body: some View {
@@ -14,9 +15,18 @@ struct GeneralSettings: View {
                 Text("The Dock icon always shows how many sessions need you.")
             }
             Section {
+                Picker("Position", selection: $sidebarPosition) {
+                    Text("Left").tag(SidebarPosition.left)
+                    Text("Right").tag(SidebarPosition.right)
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Sidebar")
+            }
+            Section {
                 Picker("Position", selection: $panelPosition) {
                     Text("Bottom").tag(PanelPosition.bottom)
-                    Text("Right").tag(PanelPosition.right)
+                    Text(sidebarPosition == .right ? "Left" : "Right").tag(PanelPosition.side)
                 }
                 .pickerStyle(.segmented)
             } header: {
@@ -26,6 +36,6 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 280)
+        .frame(height: 360)
     }
 }
