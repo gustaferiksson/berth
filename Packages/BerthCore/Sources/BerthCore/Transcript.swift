@@ -93,7 +93,6 @@ struct Record: Decodable {
         struct Block: Decodable {
             let type: String
             let text: String?
-            let name: String?
         }
 
         struct Usage: Decodable {
@@ -116,7 +115,7 @@ struct Record: Decodable {
             id = try? container.decode(String.self, forKey: .id)
             usage = try? container.decode(Usage.self, forKey: .usage)
             if let text = try? container.decode(String.self, forKey: .content) {
-                content = [Block(type: "text", text: text, name: nil)]
+                content = [Block(type: "text", text: text)]
             } else {
                 content = (try? container.decode([Block].self, forKey: .content)) ?? []
             }

@@ -48,8 +48,4 @@ public struct TranscriptIndex: Sendable {
                 }
         }
     }
-
-    public func transcript(ofSession id: String) -> URL? {
-        entries.first { $0.value.summary?.id == id }.map { URL(filePath: $0.key) }
-    }
 }

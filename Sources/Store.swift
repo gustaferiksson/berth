@@ -54,14 +54,6 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(isPanelOpen, forKey: "terminalPanelOpen") } }
     }
     var lockedSessionID: String?
-    var peekedSessionID: String? {
-        didSet {
-            guard peekedSessionID != oldValue else { return }
-            peekMessages = nil
-            loadPeek()
-        }
-    }
-    private(set) var peekMessages: [PeekMessage]?
     var missingFolder: String?
     var editingGroup: CustomGroup?
     var isStatsRequested = false
@@ -230,7 +222,6 @@ final class Store {
             }
             hasScanned = true
             applyGroups()
-            loadPeek()
             refreshLive()
             if searchIndexTask != nil { updateSearchIndex() }
             let unknown = summaries.contains { $0.pullRequest.map { pullRequestStates[$0.url] == nil } ?? false }
@@ -258,18 +249,6 @@ final class Store {
                 searchIndexVersion += 1
             }
             if searchIndexVersion == 0 { searchIndexVersion = 1 }
-        }
-    }
-
-    private func loadPeek() {
-        guard let id = peekedSessionID else { return }
-        guard let url = index.transcript(ofSession: id) else {
-            peekMessages = []
-            return
-        }
-        Task {
-            let messages = await Task.detached { Transcript.recentMessages(of: url) }.value
-            if peekedSessionID == id { peekMessages = messages }
         }
     }
 

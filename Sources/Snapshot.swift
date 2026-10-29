@@ -140,29 +140,6 @@ enum Snapshot {
         }
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
         try? await Task.sleep(for: .seconds(UserDefaults.standard.integer(forKey: "snapshotHold")))
-        let peekRow = UserDefaults.standard.integer(forKey: "snapshotPeekRow")
-        if peekRow > 0, let sessions = store.groups.first(where: { !$0.sessions.isEmpty })?.sessions, peekRow <= sessions.count {
-            guardOffScreenOrdering()
-            store.peekedSessionID = sessions[peekRow - 1].id
-            try? await Task.sleep(for: .seconds(1.5))
-            printPeek(store: store)
-            let keys: [String: (characters: String, code: UInt16)] = [
-                "down": (String(UnicodeScalar(NSDownArrowFunctionKey)!), 125), "up": (String(UnicodeScalar(NSUpArrowFunctionKey)!), 126),
-                "space": (" ", 49), "escape": ("\u{1b}", 53), "return": ("\r", 36),
-            ]
-            for name in (UserDefaults.standard.string(forKey: "snapshotPeekKeys") ?? "").split(separator: "|").map(String.init) {
-                guard let key = keys[name] else { continue }
-                let target = NSApp.keyWindow ?? window
-                let modifiers: NSEvent.ModifierFlags = key.code >= 125 ? [.numericPad, .function] : []
-                for type in [NSEvent.EventType.keyDown, .keyUp] {
-                    guard let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: target.windowNumber, context: nil, characters: key.characters, charactersIgnoringModifiers: key.characters, isARepeat: false, keyCode: key.code) else { continue }
-                    target.sendEvent(event)
-                }
-                try? await Task.sleep(for: .seconds(1.5))
-                print("key \(name) sent to \(type(of: target)):")
-                printPeek(store: store)
-            }
-        }
         if UserDefaults.standard.bool(forKey: "snapshotToggleFrames") {
             for phase in ["hide", "show"] {
                 let start = ContinuousClock.now
@@ -209,7 +186,6 @@ enum Snapshot {
         print("shell starts: \((try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0)")
         for tab in store.tabs + store.shells { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-") pwd=\(tab.terminal.workingDirectory ?? "-") title=\(tab.terminal.title)") }
         guard !NSScreen.screens.contains(where: { $0.frame.intersects(window.frame) }) else { fail("window is on screen") }
-        printPeek(store: store)
         guard let image = image(of: window) else { fail("window capture failed: number \(window.windowNumber) visible \(window.isVisible) frame \(window.frame)") }
         guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
               (try? png.write(to: output)) != nil
@@ -217,34 +193,6 @@ enum Snapshot {
         ProcessAncestry.hangUpDescendants()
         exit(0)
         #endif
-    }
-
-    private static func printPeek(store: Store) {
-        let row = store.groups.first { !$0.sessions.isEmpty }?.sessions.firstIndex { $0.id == store.peekedSessionID }
-        print("peek row: \(row.map { "\($0 + 1)" } ?? "closed") messages: \(store.peekMessages?.map { "\($0.kind):\($0.text.count)" } ?? [])")
-        for popover in NSApp.windows where popover.isVisible && String(describing: type(of: popover)).contains("Popover") {
-            print("popover window frame \(popover.frame) key \(popover.isKeyWindow)")
-        }
-    }
-
-    private static func guardOffScreenOrdering() {
-        for (original, replacement) in [
-            (#selector(NSWindow.order(_:relativeTo:)), #selector(NSWindow.offscreenOnlyOrder(_:relativeTo:))),
-            (#selector(NSWindow.setFrame(_:display:)), #selector(NSWindow.offscreenOnlySetFrame(_:display:))),
-        ] {
-            guard let originalMethod = class_getInstanceMethod(NSWindow.self, original),
-                  let replacementMethod = class_getInstanceMethod(NSWindow.self, replacement)
-            else { fail("could not guard window ordering") }
-            method_exchangeImplementations(originalMethod, replacementMethod)
-        }
-    }
-
-    // NSPopover clamps to a real screen when its anchor window is off screen, so the popover is moved next to the sidebar of the off-screen window.
-    fileprivate static func offScreen(_ frame: NSRect, of window: NSWindow) -> NSRect {
-        guard String(describing: type(of: window)).contains("Popover"), NSScreen.screens.contains(where: { $0.frame.intersects(frame) }),
-              let host = NSApp.windows.first(where: { $0 is UnconstrainedWindow })?.frame
-        else { return frame }
-        return NSRect(x: host.minX + 300, y: max(host.minY + 16, host.maxY - 160 - frame.height), width: frame.width, height: frame.height)
     }
 
     private static func footprint() -> Int {
@@ -265,7 +213,7 @@ enum Snapshot {
         return output.split(separator: "\n").filter { $0.contains("/dev/ptmx") }.count
     }
 
-    fileprivate static func fail(_ message: String) -> Never {
+    private static func fail(_ message: String) -> Never {
         ProcessAncestry.hangUpDescendants()
         FileHandle.standardError.write(Data("snapshot: \(message)\n".utf8))
         exit(1)
@@ -276,30 +224,7 @@ enum Snapshot {
         typealias CreateImage = @convention(c) (CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
         let create = unsafeBitCast(symbol, to: CreateImage.self)
-        let popovers = NSApp.windows.filter { $0.isVisible && String(describing: type(of: $0)).contains("Popover") }
-        guard !popovers.isEmpty else {
-            return create(.null, .optionIncludingWindow, CGWindowID(window.windowNumber), [.boundsIgnoreFraming, .bestResolution])?.takeRetainedValue()
-        }
-        typealias CreateImageFromArray = @convention(c) (CGRect, CFArray, CGWindowImageOption) -> Unmanaged<CGImage>?
-        guard let arraySymbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
-        let ids = (popovers + [window]).map { UnsafeRawPointer(bitPattern: UInt($0.windowNumber)) }
-        let array = ids.withUnsafeBufferPointer { CFArrayCreate(nil, UnsafeMutablePointer(mutating: $0.baseAddress), $0.count, nil) }
-        guard let array else { return nil }
-        return unsafeBitCast(arraySymbol, to: CreateImageFromArray.self)(.null, array, [.boundsIgnoreFraming, .bestResolution])?.takeRetainedValue()
-    }
-}
-
-extension NSWindow {
-    @objc fileprivate func offscreenOnlySetFrame(_ rect: NSRect, display: Bool) {
-        offscreenOnlySetFrame(Snapshot.offScreen(rect, of: self), display: display)
-    }
-
-    @objc fileprivate func offscreenOnlyOrder(_ place: NSWindow.OrderingMode, relativeTo otherWindow: Int) {
-        setFrame(Snapshot.offScreen(frame, of: self), display: false)
-        if place != .out, NSScreen.screens.contains(where: { $0.frame.intersects(frame) }) {
-            Snapshot.fail("\(type(of: self)) would order in on screen at \(frame)")
-        }
-        offscreenOnlyOrder(place, relativeTo: otherWindow)
+        return create(.null, .optionIncludingWindow, CGWindowID(window.windowNumber), [.boundsIgnoreFraming, .bestResolution])?.takeRetainedValue()
     }
 }
 
