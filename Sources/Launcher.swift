@@ -72,11 +72,17 @@ struct Launcher: View {
                     }
                     .onChange(of: query) { highlighted = 0 }
                 if mode == .newSession {
-                    Button("Browse…") { isBrowsing = true }
-                        .keyboardShortcut("o")
-                        .buttonStyle(.glass)
-                        .controlSize(.small)
-                        .help("Choose a folder (⌘O)")
+                    Button { isBrowsing = true } label: {
+                        Text("Browse…")
+                            .font(.subheadline)
+                            .padding(.horizontal, 8)
+                            .frame(height: 20)
+                            .background(theme.foreground.opacity(0.1), in: .capsule)
+                            .contentShape(.capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("o")
+                    .help("Choose a folder (⌘O)")
                 }
             }
             .padding(16)
@@ -339,7 +345,7 @@ struct Launcher: View {
                 .font(.caption.monospaced())
                 .padding(.horizontal, 4)
                 .frame(minWidth: 20, minHeight: 16)
-                .background(.quinary, in: .rect(cornerRadius: 4))
+                .background(theme.foreground.opacity(0.1), in: .rect(cornerRadius: 4))
             Text(label)
         }
         .font(.caption)
