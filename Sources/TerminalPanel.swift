@@ -3,39 +3,58 @@ import SwiftUI
 
 enum PanelPosition: String {
     case bottom
-    case right
+    case side = "right"
 }
 
 struct TerminalPanel: View {
     let available: CGSize
+    let edge: Edge
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("terminalPanelHeight") private var height = 240.0
+    @AppStorage("terminalPanelWidth") private var width = 420.0
     @State private var dragStart: Double?
 
     var body: some View {
         let isShown = store.isPanelOpen && !store.shells.isEmpty
-        let upperBound = max(120, available.height * 0.7)
-        let size = min(max(height, 120), upperBound)
-        VStack(spacing: 0) {
-            Hairline(axis: .horizontal)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
+        let isBottom = edge == .bottom
+        let lowerBound = isBottom ? 120.0 : 240
+        let upperBound = isBottom ? max(120, available.height * 0.7) : max(240, min(900, available.width * 0.7))
+        let size = min(max(isBottom ? height : width, lowerBound), upperBound)
+        let layout = isBottom ? AnyLayout(VStackLayout(spacing: 0)) : AnyLayout(HStackLayout(spacing: 0))
+        layout {
+            if !isBottom {
+                PanelBody(isShown: isShown)
+            }
+            Hairline(axis: isBottom ? .horizontal : .vertical)
+                .frame(maxWidth: isBottom ? .infinity : nil, maxHeight: isBottom ? nil : .infinity)
+                .opacity(isBottom ? 1 : 0)
+                .padding(isBottom ? .vertical : .horizontal, 4)
                 .contentShape(.rect)
-                .pointerStyle(.rowResize)
+                .pointerStyle(isBottom ? .rowResize : .columnResize)
                 .gesture(
                     DragGesture(minimumDistance: 1, coordinateSpace: .global)
                         .onChanged { drag in
                             let start = dragStart ?? size
                             dragStart = start
-                            height = min(max(start - drag.translation.height, 120), upperBound)
+                            let resized = min(max(isBottom ? start - drag.translation.height : start + drag.translation.width, lowerBound), upperBound)
+                            if isBottom { height = resized } else { width = resized }
                         }
                         .onEnded { _ in dragStart = nil }
                 )
-            PanelBody(isShown: isShown)
+            if isBottom {
+                PanelBody(isShown: isShown)
+            }
         }
-        .frame(height: isShown ? size : 0)
+        .frame(width: isBottom ? nil : isShown ? size : 0, height: isBottom ? isShown ? size : 0 : nil)
         .clipped()
+        .overlay(alignment: .trailing) {
+            if !isBottom {
+                Hairline(axis: .vertical)
+                    .padding(.trailing, 4)
+                    .ignoresSafeArea(edges: .top)
+            }
+        }
         .opacity(isShown ? 1 : 0)
         .allowsHitTesting(isShown)
     }
