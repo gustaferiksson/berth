@@ -111,11 +111,12 @@ struct Harbor: View {
                             .foregroundStyle(boat.mooring == .working ? theme.working : boat.mooring == .idle || boat.mooring == .anchored ? theme.secondary : theme.needsYou)
                     }
                     .lineLimit(1)
+                    .frame(maxWidth: 320, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .glassEffect(.regular, in: .rect(cornerRadius: 12))
                     .fixedSize()
-                    .position(x: boat.point.x, y: boat.point.y - 76)
+                    .position(x: min(max(boat.point.x, 180), geometry.size.width - 180), y: boat.point.y - 76)
                     .allowsHitTesting(false)
                 }
                 if boats.isEmpty {

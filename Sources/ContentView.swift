@@ -33,7 +33,7 @@ struct ContentView: View {
                     .scrollContentBackground(.hidden)
                     .background(store.theme.background ?? .clear)
                     .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
-                    .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 440)
+                    .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
             GeometryReader { geometry in

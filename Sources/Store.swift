@@ -105,7 +105,7 @@ final class Store {
     private(set) var liveBySession: [String: LiveSession] = [:]
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
-    private(set) var pullRequestStates: [URL: PullRequestState] = [:]
+    private(set) var pullRequestStates = Snapshot.fixturePullRequestStates
     private(set) var searchIndexVersion = 0
     private(set) var searchIndexing: (done: Int, total: Int)?
     @ObservationIgnored private(set) var searchIndex = TranscriptSearchIndex()
@@ -220,7 +220,7 @@ final class Store {
                 return (index, summaries, roots.merging(unresolved.map { ($0, RepositoryRoot.resolve($0)) }) { $1 })
             }.value
             self.index = updated
-            self.summaries = summaries
+            self.summaries = Snapshot.fixtureSessions ?? summaries
             repositoryRoots = roots
             for index in tabs.indices {
                 guard let cwd = summaries.first(where: { $0.id == tabs[index].sessionID })?.cwd, cwd != tabs[index].cwd else { continue }
@@ -230,7 +230,7 @@ final class Store {
             applyGroups()
             refreshLive()
             if searchIndexTask != nil { updateSearchIndex() }
-            let unknown = summaries.contains { $0.pullRequest.map { pullRequestStates[$0.url] == nil } ?? false }
+            let unknown = self.summaries.contains { $0.pullRequest.map { pullRequestStates[$0.url] == nil } ?? false }
             if unknown { refreshPullRequests() }
         }
     }

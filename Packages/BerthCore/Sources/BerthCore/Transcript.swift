@@ -4,6 +4,12 @@ public struct PullRequestLink: Sendable, Hashable {
     public let number: Int
     public let url: URL
     public let repository: String
+
+    public init(number: Int, url: URL, repository: String) {
+        self.number = number
+        self.url = url
+        self.repository = repository
+    }
 }
 
 public struct SessionSummary: Sendable, Hashable, Identifiable {

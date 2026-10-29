@@ -276,6 +276,7 @@ struct Launcher: View {
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+                .truncationMode(.middle)
         }
         .lineLimit(1)
         .padding(.horizontal, 8)
@@ -294,6 +295,7 @@ struct Launcher: View {
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .truncationMode(.middle)
             }
             ForEach(hit.snippets, id: \.self) { snippet in
                 Text(snippet.highlights.reduce(into: AttributedString(snippet.text)) { text, range in
@@ -320,6 +322,8 @@ struct Launcher: View {
                 .frame(minWidth: 20, minHeight: 16)
                 .background(theme.foreground.opacity(0.1), in: .rect(cornerRadius: 4))
             Text(label)
+                .lineLimit(1)
+                .truncationMode(.middle)
         }
         .font(.caption)
         .foregroundStyle(.secondary)

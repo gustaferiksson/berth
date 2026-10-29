@@ -549,23 +549,32 @@ private struct SessionRow: View {
             detail: {
                 if session.pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {
-                        if let projectName {
-                            HStack(spacing: 4) {
-                                Text(projectName)
-                                    .foregroundStyle(theme.secondary)
-                                if session.branch != nil {
-                                    Text(verbatim: "·")
-                                        .foregroundStyle(theme.secondary.opacity(0.6))
+                        HStack(spacing: 8) {
+                            if let projectName {
+                                HStack(spacing: 4) {
+                                    ZStack(alignment: .leading) {
+                                        Text(verbatim: projectName.count > 4 ? "\(projectName.prefix(4))…" : projectName)
+                                            .fixedSize()
+                                            .hidden()
+                                        Text(projectName)
+                                            .foregroundStyle(theme.secondary)
+                                            .truncationMode(.tail)
+                                    }
+                                    if session.branch != nil {
+                                        Text(verbatim: "·")
+                                            .foregroundStyle(theme.secondary.opacity(0.6))
+                                            .fixedSize()
+                                    }
                                 }
+                                .font(.caption)
                             }
-                            .font(.caption)
-                            .fixedSize()
+                            if let branch = session.branch {
+                                BranchText(branch: branch)
+                                    .layoutPriority(1)
+                            }
                         }
-                        if let branch = session.branch {
-                            BranchText(branch: branch)
-                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         if let pullRequest = session.pullRequest {
-                            Spacer(minLength: 0)
                             PullRequestTag(link: pullRequest, state: pullRequestState)
                                 .fixedSize()
                         }
@@ -628,6 +637,7 @@ private struct CardRow<Detail: View>: View {
                     Text(age(since: modified))
                         .font(.caption.weight(isLoaded ? .medium : .regular))
                         .monospacedDigit()
+                        .fixedSize()
                         .foregroundStyle(isLoaded ? theme.working : theme.secondary)
                 }
             }
@@ -737,7 +747,6 @@ private struct BranchText: View {
             try? await Task.sleep(for: .seconds(1))
             isCopied = false
         }
-        .layoutPriority(-1)
     }
 }
 
