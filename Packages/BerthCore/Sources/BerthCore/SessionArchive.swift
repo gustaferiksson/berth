@@ -6,7 +6,7 @@ public enum SessionArchive {
         let archivedIDs = Set(archived.map(\.id))
         return (
             sessions.filter { !archivedIDs.contains($0.id) },
-            archived.sorted { $0.lastActivity > $1.lastActivity },
+            archived.sorted { $0.lastPrompt > $1.lastPrompt },
             archivedAt.filter { archivedIDs.contains($0.key) }
         )
     }

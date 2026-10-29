@@ -540,7 +540,7 @@ private struct SessionRow: View {
             state: RowState(live: live),
             isLocked: isLocked,
             isLoaded: isOpen,
-            modified: session.lastActivity,
+            modified: session.lastPrompt,
             detail: {
                 if session.pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {

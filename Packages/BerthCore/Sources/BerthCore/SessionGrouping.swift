@@ -88,7 +88,7 @@ public struct SessionGroup: Identifiable, Sendable {
         return folder
     }
 
-    public var lastActivity: Date { sessions.first?.lastActivity ?? .distantPast }
+    public var lastPrompt: Date { sessions.first?.lastPrompt ?? .distantPast }
 
     public var custom: CustomGroup? {
         guard case let .custom(group) = kind else { return nil }
@@ -111,20 +111,20 @@ public struct SessionGrouping: Sendable {
         self.calendar = calendar
     }
 
-    public func kind(forFolder folder: String, lastActivity: Date) -> SessionGroup.Kind {
+    public func kind(forFolder folder: String, lastPrompt: Date) -> SessionGroup.Kind {
         if let group = customGroups.first(where: { $0.matches(folder) }) { return .custom(group) }
-        if mode == .recent { return .recent(RecentBucket(date: lastActivity, now: now, calendar: calendar)) }
+        if mode == .recent { return .recent(RecentBucket(date: lastPrompt, now: now, calendar: calendar)) }
         return .folder(mode == .repository ? repositoryRoots[folder] ?? folder : folder)
     }
 
     public func groups(_ sessions: [SessionSummary]) -> [SessionGroup] {
-        let byKind = Dictionary(grouping: sessions) { kind(forFolder: $0.cwd, lastActivity: $0.lastActivity) }
-            .mapValues { $0.sorted { $0.lastActivity > $1.lastActivity } }
+        let byKind = Dictionary(grouping: sessions) { kind(forFolder: $0.cwd, lastPrompt: $0.lastPrompt) }
+            .mapValues { $0.sorted { $0.lastPrompt > $1.lastPrompt } }
         let custom = customGroups.map { SessionGroup(kind: .custom($0), sessions: byKind[.custom($0)] ?? []) }
         let automatic = byKind.filter { if case .custom = $0.key { false } else { true } }
             .map { SessionGroup(kind: $0.key, sessions: $0.value) }
             .sorted { lhs, rhs in
-                guard case let .recent(left) = lhs.kind, case let .recent(right) = rhs.kind else { return lhs.lastActivity > rhs.lastActivity }
+                guard case let .recent(left) = lhs.kind, case let .recent(right) = rhs.kind else { return lhs.lastPrompt > rhs.lastPrompt }
                 return RecentBucket.allCases.firstIndex(of: left)! < RecentBucket.allCases.firstIndex(of: right)!
             }
         return Self.place(custom, among: automatic)

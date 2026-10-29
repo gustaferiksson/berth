@@ -103,6 +103,69 @@ struct TranscriptTests {
         #expect(repliedActivity == (try Date("2026-10-28T09:01:00.000Z", strategy: .iso8601)))
     }
 
+    func records(_ lines: String) -> [Record] {
+        Transcript.records(in: Data(lines.utf8), dropFirst: false, dropLast: false)
+    }
+
+    @Test func orderFollowsTheLastTypedPromptNotStreamingWrites() throws {
+        let head = records(#"{"type":"user","cwd":"/x","timestamp":"2026-10-29T09:00:00.000Z","message":{"content":"start"}}"#)
+        let alpha = records(#"{"type":"user","timestamp":"2026-10-29T10:00:00.000Z","message":{"content":"fix alpha"}}"#)
+        let beta = records(#"{"type":"user","timestamp":"2026-10-29T10:01:00.000Z","message":{"content":"fix beta"}}"#)
+        let streaming = records("""
+        {"type":"assistant","timestamp":"2026-10-29T10:05:00.000Z","message":{"content":[{"type":"text","text":"Working."}]}}
+        {"type":"user","timestamp":"2026-10-29T10:05:01.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+        {"type":"user","timestamp":"2026-10-29T10:05:02.000Z","isCompactSummary":true,"message":{"content":"This session is being continued"}}
+        {"type":"user","timestamp":"2026-10-29T10:05:03.000Z","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>done</task-notification>"}}
+        {"type":"user","timestamp":"2026-10-29T10:05:04.000Z","isSidechain":true,"message":{"content":"subagent prompt"}}
+        {"type":"user","timestamp":"2026-10-29T10:05:05.000Z","isMeta":true,"message":{"content":"meta"}}
+        """)
+        let prompt = records(#"{"type":"user","timestamp":"2026-10-29T10:10:00.000Z","origin":{"kind":"human"},"message":{"content":"and the docs"}}"#)
+        let order = { (alphaTail: [Record], betaTail: [Record]) throws -> [String] in
+            let sessions = try [("alpha", alphaTail), ("beta", betaTail)].map { id, tail in
+                try #require(Transcript.summary(id: id, folder: "-x", modified: .now, head: head, tail: tail))
+            }
+            return SessionGrouping(mode: .project, customGroups: [], repositoryRoots: [:]).groups(sessions).flatMap(\.sessions).map(\.id)
+        }
+        #expect(try order(alpha, beta) == ["beta", "alpha"])
+        #expect(try order(alpha + streaming, beta) == ["beta", "alpha"])
+        #expect(try order(alpha + streaming, beta + streaming) == ["beta", "alpha"])
+        #expect(try order(alpha + streaming + prompt, beta + streaming) == ["alpha", "beta"])
+        let alphaPrompt = try #require(Transcript.summary(id: "alpha", folder: "-x", modified: .now, head: head, tail: alpha + streaming)?.lastPrompt)
+        #expect(alphaPrompt == (try Date("2026-10-29T10:00:00.000Z", strategy: .iso8601)))
+    }
+
+    @Test func lastPromptFallsBackToEarlierPromptThenFirstRecord() throws {
+        let head = records(#"{"type":"system","cwd":"/x","timestamp":"2026-10-29T08:00:00.000Z"}"#)
+        let tail = records(#"{"type":"custom-title","customTitle":"Untouched"}"#)
+        let earlier = try Date("2026-10-29T09:30:00.000Z", strategy: .iso8601)
+        #expect(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail)?.lastPrompt == (try Date("2026-10-29T08:00:00.000Z", strategy: .iso8601)))
+        #expect(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail, earlierPrompt: earlier)?.lastPrompt == earlier)
+    }
+
+    @Test func lastPromptBeyondTheTailIsFoundOrKeptFromTheLastRead() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "berth-\(UUID().uuidString)/-x/prompt.jsonl")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
+        let output = String(repeating: "x", count: 4000)
+        let toolResult = #"{"type":"user","timestamp":"2026-10-29T10:05:00.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"\#(output)"}]}}"#
+        let lines = [
+            #"{"type":"user","cwd":"/x","timestamp":"2026-10-29T09:00:00.000Z","message":{"content":"start"}}"#,
+            #"{"type":"user","timestamp":"2026-10-29T10:00:00.000Z","message":{"content":"long task"}}"#,
+        ] + Array(repeating: toolResult, count: 40)
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        let prompt = try Date("2026-10-29T10:00:00.000Z", strategy: .iso8601)
+        #expect(Transcript.summary(of: url)?.lastPrompt == prompt)
+
+        let size = try #require(try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int)
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((Array(repeating: toolResult, count: 40).joined(separator: "\n") + "\n").utf8))
+        try handle.close()
+        let known = try Date("2026-10-29T09:59:00.000Z", strategy: .iso8601)
+        #expect(Transcript.summary(of: url, after: (size: size, lastPrompt: known))?.lastPrompt == known)
+        #expect(Transcript.summary(of: url)?.lastPrompt == prompt)
+    }
+
     @Test func archiveHidesUntilNewActivityAndPrunesMissingTranscripts() {
         let now = Date()
         let sessions = [
