@@ -75,6 +75,7 @@ struct ContentView: View {
                         .scrollContentBackground(.hidden)
                         .background(store.theme.background ?? .clear)
                         .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
+                        .background(ScrollPocketSeparatorRemover())
                         .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs && $0 >= 220 { trailingSidebarWidth = $0 } }
                         .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
                 } else {
@@ -161,6 +162,21 @@ struct Hairline: View {
         Rectangle()
             .fill(theme.foreground.opacity(0.1))
             .frame(width: axis == .vertical ? 1 / displayScale : nil, height: axis == .horizontal ? 1 / displayScale : nil)
+    }
+}
+
+// AppKit gives an inspector column's scroll pocket a thin-film edge with a separator line, and no public API turns it off.
+private struct ScrollPocketSeparatorRemover: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            var candidates = view.superview?.superview.map { [$0] } ?? []
+            while let next = candidates.popLast() {
+                if next.responds(to: Selector(("setAllowsSeparator:"))) { next.setValue(false, forKey: "allowsSeparator") }
+                candidates.append(contentsOf: next.subviews)
+            }
+        }
     }
 }
 
