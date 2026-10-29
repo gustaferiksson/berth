@@ -20,17 +20,6 @@ struct ContentView: View {
                 .background(store.theme.background ?? .clear)
                 .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
                 .navigationSplitViewColumnWidth(min: 220, ideal: 300, max: 440)
-                .toolbar {
-                    ToolbarSpacer(.flexible)
-                    ToolbarItem {
-                        Menu("Group By", systemImage: "square.grid.3x1.below.line.grid.1x2") {
-                            Section("Group By") { GroupingMenuItems(store: store) }
-                            AppAction.newGroup.menuButton(store)
-                        }
-                        .menuIndicator(.hidden)
-                        .help("Group By")
-                    }
-                }
         } detail: {
             GeometryReader { geometry in
                 VStack(spacing: 0) {

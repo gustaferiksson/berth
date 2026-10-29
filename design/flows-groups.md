@@ -22,9 +22,9 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
 
 | Entry point | Pointer | Keyboard | Result |
 |---|---|---|---|
-| Switch mode | Sidebar toolbar pull-down (title = mode) | ⌃⌘1 / ⌃⌘2 / ⌃⌘3, View ▸ Group By | Regroups at once; collapse state per group id |
-| Show Custom Groups | Pull-down, View ▸ Group By | none | Off: custom groups hidden, their sessions fall back to the mode |
-| New Group… | Pull-down, View ▸ Group By, C2 ▸ Add to Group ▸ New Group from X… | menu bar | C3 sheet (empty, or prefilled with X's folder) |
+| Switch mode | View ▸ Group By, palette | ⌃⌘1 / ⌃⌘2 / ⌃⌘3, View ▸ Group By | Regroups at once; collapse state per group id |
+| Show Custom Groups | View ▸ Group By | none | Off: custom groups hidden, their sessions fall back to the mode |
+| New Group… | File menu, palette, C2 ▸ Add to Group ▸ New Group from X… | menu bar | C3 sheet (empty, or prefilled with X's folder) |
 | Edit Group… | Custom header context menu | none | C3 sheet for that group |
 | Rename | Custom header context menu | ↩ commits, esc cancels | Inline field in the header |
 | Move Up / Move Down | Custom header context menu (hidden at the ends) | none | Reorders, so priority changes |
