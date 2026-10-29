@@ -11,6 +11,7 @@ public struct LiveSession: Sendable, Hashable, Decodable {
     public let sessionId: String
     public let cwd: String
     public let kind: String?
+    public let jobId: String?
     public let status: String?
     public let waitingFor: String?
     public let statusUpdatedAt: Double?
@@ -20,6 +21,10 @@ public struct LiveSession: Sendable, Hashable, Decodable {
         if status == "busy" { return .working }
         if status == "waiting" { return .needsInput(waitingFor) }
         return .idle
+    }
+
+    public var attachID: String? {
+        kind == "bg" ? jobId : nil
     }
 
     public static func load(from directory: URL, isAlive: (Int32) -> Bool) -> [LiveSession] {

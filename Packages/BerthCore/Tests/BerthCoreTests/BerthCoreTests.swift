@@ -129,12 +129,20 @@ struct LiveSessionTests {
     @Test func joinsAliveSessionsNewestFirst() {
         let live = LiveSession.load(from: directory) { $0 != 103 }
         let bySession = Dictionary(uniqueKeysWithValues: live.map { ($0.sessionId, $0) })
-        #expect(bySession.count == 2)
+        #expect(bySession.count == 3)
         #expect(bySession["aaaa"]?.pid == 101)
         #expect(bySession["aaaa"]?.startedAt == 1500)
         #expect(bySession["aaaa"]?.activity == .working)
         #expect(bySession["bbbb"]?.activity == .needsInput("permission"))
         #expect(bySession["cccc"] == nil)
+    }
+
+    @Test func onlyBackgroundSessionsAreAttachable() {
+        let live = LiveSession.load(from: directory) { _ in true }
+        let attachable = Dictionary(uniqueKeysWithValues: live.map { ($0.sessionId, $0.attachID) })
+        #expect(attachable["dddd1234-0000-4000-8000-000000000000"] == "dddd1234")
+        #expect(attachable["aaaa"] == .some(nil))
+        #expect(attachable["bbbb"] == .some(nil))
     }
 
     @Test func unknownStatusIsIdle() {
@@ -328,6 +336,10 @@ struct ClaudeLaunchTests {
         #expect(!FileManager.default.fileExists(atPath: "/tmp/berth-pwned"))
     }
 
+    @Test func attachTakesTheJobIDAndNoPrompt() {
+        #expect(ClaudeLaunch.command(.attach, prompt: "ignored") == #"/bin/zsh -ilc 'claude attach "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
+    }
+
     @Test func noPromptMeansNoSeparator() {
         #expect(ClaudeLaunch.command(.resume, prompt: "") == #"/bin/zsh -ilc 'claude --resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
     }
@@ -335,7 +347,7 @@ struct ClaudeLaunchTests {
 
 struct NeedsYouTests {
     func live(_ id: String, _ status: String) -> LiveSession {
-        LiveSession(pid: 1, sessionId: id, cwd: "/Users/example/Repos/alpha", kind: nil, status: status, waitingFor: nil, statusUpdatedAt: nil, startedAt: nil)
+        LiveSession(pid: 1, sessionId: id, cwd: "/Users/example/Repos/alpha", kind: nil, jobId: nil, status: status, waitingFor: nil, statusUpdatedAt: nil, startedAt: nil)
     }
 
     @Test func firstScanSeedsWithoutAlerting() {
