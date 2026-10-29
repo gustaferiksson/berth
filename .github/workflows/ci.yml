@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    name: Build & test (unsigned)
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install build tools
+        run: brew install xcodegen
+
+      - name: Build (ad-hoc, unsigned)
+        run: ./build.sh
+
+      - name: Test
+        run: swift test --package-path Packages/BerthCore
+
+      - name: Verify the bundle
+        run: |
+          set -euo pipefail
+          app=dist/Berth.app
+          test -f $app/Contents/Resources/Assets.car
+          name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconName" "$app/Contents/Info.plist")
+          [ "$name" = "AppIcon" ] || { echo "CFBundleIconName is '$name', expected AppIcon"; exit 1; }
+          test -d $app/Contents/Resources/GhosttyKit_GhosttyTerminal.bundle
+          codesign --verify --deep --strict $app

@@ -4,11 +4,11 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, newSession, searchSessions, newTerminal, toggleTerminalPanel, clearTerminal, archiveCurrentSession
     case groupBy(GroupingMode)
-    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, settings
+    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, settings, checkForUpdates
 
     static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .toggleTerminalPanel, .clearTerminal, .archiveCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
-        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .settings]
+        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .settings, .checkForUpdates]
     static let routedPastTerminal: [AppAction] = [.commandPalette, .toggleTerminalPanel, .newTerminal, .clearTerminal]
 
     var title: String {
@@ -27,6 +27,7 @@ enum AppAction: Hashable {
         case .showStats: "Show Stats"
         case .harbor: "Harbor"
         case .settings: "Settings…"
+        case .checkForUpdates: "Check for Updates…"
         }
     }
 
@@ -41,6 +42,7 @@ enum AppAction: Hashable {
         case .showStats: "usage tokens charts activity"
         case .harbor: "ambient boats piers overview"
         case .settings: "preferences"
+        case .checkForUpdates: "update version release"
         default: ""
         }
     }
@@ -61,6 +63,7 @@ enum AppAction: Hashable {
         case .showStats: "chart.bar.xaxis"
         case .harbor: "sailboat"
         case .settings: "gear"
+        case .checkForUpdates: "arrow.down.circle"
         }
     }
 
@@ -104,6 +107,7 @@ enum AppAction: Hashable {
         case .showStats: store.isStatsRequested = true
         case .harbor: store.isHarborShown.toggle()
         case .settings: break
+        case .checkForUpdates: store.updater.check(.manual)
         }
     }
 

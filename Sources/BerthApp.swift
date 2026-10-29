@@ -21,6 +21,9 @@ struct BerthApp: App {
         .defaultSize(width: 1200, height: 760)
         .defaultLaunchBehavior(Snapshot.output == nil && settingsSnapshot == nil ? .presented : .suppressed)
         .commands {
+            CommandGroup(after: .appInfo) {
+                AppAction.checkForUpdates.menuButton(appDelegate.store)
+            }
             CommandGroup(after: .newItem) {
                 ForEach([AppAction.newSession, .searchSessions, .newTerminal, .newGroup], id: \.self) { $0.menuButton(appDelegate.store) }
             }
@@ -63,6 +66,7 @@ struct BerthApp: App {
 
         Settings {
             SettingsView()
+                .environment(appDelegate.store)
         }
     }
 }
@@ -114,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let output = Snapshot.output else {
             UNUserNotificationCenter.current().delegate = self
             store.start(restoringTabs: true)
+            store.updater.start()
             return
         }
         store.persistsTabs = false
@@ -123,6 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         ProcessAncestry.hangUpDescendants()
+        store.updater.installOnQuit()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

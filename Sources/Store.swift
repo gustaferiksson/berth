@@ -42,6 +42,8 @@ private struct LauncherOrigin {
 final class Store {
     static let claudeDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude")
 
+    let updater = AppUpdater()
+
     var tabs: [Tab] = [] {
         didSet { saveOpenTabs() }
     }

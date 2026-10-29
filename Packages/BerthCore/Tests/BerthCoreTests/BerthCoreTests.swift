@@ -155,10 +155,10 @@ struct GroupingTests {
         let exact = FolderRule(path: "/r/acme", includesSubfolders: false)
         let nested = FolderRule(path: "/r/acme/", includesSubfolders: true)
         #expect(exact.matches("/r/acme"))
-        #expect(!exact.matches("/r/acme/hub"))
+        #expect(!exact.matches("/r/acme/web"))
         #expect(nested.matches("/r/acme"))
-        #expect(nested.matches("/r/acme/hub"))
-        #expect(!nested.matches("/r/acme-hub"))
+        #expect(nested.matches("/r/acme/web"))
+        #expect(!nested.matches("/r/acme-web"))
         #expect(FolderRule(path: "/", includesSubfolders: true).matches("/anything"))
     }
 
@@ -173,22 +173,22 @@ struct GroupingTests {
 
     @Test func firstMatchingCustomGroupWinsAndPinsOnTop() {
         let acme = CustomGroup(name: "Acme", rules: [FolderRule(path: "/r/acme", includesSubfolders: true)])
-        let hub = CustomGroup(name: "Hub", rules: [FolderRule(path: "/r/acme/hub", includesSubfolders: false)])
+        let web = CustomGroup(name: "Web", rules: [FolderRule(path: "/r/acme/web", includesSubfolders: false)])
         let empty = CustomGroup(name: "Empty", rules: [FolderRule(path: "/nowhere", includesSubfolders: false)])
-        let groups = SessionGrouping(mode: .project, customGroups: [acme, hub, empty], repositoryRoots: [:], now: now, calendar: calendar).groups([
-            session("hub", "/r/acme/hub"), session("cms", "/r/acme/cms", ago: 10), session("other", "/r/other"),
+        let groups = SessionGrouping(mode: .project, customGroups: [acme, web, empty], repositoryRoots: [:], now: now, calendar: calendar).groups([
+            session("web", "/r/acme/web"), session("api", "/r/acme/api", ago: 10), session("other", "/r/other"),
         ])
-        #expect(groups.map(\.title) == ["Acme", "Hub", "Empty", "other"])
-        #expect(groups[0].sessions.map(\.id) == ["hub", "cms"])
+        #expect(groups.map(\.title) == ["Acme", "Web", "Empty", "other"])
+        #expect(groups[0].sessions.map(\.id) == ["web", "api"])
         #expect(groups[1].sessions.isEmpty)
         #expect(groups[0].folder == nil)
     }
 
     @Test func repositoryModeMergesWorktreesUnderTheirRoot() {
-        let groups = SessionGrouping(mode: .repository, customGroups: [], repositoryRoots: ["/r/hub-filters": "/r/hub", "/r/hub": "/r/hub"], now: now, calendar: calendar).groups([
-            session("1", "/r/hub-filters"), session("2", "/r/hub", ago: 5), session("3", "/r/tine", ago: 9),
+        let groups = SessionGrouping(mode: .repository, customGroups: [], repositoryRoots: ["/r/web-filters": "/r/web", "/r/web": "/r/web"], now: now, calendar: calendar).groups([
+            session("1", "/r/web-filters"), session("2", "/r/web", ago: 5), session("3", "/r/nova", ago: 9),
         ])
-        #expect(groups.map(\.id) == ["/r/hub", "/r/tine"])
+        #expect(groups.map(\.id) == ["/r/web", "/r/nova"])
         #expect(groups[0].sessions.map(\.id) == ["1", "2"])
     }
 
@@ -214,9 +214,9 @@ struct RepositoryRootTests {
     @Test func resolvesWorktreesSubfoldersAndPlainFolders() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "berth-repo-\(UUID().uuidString)").resolvingSymlinksInPath()
         defer { try? FileManager.default.removeItem(at: root) }
-        let repo = root.appending(path: "hub")
-        let worktree = root.appending(path: "hub-filters")
-        let gitDirectory = repo.appending(path: ".git/worktrees/hub-filters")
+        let repo = root.appending(path: "web")
+        let worktree = root.appending(path: "web-filters")
+        let gitDirectory = repo.appending(path: ".git/worktrees/web-filters")
         try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: repo.appending(path: "packages/core"), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: worktree.appending(path: "src"), withIntermediateDirectories: true)
@@ -233,18 +233,18 @@ struct RepositoryRootTests {
 
 struct FuzzyMatchTests {
     @Test func namePrefixBeatsContainsBeatsSubsequenceBeatsPath() throws {
-        let prefix = try #require(FuzzyMatch.score("ti", name: "tine", path: "/r/tine"))
-        let contains = try #require(FuzzyMatch.score("ne", name: "tine", path: "/r/tine"))
-        let subsequence = try #require(FuzzyMatch.score("te", name: "tine", path: "/r/tine"))
-        let path = try #require(FuzzyMatch.score("gus", name: "tine", path: "/Users/me/tine"))
+        let prefix = try #require(FuzzyMatch.score("no", name: "nova", path: "/r/nova"))
+        let contains = try #require(FuzzyMatch.score("va", name: "nova", path: "/r/nova"))
+        let subsequence = try #require(FuzzyMatch.score("na", name: "nova", path: "/r/nova"))
+        let path = try #require(FuzzyMatch.score("exam", name: "nova", path: "/Users/example/nova"))
         #expect(prefix > contains && contains > subsequence && subsequence > path)
-        #expect(FuzzyMatch.score("xyz", name: "tine", path: "/r/tine") == nil)
-        #expect(FuzzyMatch.score("TI", name: "tine", path: "/r/tine") == prefix)
+        #expect(FuzzyMatch.score("xyz", name: "nova", path: "/r/nova") == nil)
+        #expect(FuzzyMatch.score("NO", name: "nova", path: "/r/nova") == prefix)
     }
 
     @Test func pathQueriesMatchByPrefix() {
-        #expect(FuzzyMatch.score("/r/ti", name: "tine", path: "/r/tine") != nil)
-        #expect(FuzzyMatch.score("/r/ti", name: "tine", path: "/x/tine") == nil)
+        #expect(FuzzyMatch.score("/r/no", name: "nova", path: "/r/nova") != nil)
+        #expect(FuzzyMatch.score("/r/no", name: "nova", path: "/x/nova") == nil)
     }
 }
 

@@ -19,6 +19,7 @@ fi
 
 MARKETING_VERSION="${MARKETING_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)-local}"
 SIGN_ARGS+=( "MARKETING_VERSION=${MARKETING_VERSION}" )
+[[ -n "${CURRENT_PROJECT_VERSION:-}" ]] && SIGN_ARGS+=( "CURRENT_PROJECT_VERSION=${CURRENT_PROJECT_VERSION}" )
 
 echo "▸ Generating Xcode project…"
 xcodegen generate --quiet
@@ -39,5 +40,6 @@ rm -rf dist/Berth.app
 cp -R .build/Build/Products/Release/Berth.app dist/Berth.app
 
 echo "✅ Built dist/Berth.app"
+[[ "$SIGN_ID" != "-" ]] && echo "   Notarize: ./notarize.sh"
 echo "   Launch: open dist/Berth.app"
 echo "   Test:   swift test --package-path Packages/BerthCore"
