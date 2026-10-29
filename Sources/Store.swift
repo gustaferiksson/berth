@@ -111,6 +111,7 @@ final class Store {
     @ObservationIgnored private(set) var searchIndex = TranscriptSearchIndex()
 
     @ObservationIgnored var persistsTabs = true
+    @ObservationIgnored var lastKeyInput = Date.distantPast
     @ObservationIgnored private var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var searchIndexTask: Task<Void, Never>?
@@ -134,6 +135,8 @@ final class Store {
     #endif
 
     func start(restoringTabs: Bool) {
+        updater.workingSessions = { [weak self] in self?.workingSessionCount ?? 0 }
+        updater.isIdle = { [weak self] in self?.isIdle ?? false }
         let sessions = Self.claudeDirectory.appending(path: "sessions").path
         watcher = FileWatcher(paths: [sessions, Self.claudeDirectory.appending(path: "projects").path], latency: 1) { [weak self] paths in
             guard let self else { return }
@@ -292,6 +295,16 @@ final class Store {
 
     func tab(forSession id: String) -> Tab? {
         tabs.first { $0.sessionID == id }
+    }
+
+    var workingSessionCount: Int {
+        tabs.compactMap(\.sessionID).filter { liveBySession[$0]?.activity == .working }.count
+    }
+
+    var isIdle: Bool {
+        workingSessionCount == 0
+            && lastKeyInput.timeIntervalSinceNow < -120
+            && !shells.contains { $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
     }
 
     var selection: SidebarItem? {

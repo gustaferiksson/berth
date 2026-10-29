@@ -24,6 +24,7 @@ final class AppUpdater {
     nonisolated static let requirement = "=anchor apple generic and certificate leaf[subject.OU] = \"82K3YC8HVF\" and identifier \"dev.gustaf.berth\""
     nonisolated static let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     private static let checkInterval: TimeInterval = 24 * 60 * 60
+    private static let idleSettle: TimeInterval = 60
     nonisolated private static let stagingPrefix = ".berth-update-"
 
     private(set) var status = Status.idle
@@ -32,6 +33,10 @@ final class AppUpdater {
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
     @ObservationIgnored private var swapping = false
+    @ObservationIgnored private var idleTimer: Timer?
+    @ObservationIgnored private var idleSince: Date?
+    @ObservationIgnored var workingSessions: () -> Int = { 0 }
+    @ObservationIgnored var isIdle: () -> Bool = { false }
 
     var isBusy: Bool { status == .checking || status == .downloading }
 
@@ -51,6 +56,9 @@ final class AppUpdater {
             return
         }
         Self.clearStaging()
+        idleTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.relaunchIfSettled() }
+        }
         // build.sh stamps local builds "<describe>-local", which would otherwise compare older than every release.
         guard !Self.currentVersion.hasSuffix("-local") else { return }
         check()
@@ -67,11 +75,6 @@ final class AppUpdater {
             status = .blocked("This build doesn’t update itself.")
             return
         }
-        if let staged {
-            status = .ready(staged.version)
-            if trigger == .manual { offer(staged.version) }
-            return
-        }
         guard !isBusy else { return }
         let previous = status
         status = .checking
@@ -80,11 +83,18 @@ final class AppUpdater {
 
     private func runCheck(_ trigger: Trigger, previous: Status) async {
         guard let latest = await Self.latestVersion() else {
+            if let staged {
+                status = .ready(staged.version)
+                if trigger == .manual { offer(staged.version) }
+                return
+            }
             status = trigger == .manual ? .failed("Couldn’t reach github.com.") : newerVersion == nil ? .idle : previous
             return
         }
         guard Self.isNewerVersion(latest, than: Self.currentVersion) else {
             newerVersion = nil
+            staged = nil
+            Self.clearStaging()
             status = .upToDate(Self.currentVersion)
             if trigger == .manual {
                 let panel = NSAlert()
@@ -95,6 +105,13 @@ final class AppUpdater {
             return
         }
         newerVersion = latest
+        if let staged, staged.version == latest, FileManager.default.fileExists(atPath: staged.app.path) {
+            status = .ready(latest)
+            if trigger == .manual { offer(latest) }
+            return
+        }
+        staged = nil
+        Self.clearStaging()
         guard FileManager.default.isWritableFile(atPath: Self.installDir.path) else {
             status = .blocked("Berth can’t update itself in \(Self.installDir.path). Download it instead.")
             if trigger == .manual { NSWorkspace.shared.open(Self.releasesURL) }
@@ -104,9 +121,8 @@ final class AppUpdater {
         do {
             staged = (latest, try await Self.downloadVerified(version: latest))
             status = .ready(latest)
-            offer(latest)
+            if trigger == .manual { offer(latest) }
         } catch {
-            Self.clearStaging()
             status = .failed(error.localizedDescription)
             if trigger == .manual { NSWorkspace.shared.open(Self.releasesURL) }
         }
@@ -114,16 +130,42 @@ final class AppUpdater {
 
     private func offer(_ version: String) {
         let panel = NSAlert()
-        panel.messageText = "Berth \(version) is available"
-        panel.informativeText = "Berth will replace itself and relaunch, which stops the sessions running in its tabs."
-        panel.addButton(withTitle: "Install")
-        panel.addButton(withTitle: "Later")
+        panel.messageText = "Berth \(version) is ready"
+        panel.informativeText = "Berth relaunches to install it once no session in its tabs is working and you haven’t typed for a while, or installs it when you quit. Sessions resume after the relaunch."
+        panel.addButton(withTitle: "Install When Idle")
+        panel.addButton(withTitle: "Install and Relaunch")
         NSApp.activate()
-        guard panel.runModal() == .alertFirstButtonReturn else { return }
+        guard panel.runModal() == .alertSecondButtonReturn else { return }
         installAndRelaunch()
     }
 
     func installAndRelaunch() {
+        let working = workingSessions()
+        if working > 0 {
+            let panel = NSAlert()
+            panel.alertStyle = .warning
+            panel.messageText = working == 1 ? "1 session is working" : "\(working) sessions are working"
+            panel.informativeText = "Installing now stops \(working == 1 ? "it" : "them") mid-turn. Berth resumes \(working == 1 ? "it" : "them") after it relaunches, but the work in progress is lost."
+            panel.addButton(withTitle: "Install and Relaunch").hasDestructiveAction = true
+            panel.addButton(withTitle: "Cancel")
+            NSApp.activate()
+            guard panel.runModal() == .alertFirstButtonReturn else { return }
+        }
+        relaunch()
+    }
+
+    private func relaunchIfSettled() {
+        guard staged != nil, !swapping, isIdle() else {
+            idleSince = nil
+            return
+        }
+        let since = idleSince ?? .now
+        idleSince = since
+        guard since.timeIntervalSinceNow <= -Self.idleSettle else { return }
+        relaunch()
+    }
+
+    private func relaunch() {
         if let reason = spawnSwap(then: .open) {
             if !isBusy { status = .blocked(reason) }
             return
@@ -138,7 +180,10 @@ final class AppUpdater {
 
     private func spawnSwap(then after: AfterSwap) -> String? {
         guard !swapping else { return nil }
-        guard let staged else { return "No update is downloaded." }
+        guard let staged, FileManager.default.fileExists(atPath: staged.app.path) else {
+            self.staged = nil
+            return "The downloaded update is missing. Check for updates again."
+        }
         let installed = Self.bundleVersion(of: Bundle.main.bundleURL)
         if let installed, !Self.isNewerVersion(staged.version, than: installed) {
             self.staged = nil
