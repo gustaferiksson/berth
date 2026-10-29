@@ -303,7 +303,7 @@ final class Store {
 
     var isIdle: Bool {
         workingSessionCount == 0
-            && lastKeyInput.timeIntervalSinceNow < -10
+            && lastKeyInput.timeIntervalSinceNow < -30
             && !shells.contains { $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
     }
 
