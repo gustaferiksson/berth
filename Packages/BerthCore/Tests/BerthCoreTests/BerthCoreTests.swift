@@ -184,6 +184,66 @@ struct GroupingTests {
         #expect(groups[0].folder == nil)
     }
 
+    @Test func customGroupsKeepTheirSlotAmongAutomaticGroups() {
+        let pinned = CustomGroup(name: "Pinned", rules: [FolderRule(path: "/r/pinned", includesSubfolders: false)])
+        let middle = CustomGroup(name: "Middle", rules: [FolderRule(path: "/r/middle", includesSubfolders: false)], slot: 2)
+        let after = CustomGroup(name: "After", rules: [FolderRule(path: "/r/after", includesSubfolders: false)])
+        let last = CustomGroup(name: "Last", rules: [FolderRule(path: "/r/last", includesSubfolders: false)], slot: 50)
+        let grouping = SessionGrouping(mode: .project, customGroups: [pinned, middle, after, last], repositoryRoots: [:], now: now, calendar: calendar)
+        let few = grouping.groups([session("1", "/r/acme-web"), session("2", "/r/acme-api", ago: 5)])
+        #expect(few.map(\.title) == ["Pinned", "acme-web", "Middle", "After", "acme-api", "Last"])
+        let many = grouping.groups([session("1", "/r/acme-web"), session("2", "/r/acme-api", ago: 5), session("3", "/r/nova", ago: 9)])
+        #expect(many.map(\.title) == ["Pinned", "acme-web", "Middle", "After", "acme-api", "nova", "Last"])
+        let none = grouping.groups([])
+        #expect(none.map(\.title) == ["Pinned", "Middle", "After", "Last"])
+    }
+
+    @Test func customGroupsSharingASlotStayInDefinitionOrder() {
+        let first = CustomGroup(name: "First", rules: [], slot: 1)
+        let second = CustomGroup(name: "Second", rules: [], slot: 1)
+        let groups = SessionGrouping(mode: .project, customGroups: [first, second], repositoryRoots: [:], now: now, calendar: calendar).groups([
+            session("1", "/r/acme-web"), session("2", "/r/acme-api", ago: 5),
+        ])
+        #expect(groups.map(\.title) == ["acme-web", "First", "Second", "acme-api"])
+    }
+
+    @Test func recentBucketsFillAroundCustomSlots() {
+        let day: TimeInterval = 86400
+        let custom = CustomGroup(name: "Acme", rules: [FolderRule(path: "/r/acme", includesSubfolders: true)], slot: 1)
+        let groups = SessionGrouping(mode: .recent, customGroups: [custom], repositoryRoots: [:], now: now, calendar: calendar).groups([
+            session("old", "/a", ago: 30 * day), session("today", "/b"), session("acme", "/r/acme/web"),
+        ])
+        #expect(groups.map(\.id) == ["recent:today", "custom:\(custom.id.uuidString)", "recent:older"])
+    }
+
+    @Test func movingAGroupStoresEveryCustomSlotInDisplayOrder() {
+        let acme = CustomGroup(name: "Acme", rules: [])
+        let nova = CustomGroup(name: "Nova", rules: [])
+        let grouping = SessionGrouping(mode: .project, customGroups: [acme, nova], repositoryRoots: [:], now: now, calendar: calendar)
+        let groups = grouping.groups([session("1", "/r/acme-web"), session("2", "/r/acme-api", ago: 5)])
+        #expect(groups.map(\.title) == ["Acme", "Nova", "acme-web", "acme-api"])
+
+        let down = SessionGrouping.moving(groups, from: 0, to: 4)
+        #expect(down.map(\.name) == ["Nova", "Acme"])
+        #expect(down.map(\.slot) == [0, 3])
+
+        let up = SessionGrouping.moving(groups, from: 1, to: 0)
+        #expect(up.map(\.name) == ["Nova", "Acme"])
+        #expect(up.map(\.slot) == [0, 1])
+
+        let between = SessionGrouping.moving(groups, from: 0, to: 3)
+        let regrouped = SessionGrouping(mode: .project, customGroups: between, repositoryRoots: [:], now: now, calendar: calendar)
+            .groups([session("1", "/r/acme-web"), session("2", "/r/acme-api", ago: 5)])
+        #expect(regrouped.map(\.title) == ["Nova", "acme-web", "Acme", "acme-api"])
+    }
+
+    @Test func customGroupsSavedWithoutASlotStillDecode() throws {
+        let json = #"[{"id":"6B1A4E0C-3F1D-4C55-9D7E-0A8B9C1D2E3F","name":"Acme","rules":[{"path":"/r/acme","includesSubfolders":true}]}]"#
+        let groups = try JSONDecoder().decode([CustomGroup].self, from: Data(json.utf8))
+        #expect(groups.map(\.name) == ["Acme"])
+        #expect(groups.first?.slot == nil)
+    }
+
     @Test func repositoryModeMergesWorktreesUnderTheirRoot() {
         let groups = SessionGrouping(mode: .repository, customGroups: [], repositoryRoots: ["/r/web-filters": "/r/web", "/r/web": "/r/web"], now: now, calendar: calendar).groups([
             session("1", "/r/web-filters"), session("2", "/r/web", ago: 5), session("3", "/r/nova", ago: 9),
