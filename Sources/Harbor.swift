@@ -47,7 +47,6 @@ private struct Pier {
 
 struct Harbor: View {
     @Environment(Store.self) private var store
-    @Environment(WorkingPulse.self) private var pulse
     @Environment(\.ghosttyTheme) private var theme
     @State private var hoveredID: String?
     @FocusState private var isFocused: Bool
@@ -63,7 +62,7 @@ struct Harbor: View {
                     draw(piers: piers, boats: boats.filter { $0.mooring.bob == 0 }, in: context, size: size)
                 }
                 ForEach(boats.filter { $0.mooring.bob > 0 }) { boat in
-                    Bobbing(boat: boat, theme: theme, isRunning: pulse.isRunning)
+                    Bobbing(boat: boat, theme: theme)
                         .frame(width: 96, height: 72)
                         .position(x: boat.point.x, y: boat.point.y - 16)
                 }
@@ -247,7 +246,6 @@ private struct BoatSprite: View {
 private struct Bobbing: NSViewRepresentable {
     let boat: Boat
     let theme: GhosttyTheme
-    let isRunning: Bool
 
     func makeNSView(context: Context) -> NSHostingView<BoatSprite> {
         let view = NSHostingView(rootView: BoatSprite(boat: boat, theme: theme))
@@ -259,10 +257,6 @@ private struct Bobbing: NSViewRepresentable {
     func updateNSView(_ view: NSHostingView<BoatSprite>, context: Context) {
         view.rootView = BoatSprite(boat: boat, theme: theme)
         guard let layer = view.layer else { return }
-        guard isRunning else {
-            layer.removeAllAnimations()
-            return
-        }
         let motions = [("transform.translation.y", boat.mooring.bob, 2 * .pi / 1.6), ("transform.translation.x", boat.mooring == .anchored ? 8 : 0, 2 * .pi / 0.2)]
         let running = motions.map { keyPath, amplitude, _ in (layer.animation(forKey: keyPath) as? CABasicAnimation)?.toValue as? Double ?? 0 == amplitude }
         guard running.contains(false) else { return }
