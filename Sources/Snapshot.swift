@@ -108,6 +108,9 @@ enum Snapshot {
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
             store.openClaude(cwd: cwd, prompt: UserDefaults.standard.string(forKey: "snapshotPrompt") ?? "")
         }
+        if let version = UserDefaults.standard.string(forKey: "snapshotRestartBanner") {
+            store.updater.showPendingRestart(version: version, deadline: .now + 18)
+        }
         if UserDefaults.standard.string(forKey: "snapshotLauncher") != nil { store.launcherMode = .newSession }
         if UserDefaults.standard.string(forKey: "snapshotSearch") != nil { store.launcherMode = .search }
         if UserDefaults.standard.string(forKey: "snapshotPalette") != nil { store.launcherMode = .palette }
