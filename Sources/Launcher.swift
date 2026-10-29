@@ -12,10 +12,6 @@ struct Launcher: View {
         let lastActivity: Date?
     }
 
-    private enum Field {
-        case query, prompt
-    }
-
     private enum PaletteTarget {
         case item(SidebarItem)
         case action(AppAction)
@@ -34,14 +30,13 @@ struct Launcher: View {
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openSettings) private var openSettings
     @State private var query = ""
-    @State private var prompt = ""
     @State private var highlighted = 0
     @State private var folders: [Folder] = []
     @State private var hits: [SearchHit] = []
     @State private var searchedQuery = ""
     @State private var resultsHeight = 0.0
     @State private var isBrowsing = false
-    @FocusState private var focus: Field?
+    @FocusState private var isQueryFocused: Bool
 
     private static let visibleMatches = 6
 
@@ -58,25 +53,26 @@ struct Launcher: View {
                 TextField("Query", text: $query, prompt: Text(mode == .newSession ? "Search folders or type a path" : mode == .palette ? "Type a command or session" : "Search all sessions"))
                     .textFieldStyle(.plain)
                     .font(.title3)
-                    .focused($focus, equals: .query)
+                    .focused($isQueryFocused)
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
-                    .onKeyPress(.tab) {
-                        guard mode == .newSession else { return .ignored }
-                        focus = .prompt
-                        return .handled
-                    }
                     .onSubmit {
                         guard mode == .palette else { return submit(target) }
                         if let row { run(row.target) }
                     }
                     .onChange(of: query) { highlighted = 0 }
                 if mode == .newSession {
-                    Button("Browse…") { isBrowsing = true }
-                        .keyboardShortcut("o")
-                        .buttonStyle(.glass)
-                        .controlSize(.small)
-                        .help("Choose a folder (⌘O)")
+                    Button { isBrowsing = true } label: {
+                        Text("Browse…")
+                            .font(.subheadline)
+                            .padding(.horizontal, 8)
+                            .frame(height: 20)
+                            .background(theme.foreground.opacity(0.1), in: .capsule)
+                            .contentShape(.capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .keyboardShortcut("o")
+                    .help("Choose a folder (⌘O)")
                 }
             }
             .padding(16)
@@ -90,7 +86,6 @@ struct Launcher: View {
             HStack(spacing: 16) {
                 if mode == .newSession {
                     hint("↩", target.map { "Start in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start")
-                    hint("⇥", "Prompt")
                     hint("↑↓", "Folder")
                 } else if mode == .palette {
                     hint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
@@ -118,7 +113,7 @@ struct Launcher: View {
         .onAppear {
             query = store.launcherQuery
             store.launcherQuery = ""
-            focus = .query
+            isQueryFocused = true
             if mode == .search { store.updateSearchIndex() }
             guard mode == .newSession else { return }
             let known = store.knownFolders
@@ -142,33 +137,17 @@ struct Launcher: View {
 
     private func folderList(_ matches: [Folder]) -> some View {
         VStack(spacing: 0) {
-            VStack(spacing: 0) {
-                ForEach(Array(matches.enumerated()), id: \.element) { index, folder in
-                    folderRow(folder, isHighlighted: index == highlighted)
-                        .onTapGesture { start(in: folder.path) }
-                }
-                if matches.isEmpty {
-                    Text(folders.isEmpty ? "No session folders yet. Type a path or browse." : "No matching folders")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                }
+            ForEach(Array(matches.enumerated()), id: \.element) { index, folder in
+                folderRow(folder, isHighlighted: index == highlighted)
+                    .onTapGesture { start(in: folder.path) }
             }
-            .padding(8)
-            Divider()
-            HStack(spacing: 8) {
-                Image(systemName: "chevron.right")
+            if matches.isEmpty {
+                Text(folders.isEmpty ? "No session folders yet. Type a path or browse." : "No matching folders")
                     .foregroundStyle(.secondary)
-                TextField("First Prompt", text: $prompt, prompt: Text("First prompt (optional)"))
-                    .textFieldStyle(.plain)
-                    .focused($focus, equals: .prompt)
-                    .onKeyPress(.tab) {
-                        focus = .query
-                        return .handled
-                    }
-                    .onSubmit { submit(matches.indices.contains(highlighted) ? matches[highlighted] : nil) }
+                    .frame(maxWidth: .infinity, minHeight: 48)
             }
-            .padding(16)
         }
+        .padding(8)
     }
 
     private func results(_ rows: [PaletteRow]) -> some View {
@@ -339,7 +318,7 @@ struct Launcher: View {
                 .font(.caption.monospaced())
                 .padding(.horizontal, 4)
                 .frame(minWidth: 20, minHeight: 16)
-                .background(.quinary, in: .rect(cornerRadius: 4))
+                .background(theme.foreground.opacity(0.1), in: .rect(cornerRadius: 4))
             Text(label)
         }
         .font(.caption)
@@ -396,7 +375,7 @@ struct Launcher: View {
     }
 
     private func start(in path: String) {
-        store.openClaude(cwd: path, prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines))
+        store.openClaude(cwd: path)
         store.launcherMode = nil
     }
 }

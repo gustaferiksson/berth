@@ -419,7 +419,7 @@ final class Store {
         shells.first { $0.id == selectedShellID }?.terminal.requestFocus()
     }
 
-    func openClaude(cwd: String, resuming sessionID: String? = nil, prompt: String = "") {
+    func openClaude(cwd: String, resuming sessionID: String? = nil) {
         guard FileManager.default.fileExists(atPath: cwd) else {
             missingFolder = cwd
             return
@@ -427,8 +427,8 @@ final class Store {
         let id = UUID()
         let session = sessionID ?? UUID().uuidString.lowercased()
         let attachID = liveBySession[session]?.attachID
-        let environment = [ClaudeLaunch.sessionVariable: attachID ?? session, ClaudeLaunch.promptVariable: prompt].filter { !$0.value.isEmpty }
-        let command = ClaudeLaunch.command(attachID != nil ? .attach : sessionID == nil ? .new : .resume, prompt: prompt)
+        let environment = [ClaudeLaunch.sessionVariable: attachID ?? session]
+        let command = ClaudeLaunch.command(attachID != nil ? .attach : sessionID == nil ? .new : .resume)
         tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }))
         selectedTabID = id
     }

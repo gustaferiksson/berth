@@ -106,7 +106,7 @@ enum Snapshot {
             store.activate(.session(sessionID))
         }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
-            store.openClaude(cwd: cwd, prompt: UserDefaults.standard.string(forKey: "snapshotPrompt") ?? "")
+            store.openClaude(cwd: cwd)
         }
         if let version = UserDefaults.standard.string(forKey: "snapshotRestartBanner") {
             store.updater.showPendingRestart(version: version, deadline: .now + 18)

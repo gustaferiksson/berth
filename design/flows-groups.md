@@ -38,7 +38,7 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
 | + on a multi-folder custom group | Menu "Start in": known folders under its rules (recent first), Other Folder in X… | none | Starts claude there, or folder picker rooted at X |
 | New Session in ▸ | Custom header context menu | none | Same items as the multi-folder + |
 | New Session… | File menu | ⌘N | N1 launcher over the terminal area |
-| Launcher | Click a row | type to filter, ↑↓ move, ⇥ prompt field (⇧⇥ back), ↩ start, ⌘O Browse…, esc close | Starts claude in the folder, first prompt passed as an argument |
+| Launcher | Click a row | type to filter, ↑↓ move, ↩ start, ⌘O Browse…, esc close | Starts claude in the folder |
 
 ## Launcher (N1)
 
