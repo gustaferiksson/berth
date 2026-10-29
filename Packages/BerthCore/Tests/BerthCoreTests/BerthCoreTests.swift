@@ -381,7 +381,7 @@ struct FuzzyMatchTests {
 
 struct ClaudeLaunchTests {
     @Test(arguments: ["it's \"quoted\"", "$(touch /tmp/berth-pwned) `id` $HOME", "back\\slash\nnew line", "-p print mode", "'; exit 0; '"])
-    func promptReachesClaudeVerbatim(prompt: String) throws {
+    func sessionIDReachesClaudeVerbatim(id: String) throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "berth-launch-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -390,21 +390,21 @@ struct ClaudeLaunchTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
         let process = Process()
         process.executableURL = URL(filePath: "/bin/sh")
-        process.arguments = ["-c", ClaudeLaunch.command(.new, prompt: prompt).replacing("/bin/zsh -ilc", with: "/bin/zsh -fc")]
-        process.environment = ["PATH": directory.path + ":/usr/bin:/bin", ClaudeLaunch.sessionVariable: "abc", ClaudeLaunch.promptVariable: prompt]
+        process.arguments = ["-c", ClaudeLaunch.command(.new).replacing("/bin/zsh -ilc", with: "/bin/zsh -fc")]
+        process.environment = ["PATH": directory.path + ":/usr/bin:/bin", ClaudeLaunch.sessionVariable: id]
         try process.run()
         process.waitUntilExit()
         let args = try String(contentsOf: directory.appending(path: "claude.args"), encoding: .utf8).split(separator: "\0", omittingEmptySubsequences: false).dropLast()
-        #expect(args == ["--session-id", "abc", "--", prompt[...]])
+        #expect(args == ["--session-id", id[...]])
         #expect(!FileManager.default.fileExists(atPath: "/tmp/berth-pwned"))
     }
 
-    @Test func attachTakesTheJobIDAndNoPrompt() {
-        #expect(ClaudeLaunch.command(.attach, prompt: "ignored") == #"/bin/zsh -ilc 'claude attach "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
+    @Test func attachTakesTheJobID() {
+        #expect(ClaudeLaunch.command(.attach) == #"/bin/zsh -ilc 'claude attach "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
     }
 
-    @Test func noPromptMeansNoSeparator() {
-        #expect(ClaudeLaunch.command(.resume, prompt: "") == #"/bin/zsh -ilc 'claude --resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
+    @Test func resumeTakesTheSessionID() {
+        #expect(ClaudeLaunch.command(.resume) == #"/bin/zsh -ilc 'claude --resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
     }
 }
 
