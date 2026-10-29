@@ -167,7 +167,8 @@ final class Store {
         let folders = fresh.compactMap(\.folder)
         let known = Set(groupOrder)
         groupOrder = folders.filter { !known.contains($0) } + groupOrder.filter(folders.contains)
-        let ordered = fresh.filter { $0.folder == nil } + groupOrder.compactMap { folder in fresh.first { $0.folder == folder } }
+        let automatic = fresh.filter { $0.custom == nil && $0.folder == nil } + groupOrder.compactMap { folder in fresh.first { $0.folder == folder } }
+        let ordered = SessionGrouping.place(fresh.filter { $0.custom != nil }, among: automatic)
         let previous = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
         groups = ordered.map { group in
             guard isPointerInSidebar, let shown = previous[group.id] else { return group }
@@ -359,8 +360,7 @@ final class Store {
             .map { SessionGroup(kind: $0, sessions: []) }
             .filter { !known.contains($0.id) }
             .sorted { $0.id < $1.id }
-        let custom = groups.filter { if case .custom = $0.kind { true } else { false } }
-        return (custom + extra + groups.dropFirst(custom.count)).map { ($0, placed[$0.id] ?? []) }
+        return SessionGrouping.place(groups.filter { $0.custom != nil }, among: extra + groups.filter { $0.custom == nil }).map { ($0, placed[$0.id] ?? []) }
     }
 
     var sidebarOrderedTabs: [Tab] {
@@ -447,9 +447,12 @@ final class Store {
         customGroups[index].rules.append(FolderRule(path: folder, includesSubfolders: false))
     }
 
-    func moveGroup(_ groupID: CustomGroup.ID, by offset: Int) {
-        guard let index = customGroups.firstIndex(where: { $0.id == groupID }), customGroups.indices.contains(index + offset) else { return }
-        customGroups.swapAt(index, index + offset)
+    func moveGroup(from source: Int, to destination: Int) {
+        let shown = sidebarGroups.map(\.group)
+        guard showsCustomGroups, shown.indices.contains(source), shown[source].custom != nil else { return }
+        let moved = SessionGrouping.moving(shown, from: source, to: min(max(destination, 0), shown.count))
+        guard moved.count == customGroups.count else { return }
+        customGroups = moved
     }
 
     func setGroupsExpanded(_ expanded: Bool) {

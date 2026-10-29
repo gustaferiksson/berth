@@ -1,6 +1,7 @@
 import BerthCore
 import GhosttyTerminal
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct Sidebar: View {
     @Environment(Store.self) private var store
@@ -71,16 +72,17 @@ struct Sidebar: View {
         let groups = groups
         let selection = cursor ?? store.selection ?? Snapshot.forcedSelection(in: store.groups)
         let archived = isArchiveExpanded ? store.archivedSessions : []
-        let custom = groups.prefix { if case .custom = $0.source.kind { true } else { false } }
         return List {
-            ForEach(custom, id: \.id) { section($0, selection: selection) }
-            if !custom.isEmpty, custom.count < groups.count {
-                Hairline(axis: .horizontal)
-                    .padding(.top, 12)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+            ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                section(group, at: index, in: groups, selection: selection)
+            }
+            if groups.contains(where: { $0.source.custom != nil }) {
+                Color.clear
+                    .frame(height: 12)
+                    .modifier(GroupDropTarget(indicatorOffset: 2) { moveGroup($0, to: groups.count, in: groups) })
+                    .listRowInsets(EdgeInsets())
                     .accessibilityHidden(true)
             }
-            ForEach(groups.dropFirst(custom.count), id: \.id) { section($0, selection: selection) }
             if !store.archivedSessions.isEmpty {
                 Section {
                     ForEach(archived) { session in
@@ -88,7 +90,7 @@ struct Sidebar: View {
                             .contextMenu { Button("Unarchive") { store.unarchive(session.id) } }
                     }
                 } header: {
-                    GroupHeader(title: "Archived", help: "Archived sessions", count: store.archivedSessions.count, isExpanded: $isArchiveExpanded) { _ in EmptyView() }
+                    GroupHeader(title: "Archived", help: "Archived sessions", count: store.archivedSessions.count, isExpanded: $isArchiveExpanded, menu: { EmptyView() }) { _ in EmptyView() }
                 }
             }
         }
@@ -144,7 +146,13 @@ struct Sidebar: View {
         store.activate(item)
     }
 
-    private func section(_ group: Group, selection: SidebarItem?) -> some View {
+    private func moveGroup(_ id: String, to destination: Int, in groups: [Group]) -> Bool {
+        guard let source = groups.firstIndex(where: { $0.id == id && $0.source.custom != nil }) else { return false }
+        withAnimation(.snappy) { store.moveGroup(from: source, to: destination) }
+        return true
+    }
+
+    private func section(_ group: Group, at index: Int, in groups: [Group], selection: SidebarItem?) -> some View {
         Section {
             ForEach(group.tabs) { tab in
                 TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
@@ -171,13 +179,13 @@ struct Sidebar: View {
                 .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
             }
         } header: {
-            header(group)
+            header(group, at: index, in: groups)
         }
     }
 
-    private func header(_ group: Group) -> some View {
+    private func header(_ group: Group, at index: Int, in groups: [Group]) -> some View {
         let source = group.source
-        let custom: CustomGroup? = if case let .custom(custom) = source.kind { custom } else { nil }
+        let custom = source.custom
         let singleFolder = source.folder ?? custom.flatMap { $0.rules.count == 1 && !$0.rules[0].includesSubfolders ? $0.rules[0].path : nil }
         return GroupHeader(
             title: source.title,
@@ -185,7 +193,16 @@ struct Sidebar: View {
             count: group.count,
             isExpanded: expansion(of: group.id),
             renaming: custom != nil && renaming?.id == custom?.id ? $renaming : nil,
-            commitRename: { store.save($0) }
+            commitRename: { store.save($0) },
+            dragID: custom.map { _ in source.id },
+            drop: { moveGroup($0, to: index, in: groups) },
+            menu: {
+                if let custom {
+                    customGroupMenu(custom, at: index, of: groups.count, singleFolder: singleFolder)
+                } else if let folder = source.folder {
+                    folderGroupMenu(Array(Set(source.sessions.map(\.cwd)).union([folder])).sorted(), root: folder, title: source.title)
+                }
+            }
         ) { isHovering in
             if let singleFolder {
                 Button("New Session", systemImage: "plus") { store.openClaude(cwd: singleFolder) }
@@ -203,13 +220,6 @@ struct Sidebar: View {
                 .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
                 .fixedSize()
                 .help("New session in \(custom.name)")
-            }
-        }
-        .contextMenu {
-            if let custom {
-                customGroupMenu(custom, singleFolder: singleFolder)
-            } else if let folder = source.folder {
-                folderGroupMenu(Array(Set(source.sessions.map(\.cwd)).union([folder])).sorted(), root: folder, title: source.title)
             }
         }
     }
@@ -231,8 +241,7 @@ struct Sidebar: View {
     }
 
     @ViewBuilder
-    private func customGroupMenu(_ custom: CustomGroup, singleFolder: String?) -> some View {
-        let index = store.customGroups.firstIndex { $0.id == custom.id } ?? 0
+    private func customGroupMenu(_ custom: CustomGroup, at index: Int, of count: Int, singleFolder: String?) -> some View {
         if let singleFolder {
             Button("New Session") { store.openClaude(cwd: singleFolder) }
         } else {
@@ -241,8 +250,8 @@ struct Sidebar: View {
         Divider()
         Button("Edit Group…") { store.editingGroup = custom }
         Button("Rename") { renaming = custom }
-        if index > 0 { Button("Move Up") { store.moveGroup(custom.id, by: -1) } }
-        if index < store.customGroups.count - 1 { Button("Move Down") { store.moveGroup(custom.id, by: 1) } }
+        if index > 0 { Button("Move Up") { store.moveGroup(from: index, to: index - 1) } }
+        if index < count - 1 { Button("Move Down") { store.moveGroup(from: index, to: index + 2) } }
         Divider()
         Button("Delete Group…", role: .destructive) { store.deletingGroup = custom }
     }
@@ -314,13 +323,16 @@ struct GroupingMenuItems: View {
     }
 }
 
-private struct GroupHeader<Accessory: View>: View {
+private struct GroupHeader<Menu: View, Accessory: View>: View {
     let title: String
     let help: String
     let count: Int
     @Binding var isExpanded: Bool
     var renaming: Binding<CustomGroup?>?
     var commitRename: (CustomGroup) -> Void = { _ in }
+    var dragID: String?
+    var drop: ((String) -> Bool)?
+    @ViewBuilder let menu: () -> Menu
     @ViewBuilder let accessory: (Bool) -> Accessory
     @State private var isHovering = false
     @State private var name = ""
@@ -328,6 +340,24 @@ private struct GroupHeader<Accessory: View>: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
+        Group {
+            if let dragID, renaming == nil {
+                label.draggable(GroupDrag(id: dragID))
+            } else {
+                label
+            }
+        }
+        .font(.system(size: 11))
+        .padding(.top, 16)
+        .padding(.leading, -6)
+        .padding(.trailing, 6)
+        .modifier(GroupDropTarget(indicatorOffset: 4, drop: drop))
+        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
+        .onHover { isHovering = $0 }
+        .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
+    }
+
+    private var label: some View {
         HStack(spacing: 4) {
             if let renaming {
                 chevron
@@ -365,14 +395,10 @@ private struct GroupHeader<Accessory: View>: View {
             Spacer(minLength: 4)
             accessory(isHovering)
         }
+        .padding(.trailing, 2)
         .frame(height: 24)
-        .font(.system(size: 11))
-        .padding(.top, 16)
-        .padding(.leading, -6)
-        .padding(.trailing, 8)
-        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
-        .onHover { isHovering = $0 }
-        .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
+        .contentShape([.interaction, .dragPreview], .rect(cornerRadius: 8))
+        .contextMenu(menuItems: menu)
     }
 
     private var chevron: some View {
@@ -391,6 +417,43 @@ private struct GroupHeader<Accessory: View>: View {
             commitRename(group)
         }
         renaming.wrappedValue = nil
+    }
+}
+
+private struct GroupDrag: Codable, Transferable {
+    let id: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: UTType(exportedAs: "dev.gustaf.berth.group"))
+    }
+}
+
+private struct GroupDropTarget: ViewModifier {
+    let indicatorOffset: Double
+    let drop: ((String) -> Bool)?
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if isTargeted {
+                    HStack(spacing: 0) {
+                        Circle()
+                            .strokeBorder(Color.accentColor, lineWidth: 2)
+                            .frame(width: 8, height: 8)
+                        Rectangle()
+                            .fill(Color.accentColor)
+                            .frame(height: 2)
+                    }
+                    .padding(.top, indicatorOffset)
+                    .allowsHitTesting(false)
+                }
+            }
+            .dropDestination(for: GroupDrag.self) { drags, _ in
+                drags.first.flatMap { drop?($0.id) } ?? false
+            } isTargeted: {
+                isTargeted = drop != nil && $0
+            }
     }
 }
 

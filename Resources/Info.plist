@@ -24,5 +24,18 @@
 	<string>26.0</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Berth</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Berth Sidebar Group</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.gustaf.berth.group</string>
+		</dict>
+	</array>
 </dict>
 </plist>

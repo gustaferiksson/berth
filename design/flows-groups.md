@@ -8,8 +8,10 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
   ordered; order is priority. A session goes to the first custom group whose rule matches
   its folder (the resolved session folder, so `/cd` moves it), otherwise to the mode's
   automatic group.
-- Sidebar order: custom groups (user order, shown even when empty), a hairline, the
-  mode's groups, then Archived.
+- Sidebar order: each custom group (shown even when empty) keeps a slot, its index among
+  all groups, clamped to the end when there are fewer groups; the mode's groups fill the
+  other slots by recency, then Archived. A group saved without a slot sits right after
+  the custom group before it, so new groups land under the last one.
 - Modes: Project (one group per folder), Repository (one group per git root; worktrees
   and subfolders merge into it), Recent (Today, Yesterday, This Week, Older).
 - Line 2 shows the project name first whenever the row's folder differs from its group's
@@ -22,12 +24,13 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
 
 | Entry point | Pointer | Keyboard | Result |
 |---|---|---|---|
-| Switch mode | Sidebar toolbar pull-down (title = mode) | ⌃⌘1 / ⌃⌘2 / ⌃⌘3, View ▸ Group By | Regroups at once; collapse state per group id |
-| Show Custom Groups | Pull-down, View ▸ Group By | none | Off: custom groups hidden, their sessions fall back to the mode |
-| New Group… | Pull-down, View ▸ Group By, C2 ▸ Add to Group ▸ New Group from X… | menu bar | C3 sheet (empty, or prefilled with X's folder) |
+| Switch mode | View ▸ Group By, palette | ⌃⌘1 / ⌃⌘2 / ⌃⌘3, View ▸ Group By | Regroups at once; collapse state per group id |
+| Show Custom Groups | View ▸ Group By | none | Off: custom groups hidden, their sessions fall back to the mode |
+| New Group… | File menu, palette, C2 ▸ Add to Group ▸ New Group from X… | menu bar | C3 sheet (empty, or prefilled with X's folder) |
 | Edit Group… | Custom header context menu | none | C3 sheet for that group |
 | Rename | Custom header context menu | ↩ commits, esc cancels | Inline field in the header |
-| Move Up / Move Down | Custom header context menu (hidden at the ends) | none | Reorders, so priority changes |
+| Move to a position | Drag a custom header onto another header (drops above it) or below the last group | none | Stores every custom group's slot; priority follows the new order |
+| Move Up / Move Down | Custom header context menu (hidden at the ends of the sidebar) | none | Moves one position among all groups, same as a drag |
 | Delete Group… | Custom header menu, C3 sheet | confirmation default is Cancel | Group removed; its sessions fall back to the mode; transcripts untouched |
 | Add to Group ▸ | Project or repository header context menu | none | Adds that folder as a rule (no subfolders) |
 | Copy Path, Reveal in Finder | Project or repository header context menu | none | Pasteboard, Finder |

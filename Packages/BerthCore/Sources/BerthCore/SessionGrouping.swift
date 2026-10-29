@@ -25,11 +25,13 @@ public struct CustomGroup: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
     public var rules: [FolderRule]
+    public var slot: Int?
 
-    public init(id: UUID = UUID(), name: String, rules: [FolderRule]) {
+    public init(id: UUID = UUID(), name: String, rules: [FolderRule], slot: Int? = nil) {
         self.id = id
         self.name = name
         self.rules = rules
+        self.slot = slot
     }
 
     public func matches(_ folder: String) -> Bool {
@@ -87,6 +89,11 @@ public struct SessionGroup: Identifiable, Sendable {
     }
 
     public var lastActivity: Date { sessions.first?.lastActivity ?? .distantPast }
+
+    public var custom: CustomGroup? {
+        guard case let .custom(group) = kind else { return nil }
+        return group
+    }
 }
 
 public struct SessionGrouping: Sendable {
@@ -120,6 +127,27 @@ public struct SessionGrouping: Sendable {
                 guard case let .recent(left) = lhs.kind, case let .recent(right) = rhs.kind else { return lhs.lastActivity > rhs.lastActivity }
                 return RecentBucket.allCases.firstIndex(of: left)! < RecentBucket.allCases.firstIndex(of: right)!
             }
-        return custom + automatic
+        return Self.place(custom, among: automatic)
+    }
+
+    public static func place(_ custom: [SessionGroup], among automatic: [SessionGroup]) -> [SessionGroup] {
+        var placed = automatic
+        var next = 0
+        for group in custom {
+            next = min(max(group.custom?.slot ?? next, next), placed.count)
+            placed.insert(group, at: next)
+            next += 1
+        }
+        return placed
+    }
+
+    public static func moving(_ groups: [SessionGroup], from source: Int, to destination: Int) -> [CustomGroup] {
+        var order = groups
+        order.insert(order.remove(at: source), at: destination > source ? destination - 1 : destination)
+        return order.enumerated().compactMap { index, group in
+            guard var custom = group.custom else { return nil }
+            custom.slot = index
+            return custom
+        }
     }
 }
