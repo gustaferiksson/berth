@@ -335,7 +335,7 @@ final class Store {
             }
             close(tab.id)
         }
-        guard liveBySession[session.id] == nil else {
+        guard liveBySession[session.id].map({ $0.attachID != nil }) ?? true else {
             lockedSessionID = session.id
             return
         }
@@ -428,8 +428,9 @@ final class Store {
         }
         let id = UUID()
         let session = sessionID ?? UUID().uuidString.lowercased()
-        let environment = [ClaudeLaunch.sessionVariable: session, ClaudeLaunch.promptVariable: prompt].filter { !$0.value.isEmpty }
-        let command = ClaudeLaunch.command(sessionID == nil ? .new : .resume, prompt: prompt)
+        let attachID = liveBySession[session]?.attachID
+        let environment = [ClaudeLaunch.sessionVariable: attachID ?? session, ClaudeLaunch.promptVariable: prompt].filter { !$0.value.isEmpty }
+        let command = ClaudeLaunch.command(attachID != nil ? .attach : sessionID == nil ? .new : .resume, prompt: prompt)
         tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }))
         selectedTabID = id
     }
@@ -528,7 +529,7 @@ final class Store {
                 isPanelOpen = wasOpen
                 continue
             }
-            guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id] == nil, FileManager.default.fileExists(atPath: session.cwd) else { continue }
+            guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id].map({ $0.attachID != nil }) ?? true, FileManager.default.fileExists(atPath: session.cwd) else { continue }
             openClaude(cwd: session.cwd, resuming: session.id)
         }
     }

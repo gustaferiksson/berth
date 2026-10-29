@@ -284,7 +284,7 @@ struct Sidebar: View {
             pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
             showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
         )
-        .modifier(RowChrome(id: session.title, isSelected: selection == .session(session.id), isLocked: tab == nil && store.liveBySession[session.id] != nil) {
+        .modifier(RowChrome(id: session.title, isSelected: selection == .session(session.id), isLocked: tab == nil && store.liveBySession[session.id].map { $0.attachID == nil } ?? false) {
             select(.session(session.id))
         })
         .id(SidebarItem.session(session.id))
@@ -534,7 +534,7 @@ private struct SessionRow: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let isLocked = live != nil && !isOpen
+        let isLocked = !isOpen && live.map { $0.attachID == nil } ?? false
         CardRow(
             title: session.title,
             state: RowState(live: live),

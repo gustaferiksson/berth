@@ -151,7 +151,7 @@ struct Harbor: View {
                 case let .needsInput(reason): .needsYou(reason)
                 default: .idle
                 }
-                return Boat(session: session, mooring: mooring, isElsewhere: live != nil && store.tab(forSession: session.id) == nil, point: CGPoint(x: Self.shore + 24 + Self.slot * (Double(index) + 0.5), y: pier.y - 4))
+                return Boat(session: session, mooring: mooring, isElsewhere: live.map { $0.attachID == nil } ?? false && store.tab(forSession: session.id) == nil, point: CGPoint(x: Self.shore + 24 + Self.slot * (Double(index) + 0.5), y: pier.y - 4))
             }
         }
         let column = (size.width - 40 - driftStart) / 2
