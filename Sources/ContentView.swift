@@ -15,7 +15,6 @@ struct ContentView: View {
     @AppStorage("trailingSidebarWidth") private var trailingSidebarWidth = 300.0
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
     @AppStorage("showsTrailingSidebar") private var showsTrailingSidebar = true
-    @Environment(\.appearsActive) private var appearsActive
     @State private var pulse = WorkingPulse()
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -111,7 +110,7 @@ struct ContentView: View {
         .containerBackground(store.theme.background ?? .clear, for: .window)
         .environment(\.ghosttyTheme, store.theme)
         .environment(pulse)
-        .onChange(of: appearsActive, initial: true) { pulse.isRunning = appearsActive || Snapshot.forcesPulse }
+        .onAppear { pulse.isRunning = true }
         .preferredColorScheme(store.theme.isDark ? .dark : .light)
         .background(WindowChrome(color: store.theme.background))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in store.refreshPullRequests() }

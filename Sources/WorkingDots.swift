@@ -24,11 +24,11 @@ struct WorkingDots: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        HStack(spacing: 1.5) {
+        HStack(spacing: 2) {
             ForEach(0..<3) { index in
                 Circle()
-                    .fill(theme.working.opacity(!pulse.isRunning || index == pulse.phase ? 1 : 0.35))
-                    .frame(width: 3, height: 3)
+                    .fill(theme.working.opacity(index == pulse.phase ? 1 : 0.35))
+                    .frame(width: 4, height: 4)
             }
         }
         .help(label)

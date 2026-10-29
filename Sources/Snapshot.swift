@@ -10,12 +10,6 @@ enum Snapshot {
     #endif
 
     #if DEBUG
-    static let forcesPulse = UserDefaults.standard.bool(forKey: "snapshotPulse")
-    #else
-    static let forcesPulse = false
-    #endif
-
-    #if DEBUG
     static let scrollsToArchive = UserDefaults.standard.integer(forKey: "snapshotArchiveRow") > 0
     #else
     static let scrollsToArchive = false
