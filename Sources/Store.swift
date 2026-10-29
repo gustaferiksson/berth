@@ -316,31 +316,29 @@ final class Store {
     }
 
     func activate(_ item: SidebarItem?) {
-        guard let item else { return }
-        if case let .tab(id) = item {
-            selectedTabID = id
-            isHarborShown = false
-            return
-        }
+        guard let tab = tab(activating: item) else { return }
+        selectedTabID = tab.id
+        isHarborShown = false
+        tab.terminal.requestFocus()
+    }
+
+    private func tab(activating item: SidebarItem?) -> Tab? {
+        if case let .tab(id) = item { return tabs.first { $0.id == id } }
         guard case let .session(id) = item,
               let session = (activeSessions + archivedSessions).first(where: { $0.id == id })
-        else { return }
+        else { return nil }
         if archivedAt[id] != nil { unarchive(id) }
         refreshLive()
         if let tab = tab(forSession: session.id) {
-            guard liveBySession[session.id] == nil, tab.opened.timeIntervalSinceNow < -10 else {
-                selectedTabID = tab.id
-                isHarborShown = false
-                return
-            }
+            guard liveBySession[session.id] == nil, tab.opened.timeIntervalSinceNow < -10 else { return tab }
             close(tab.id)
         }
         guard liveBySession[session.id].map({ $0.attachID != nil }) ?? true else {
             lockedSessionID = session.id
-            return
+            return nil
         }
-        isHarborShown = false
         openClaude(cwd: session.cwd, resuming: session.id)
+        return tabs.first { $0.id == selectedTabID }
     }
 
     private var focusedShell: Tab? {

@@ -100,8 +100,8 @@ struct Sidebar: View {
         .onKeyPress(.downArrow) { move(by: 1, in: items) }
         .onKeyPress(.upArrow) { move(by: -1, in: items) }
         .onKeyPress(.return) {
-            guard let cursor else { return .ignored }
-            store.activate(cursor)
+            guard let item = cursor ?? store.selection else { return .ignored }
+            store.activate(item)
             return .handled
         }
         .onKeyPress(.leftArrow) { setExpanded(false, around: selection, in: groups) }
@@ -125,11 +125,16 @@ struct Sidebar: View {
         guard !items.isEmpty else { return .ignored }
         let current = (cursor ?? store.selection).flatMap(items.firstIndex(of:))
         let next = items[min(max((current ?? (offset > 0 ? -1 : items.count)) + offset, 0), items.count - 1)]
-        if case let .session(id) = next, store.tab(forSession: id) == nil {
-            cursor = next
-        } else {
-            store.activate(next)
+        let tab: Tab? = switch next {
+        case let .tab(id): store.tabs.first { $0.id == id }
+        case let .session(id): store.tab(forSession: id)
         }
+        guard let tab else {
+            cursor = next
+            return .handled
+        }
+        store.selectedTabID = tab.id
+        store.isHarborShown = false
         return .handled
     }
 
@@ -142,8 +147,8 @@ struct Sidebar: View {
     }
 
     private func select(_ item: SidebarItem) {
-        isFocused = true
         store.activate(item)
+        if store.selection != item { isFocused = true }
     }
 
     private func moveGroup(_ id: String, to destination: Int, in groups: [Group]) -> Bool {

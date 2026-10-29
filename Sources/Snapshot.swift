@@ -179,6 +179,21 @@ enum Snapshot {
                 print("archived \(kind) tab: view freed \(view == nil), ptys \(ptys())")
             }
         }
+        if UserDefaults.standard.bool(forKey: "snapshotActivateFocus") {
+            for step in ["open tab", "new tab"] {
+                store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path)
+                store.tabs += store.shells.map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: nil, terminal: $0.terminal) }
+                store.shells = []
+                store.isPanelOpen = false
+                if step == "open tab" { try? await Task.sleep(for: .seconds(2)) }
+                guard let target = store.tabs.last else { continue }
+                window.makeFirstResponder(hosting.view)
+                print("\(step) before activate: first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+                store.activate(.tab(target.id))
+                try? await Task.sleep(for: .seconds(2))
+                print("\(step) after activate: first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil"), is the activated surface \(window.firstResponder === target.terminal.attachedPlatformView)")
+            }
+        }
         let tab = store.tabs.first { $0.id == store.selectedTabID }
         window.title = showsStats ? "Stats" : store.isHarborShown ? "Harbor" : tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"
         try? await Task.sleep(for: .milliseconds(500))
