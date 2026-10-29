@@ -49,7 +49,7 @@ struct AboutSettings: View {
         } else if case .upToDate(let version) = status {
             Text("Berth \(version) is the latest version.").foregroundStyle(.secondary)
         } else if case .ready(let version) = status {
-            Text("Berth \(version) will be installed when sessions are idle.")
+            Text(store.updater.isPostponed ? "Berth \(version) will be installed when you quit." : "Berth \(version) will be installed when sessions are idle.")
         } else if case .blocked(let message) = status {
             Text(message).foregroundStyle(.orange)
         } else if case .failed(let message) = status {

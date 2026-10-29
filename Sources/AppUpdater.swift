@@ -24,17 +24,18 @@ final class AppUpdater {
     nonisolated static let requirement = "=anchor apple generic and certificate leaf[subject.OU] = \"82K3YC8HVF\" and identifier \"dev.gustaf.berth\""
     nonisolated static let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     private static let checkInterval: TimeInterval = 24 * 60 * 60
-    private static let idleSettle: TimeInterval = 60
+    static let restartDelay: TimeInterval = 15
     nonisolated private static let stagingPrefix = ".berth-update-"
 
     private(set) var status = Status.idle
     private(set) var staged: (version: String, app: URL)?
+    private(set) var pendingRestart: (version: String, deadline: Date)?
+    private(set) var isPostponed = false
     @ObservationIgnored private var newerVersion: String?
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
     @ObservationIgnored private var swapping = false
     @ObservationIgnored private var idleTimer: Timer?
-    @ObservationIgnored private var idleSince: Date?
     @ObservationIgnored var workingSessions: () -> Int = { 0 }
     @ObservationIgnored var isIdle: () -> Bool = { false }
 
@@ -56,7 +57,7 @@ final class AppUpdater {
             return
         }
         Self.clearStaging()
-        idleTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+        idleTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.relaunchIfSettled() }
         }
         // build.sh stamps local builds "<describe>-local", which would otherwise compare older than every release.
@@ -131,11 +132,14 @@ final class AppUpdater {
     private func offer(_ version: String) {
         let panel = NSAlert()
         panel.messageText = "Berth \(version) is ready"
-        panel.informativeText = "Berth relaunches to install it once no session in its tabs is working and you haven’t typed for a while, or installs it when you quit. Sessions resume after the relaunch."
+        panel.informativeText = "When no session is working and you stop typing, Berth gives you 15 seconds to postpone, then restarts to install it. Otherwise it installs when you quit. Sessions resume after the restart."
         panel.addButton(withTitle: "Install When Idle")
         panel.addButton(withTitle: "Install and Relaunch")
         NSApp.activate()
-        guard panel.runModal() == .alertSecondButtonReturn else { return }
+        guard panel.runModal() == .alertSecondButtonReturn else {
+            isPostponed = false
+            return
+        }
         installAndRelaunch()
     }
 
@@ -154,20 +158,34 @@ final class AppUpdater {
         relaunch(then: .open)
     }
 
+    func postpone() {
+        isPostponed = true
+        pendingRestart = nil
+    }
+
+    #if DEBUG
+    func showPendingRestart(version: String, deadline: Date) {
+        pendingRestart = (version, deadline)
+    }
+    #endif
+
     private func relaunchIfSettled() {
-        guard staged != nil, !swapping, isIdle() else {
-            idleSince = nil
+        guard let staged, !swapping, !isPostponed, isIdle() else {
+            self.pendingRestart = nil
             return
         }
-        let since = idleSince ?? .now
-        idleSince = since
-        guard since.timeIntervalSinceNow <= -Self.idleSettle else { return }
+        guard let pendingRestart else {
+            self.pendingRestart = (staged.version, .now + Self.restartDelay)
+            return
+        }
+        guard pendingRestart.deadline <= .now else { return }
         relaunch(then: NSApp.isActive ? .open : .background)
     }
 
     private func relaunch(then after: AfterSwap) {
         if let reason = spawnSwap(then: after) {
             if !isBusy { status = .blocked(reason) }
+            postpone()
             return
         }
         NSApp.terminate(nil)

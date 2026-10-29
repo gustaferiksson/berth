@@ -55,6 +55,13 @@ struct ContentView: View {
                                     }
                                 }
                             }
+                            .overlay(alignment: .top) {
+                                if let restart = store.updater.pendingRestart {
+                                    RestartBanner(version: restart.version, deadline: restart.deadline)
+                                        .transition(.move(edge: .top).combined(with: .opacity))
+                                }
+                            }
+                            .animation(.default, value: store.updater.pendingRestart?.deadline)
                         if panelPosition == .bottom {
                             TerminalPanel(available: geometry.size, edge: .bottom)
                         }
