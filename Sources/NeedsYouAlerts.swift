@@ -7,8 +7,8 @@ enum NeedsYouAlerts {
     private static let logsInsteadOfPosting = Snapshot.output != nil
     private static var authorization: Task<Bool, Never>?
 
-    static func update(entered: [LiveSession], waitingCount: Int, store: Store) {
-        let badge = waitingCount == 0 ? nil : "\(waitingCount)"
+    static func update(entered: [LiveSession], needsYouCount: Int, store: Store) {
+        let badge = needsYouCount == 0 ? nil : "\(needsYouCount)"
         if NSApp.dockTile.badgeLabel != badge { NSApp.dockTile.badgeLabel = badge }
         if logsInsteadOfPosting { print("badge: \(NSApp.dockTile.badgeLabel ?? "nil")") }
         guard UserDefaults.standard.object(forKey: notifiesKey) == nil || UserDefaults.standard.bool(forKey: notifiesKey) else { return }

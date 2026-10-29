@@ -257,9 +257,6 @@ final class Store {
     func refreshLive() {
         let live = fakeLive + LiveSession.load(from: Self.claudeDirectory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
         liveBySession = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
-        let needsYou = NeedsYou.update(previous: waitingSessionIDs, live: Array(liveBySession.values))
-        waitingSessionIDs = needsYou.waiting
-        NeedsYouAlerts.update(entered: needsYou.entered, waitingCount: needsYou.waiting.count, store: self)
         let claimed = Set(tabs.compactMap(\.sessionID))
         let orphans = live.filter { !claimed.contains($0.sessionId) && ProcessAncestry.isDescendant($0.pid, of: getpid()) }
         for session in orphans {
@@ -269,6 +266,9 @@ final class Store {
             }) else { continue }
             tabs[position].sessionID = session.sessionId
         }
+        let needsYou = NeedsYou.update(previous: waitingSessionIDs, live: Array(liveBySession.values), inBerth: Set(tabs.compactMap(\.sessionID)))
+        waitingSessionIDs = needsYou.waiting
+        NeedsYouAlerts.update(entered: needsYou.entered, needsYouCount: needsYou.needsYou.count, store: self)
     }
 
     private var fakeLive: [LiveSession] {
