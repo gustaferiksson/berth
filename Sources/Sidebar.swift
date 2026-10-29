@@ -1,6 +1,7 @@
 import BerthCore
 import GhosttyTerminal
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct Sidebar: View {
     @Environment(Store.self) private var store
@@ -341,7 +342,7 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
     var body: some View {
         Group {
             if let dragID, renaming == nil {
-                label.draggable(dragID)
+                label.draggable(GroupDrag(id: dragID))
             } else {
                 label
             }
@@ -419,6 +420,14 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
     }
 }
 
+private struct GroupDrag: Codable, Transferable {
+    let id: String
+
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: UTType(exportedAs: "dev.gustaf.berth.group"))
+    }
+}
+
 private struct GroupDropTarget: ViewModifier {
     let indicatorOffset: Double
     let drop: ((String) -> Bool)?
@@ -440,8 +449,8 @@ private struct GroupDropTarget: ViewModifier {
                     .allowsHitTesting(false)
                 }
             }
-            .dropDestination(for: String.self) { ids, _ in
-                ids.first.flatMap { drop?($0) } ?? false
+            .dropDestination(for: GroupDrag.self) { drags, _ in
+                drags.first.flatMap { drop?($0.id) } ?? false
             } isTargeted: {
                 isTargeted = drop != nil && $0
             }

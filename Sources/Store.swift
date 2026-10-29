@@ -450,7 +450,9 @@ final class Store {
     func moveGroup(from source: Int, to destination: Int) {
         let shown = sidebarGroups.map(\.group)
         guard showsCustomGroups, shown.indices.contains(source), shown[source].custom != nil else { return }
-        customGroups = SessionGrouping.moving(shown, from: source, to: min(max(destination, 0), shown.count))
+        let moved = SessionGrouping.moving(shown, from: source, to: min(max(destination, 0), shown.count))
+        guard moved.count == customGroups.count else { return }
+        customGroups = moved
     }
 
     func setGroupsExpanded(_ expanded: Bool) {
