@@ -548,7 +548,7 @@ private struct SessionRow: View {
                             HStack(spacing: 4) {
                                 Text(projectName)
                                     .foregroundStyle(theme.secondary)
-                                if session.pullRequest != nil || session.branch != nil {
+                                if session.branch != nil {
                                     Text(verbatim: "·")
                                         .foregroundStyle(theme.secondary.opacity(0.6))
                                 }
@@ -556,11 +556,13 @@ private struct SessionRow: View {
                             .font(.caption)
                             .fixedSize()
                         }
-                        if let pullRequest = session.pullRequest {
-                            PullRequestTag(link: pullRequest, state: pullRequestState)
-                        }
                         if let branch = session.branch {
                             BranchText(branch: branch)
+                        }
+                        if let pullRequest = session.pullRequest {
+                            Spacer(minLength: 0)
+                            PullRequestTag(link: pullRequest, state: pullRequestState)
+                                .fixedSize()
                         }
                     }
                 } else {
@@ -702,14 +704,35 @@ private struct PullRequestTag: View {
 private struct BranchText: View {
     let branch: String
     @Environment(\.ghosttyTheme) private var theme
+    @State private var isHovering = false
+    @State private var isCopied = false
 
     var body: some View {
-        Label(branch, systemImage: "arrow.triangle.branch")
-            .labelStyle(CompactLabel())
-            .font(.caption.monospaced())
-            .foregroundStyle(theme.branch.opacity(0.8))
-            .truncationMode(.middle)
-            .layoutPriority(-1)
+        let isHighlighted = isHovering || Snapshot.forcedHover.contains(branch)
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(branch, forType: .string)
+            isCopied = true
+        } label: {
+            Label(branch, systemImage: isCopied ? "checkmark" : "arrow.triangle.branch")
+                .labelStyle(CompactLabel())
+                .font(.caption.monospaced())
+                .foregroundStyle(theme.branch.opacity(0.8))
+                .truncationMode(.middle)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 4))
+                .padding(.horizontal, -4)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("Copy branch name")
+        .task(id: isCopied) {
+            guard isCopied else { return }
+            try? await Task.sleep(for: .seconds(1))
+            isCopied = false
+        }
+        .layoutPriority(-1)
     }
 }
 
