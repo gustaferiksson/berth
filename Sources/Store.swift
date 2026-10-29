@@ -435,6 +435,7 @@ final class Store {
 
     private func terminal(cwd: String, command: String?, environment: [String: String] = [:], onClose: @escaping () -> Void) -> TerminalViewState {
         let terminal = TerminalViewState(controller: GhosttyConfig.controller)
+        terminal.makePlatformView = { VisibleDropTerminalView(frame: .zero) }
         terminal.configuration = TerminalSurfaceOptions(
             backend: .exec,
             workingDirectory: cwd,
