@@ -116,6 +116,9 @@ enum Snapshot {
         if archiveRow > 0, let sessions = store.groups.first(where: { !$0.sessions.isEmpty })?.sessions, archiveRow <= sessions.count {
             store.archive(sessions[archiveRow - 1].id)
         }
+        if UserDefaults.standard.bool(forKey: "snapshotPinned") {
+            for session in store.groups.compactMap(\.sessions.first).suffix(2).reversed() { store.pin(session.id) }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
             for _ in 0..<2 { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
             store.tabs = store.shells.map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: UUID().uuidString.lowercased(), terminal: $0.terminal) }

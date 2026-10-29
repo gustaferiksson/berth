@@ -36,6 +36,16 @@
 			<key>UTTypeIdentifier</key>
 			<string>dev.gustaf.berth.group</string>
 		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Berth Pinned Session</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.gustaf.berth.pin</string>
+		</dict>
 	</array>
 </dict>
 </plist>

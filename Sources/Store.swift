@@ -103,6 +103,7 @@ final class Store {
     private(set) var groups: [SessionGroup] = []
     private(set) var activeSessions: [SessionSummary] = []
     private(set) var archivedSessions: [SessionSummary] = []
+    private(set) var pinnedSessions: [SessionSummary] = []
     private(set) var liveBySession: [String: LiveSession] = [:]
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
@@ -123,6 +124,9 @@ final class Store {
     @ObservationIgnored private var repositoryRoots: [String: String] = [:]
     @ObservationIgnored private var archivedAt = UserDefaults.standard.dictionary(forKey: "archivedSessions") as? [String: Date] ?? [:] {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
+    }
+    @ObservationIgnored private var pinnedIDs = UserDefaults.standard.stringArray(forKey: "pinnedSessions") ?? [] {
+        didSet { if persistsTabs { UserDefaults.standard.set(pinnedIDs, forKey: "pinnedSessions") } }
     }
     @ObservationIgnored var isPointerInSidebar = false {
         didSet { if !isPointerInSidebar { applyGroups() } }
@@ -167,7 +171,10 @@ final class Store {
         if hasScanned, split.kept != archivedAt { archivedAt = split.kept }
         archivedSessions = split.archived
         activeSessions = split.active
-        let fresh = grouping.groups(split.active)
+        let pins = SessionPins.split(split.active, pinned: pinnedIDs)
+        if hasScanned, pins.kept != pinnedIDs { pinnedIDs = pins.kept }
+        pinnedSessions = pins.pinned
+        let fresh = grouping.groups(pins.rest)
         let folders = fresh.compactMap(\.folder)
         let known = Set(groupOrder)
         groupOrder = folders.filter { !known.contains($0) } + groupOrder.filter(folders.contains)
@@ -192,7 +199,7 @@ final class Store {
     }
 
     func refreshPullRequests() {
-        let links = Set(groups.flatMap { $0.sessions.compactMap(\.pullRequest) })
+        let links = Set((pinnedSessions + groups.flatMap(\.sessions)).compactMap(\.pullRequest))
         guard !links.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
         pullRequestsFetchedAt = .now
         Task {
@@ -376,7 +383,7 @@ final class Store {
     }
 
     var sidebarOrderedTabs: [Tab] {
-        sidebarGroups.flatMap { $0.tabs + $0.group.sessions.compactMap { tab(forSession: $0.id) } }
+        pinnedSessions.compactMap { tab(forSession: $0.id) } + sidebarGroups.flatMap { $0.tabs + $0.group.sessions.compactMap { tab(forSession: $0.id) } }
     }
 
     func selectTab(number: Int) {
@@ -479,12 +486,29 @@ final class Store {
 
     func archive(_ sessionID: String) {
         archivedAt[sessionID] = .now
+        pinnedIDs.removeAll { $0 == sessionID }
         applyGroups()
         if let tab = tab(forSession: sessionID) { close(tab.id) }
     }
 
     func unarchive(_ sessionID: String) {
         archivedAt[sessionID] = nil
+        applyGroups()
+    }
+
+    func pin(_ sessionID: String) {
+        guard !pinnedIDs.contains(sessionID) else { return }
+        pinnedIDs.append(sessionID)
+        applyGroups()
+    }
+
+    func unpin(_ sessionID: String) {
+        pinnedIDs.removeAll { $0 == sessionID }
+        applyGroups()
+    }
+
+    func movePin(_ sessionID: String, onto index: Int) {
+        pinnedIDs = SessionPins.moving(pinnedIDs, sessionID, onto: index)
         applyGroups()
     }
 

@@ -133,8 +133,8 @@ struct Harbor: View {
     }
 
     private func layout(in size: CGSize) -> ([Pier], [Boat]) {
-        let groups = store.groups
-            .map { group in (group.title, group.sessions.filter { store.liveBySession[$0.id] != nil || store.tab(forSession: $0.id) != nil }) }
+        let groups = ([("Pinned", store.pinnedSessions)] + store.groups.map { ($0.title, $0.sessions) })
+            .map { title, sessions in (title, sessions.filter { store.liveBySession[$0.id] != nil || store.tab(forSession: $0.id) != nil }) }
             .filter { !$0.1.isEmpty }
             .prefix(6)
         let driftStart = max(Self.shore + 32 + Self.slot, size.width * 0.7)

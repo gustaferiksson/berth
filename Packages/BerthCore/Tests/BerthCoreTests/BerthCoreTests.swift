@@ -184,6 +184,28 @@ struct TranscriptTests {
         #expect(split.archived.map(\.id) == ["quiet", "older"])
         #expect(Set(split.kept.keys) == ["quiet", "older"])
     }
+
+    @Test func pinsKeepPinOrderAndPruneMissingSessions() {
+        let now = Date()
+        let sessions = [
+            SessionSummary(id: "newest", cwd: "/a", title: "newest", lastActivity: now),
+            SessionSummary(id: "middle", cwd: "/b", title: "middle", lastActivity: now.addingTimeInterval(-100)),
+            SessionSummary(id: "oldest", cwd: "/a", title: "oldest", lastActivity: now.addingTimeInterval(-200)),
+        ]
+        let split = SessionPins.split(sessions, pinned: ["oldest", "deleted", "newest"])
+        #expect(split.pinned.map(\.id) == ["oldest", "newest"])
+        #expect(split.rest.map(\.id) == ["middle"])
+        #expect(split.kept == ["oldest", "newest"])
+    }
+
+    @Test func droppingAPinOnARowTakesThatRowsPlace() {
+        let pinned = ["a", "b", "c", "d"]
+        #expect(SessionPins.moving(pinned, "a", onto: 3) == ["b", "c", "d", "a"])
+        #expect(SessionPins.moving(pinned, "a", onto: 2) == ["b", "c", "a", "d"])
+        #expect(SessionPins.moving(pinned, "d", onto: 1) == ["a", "d", "b", "c"])
+        #expect(SessionPins.moving(pinned, "b", onto: 1) == pinned)
+        #expect(SessionPins.moving(pinned, "gone", onto: 0) == pinned)
+    }
 }
 
 struct LiveSessionTests {
