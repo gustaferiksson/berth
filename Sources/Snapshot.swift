@@ -52,8 +52,14 @@ enum Snapshot {
         }
         await store.waitForScan()
         if UserDefaults.standard.bool(forKey: "snapshotFakeWaiting") {
-            for waiting in [false, true, true, false, true] {
-                print("fake first session waiting: \(waiting)")
+            for (step, waiting) in [false, true, true, false, true].enumerated() {
+                if step == 2, let session = store.groups.first(where: { !$0.sessions.isEmpty })?.sessions.first {
+                    store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path)
+                    store.tabs = store.shells.map { Tab(id: $0.id, kind: .claude, cwd: session.cwd, sessionID: session.id, terminal: $0.terminal) }
+                    store.shells = []
+                    store.isPanelOpen = false
+                }
+                print("fake first session waiting: \(waiting), in a Berth tab: \(step >= 2)")
                 store.fakeWaiting = waiting
                 store.refreshLive()
             }

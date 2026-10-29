@@ -279,8 +279,9 @@ struct NeedsYouTests {
     }
 
     @Test func firstScanSeedsWithoutAlerting() {
-        let result = NeedsYou.update(previous: nil, live: [live("a", "waiting"), live("b", "busy")])
+        let result = NeedsYou.update(previous: nil, live: [live("a", "waiting"), live("b", "busy")], inBerth: ["a", "b"])
         #expect(result.waiting == ["a"])
+        #expect(result.needsYou == ["a"])
         #expect(result.entered.isEmpty)
     }
 
@@ -288,7 +289,7 @@ struct NeedsYouTests {
         var waiting: Set<String> = []
         var alerts: [[String]] = []
         for status in ["busy", "waiting", "waiting", "idle", "waiting"] {
-            let result = NeedsYou.update(previous: waiting, live: [live("a", status), live("b", "busy")])
+            let result = NeedsYou.update(previous: waiting, live: [live("a", status), live("b", "busy")], inBerth: ["a", "b"])
             waiting = result.waiting
             alerts.append(result.entered.map(\.sessionId))
         }
@@ -296,10 +297,29 @@ struct NeedsYouTests {
     }
 
     @Test func endedSessionLeavesWaiting() {
-        let result = NeedsYou.update(previous: ["a", "b"], live: [live("b", "waiting")])
+        let result = NeedsYou.update(previous: ["a", "b"], live: [live("b", "waiting")], inBerth: ["a", "b"])
         #expect(result.waiting == ["b"])
         #expect(result.entered.isEmpty)
-        #expect(NeedsYou.update(previous: result.waiting, live: [live("a", "waiting"), live("b", "waiting")]).entered.map(\.sessionId) == ["a"])
+        #expect(NeedsYou.update(previous: result.waiting, live: [live("a", "waiting"), live("b", "waiting")], inBerth: ["a", "b"]).entered.map(\.sessionId) == ["a"])
+    }
+
+    @Test func elsewhereSessionNeitherAlertsNorCounts() {
+        let result = NeedsYou.update(previous: [], live: [live("a", "waiting"), live("b", "busy")], inBerth: ["b"])
+        #expect(result.waiting == ["a"])
+        #expect(result.needsYou.isEmpty)
+        #expect(result.entered.isEmpty)
+    }
+
+    @Test func sessionMovedIntoBerthAlertsOnlyOnNewWaiting() {
+        var waiting: Set<String> = []
+        var steps: [([String], Int)] = []
+        for (status, inBerth) in [("waiting", Set<String>()), ("waiting", ["a"]), ("busy", ["a"]), ("waiting", ["a"])] {
+            let result = NeedsYou.update(previous: waiting, live: [live("a", status)], inBerth: inBerth)
+            waiting = result.waiting
+            steps.append((result.entered.map(\.sessionId), result.needsYou.count))
+        }
+        #expect(steps.map(\.0) == [[], [], [], ["a"]])
+        #expect(steps.map(\.1) == [0, 1, 0, 1])
     }
 }
 
