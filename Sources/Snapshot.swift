@@ -21,6 +21,36 @@ enum Snapshot {
     static let scrollsToArchive = false
     #endif
 
+    #if DEBUG
+    static let sidebarWidth = UserDefaults.standard.object(forKey: "snapshotSidebarWidth") == nil ? 300 : UserDefaults.standard.double(forKey: "snapshotSidebarWidth")
+    #else
+    static let sidebarWidth = 300.0
+    #endif
+
+    #if DEBUG
+    private static let longNames: [(session: SessionSummary, state: PullRequestState?)] = {
+        let code = NSTemporaryDirectory() + "berth-long-names"
+        let billing = "\(code)/acme-platform-billing-reconciliation-pipeline-service"
+        let onboarding = "\(code)/northwind-customer-onboarding-document-verification-worker"
+        let legacy = "\(code)/acme-platform-billing-reconciliation-pipeline-service-legacy-adapter"
+        for folder in [billing, onboarding, legacy, "\(code)/api"] { try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
+        return [
+            (SessionSummary(id: "fixture-1", cwd: billing, title: "Reconcile ledger entries against settlement exports and flag every mismatch", lastActivity: .now - 120, branch: "feature/reconcile-settlement-exports-with-ledger-entries", pullRequest: PullRequestLink(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, repository: "acme/billing")), .open),
+            (SessionSummary(id: "fixture-2", cwd: billing, title: "Fix rounding", lastActivity: .now - 900, branch: "fix/rounding", pullRequest: PullRequestLink(number: 4790, url: URL(string: "https://github.com/acme/billing/pull/4790")!, repository: "acme/billing")), .merged),
+            (SessionSummary(id: "fixture-3", cwd: onboarding, title: "Retry document verification when the upstream provider times out", lastActivity: .now - 2400, branch: "chore/upgrade-document-verification-provider-sdk-to-latest-major"), nil),
+            (SessionSummary(id: "fixture-4", cwd: "\(code)/api", title: "Draft the webhook signature check", lastActivity: .now - 3000, branch: "feature/webhook-signature-verification-with-rotating-secrets", pullRequest: PullRequestLink(number: 12, url: URL(string: "https://github.com/acme/billing/pull/12")!, repository: "acme/billing")), .draft),
+            (SessionSummary(id: "fixture-5", cwd: onboarding, title: "Explain the onboarding state machine", lastActivity: .now - 4000), nil),
+            (SessionSummary(id: "fixture-6", cwd: legacy, title: "Port the nightly settlement import", lastActivity: .now - 90_000, branch: "main", pullRequest: PullRequestLink(number: 99_999, url: URL(string: "https://github.com/acme/billing/pull/99999")!, repository: "acme/billing")), .closed),
+        ]
+    }()
+
+    static let fixtureSessions = UserDefaults.standard.bool(forKey: "snapshotLongNames") ? longNames.map(\.session) : nil
+    static let fixturePullRequestStates = UserDefaults.standard.bool(forKey: "snapshotLongNames") ? Dictionary(uniqueKeysWithValues: longNames.compactMap { item in item.session.pullRequest.flatMap { link in item.state.map { (link.url, $0) } } }) : [:]
+    #else
+    static let fixtureSessions: [SessionSummary]? = nil
+    static let fixturePullRequestStates: [URL: PullRequestState] = [:]
+    #endif
+
     static func forcedSelection(in groups: [SessionGroup]) -> SidebarItem? {
         #if DEBUG
         let index = UserDefaults.standard.integer(forKey: "snapshotSelectRow")
