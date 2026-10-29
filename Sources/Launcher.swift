@@ -28,7 +28,6 @@ struct Launcher: View {
 
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.openSettings) private var openSettings
     @State private var query = ""
     @State private var highlighted = 0
     @State private var folders: [Folder] = []
@@ -361,9 +360,6 @@ struct Launcher: View {
         case let .item(item):
             store.activate(item)
             store.launcherMode = nil
-        case .action(.settings):
-            store.launcherMode = nil
-            openSettings()
         case .action(.searchSessions):
             store.launcherQuery = query.trimmingCharacters(in: .whitespaces)
             store.launcherMode = .search

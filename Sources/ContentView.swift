@@ -18,6 +18,7 @@ struct ContentView: View {
     @Environment(\.appearsActive) private var appearsActive
     @State private var pulse = WorkingPulse()
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         @Bindable var store = store
@@ -118,6 +119,11 @@ struct ContentView: View {
             guard store.isStatsRequested else { return }
             store.isStatsRequested = false
             openWindow(id: "stats")
+        }
+        .onChange(of: store.isSettingsRequested) {
+            guard store.isSettingsRequested else { return }
+            store.isSettingsRequested = false
+            openSettings()
         }
         .sheet(item: $store.editingGroup) { GroupEditor(group: $0) }
         .confirmationDialog("Delete “\(store.deletingGroup?.name ?? "")”?", isPresented: Binding(get: { store.deletingGroup != nil }, set: { if !$0 { store.deletingGroup = nil } }), presenting: store.deletingGroup) { group in

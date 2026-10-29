@@ -227,6 +227,38 @@ enum Snapshot {
                 print("\(step) after activate: first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil"), is the activated surface \(window.firstResponder === target.terminal.attachedPlatformView)")
             }
         }
+        if let keys = UserDefaults.standard.string(forKey: "snapshotKeys"), let view = (store.shells.first ?? store.tabs.first)?.terminal.attachedPlatformView {
+            SettingsSnapshot.keepWindowsOffScreen()
+            window.identifier = NSUserInterfaceItemIdentifier("main-snapshot")
+            let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
+            let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
+            method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
+            method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
+            window.makeFirstResponder(view)
+            print("key window is snapshot: \(NSApp.keyWindow === window), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+            let observer = NotificationCenter.default.addObserver(forName: NSMenu.willSendActionNotification, object: nil, queue: nil) { note in
+                print("  menu action: \((note.userInfo?["MenuItem"] as? NSMenuItem)?.title ?? "?")")
+            }
+            let keyCodes: [String: UInt16] = ["a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "9": 25, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27]
+            let flagNames: [String: NSEvent.ModifierFlags] = ["cmd": .command, "shift": .shift, "alt": .option, "ctrl": .control]
+            for spec in keys.split(separator: " ").map(String.init) {
+                let parts = spec.split(separator: "+").map(String.init)
+                guard let key = parts.last, let keyCode = keyCodes[key] else { continue }
+                let flags = NSEvent.ModifierFlags(parts.dropLast().compactMap { flagNames[$0] })
+                let characters = ["enter": "\r", "tab": "\t"][key] ?? key
+                let shifted = flags.contains(.shift) ? ["[": "{", "]": "}", ",": "<"][characters] ?? characters.uppercased() : characters
+                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: shifted, charactersIgnoringModifiers: shifted, isARepeat: false, keyCode: keyCode) else { continue }
+                print("\(spec):")
+                NSApp.sendEvent(event)
+                try? await Task.sleep(for: .milliseconds(400))
+                let others = NSApp.windows.filter { $0 !== window && $0.isVisible }
+                print("  launcher \(String(describing: store.launcherMode)), panel \(store.isPanelOpen), shells \(store.shells.count), shell \(store.shells.firstIndex { $0.id == store.selectedShellID } ?? -1), grouping \(store.groupingMode), windows \(others.map { $0.identifier?.rawValue ?? $0.title }), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+                others.forEach { $0.close() }
+                store.launcherMode = nil
+                window.makeFirstResponder(view)
+            }
+            NotificationCenter.default.removeObserver(observer)
+        }
         let tab = store.tabs.first { $0.id == store.selectedTabID }
         window.title = showsStats ? "Stats" : store.isHarborShown ? "Harbor" : tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"
         try? await Task.sleep(for: .milliseconds(500))
