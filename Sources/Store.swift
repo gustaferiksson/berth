@@ -114,6 +114,9 @@ final class Store {
 
     @ObservationIgnored var persistsTabs = true
     @ObservationIgnored var lastKeyInput = Date.distantPast
+    #if DEBUG
+    @ObservationIgnored var probeOpenedClaude: [String] = []
+    #endif
     @ObservationIgnored private var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var searchIndexTask: Task<Void, Never>?
@@ -428,6 +431,9 @@ final class Store {
     }
 
     func openClaude(cwd: String, resuming sessionID: String? = nil) {
+        #if DEBUG
+        if Snapshot.launcherKeys != nil { return probeOpenedClaude.append(cwd) }
+        #endif
         guard FileManager.default.fileExists(atPath: cwd) else {
             missingFolder = cwd
             return
