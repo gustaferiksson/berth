@@ -55,10 +55,7 @@ struct Launcher: View {
                     .focused($isQueryFocused)
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
-                    .onSubmit {
-                        guard mode == .palette else { return submit(target) }
-                        if let row { run(row.target) }
-                    }
+                    .onSubmit(submit)
                     .onChange(of: query) { highlighted = 0 }
                 if mode == .newSession {
                     Button { isBrowsing = true } label: {
@@ -334,12 +331,18 @@ struct Launcher: View {
         return .handled
     }
 
-    private func submit(_ target: Folder?) {
+    private func submit() {
         if mode == .search {
             if hits.indices.contains(highlighted) { open(hits[highlighted]) }
             return
         }
-        if let target { start(in: target.path) }
+        if mode == .palette {
+            let rows = paletteRows
+            if rows.indices.contains(highlighted) { run(rows[highlighted].target) }
+            return
+        }
+        let matches = matches
+        if matches.indices.contains(highlighted) { start(in: matches[highlighted].path) }
     }
 
     private func search() async {
