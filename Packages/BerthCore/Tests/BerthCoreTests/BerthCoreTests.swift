@@ -148,10 +148,14 @@ struct TranscriptTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
         let output = String(repeating: "x", count: 4000)
         let toolResult = #"{"type":"user","timestamp":"2026-10-29T10:05:00.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"\#(output)"}]}}"#
+        let toolLoop = Array(repeating: toolResult, count: 40) + [
+            #"{"type":"assistant","timestamp":"2026-10-29T10:06:00.000Z","message":{"content":[{"type":"tool_use"}]}}"#,
+            #"{"type":"ai-title","aiTitle":"Long task"}"#,
+        ]
         let lines = [
             #"{"type":"user","cwd":"/x","timestamp":"2026-10-29T09:00:00.000Z","message":{"content":"start"}}"#,
             #"{"type":"user","timestamp":"2026-10-29T10:00:00.000Z","message":{"content":"long task"}}"#,
-        ] + Array(repeating: toolResult, count: 40)
+        ] + toolLoop
         try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
         let prompt = try Date("2026-10-29T10:00:00.000Z", strategy: .iso8601)
         #expect(Transcript.summary(of: url)?.lastPrompt == prompt)
@@ -159,11 +163,52 @@ struct TranscriptTests {
         let size = try #require(try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int)
         let handle = try FileHandle(forWritingTo: url)
         try handle.seekToEnd()
-        try handle.write(contentsOf: Data((Array(repeating: toolResult, count: 40).joined(separator: "\n") + "\n").utf8))
+        try handle.write(contentsOf: Data((toolLoop.joined(separator: "\n") + "\n").utf8))
         try handle.close()
         let known = try Date("2026-10-29T09:59:00.000Z", strategy: .iso8601)
         #expect(Transcript.summary(of: url, after: (size: size, lastPrompt: known))?.lastPrompt == known)
         #expect(Transcript.summary(of: url)?.lastPrompt == prompt)
+    }
+
+    func transcriptBehindHugeLines(junkBytes: Int) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appending(path: "berth-\(UUID().uuidString)/-Users-example-Repos-delta/huge.jsonl")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let image = String(repeating: "A", count: 40_000)
+        let lines = [
+            #"{"type":"user","cwd":"/Users/example/Repos/delta","timestamp":"2026-10-29T09:00:00.000Z","message":{"content":[{"type":"text","text":"first"},{"type":"image","source":{"data":"\#(image)"}}]}}"#,
+            #"{"type":"assistant","cwd":"/Users/example/Repos/delta","gitBranch":"feat/cards","timestamp":"2026-10-29T09:01:00.000Z","message":{"content":[{"type":"text","text":"ok"}]}}"#,
+            #"{"type":"ai-title","aiTitle":"Fix the card parser"}"#,
+            #"{"type":"user","cwd":"/Users/example/Repos/delta","gitBranch":"feat/cards","timestamp":"2026-10-29T10:00:00.000Z","message":{"content":"second"}}"#,
+            #"{"type":"assistant","cwd":"/Users/example/Repos/delta","gitBranch":"feat/cards","timestamp":"2026-10-29T10:01:00.000Z","message":{"content":[{"type":"text","text":"done"}]}}"#,
+            #"{"type":"api-request-blob","message":{"content":"\#(String(repeating: "x", count: junkBytes))"}}"#,
+        ]
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        return url
+    }
+
+    @Test func recordsBehindALineLongerThanTheTailAreStillRead() throws {
+        let url = try transcriptBehindHugeLines(junkBytes: 200_000)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
+        let summary = try #require(Transcript.summary(of: url))
+        #expect(summary.title == "Fix the card parser")
+        #expect(summary.cwd == "/Users/example/Repos/delta")
+        #expect(summary.branch == "feat/cards")
+        #expect(summary.lastPrompt == (try Date("2026-10-29T10:00:00.000Z", strategy: .iso8601)))
+        #expect(summary.lastActivity == (try Date("2026-10-29T10:01:00.000Z", strategy: .iso8601)))
+    }
+
+    @Test func indexKeepsTheLastSummaryWhenTheTailIsOutOfReach() throws {
+        let url = try transcriptBehindHugeLines(junkBytes: 100)
+        let root = url.deletingLastPathComponent().deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: root) }
+        var index = TranscriptIndex(root: root)
+        #expect(index.refresh().map(\.title) == ["Fix the card parser"])
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((#"{"type":"api-request-blob","message":{"content":"\#(String(repeating: "x", count: Transcript.maxTailBytes))"}}"# + "\n").utf8))
+        try handle.close()
+        #expect(Transcript.summary(of: url) == nil)
+        #expect(index.refresh().map(\.title) == ["Fix the card parser"])
     }
 
     @Test func archiveHidesUntilNewActivityAndPrunesMissingTranscripts() {

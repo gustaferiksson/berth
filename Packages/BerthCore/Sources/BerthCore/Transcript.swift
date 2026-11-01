@@ -35,6 +35,7 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
 public enum Transcript {
     static let headBytes = 32 * 1024
     static let tailBytes = 64 * 1024
+    static let maxTailBytes = 8 * 1024 * 1024
     static let promptScanBytes = 1024 * 1024
     static let maxTitleLength = 120
 
@@ -46,15 +47,12 @@ public enum Transcript {
         else { return nil }
         defer { try? handle.close() }
         let head = (try? handle.read(upToCount: headBytes)) ?? Data()
-        let tailOffset = max(0, size - tailBytes)
-        guard (try? handle.seek(toOffset: UInt64(tailOffset))) != nil else { return nil }
-        let tail = (try? handle.readToEnd()) ?? Data()
-        let tailRecords = records(in: tail, dropFirst: tailOffset > 0, dropLast: false)
+        guard let (tailOffset, firstLineEnd, tailRecords) = tail(of: handle, size: size) else { return nil }
         let known = known.flatMap { $0.size <= size ? $0 : nil }
         let earlierPrompt = tailOffset == 0 || lastPrompt(in: tailRecords) != nil ? nil : lastPrompt(
             in: handle,
-            before: tailOffset + (tail.firstIndex(of: UInt8(ascii: "\n")).map { $0 - tail.startIndex } ?? tail.count),
-            floor: max(tailOffset - promptScanBytes, (known?.size ?? 0) - tailBytes, 0)
+            before: firstLineEnd,
+            floor: max(firstLineEnd - promptScanBytes, (known?.size ?? 0) - tailBytes, 0)
         ) ?? known?.lastPrompt
         return summary(
             id: url.deletingPathExtension().lastPathComponent,
@@ -93,6 +91,22 @@ public enum Transcript {
         )
     }
 
+    static func tail(of handle: FileHandle, size: Int) -> (offset: Int, firstLineEnd: Int, records: [Record])? {
+        var window = tailBytes
+        while true {
+            let offset = max(0, size - window)
+            guard (try? handle.seek(toOffset: UInt64(offset))) != nil else { return nil }
+            let data = (try? handle.readToEnd()) ?? Data()
+            let records = records(in: data, dropFirst: offset > 0, dropLast: false)
+            let hasTitle = records.contains { $0.customTitle != nil || $0.aiTitle != nil || $0.summary != nil || $0.agentName != nil }
+            if offset == 0 || window >= maxTailBytes || hasTitle && lastConversation(in: records) != nil {
+                let newline = data.withUnsafeBytes { buffer in buffer.baseAddress.flatMap { base in memchr(base, 0x0A, buffer.count).map { base.distance(to: $0) } } }
+                return (offset, offset + (newline ?? 0), records)
+            }
+            window *= 2
+        }
+    }
+
     static func lastConversation(in records: [Record]) -> Date? {
         records.last { $0.isConversation && $0.timestamp != nil }?.date
     }
@@ -122,10 +136,22 @@ public enum Transcript {
     }
 
     static func records(in data: Data, dropFirst: Bool, dropLast: Bool) -> [Record] {
-        let lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
-        let complete = lines.dropFirst(dropFirst ? 1 : 0).dropLast(dropLast ? 1 : 0)
         let decoder = JSONDecoder()
-        return complete.compactMap { try? decoder.decode(Record.self, from: Data($0)) }
+        return data.withUnsafeBytes { buffer in
+            guard let base = buffer.baseAddress else { return [] }
+            var lines: [UnsafeRawBufferPointer] = []
+            var start = 0
+            while start < buffer.count {
+                let end = memchr(base + start, 0x0A, buffer.count - start).map { base.distance(to: $0) } ?? buffer.count
+                if end > start { lines.append(UnsafeRawBufferPointer(rebasing: buffer[start..<end])) }
+                start = end + 1
+            }
+            return lines.dropFirst(dropFirst ? 1 : 0).dropLast(dropLast ? 1 : 0).compactMap { line in
+                let has = { (pattern: StaticString) in memmem(line.baseAddress, line.count, pattern.utf8Start, pattern.utf8CodeUnitCount) != nil }
+                guard !line.starts(with: #"{"type":"api-request"#.utf8), !has(#""type":"tool_result""#), !has(#""type":"attachment""#) else { return nil }
+                return try? decoder.decode(Record.self, from: Data(line))
+            }
+        }
     }
 }
 
