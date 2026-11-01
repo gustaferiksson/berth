@@ -2,8 +2,8 @@ import SwiftUI
 
 struct WorkingDots: View {
     let label: String
+    let color: Color
     @State private var offset = Double.random(in: 0..<1.2)
-    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         TimelineView(.periodic(from: Date(timeIntervalSinceReferenceDate: offset), by: 0.4)) { context in
@@ -11,7 +11,7 @@ struct WorkingDots: View {
             HStack(spacing: 2) {
                 ForEach(0..<3) { index in
                     Circle()
-                        .fill(theme.working.opacity(index == phase ? 1 : 0.35))
+                        .fill(color.opacity(index == phase ? 1 : 0.35))
                         .frame(width: 4, height: 4)
                 }
             }

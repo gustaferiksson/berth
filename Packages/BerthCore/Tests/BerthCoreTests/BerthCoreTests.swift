@@ -230,9 +230,14 @@ struct LiveSessionTests {
         #expect(attachable["bbbb"] == .some(nil))
     }
 
-    @Test func unknownStatusIsIdle() {
+    @Test func shellStatusRunsAShellCommand() {
         let live = LiveSession.load(from: directory) { $0 == 103 }
-        #expect(live.first?.activity == .idle)
+        #expect(live.first?.activity == .shell)
+    }
+
+    @Test func unknownStatusIsIdle() {
+        let live = LiveSession(pid: 1, sessionId: "a", cwd: "/", kind: nil, jobId: nil, status: "paused", waitingFor: nil, statusUpdatedAt: nil, startedAt: nil)
+        #expect(live.activity == .idle)
     }
 }
 
@@ -445,12 +450,12 @@ struct NeedsYouTests {
     @Test func alertsOnceOnEnteringAndReArmsAfterLeaving() {
         var waiting: Set<String> = []
         var alerts: [[String]] = []
-        for status in ["busy", "waiting", "waiting", "idle", "waiting"] {
+        for status in ["busy", "waiting", "waiting", "shell", "waiting", "shell", "idle", "waiting"] {
             let result = NeedsYou.update(previous: waiting, live: [live("a", status), live("b", "busy")], inBerth: ["a", "b"])
             waiting = result.waiting
             alerts.append(result.entered.map(\.sessionId))
         }
-        #expect(alerts == [[], ["a"], [], [], ["a"]])
+        #expect(alerts == [[], ["a"], [], [], ["a"], [], [], ["a"]])
     }
 
     @Test func endedSessionLeavesWaiting() {

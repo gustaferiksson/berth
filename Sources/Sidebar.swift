@@ -584,12 +584,14 @@ private struct RowChrome: ViewModifier {
 
 private enum RowState: Equatable {
     case working
+    case shell
     case needsYou(String?)
 
     init?(live: LiveSession?) {
         guard let live else { return nil }
         switch live.activity {
         case .working: self = .working
+        case .shell: self = .shell
         case let .needsInput(reason): self = .needsYou(reason)
         case .idle: return nil
         }
@@ -737,7 +739,9 @@ private struct StatusSlot: View {
     var body: some View {
         ZStack {
             if state == .working {
-                WorkingDots(label: "Working")
+                WorkingDots(label: "Working", color: theme.working)
+            } else if state == .shell {
+                WorkingDots(label: "Running a shell command", color: theme.merged)
             } else if case let .needsYou(reason) = state {
                 Circle()
                     .fill(theme.needsYou)
