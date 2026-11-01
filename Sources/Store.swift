@@ -48,7 +48,7 @@ final class Store {
     var selectedTabID: Tab.ID? {
         didSet {
             if let oldValue { tabTouches[oldValue] = .now }
-            if let selectedTabID { recentTabIDs = [selectedTabID] + recentTabIDs.filter { $0 != selectedTabID } }
+            saveOpenTabs()
         }
     }
     var lockedSessionID: String?
@@ -65,7 +65,7 @@ final class Store {
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
         didSet {
-            guard launcherMode == nil else { return }
+            guard oldValue != nil, launcherMode == nil else { return }
             DispatchQueue.main.async { [weak self] in
                 guard let self, !isHarborShown else { return }
                 focusedTerminal?.requestFocus()
@@ -283,7 +283,8 @@ final class Store {
     func unloadIdleTabs() {
         refreshLive()
         let threshold = UserDefaults.standard.object(forKey: GeneralSettings.unloadIdleKey) == nil ? 14_400 : UserDefaults.standard.double(forKey: GeneralSettings.unloadIdleKey)
-        let candidates = tabs.filter { $0.kind == .claude }.compactMap { tab in tab.sessionID.map { (id: tab.id, sessionID: $0, touched: max(tab.opened, tabTouches[tab.id] ?? .distantPast)) } }
+        let lastClaude = recentTabIDs.first { id in tabs.contains { $0.id == id && $0.kind == .claude } }
+        let candidates = tabs.filter { $0.kind == .claude && $0.id != lastClaude }.compactMap { tab in tab.sessionID.map { (id: tab.id, sessionID: $0, touched: max(tab.opened, tabTouches[tab.id] ?? .distantPast)) } }
         let lastActivity = Dictionary(activeSessions.map { ($0.id, $0.lastActivity) }) { first, _ in first }
         for id in IdleTabs.unloadable(candidates, live: liveBySession, lastActivity: lastActivity, pinned: Set(pinnedIDs), selected: selectedTabID, now: .now, threshold: threshold) {
             close(id)
@@ -333,6 +334,7 @@ final class Store {
     func activate(_ item: SidebarItem?) {
         guard let tab = tab(activating: item) else { return }
         selectedTabID = tab.id
+        recentTabIDs = [tab.id] + recentTabIDs.filter { $0 != tab.id }
         isHarborShown = false
         tab.terminal.requestFocus()
     }
@@ -435,6 +437,7 @@ final class Store {
         let command = ClaudeLaunch.command(attachID != nil ? .attach : sessionID == nil ? .new : .resume)
         tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }))
         selectedTabID = id
+        recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
     }
 
     private func terminal(cwd: String, command: String?, environment: [String: String] = [:], onClose: @escaping () -> Void) -> TerminalViewState {
@@ -474,7 +477,7 @@ final class Store {
 
     func setGroupsExpanded(_ expanded: Bool) {
         guard persistsTabs else { return }
-        let current = Set(sidebarGroups.map(\.group.id))
+        let current = Set(sidebarGroups.map(\.group.id) + [Sidebar.terminalsID])
         let others = (UserDefaults.standard.string(forKey: "collapsedGroups") ?? "").split(separator: "\n").map(String.init).filter { !current.contains($0) }
         let listed = current.filter { Sidebar.collapsedByDefault.contains($0) == expanded }.sorted()
         UserDefaults.standard.set((others + listed).joined(separator: "\n"), forKey: "collapsedGroups")
@@ -531,11 +534,12 @@ final class Store {
         let kind: Tab.Kind
         let cwd: String
         let sessionID: String?
+        let isSelected: Bool?
     }
 
-    private func saveOpenTabs() {
+    func saveOpenTabs() {
         guard persistsTabs else { return }
-        let saved = tabs.map { SavedTab(kind: $0.kind, cwd: $0.cwd, sessionID: $0.sessionID) }
+        let saved = tabs.map { SavedTab(kind: $0.kind, cwd: $0.folder, sessionID: $0.sessionID, isSelected: $0.id == selectedTabID) }
         UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: "openTabs")
     }
 
@@ -543,13 +547,16 @@ final class Store {
         guard let data = UserDefaults.standard.data(forKey: "openTabs"),
               let saved = try? JSONDecoder().decode([SavedTab].self, from: data)
         else { return }
+        var selected: Tab.ID?
         for tab in saved {
             if tab.kind == .shell {
                 openShell(cwd: tab.cwd)
-                continue
+            } else {
+                guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id].map({ $0.attachID != nil }) ?? true, FileManager.default.fileExists(atPath: session.cwd) else { continue }
+                openClaude(cwd: session.cwd, resuming: session.id)
             }
-            guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id].map({ $0.attachID != nil }) ?? true, FileManager.default.fileExists(atPath: session.cwd) else { continue }
-            openClaude(cwd: session.cwd, resuming: session.id)
+            if tab.isSelected == true { selected = selectedTabID }
         }
+        activate((selected ?? tabs.first { $0.kind == .claude }?.id ?? tabs.first?.id).map(SidebarItem.tab))
     }
 }

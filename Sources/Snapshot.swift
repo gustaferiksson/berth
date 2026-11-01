@@ -149,14 +149,16 @@ enum Snapshot {
             for _ in labels { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
             store.tabs = zip(store.tabs, ids).map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: $1, terminal: $0.terminal) }
             store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path)
-            store.selectedTabID = store.tabs[2].id
+            let terminal = store.selectedTabID
+            store.activate(.tab(store.tabs[2].id))
+            store.selectedTabID = terminal
             let label: (Tab) -> String = { $0.kind == .shell ? "terminal" : labels[ids.firstIndex(of: $0.sessionID ?? "") ?? 0] }
             print("unload threshold \(UserDefaults.standard.double(forKey: GeneralSettings.unloadIdleKey)) s, pinned still pinned: \(store.pinnedSessions.contains { $0.id == pinned })")
             store.unloadIdleTabs()
             print("right after opening, kept: \(store.tabs.map(label))")
             try? await Task.sleep(for: .seconds(3))
             store.selectedTabID = store.tabs[1].id
-            store.selectedTabID = store.tabs[2].id
+            store.selectedTabID = terminal
             let before = store.tabs.map(label)
             store.unloadIdleTabs()
             let kept = store.tabs.map(label)
@@ -261,9 +263,14 @@ enum Snapshot {
             let observer = NotificationCenter.default.addObserver(forName: NSMenu.willSendActionNotification, object: nil, queue: nil) { note in
                 print("  menu action: \((note.userInfo?["MenuItem"] as? NSMenuItem)?.title ?? "?")")
             }
-            let keyCodes: [String: UInt16] = ["a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "9": 25, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27]
+            let keyCodes: [String: UInt16] = ["a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "3": 20, "9": 25, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27]
             let flagNames: [String: NSEvent.ModifierFlags] = ["cmd": .command, "shift": .shift, "alt": .option, "ctrl": .control]
             for spec in keys.split(separator: " ").map(String.init) {
+                if spec.hasPrefix("browse"), let index = Int(spec.dropFirst(6)), store.sidebarOrderedTabs.indices.contains(index) {
+                    store.selectedTabID = store.sidebarOrderedTabs[index].id
+                    print("\(spec) (sets the selection like ↑/↓ in the sidebar):\n  \(state())")
+                    continue
+                }
                 if spec == "exit" {
                     _ = store.focusedTerminal?.paste(text: "exit")
                     _ = store.focusedTerminal?.sendKey(.enter)

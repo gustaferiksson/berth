@@ -17,7 +17,7 @@ struct Sidebar: View {
     private static let visibleSessions = 5
     static let collapsedByDefault: Set = ["recent:older"]
     private static let pinnedID = "pinned"
-    private static let terminalsID = "terminals"
+    static let terminalsID = "terminals"
 
     private struct Group {
         let source: SessionGroup
