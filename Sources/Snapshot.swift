@@ -93,9 +93,7 @@ enum Snapshot {
             for (step, waiting) in [false, true, true, false, true].enumerated() {
                 if step == 2, let session = store.groups.first(where: { !$0.sessions.isEmpty })?.sessions.first {
                     store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path)
-                    store.tabs = store.shells.map { Tab(id: $0.id, kind: .claude, cwd: session.cwd, sessionID: session.id, terminal: $0.terminal) }
-                    store.shells = []
-                    store.isPanelOpen = false
+                    store.tabs = store.tabs.map { Tab(id: $0.id, kind: .claude, cwd: session.cwd, sessionID: session.id, terminal: $0.terminal) }
                 }
                 print("fake first session waiting: \(waiting), in a Berth tab: \(step >= 2)")
                 store.fakeWaiting = waiting
@@ -107,18 +105,16 @@ enum Snapshot {
             store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
             store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path, command: "/bin/zsh -c 'printf \"\\033]2;npm run dev\\007\"; echo VITE ready; echo started >> \(NSTemporaryDirectory())berth-shell-starts; sleep 600'")
         }
-        if let path = UserDefaults.standard.string(forKey: "snapshotShellCd"), let shell = store.shells.first {
+        if UserDefaults.standard.bool(forKey: "snapshotClaudeTab") {
+            store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
+            store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: nil, terminal: $0.terminal) : $0 }
+        }
+        if let path = UserDefaults.standard.string(forKey: "snapshotShellCd"), let shell = store.terminals.first {
             Task {
                 try? await Task.sleep(for: .seconds(2))
                 _ = shell.terminal.paste(text: "cd \(path)")
                 _ = shell.terminal.sendKey(.enter)
             }
-        }
-        if UserDefaults.standard.bool(forKey: "snapshotTogglePanel") {
-            try? await Task.sleep(for: .seconds(2))
-            store.toggleTerminalPanel()
-            try? await Task.sleep(for: .seconds(1))
-            store.toggleTerminalPanel()
         }
         let archiveRow = UserDefaults.standard.integer(forKey: "snapshotArchiveRow")
         if archiveRow > 0, let sessions = store.groups.first(where: { !$0.sessions.isEmpty })?.sessions, archiveRow <= sessions.count {
@@ -129,18 +125,13 @@ enum Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
             for _ in 0..<2 { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
-            store.tabs = store.shells.map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: UUID().uuidString.lowercased(), terminal: $0.terminal) }
-            store.selectedTabID = store.tabs.last?.id
-            store.shells = []
-            store.isPanelOpen = false
+            store.tabs = store.tabs.map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: UUID().uuidString.lowercased(), terminal: $0.terminal) }
         }
         if UserDefaults.standard.bool(forKey: "snapshotHarbor") {
             let faked = store.liveBySession.values.filter { $0.pid == 1 }
             for _ in faked { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
-            store.tabs = zip(store.shells, faked).map { Tab(id: $0.id, kind: .claude, cwd: $1.cwd, sessionID: $1.sessionId, terminal: $0.terminal) }
+            store.tabs = zip(store.tabs, faked).map { Tab(id: $0.id, kind: .claude, cwd: $1.cwd, sessionID: $1.sessionId, terminal: $0.terminal) }
             store.selectedTabID = store.tabs.first?.id
-            store.shells = []
-            store.isPanelOpen = false
             store.isHarborShown = true
         }
         if UserDefaults.standard.bool(forKey: "snapshotUnloadIdle") {
@@ -156,11 +147,10 @@ enum Snapshot {
                 return try? JSONDecoder().decode(LiveSession.self, from: Data(json.utf8))
             }
             for _ in labels { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
-            store.tabs = zip(store.shells, ids).map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: $1, terminal: $0.terminal) }
-            store.shells = []
-            store.isPanelOpen = false
+            store.tabs = zip(store.tabs, ids).map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: $1, terminal: $0.terminal) }
+            store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path)
             store.selectedTabID = store.tabs[2].id
-            let label: (Tab) -> String = { labels[ids.firstIndex(of: $0.sessionID ?? "") ?? 0] }
+            let label: (Tab) -> String = { $0.kind == .shell ? "terminal" : labels[ids.firstIndex(of: $0.sessionID ?? "") ?? 0] }
             print("unload threshold \(UserDefaults.standard.double(forKey: GeneralSettings.unloadIdleKey)) s, pinned still pinned: \(store.pinnedSessions.contains { $0.id == pinned })")
             store.unloadIdleTabs()
             print("right after opening, kept: \(store.tabs.map(label))")
@@ -219,21 +209,10 @@ enum Snapshot {
         }
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
         try? await Task.sleep(for: .seconds(UserDefaults.standard.integer(forKey: "snapshotHold")))
-        if UserDefaults.standard.bool(forKey: "snapshotToggleFrames") {
-            for phase in ["hide", "show"] {
-                let start = ContinuousClock.now
-                store.toggleTerminalPanel()
-                for frame in 0..<12 {
-                    try? await Task.sleep(until: start + .milliseconds(frame * 40))
-                    guard let image = image(of: window), let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { continue }
-                    try? png.write(to: output.deletingPathExtension().appendingPathExtension("\(phase)-\(frame * 40)ms.png"))
-                }
-            }
-        }
         if UserDefaults.standard.bool(forKey: "snapshotCloseTabs") {
             let processes = ProcessAncestry.descendants()
             print("before close: \(processes.map(\.pid).sorted())")
-            for tab in store.tabs + store.shells { store.close(tab.id) }
+            for tab in store.tabs { store.close(tab.id) }
             try? await Task.sleep(for: .seconds(3))
             print("alive after close: \(processes.map(\.pid).filter { kill($0, 0) == 0 }.sorted())")
         }
@@ -255,9 +234,7 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotActivateFocus") {
             for step in ["open tab", "new tab"] {
                 store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path)
-                store.tabs += store.shells.map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: nil, terminal: $0.terminal) }
-                store.shells = []
-                store.isPanelOpen = false
+                store.tabs = store.tabs.map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: nil, terminal: $0.terminal) }
                 if step == "open tab" { try? await Task.sleep(for: .seconds(2)) }
                 guard let target = store.tabs.last else { continue }
                 window.makeFirstResponder(hosting.view)
@@ -267,14 +244,19 @@ enum Snapshot {
                 print("\(step) after activate: first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil"), is the activated surface \(window.firstResponder === target.terminal.attachedPlatformView)")
             }
         }
-        if let keys = UserDefaults.standard.string(forKey: "snapshotKeys"), let view = (store.shells.first ?? store.tabs.first)?.terminal.attachedPlatformView {
+        if let keys = UserDefaults.standard.string(forKey: "snapshotKeys") {
             SettingsSnapshot.keepWindowsOffScreen()
             window.identifier = NSUserInterfaceItemIdentifier("main-snapshot")
             let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
             let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
-            window.makeFirstResponder(view)
+            window.makeFirstResponder(store.focusedTerminal?.attachedPlatformView ?? window.contentView)
+            let state = {
+                let focused = store.tabs.firstIndex { $0.terminal.attachedPlatformView === window.firstResponder }.map { "#\($0)" } ?? window.firstResponder.map { "\(type(of: $0))" } ?? "nil"
+                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent })"
+            }
+            print("start: \(state())")
             print("key window is snapshot: \(NSApp.keyWindow === window), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             let observer = NotificationCenter.default.addObserver(forName: NSMenu.willSendActionNotification, object: nil, queue: nil) { note in
                 print("  menu action: \((note.userInfo?["MenuItem"] as? NSMenuItem)?.title ?? "?")")
@@ -282,6 +264,13 @@ enum Snapshot {
             let keyCodes: [String: UInt16] = ["a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "9": 25, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27]
             let flagNames: [String: NSEvent.ModifierFlags] = ["cmd": .command, "shift": .shift, "alt": .option, "ctrl": .control]
             for spec in keys.split(separator: " ").map(String.init) {
+                if spec == "exit" {
+                    _ = store.focusedTerminal?.paste(text: "exit")
+                    _ = store.focusedTerminal?.sendKey(.enter)
+                    try? await Task.sleep(for: .seconds(2))
+                    print("exit (typed into the selected terminal):\n  \(state())")
+                    continue
+                }
                 let parts = spec.split(separator: "+").map(String.init)
                 guard let key = parts.last, let keyCode = keyCodes[key] else { continue }
                 let flags = NSEvent.ModifierFlags(parts.dropLast().compactMap { flagNames[$0] })
@@ -292,10 +281,10 @@ enum Snapshot {
                 NSApp.sendEvent(event)
                 try? await Task.sleep(for: .milliseconds(400))
                 let others = NSApp.windows.filter { $0 !== window && $0.isVisible }
-                print("  launcher \(String(describing: store.launcherMode)), panel \(store.isPanelOpen), shells \(store.shells.count), shell \(store.shells.firstIndex { $0.id == store.selectedShellID } ?? -1), grouping \(store.groupingMode), windows \(others.map { $0.identifier?.rawValue ?? $0.title }), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+                print("  launcher \(String(describing: store.launcherMode)), \(state()), grouping \(store.groupingMode), windows \(others.map { $0.identifier?.rawValue ?? $0.title })")
                 others.forEach { $0.close() }
                 store.launcherMode = nil
-                window.makeFirstResponder(view)
+                try? await Task.sleep(for: .milliseconds(100))
             }
             NotificationCenter.default.removeObserver(observer)
         }
@@ -336,7 +325,7 @@ enum Snapshot {
             }
         }
         print("shell starts: \((try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0)")
-        for tab in store.tabs + store.shells { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-") pwd=\(tab.terminal.workingDirectory ?? "-") title=\(tab.terminal.title)") }
+        for tab in store.tabs { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-") pwd=\(tab.terminal.workingDirectory ?? "-") title=\(tab.terminal.title)") }
         guard !NSScreen.screens.contains(where: { $0.frame.intersects(window.frame) }) else { fail("window is on screen") }
         guard let image = image(of: window) else { fail("window capture failed: number \(window.windowNumber) visible \(window.isVisible) frame \(window.frame)") }
         guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
@@ -356,17 +345,12 @@ enum Snapshot {
         for file in files { FileManager.default.createFile(atPath: file.path, contents: Data()) }
         let names = ["tab-1", "tab-2", "shell-1", "shell-2"]
         for name in names { store.openShell(cwd: folder.path, command: "/bin/sh -c 'stty -echo; cat > \(folder.path)/\(name)'") }
-        store.tabs = store.shells.prefix(2).map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: nil, terminal: $0.terminal) }
-        store.shells.removeFirst(2)
-        store.selectedTabID = store.tabs.first?.id
-        store.selectedShellID = store.shells.first?.id
+        store.tabs = store.tabs.enumerated().map { $0 < 2 ? Tab(id: $1.id, kind: .claude, cwd: $1.cwd, sessionID: nil, terminal: $1.terminal) : $1 }
         try? await Task.sleep(for: .seconds(2))
-        let terminals = (store.tabs + store.shells).map(\.terminal)
+        let terminals = store.tabs.map(\.terminal)
         for index in [0, 2, 1] {
-            if index == 1 {
-                store.selectedTabID = store.tabs.last?.id
-                try? await Task.sleep(for: .seconds(1))
-            }
+            store.selectedTabID = store.tabs[index].id
+            try? await Task.sleep(for: .seconds(1))
             let label = "\(names[index]) selected"
             guard let view = terminals[index].attachedPlatformView, let frameView = window.contentView?.superview else { continue }
             for (kind, files) in [("files", files), ("group", [])] {

@@ -2,11 +2,11 @@ import BerthCore
 import SwiftUI
 
 enum AppAction: Hashable {
-    case commandPalette, newSession, searchSessions, newTerminal, toggleTerminalPanel, clearTerminal, archiveCurrentSession
+    case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, clearTerminal, archiveCurrentSession
     case groupBy(GroupingMode)
     case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, settings, checkForUpdates
 
-    static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .toggleTerminalPanel, .clearTerminal, .archiveCurrentSession]
+    static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .clearTerminal, .archiveCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
         + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .settings, .checkForUpdates]
     static let routedPastTerminal = ([.commandPalette] + palette).filter { $0.shortcut != nil }
@@ -17,7 +17,7 @@ enum AppAction: Hashable {
         case .newSession: "New Session…"
         case .searchSessions: "Search Sessions…"
         case .newTerminal: "New Terminal"
-        case .toggleTerminalPanel: "Toggle Terminal Panel"
+        case .switchTerminal: "Switch Terminal / Claude"
         case .clearTerminal: "Clear Terminal"
         case .archiveCurrentSession: "Archive Current Session"
         case let .groupBy(mode): "Group By \(mode.title)"
@@ -36,7 +36,7 @@ enum AppAction: Hashable {
         case .newSession: "claude start folder"
         case .searchSessions: "find transcripts"
         case .newTerminal: "shell tab"
-        case .toggleTerminalPanel: "show hide shell"
+        case .switchTerminal: "shell toggle jump"
         case .clearTerminal: "screen scrollback"
         case .groupBy: "sidebar"
         case .showStats: "usage tokens charts activity"
@@ -53,7 +53,7 @@ enum AppAction: Hashable {
         case .newSession: "plus.bubble"
         case .searchSessions: "magnifyingglass"
         case .newTerminal: "plus.rectangle"
-        case .toggleTerminalPanel: "apple.terminal"
+        case .switchTerminal: "apple.terminal"
         case .clearTerminal: "eraser"
         case .archiveCurrentSession: "archivebox"
         case .groupBy: "square.grid.3x1.below.line.grid.1x2"
@@ -73,7 +73,7 @@ enum AppAction: Hashable {
         case .newSession: KeyboardShortcut("n")
         case .searchSessions: KeyboardShortcut("f", modifiers: [.command, .shift])
         case .newTerminal: KeyboardShortcut("t")
-        case .toggleTerminalPanel: KeyboardShortcut("j")
+        case .switchTerminal: KeyboardShortcut("j")
         case .clearTerminal: KeyboardShortcut("k", modifiers: [.command, .option])
         case let .groupBy(mode): KeyboardShortcut(KeyEquivalent(Character("\((GroupingMode.allCases.firstIndex(of: mode) ?? 0) + 1)")), modifiers: [.control, .command])
         case .showStats: KeyboardShortcut("s", modifiers: [.command, .shift])
@@ -96,8 +96,8 @@ enum AppAction: Hashable {
         case .commandPalette: store.launcherMode = store.launcherMode == .palette ? nil : .palette
         case .newSession: store.launcherMode = .newSession
         case .searchSessions: store.launcherMode = .search
-        case .newTerminal: store.openShell(cwd: store.currentCwd)
-        case .toggleTerminalPanel: store.toggleTerminalPanel()
+        case .newTerminal: store.newTerminal()
+        case .switchTerminal: store.switchTerminal()
         case .clearTerminal: store.focusedTerminal?.performBindingAction("clear_screen")
         case .archiveCurrentSession: if case let .session(id) = store.selection { store.archive(id) }
         case let .groupBy(mode): store.groupingMode = mode

@@ -9,8 +9,6 @@ enum SidebarPosition: String {
 
 struct ContentView: View {
     @Environment(Store.self) private var store
-    @AppStorage("terminalPanelPosition") private var panelPosition = PanelPosition.bottom
-    @AppStorage("terminalPanelWidth") private var panelWidth = 420.0
     @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage("trailingSidebarWidth") private var trailingSidebarWidth = 300.0
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
@@ -22,7 +20,6 @@ struct ContentView: View {
         @Bindable var store = store
         let selected = store.tabs.first { $0.id == store.selectedTabID }
         let isTrailing = sidebarPosition == .right
-        let isPanelInspectorShown = !isTrailing && panelPosition == .side && store.isPanelOpen && !store.shells.isEmpty
         NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? .detailOnly : columnVisibility }, set: { if !isTrailing { columnVisibility = $0 } })) {
             if isTrailing {
                 Color.clear
@@ -35,66 +32,50 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
-            GeometryReader { geometry in
-                HStack(spacing: 0) {
-                    if isTrailing && panelPosition == .side {
-                        TerminalPanel(available: geometry.size, edge: .leading)
-                    }
-                    VStack(spacing: 0) {
-                        sessions
-                            .overlay {
-                                if let mode = store.launcherMode {
-                                    ZStack(alignment: .top) {
-                                        Color.clear
-                                            .contentShape(.rect)
-                                            .onTapGesture { store.launcherMode = nil }
-                                        Launcher(mode: mode)
-                                            .id(mode)
-                                            .padding(.top, 120)
-                                    }
-                                }
-                            }
-                            .overlay(alignment: .top) {
-                                if let restart = store.updater.pendingRestart {
-                                    RestartBanner(version: restart.version, deadline: restart.deadline)
-                                        .transition(.move(edge: .top).combined(with: .opacity))
-                                }
-                            }
-                            .animation(.default, value: store.updater.pendingRestart?.deadline)
-                        if panelPosition == .bottom {
-                            TerminalPanel(available: geometry.size, edge: .bottom)
+            sessions
+                .overlay {
+                    if let mode = store.launcherMode {
+                        ZStack(alignment: .top) {
+                            Color.clear
+                                .contentShape(.rect)
+                                .onTapGesture { store.launcherMode = nil }
+                            Launcher(mode: mode)
+                                .id(mode)
+                                .padding(.top, 120)
                         }
                     }
                 }
+                .overlay(alignment: .top) {
+                    if let restart = store.updater.pendingRestart {
+                        RestartBanner(version: restart.version, deadline: restart.deadline)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .animation(.default, value: store.updater.pendingRestart?.deadline)
+            .inspector(isPresented: Binding(get: { isTrailing && showsTrailingSidebar }, set: { if isTrailing { showsTrailingSidebar = $0 } })) {
+                Sidebar()
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
+                    .background(store.theme.background ?? .clear)
+                    .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
+                    .background(ScrollPocketSeparatorRemover())
+                    .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs && $0 >= 220 { trailingSidebarWidth = $0 } }
+                    .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
             }
-            .inspector(isPresented: Binding(get: { isTrailing ? showsTrailingSidebar : isPanelInspectorShown }, set: { if isTrailing { showsTrailingSidebar = $0 } else { store.isPanelOpen = $0 } })) {
-                if isTrailing {
-                    Sidebar()
-                        .listStyle(.sidebar)
-                        .scrollContentBackground(.hidden)
-                        .background(store.theme.background ?? .clear)
-                        .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
-                        .background(ScrollPocketSeparatorRemover())
-                        .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs && $0 >= 220 { trailingSidebarWidth = $0 } }
-                        .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
+            .background(store.theme.background ?? .clear)
+            .background {
+                if let selected, !store.isHarborShown {
+                    TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
                 } else {
-                    PanelBody(isShown: true)
-                        .background(store.theme.background ?? .clear)
-                        .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
-                        .onGeometryChange(for: Double.self) { $0.size.width } action: { panelWidth = $0 }
-                        .inspectorColumnWidth(min: 240, ideal: panelWidth, max: 900)
+                    Color.clear.navigationTitle(store.isHarborShown ? "Harbor" : "Berth")
                 }
             }
-            .transaction(value: isPanelInspectorShown) { $0.disablesAnimations = true }
-            .background(store.theme.background ?? .clear)
-            .navigationTitle(store.isHarborShown ? "Harbor" : selected.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth")
-            .navigationSubtitle(store.isHarborShown ? "" : selected.map { ($0.cwd as NSString).abbreviatingWithTildeInPath } ?? "")
             .toolbar {
                 ToolbarItem(placement: isTrailing ? .navigation : .automatic) {
-                    Button(store.isPanelOpen ? "Hide Terminal Panel" : "Show Terminal Panel", systemImage: "apple.terminal") {
-                        store.toggleTerminalPanel()
+                    Button(AppAction.switchTerminal.title, systemImage: AppAction.switchTerminal.symbol) {
+                        AppAction.switchTerminal.perform(on: store)
                     }
-                    .help("Terminal panel (⌘J)")
+                    .help("Switch between terminal and Claude (⌘J)")
                 }
                 if isTrailing {
                     ToolbarItem {
@@ -152,6 +133,18 @@ extension ContentView {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct TabTitle: View {
+    let tab: Tab
+    @ObservedObject var terminal: TerminalViewState
+    let sessionTitle: String?
+
+    var body: some View {
+        Color.clear
+            .navigationTitle(tab.title(terminalTitle: terminal.title, sessionTitle: sessionTitle))
+            .navigationSubtitle((tab.folder as NSString).abbreviatingWithTildeInPath)
     }
 }
 
