@@ -3,6 +3,7 @@ import Foundation
 public struct LiveSession: Sendable, Hashable, Decodable {
     public enum Activity: Sendable, Hashable {
         case working
+        case shell
         case needsInput(String?)
         case idle
     }
@@ -19,6 +20,7 @@ public struct LiveSession: Sendable, Hashable, Decodable {
 
     public var activity: Activity {
         if status == "busy" { return .working }
+        if status == "shell" { return .shell }
         if status == "waiting" { return .needsInput(waitingFor) }
         return .idle
     }

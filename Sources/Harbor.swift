@@ -147,7 +147,7 @@ struct Harbor: View {
             group.1.prefix(perPier).enumerated().map { index, session in
                 let live = store.liveBySession[session.id]
                 let mooring: Mooring = switch live?.activity {
-                case .working: .working
+                case .working, .shell: .working
                 case let .needsInput(reason): .needsYou(reason)
                 default: .idle
                 }
