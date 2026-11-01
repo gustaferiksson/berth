@@ -519,3 +519,56 @@ struct CommandPaletteTests {
         #expect(CommandPalette.rank("", items: actions, limit: 12).count == 13)
     }
 }
+
+struct IdleTabsTests {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let hour: TimeInterval = 3600
+
+    func live(_ id: String, _ status: String = "idle", updated: TimeInterval = 5 * 3600, kind: String? = nil) -> LiveSession {
+        LiveSession(pid: 1, sessionId: id, cwd: "/Users/example/Repos/alpha", kind: kind, jobId: kind == "bg" ? "job-1" : nil, status: status, waitingFor: nil, statusUpdatedAt: (now.timeIntervalSince1970 - updated) * 1000, startedAt: nil)
+    }
+
+    func unloadable(_ live: LiveSession, touched: TimeInterval = 5 * 3600, lastActivity: TimeInterval = 5 * 3600, pinned: Set<String> = [], selected: Int? = nil, threshold: TimeInterval = 4 * 3600) -> Bool {
+        !IdleTabs.unloadable([(id: 1, sessionID: live.sessionId, touched: now - touched)], live: [live.sessionId: live], lastActivity: [live.sessionId: now - lastActivity], pinned: pinned, selected: selected, now: now, threshold: threshold).isEmpty
+    }
+
+    @Test func unloadsAnIdleTabUntouchedPastTheThreshold() {
+        #expect(unloadable(live("a")))
+    }
+
+    @Test func neverUnloadsWhenTheSettingIsNever() {
+        #expect(!unloadable(live("a"), threshold: 0))
+    }
+
+    @Test func keepsTabsThatAreNotIdle() {
+        for status in ["busy", "waiting", "shell"] { #expect(!unloadable(live("a", status))) }
+    }
+
+    @Test func keepsDeadTabsWithoutALiveSession() {
+        #expect(IdleTabs.unloadable([(id: 1, sessionID: "a", touched: now - 5 * hour)], live: [:], lastActivity: [:], pinned: [], selected: nil, now: now, threshold: 4 * hour).isEmpty)
+    }
+
+    @Test func keepsAttachedBackgroundSessions() {
+        #expect(!unloadable(live("a", kind: "bg")))
+    }
+
+    @Test func keepsTheSelectedTab() {
+        #expect(!unloadable(live("a"), selected: 1))
+    }
+
+    @Test func keepsPinnedSessions() {
+        #expect(!unloadable(live("a"), pinned: ["a"]))
+    }
+
+    @Test func keepsRecentlyTouchedTabs() {
+        #expect(!unloadable(live("a"), touched: 3 * hour))
+    }
+
+    @Test func keepsSessionsWithRecentConversation() {
+        #expect(!unloadable(live("a"), lastActivity: 3 * hour))
+    }
+
+    @Test func keepsSessionsRecentlyBusyOrWaiting() {
+        #expect(!unloadable(live("a", updated: 3 * hour)))
+    }
+}

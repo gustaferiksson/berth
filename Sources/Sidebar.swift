@@ -187,7 +187,7 @@ struct Sidebar: View {
                 TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
                     .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { select(.tab(tab.id)) })
                     .id(SidebarItem.tab(tab.id))
-                    .contextMenu { Button("Close Tab") { store.close(tab.id) } }
+                    .contextMenu { Button("Unload Session") { store.close(tab.id) } }
             }
             ForEach(group.sessions) { session in
                 sessionRow(session, projectName: group.source.folder == session.cwd ? nil : URL(filePath: session.cwd).lastPathComponent, selection: selection)
@@ -302,7 +302,7 @@ struct Sidebar: View {
 
     @ViewBuilder
     private func sessionMenu(_ session: SessionSummary) -> some View {
-        if let tab = store.tab(forSession: session.id) { Button("Close Tab") { store.close(tab.id) } }
+        if let tab = store.tab(forSession: session.id) { Button("Unload Session") { store.close(tab.id) } }
         if store.pinnedSessions.contains(where: { $0.id == session.id }) {
             Button("Unpin") { store.unpin(session.id) }
         } else {

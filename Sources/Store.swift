@@ -47,7 +47,9 @@ final class Store {
     var tabs: [Tab] = [] {
         didSet { saveOpenTabs() }
     }
-    var selectedTabID: Tab.ID?
+    var selectedTabID: Tab.ID? {
+        didSet { if let oldValue { tabTouches[oldValue] = .now } }
+    }
     var shells: [Tab] = [] {
         didSet { saveOpenTabs() }
     }
@@ -138,8 +140,10 @@ final class Store {
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var waitingSessionIDs: Set<String>?
     @ObservationIgnored private var launcherOrigin: LauncherOrigin?
+    @ObservationIgnored private var tabTouches: [Tab.ID: Date] = [:]
     #if DEBUG
     @ObservationIgnored var fakeWaiting: Bool?
+    @ObservationIgnored var fakeLiveSessions: [LiveSession] = []
     #endif
 
     func start(restoringTabs: Bool) {
@@ -159,6 +163,7 @@ final class Store {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(300))
                 self?.refreshPullRequests()
+                self?.unloadIdleTabs()
             }
         }
         refresh()
@@ -286,11 +291,21 @@ final class Store {
         NeedsYouAlerts.update(entered: needsYou.entered, needsYouCount: needsYou.needsYou.count, store: self)
     }
 
+    func unloadIdleTabs() {
+        refreshLive()
+        let threshold = UserDefaults.standard.object(forKey: GeneralSettings.unloadIdleKey) == nil ? 14_400 : UserDefaults.standard.double(forKey: GeneralSettings.unloadIdleKey)
+        let candidates = tabs.filter { $0.kind == .claude }.compactMap { tab in tab.sessionID.map { (id: tab.id, sessionID: $0, touched: max(tab.opened, tabTouches[tab.id] ?? .distantPast)) } }
+        let lastActivity = Dictionary(activeSessions.map { ($0.id, $0.lastActivity) }) { first, _ in first }
+        for id in IdleTabs.unloadable(candidates, live: liveBySession, lastActivity: lastActivity, pinned: Set(pinnedIDs), selected: selectedTabID, now: .now, threshold: threshold) {
+            close(id)
+        }
+    }
+
     private var fakeLive: [LiveSession] {
         #if DEBUG
         let statuses = fakeWaiting.map { [$0 ? #""status":"waiting","waitingFor":"permission""# : #""status":"busy""#] }
             ?? (UserDefaults.standard.bool(forKey: "snapshotFakeStatus") ? [#""status":"waiting","waitingFor":"permission""#, #""status":"busy""#] : [])
-        return zip(groups.first { !$0.sessions.isEmpty }?.sessions ?? [], statuses).compactMap { session, status in
+        return fakeLiveSessions + zip(groups.first { !$0.sessions.isEmpty }?.sessions ?? [], statuses).compactMap { session, status in
             let json = #"{"pid":1,"sessionId":"\#(session.id)","cwd":"\#(session.cwd)",\#(status)}"#
             return try? JSONDecoder().decode(LiveSession.self, from: Data(json.utf8))
         }

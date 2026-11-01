@@ -143,6 +143,35 @@ enum Snapshot {
             store.isPanelOpen = false
             store.isHarborShown = true
         }
+        if UserDefaults.standard.bool(forKey: "snapshotUnloadIdle") {
+            let labels = ["idle", "touched", "selected", "pinned", "busy", "waiting", "attach", "dead"]
+            let pinned = store.activeSessions.min { $0.lastActivity < $1.lastActivity }?.id ?? "probe-pinned"
+            let ids = labels.map { $0 == "pinned" ? pinned : "probe-\($0)" }
+            store.pin(pinned)
+            let longAgo = Int((Date.now.timeIntervalSince1970 - 3600) * 1000)
+            store.fakeLiveSessions = zip(labels, ids).filter { $0.0 != "dead" }.compactMap { label, id in
+                let status = ["busy", "waiting"].contains(label) ? label : "idle"
+                let attach = label == "attach" ? #","kind":"bg","jobId":"job-1""# : ""
+                let json = #"{"pid":1,"sessionId":"\#(id)","cwd":"/","status":"\#(status)","statusUpdatedAt":\#(longAgo)\#(attach)}"#
+                return try? JSONDecoder().decode(LiveSession.self, from: Data(json.utf8))
+            }
+            for _ in labels { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
+            store.tabs = zip(store.shells, ids).map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: $1, terminal: $0.terminal) }
+            store.shells = []
+            store.isPanelOpen = false
+            store.selectedTabID = store.tabs[2].id
+            let label: (Tab) -> String = { labels[ids.firstIndex(of: $0.sessionID ?? "") ?? 0] }
+            print("unload threshold \(UserDefaults.standard.double(forKey: GeneralSettings.unloadIdleKey)) s, pinned still pinned: \(store.pinnedSessions.contains { $0.id == pinned })")
+            store.unloadIdleTabs()
+            print("right after opening, kept: \(store.tabs.map(label))")
+            try? await Task.sleep(for: .seconds(3))
+            store.selectedTabID = store.tabs[1].id
+            store.selectedTabID = store.tabs[2].id
+            let before = store.tabs.map(label)
+            store.unloadIdleTabs()
+            let kept = store.tabs.map(label)
+            print("after 3 s, unloaded: \(before.filter { !kept.contains($0) }), kept: \(kept), selected: \(store.tabs.first { $0.id == store.selectedTabID }.map(label) ?? "-")")
+        }
         if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
             store.activate(.session(sessionID))
         }
