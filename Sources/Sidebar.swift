@@ -8,7 +8,7 @@ struct Sidebar: View {
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedGroups") private var collapsedGroups = ""
     @AppStorage("archivedExpanded") private var isArchiveExpanded = false
-    @State private var expandedGroups: Set<String> = []
+    @State private var expandedGroups = Snapshot.expandedGroups
     @State private var cursor: SidebarItem?
     @State private var renaming: CustomGroup?
     @State private var browseRoot: String?
@@ -193,7 +193,7 @@ struct Sidebar: View {
                 sessionRow(session, projectName: group.source.folder == session.cwd ? nil : URL(filePath: session.cwd).lastPathComponent, selection: selection)
                     .contextMenu { sessionMenu(session) }
             }
-            if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && !group.sessions.isEmpty {
+            if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && group.sessions.count > Self.visibleSessions {
                 let isExpanded = expandedGroups.contains(group.id)
                 Button(isExpanded ? "Show Less" : "Show \(group.hiddenSessions) More") {
                     if isExpanded { expandedGroups.remove(group.id) } else { expandedGroups.insert(group.id) }
