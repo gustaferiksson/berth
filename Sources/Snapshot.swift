@@ -75,8 +75,10 @@ enum Snapshot {
 
     #if DEBUG
     static let forcedHover = Set((UserDefaults.standard.string(forKey: "snapshotHover") ?? "").split(separator: "|").map(String.init))
+    static let expandedGroups = Set((UserDefaults.standard.string(forKey: "snapshotExpandedGroups") ?? "").split(separator: "|").map(String.init))
     #else
     static let forcedHover: Set<String> = []
+    static let expandedGroups: Set<String> = []
     #endif
 
     static func capture(to output: URL, store: Store) async {
