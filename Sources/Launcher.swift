@@ -227,10 +227,10 @@ struct Launcher: View {
     private var paletteRows: [PaletteRow] {
         let openTabs = store.sidebarOrderedTabs.map { tab in
             PaletteRow(
-                item: PaletteItem(id: tab.id.uuidString, section: .openTab, title: tab.title(terminalTitle: tab.terminal.title, sessionTitle: store.sessionTitle(of: tab)), detail: tab.cwd),
+                item: PaletteItem(id: tab.id.uuidString, section: .openTab, title: tab.title(terminalTitle: tab.terminal.title, sessionTitle: store.sessionTitle(of: tab)), detail: tab.folder),
                 target: .item(.tab(tab.id)),
                 symbol: tab.id == store.selectedTabID ? "checkmark" : "terminal",
-                trailing: URL(filePath: tab.cwd).lastPathComponent
+                trailing: URL(filePath: tab.folder).lastPathComponent
             )
         }
         let actions = AppAction.palette.filter { $0.isAvailable(in: store) }.map { action in

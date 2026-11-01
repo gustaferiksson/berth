@@ -485,7 +485,7 @@ struct CommandPaletteTests {
         PaletteItem(id: "recent", section: .recentSession, title: "Settings migration", detail: "/r/alpha"),
         PaletteItem(id: "settings", section: .action, title: "Settings…", detail: "preferences"),
         PaletteItem(id: "tab", section: .openTab, title: "Fix login", detail: "/r/beta"),
-        PaletteItem(id: "panel", section: .action, title: "Toggle Terminal Panel", detail: "show hide shell"),
+        PaletteItem(id: "switch", section: .action, title: "Switch Terminal / Claude", detail: "shell toggle jump"),
         PaletteItem(id: "tab2", section: .openTab, title: "Set up CI", detail: "/r/gamma"),
     ]
 
@@ -494,18 +494,18 @@ struct CommandPaletteTests {
     }
 
     @Test func emptyQueryListsOpenTabsThenActionsWithoutRecents() {
-        #expect(ranked("") == ["tab", "tab2", "settings", "panel"])
+        #expect(ranked("") == ["tab", "tab2", "settings", "switch"])
         #expect(ranked("  ") == ranked(""))
     }
 
     @Test func typingMixesSectionsByScore() {
-        #expect(ranked("set") == ["tab2", "settings", "recent"])
-        #expect(ranked("tog") == ["panel"])
-        #expect(ranked("ttp") == ["panel"])
+        #expect(ranked("set") == ["tab2", "settings", "recent", "switch"])
+        #expect(ranked("tog") == ["switch"])
+        #expect(ranked("swi") == ["switch"])
     }
 
     @Test func detailMatchesRankBelowTitleMatches() {
-        #expect(ranked("shell") == ["panel"])
+        #expect(ranked("shell") == ["switch"])
         #expect(ranked("beta") == ["tab"])
         #expect(ranked("prefe") == ["settings"])
         #expect(ranked("zzz").isEmpty)

@@ -3,7 +3,6 @@ import SwiftUI
 struct GeneralSettings: View {
     static let unloadIdleKey = "unloadIdleSessionsAfter"
 
-    @AppStorage("terminalPanelPosition") private var panelPosition = PanelPosition.bottom
     @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
@@ -38,19 +37,8 @@ struct GeneralSettings: View {
             } header: {
                 Text("Sidebar")
             }
-            Section {
-                Picker("Position", selection: $panelPosition) {
-                    Text("Bottom").tag(PanelPosition.bottom)
-                    Text(sidebarPosition == .right ? "Left" : "Right").tag(PanelPosition.side)
-                }
-                .pickerStyle(.segmented)
-            } header: {
-                Text("Terminal Panel")
-            } footer: {
-                Text("⌘J shows or hides the panel. ⌘T opens a new terminal in it.")
-            }
         }
         .formStyle(.grouped)
-        .frame(height: 480)
+        .frame(height: 376)
     }
 }

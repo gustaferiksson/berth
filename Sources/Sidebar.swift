@@ -17,6 +17,7 @@ struct Sidebar: View {
     private static let visibleSessions = 5
     static let collapsedByDefault: Set = ["recent:older"]
     private static let pinnedID = "pinned"
+    static let terminalsID = "terminals"
 
     private struct Group {
         let source: SessionGroup
@@ -65,7 +66,8 @@ struct Sidebar: View {
     }
 
     private var items: [SidebarItem] {
-        (isCollapsed(Self.pinnedID) ? [] : store.pinnedSessions).map { SidebarItem.session($0.id) }
+        (isCollapsed(Self.terminalsID) ? [] : store.terminals).map { SidebarItem.tab($0.id) }
+            + (isCollapsed(Self.pinnedID) ? [] : store.pinnedSessions).map { SidebarItem.session($0.id) }
             + groups.flatMap { $0.tabs.map { SidebarItem.tab($0.id) } + $0.sessions.map { SidebarItem.session($0.id) } }
             + (isArchiveExpanded ? store.archivedSessions : []).map { SidebarItem.session($0.id) }
     }
@@ -76,6 +78,9 @@ struct Sidebar: View {
         let archived = isArchiveExpanded ? store.archivedSessions : []
         let pinned = isCollapsed(Self.pinnedID) ? [] : store.pinnedSessions
         return List {
+            if !store.terminals.isEmpty {
+                terminalsSection(selection: selection)
+            }
             if !store.pinnedSessions.isEmpty {
                 Section {
                     ForEach(Array(pinned.enumerated()), id: \.element.id) { index, session in
@@ -154,6 +159,10 @@ struct Sidebar: View {
     }
 
     private func setExpanded(_ expanded: Bool, around item: SidebarItem?, in groups: [Group]) -> KeyPress.Result {
+        if store.terminals.contains(where: { .tab($0.id) == item }) {
+            expansion(of: Self.terminalsID).wrappedValue = expanded
+            return .handled
+        }
         if case let .session(id) = item, store.pinnedSessions.contains(where: { $0.id == id }) {
             expansion(of: Self.pinnedID).wrappedValue = expanded
             return .handled
@@ -179,6 +188,24 @@ struct Sidebar: View {
     private func movePin(_ id: String, onto index: Int) -> Bool {
         withAnimation(.snappy) { store.movePin(id, onto: index) }
         return true
+    }
+
+    private func terminalsSection(selection: SidebarItem?) -> some View {
+        Section {
+            ForEach(isCollapsed(Self.terminalsID) ? [] : store.terminals) { tab in
+                TabRow(tab: tab, live: nil, terminal: tab.terminal)
+                    .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { select(.tab(tab.id)) })
+                    .id(SidebarItem.tab(tab.id))
+                    .contextMenu { Button("Close Terminal") { store.close(tab.id) } }
+            }
+        } header: {
+            GroupHeader(title: "Terminals", help: "Terminals", count: store.terminals.count, isExpanded: expansion(of: Self.terminalsID), menu: { EmptyView() }) { isHovering in
+                Button("New Terminal", systemImage: "plus") { store.newTerminal() }
+                    .help("New terminal (⌘T)")
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
+            }
+        }
     }
 
     private func section(_ group: Group, at index: Int, in groups: [Group], selection: SidebarItem?) -> some View {
@@ -647,11 +674,16 @@ private struct TabRow: View {
 
     var body: some View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
-        Group {
-            if tab.kind == .claude {
-                CardRow(title: title, state: RowState(live: live), isLocked: false, isLoaded: true, modified: nil) {
-                    Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary)
-                }
+        if tab.kind == .claude {
+            CardRow(title: title, state: RowState(live: live), isLocked: false, isLoaded: true, modified: nil) {
+                Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary)
+            }
+        } else {
+            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, isLoaded: true, modified: nil) {
+                Text((tab.folder as NSString).abbreviatingWithTildeInPath)
+                    .font(.caption)
+                    .foregroundStyle(theme.secondary)
+                    .truncationMode(.middle)
             }
         }
     }
