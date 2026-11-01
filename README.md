@@ -19,8 +19,8 @@ Or download `Berth-<version>.zip` from [Releases](https://github.com/gustaferiks
 | ⌘N | New session in a folder (⌘O in the launcher browses for one) |
 | ⌘K | Command palette |
 | ⇧⌘F | Search every session's prompts and replies |
-| ⌘T | New terminal in the panel |
-| ⌘J | Show or hide the terminal panel |
+| ⌘T | New terminal in the sidebar's Terminals group |
+| ⌘J | Switch between the last terminal and the last Claude session |
 | ⌥⌘K | Clear the terminal |
 | ⇧⌘S | Stats |
 | ⌃⌘1 / ⌃⌘2 / ⌃⌘3 | Group by project, repository or recent |
