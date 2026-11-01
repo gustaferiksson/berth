@@ -30,7 +30,7 @@ public struct TranscriptIndex: Sendable {
                 return
             }
             let known = entries[file.path].flatMap { entry in entry.summary.map { (size: entry.size, lastPrompt: $0.lastPrompt) } }
-            result[file.path] = Entry(modified: modified, size: size, summary: Transcript.summary(of: file, after: known))
+            result[file.path] = Entry(modified: modified, size: size, summary: Transcript.summary(of: file, after: known) ?? entries[file.path]?.summary)
         }
         entries = next
         return next.values.compactMap(\.summary)
