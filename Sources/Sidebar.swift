@@ -718,7 +718,7 @@ private struct CardRow<Detail: View>: View {
                         .font(.caption.weight(isLoaded ? .medium : .regular))
                         .monospacedDigit()
                         .fixedSize()
-                        .foregroundStyle(isLoaded ? theme.working : theme.secondary)
+                        .foregroundStyle(isLoaded ? theme.foreground : theme.secondary)
                         .padding(.leading, state == .shell ? 10 : 0)
                         .overlay(alignment: .leading) {
                             if state == .shell {
