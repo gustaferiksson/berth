@@ -719,6 +719,16 @@ private struct CardRow<Detail: View>: View {
                         .monospacedDigit()
                         .fixedSize()
                         .foregroundStyle(isLoaded ? theme.working : theme.secondary)
+                        .padding(.leading, state == .shell ? 10 : 0)
+                        .overlay(alignment: .leading) {
+                            if state == .shell {
+                                Circle()
+                                    .fill(theme.shellAttached)
+                                    .frame(width: 6, height: 6)
+                                    .help("Shell attached")
+                                    .accessibilityLabel("Shell attached")
+                            }
+                        }
                 }
             }
             ZStack(alignment: .leading) {
@@ -745,9 +755,7 @@ private struct StatusSlot: View {
     var body: some View {
         ZStack {
             if state == .working {
-                WorkingDots(label: "Working", color: theme.working)
-            } else if state == .shell {
-                WorkingDots(label: "Running a shell command", color: theme.merged)
+                WorkingDots(label: "Working")
             } else if case let .needsYou(reason) = state {
                 Circle()
                     .fill(theme.needsYou)
