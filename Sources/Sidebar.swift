@@ -621,6 +621,7 @@ private struct SessionRow: View {
             isLocked: isLocked,
             isLoaded: isOpen,
             modified: session.lastPrompt,
+            lastActivity: session.lastActivity,
             detail: {
                 if session.pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {
@@ -703,6 +704,7 @@ private struct CardRow<Detail: View>: View {
     let isLocked: Bool
     let isLoaded: Bool
     let modified: Date?
+    var lastActivity: Date?
     @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
 
@@ -719,7 +721,7 @@ private struct CardRow<Detail: View>: View {
                         .monospacedDigit()
                         .fixedSize()
                         .foregroundStyle(theme.secondary)
-                        .padding(.leading, state == .shell || isLoaded ? 10 : 0)
+                        .padding(.leading, state == .shell || isLoaded && lastActivity != nil ? 10 : 0)
                         .overlay(alignment: .leading) {
                             if state == .shell {
                                 Circle()
@@ -727,12 +729,17 @@ private struct CardRow<Detail: View>: View {
                                     .frame(width: 6, height: 6)
                                     .help("Shell attached")
                                     .accessibilityLabel("Shell attached")
-                            } else if isLoaded {
-                                Circle()
-                                    .strokeBorder(theme.secondary, lineWidth: 1.25)
-                                    .frame(width: 6, height: 6)
-                                    .help("Open in Berth")
-                                    .accessibilityLabel("Open in Berth")
+                            } else if isLoaded, let lastActivity {
+                                let inactiveFrom = lastActivity.addingTimeInterval(15 * 60)
+                                TimelineView(.explicit([inactiveFrom])) { _ in
+                                    let isActive = state == .working || Date.now < inactiveFrom
+                                    Circle()
+                                        .strokeBorder(theme.working, lineWidth: 1.25)
+                                        .background(Circle().fill(isActive ? theme.working : .clear))
+                                        .frame(width: 6, height: 6)
+                                        .help(isActive ? "Active" : "Inactive for 15 minutes")
+                                        .accessibilityLabel(isActive ? "Active" : "Inactive")
+                                }
                             }
                         }
                 }
