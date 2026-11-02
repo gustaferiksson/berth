@@ -687,7 +687,7 @@ private struct TabRow: View {
                 Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary)
             }
         } else {
-            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, isLoaded: true, modified: nil) {
+            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, isLoaded: false, modified: nil) {
                 Text((tab.folder as NSString).abbreviatingWithTildeInPath)
                     .font(.caption)
                     .foregroundStyle(theme.secondary)
@@ -715,10 +715,10 @@ private struct CardRow<Detail: View>: View {
                 Spacer(minLength: 0)
                 if let modified {
                     Text(age(since: modified))
-                        .font(.caption.weight(isLoaded ? .medium : .regular))
+                        .font(.caption)
                         .monospacedDigit()
                         .fixedSize()
-                        .foregroundStyle(isLoaded ? theme.foreground : theme.secondary)
+                        .foregroundStyle(theme.secondary)
                         .padding(.leading, state == .shell ? 10 : 0)
                         .overlay(alignment: .leading) {
                             if state == .shell {
@@ -743,13 +743,14 @@ private struct CardRow<Detail: View>: View {
         .padding(.trailing, -8)
         .padding(.vertical, 8)
         .overlay(alignment: .topLeading) {
-            StatusSlot(state: state).offset(x: -8, y: 8)
+            StatusSlot(state: state, isLoaded: isLoaded).offset(x: -8, y: 8)
         }
     }
 }
 
 private struct StatusSlot: View {
     let state: RowState?
+    let isLoaded: Bool
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -762,6 +763,12 @@ private struct StatusSlot: View {
                     .frame(width: 8, height: 8)
                     .help("Needs you\(reason.map { ": \($0)" } ?? "")")
                     .accessibilityLabel("Needs you")
+            } else if isLoaded {
+                Circle()
+                    .strokeBorder(theme.secondary, lineWidth: 1.25)
+                    .frame(width: 7, height: 7)
+                    .help("Open in Berth")
+                    .accessibilityLabel("Open in Berth")
             }
         }
         .frame(width: 8, height: 16)
