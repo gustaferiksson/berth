@@ -3,7 +3,7 @@ import GhosttyTerminal
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct Sidebar: View {
+struct Sidebar: View, Equatable {
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedGroups") private var collapsedGroups = ""
@@ -27,6 +27,9 @@ struct Sidebar: View {
         let hiddenSessions: Int
         var id: String { source.id }
     }
+
+    // Its property wrappers never compare equal, so SwiftUI would re-render it on every ContentView update.
+    static func == (_: Self, _: Self) -> Bool { true }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -340,14 +343,17 @@ struct Sidebar: View {
 
     private func sessionRow(_ session: SessionSummary, projectName: String?, selection: SidebarItem?) -> some View {
         let tab = store.tab(forSession: session.id)
-        return SessionRow(
-            session: session,
-            projectName: projectName,
-            live: store.liveBySession[session.id],
-            isOpen: tab != nil,
-            pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
-            showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
-        )
+        // A layout container makes the row one static view, so List builds only the visible rows.
+        return HStack(spacing: 0) {
+            SessionRow(
+                session: session,
+                projectName: projectName,
+                live: store.liveBySession[session.id],
+                isOpen: tab != nil,
+                pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
+                showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
+            )
+        }
         .modifier(RowChrome(id: session.title, isSelected: selection == .session(session.id), isLocked: tab == nil && store.liveBySession[session.id].map { $0.attachID == nil } ?? false) {
             select(.session(session.id))
         })

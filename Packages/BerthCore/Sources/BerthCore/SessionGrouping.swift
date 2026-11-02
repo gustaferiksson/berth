@@ -56,7 +56,7 @@ public enum RecentBucket: String, CaseIterable, Sendable {
     }
 }
 
-public struct SessionGroup: Identifiable, Sendable {
+public struct SessionGroup: Identifiable, Sendable, Equatable {
     public enum Kind: Hashable, Sendable {
         case custom(CustomGroup)
         case folder(String)
