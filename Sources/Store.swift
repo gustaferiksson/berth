@@ -314,7 +314,7 @@ final class Store {
     }
 
     var workingSessionCount: Int {
-        tabs.compactMap(\.sessionID).filter { [.working, .shell].contains(liveBySession[$0]?.activity) }.count
+        tabs.compactMap(\.sessionID).filter { liveBySession[$0]?.activity == .working }.count
     }
 
     var isIdle: Bool {
