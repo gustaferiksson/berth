@@ -445,7 +445,7 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
                     .onChange(of: isNameFocused) { if !isNameFocused { commit(renaming) } }
             } else {
                 Button {
-                    withAnimation(.snappy) { isExpanded.toggle() }
+                    isExpanded.toggle()
                 } label: {
                     HStack(spacing: 4) {
                         chevron
@@ -476,6 +476,7 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
         Image(systemName: "chevron.right")
             .font(.system(size: 11, weight: .semibold))
             .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            .animation(.snappy, value: isExpanded)
             .foregroundStyle(theme.secondary)
             .frame(width: 16)
             .padding(.trailing, 4)
