@@ -96,6 +96,7 @@ final class Store {
     private(set) var archivedSessions: [SessionSummary] = []
     private(set) var pinnedSessions: [SessionSummary] = []
     private(set) var liveBySession: [String: LiveSession] = [:]
+    private(set) var backgroundShellIDs: Set<String> = []
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
     private(set) var pullRequestStates = Snapshot.fixturePullRequestStates
@@ -266,6 +267,8 @@ final class Store {
     func refreshLive() {
         let live = fakeLive + LiveSession.load(from: Self.claudeDirectory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
         liveBySession = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
+        // Claude reports `shell` only while idle; a turn shows `busy`, so keep the mark until it reports plain idle.
+        backgroundShellIDs = Set(liveBySession.values.filter { $0.activity == .shell || $0.activity != .idle && backgroundShellIDs.contains($0.sessionId) }.map(\.sessionId))
         let claimed = Set(tabs.compactMap(\.sessionID))
         let orphans = live.filter { !claimed.contains($0.sessionId) && ProcessAncestry.isDescendant($0.pid, of: getpid()) }
         for session in orphans {
