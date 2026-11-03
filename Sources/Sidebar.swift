@@ -350,6 +350,7 @@ struct Sidebar: View, Equatable {
                 projectName: projectName,
                 live: store.liveBySession[session.id],
                 isOpen: tab != nil,
+                hasBackgroundShell: store.backgroundShellIDs.contains(session.id),
                 pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
                 showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
             )
@@ -590,16 +591,14 @@ private struct RowChrome: ViewModifier {
 
 private enum RowState: Equatable {
     case working
-    case shell
     case needsYou(String?)
 
     init?(live: LiveSession?) {
         guard let live else { return nil }
         switch live.activity {
         case .working: self = .working
-        case .shell: self = .shell
         case let .needsInput(reason): self = .needsYou(reason)
-        case .idle: return nil
+        case .idle, .shell: return nil
         }
     }
 }
@@ -609,6 +608,7 @@ private struct SessionRow: View {
     let projectName: String?
     let live: LiveSession?
     let isOpen: Bool
+    let hasBackgroundShell: Bool
     let pullRequestState: PullRequestState?
     @Binding var showsLockedNotice: Bool
     @Environment(\.ghosttyTheme) private var theme
@@ -622,6 +622,7 @@ private struct SessionRow: View {
             isLoaded: isOpen,
             modified: session.lastPrompt,
             lastActivity: session.lastActivity,
+            hasBackgroundShell: hasBackgroundShell,
             detail: {
                 if session.pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {
@@ -705,6 +706,7 @@ private struct CardRow<Detail: View>: View {
     let isLoaded: Bool
     let modified: Date?
     var lastActivity: Date?
+    var hasBackgroundShell = false
     @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
 
@@ -721,14 +723,14 @@ private struct CardRow<Detail: View>: View {
                         .monospacedDigit()
                         .fixedSize()
                         .foregroundStyle(theme.secondary)
-                        .padding(.leading, state == .shell || isLoaded && lastActivity != nil ? 10 : 0)
+                        .padding(.leading, hasBackgroundShell || isLoaded && lastActivity != nil ? 10 : 0)
                         .overlay(alignment: .leading) {
-                            if state == .shell {
+                            if hasBackgroundShell {
                                 Circle()
                                     .fill(theme.shellAttached)
                                     .frame(width: 6, height: 6)
-                                    .help("Shell attached")
-                                    .accessibilityLabel("Shell attached")
+                                    .help("Background shell running")
+                                    .accessibilityLabel("Background shell running")
                             } else if isLoaded, let lastActivity {
                                 let inactiveFrom = lastActivity.addingTimeInterval(15 * 60)
                                 TimelineView(.explicit([inactiveFrom])) { _ in
