@@ -80,44 +80,42 @@ struct Sidebar: View, Equatable {
         let selection = cursor ?? store.selection ?? Snapshot.forcedSelection(in: store.groups)
         let archived = isArchiveExpanded ? store.archivedSessions : []
         let pinned = isCollapsed(Self.pinnedID) ? [] : store.pinnedSessions
-        return ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if !store.terminals.isEmpty {
-                    terminalsSection(selection: selection)
-                }
-                if !store.pinnedSessions.isEmpty {
-                    Section {
-                        ForEach(Array(pinned.enumerated()), id: \.element.id) { index, session in
-                            sessionRow(session, projectName: URL(filePath: session.cwd).lastPathComponent, selection: selection)
-                                .draggable(PinDrag(id: session.id))
-                                .modifier(GroupDropTarget<PinDrag>(indicatorOffset: 0) { movePin($0, onto: index) })
-                                .contextMenu { sessionMenu(session) }
-                        }
-                    } header: {
-                        GroupHeader(title: "Pinned", help: "Pinned sessions", count: store.pinnedSessions.count, isExpanded: expansion(of: Self.pinnedID), menu: { EmptyView() }) { _ in EmptyView() }
+        return List {
+            if !store.terminals.isEmpty {
+                terminalsSection(selection: selection)
+            }
+            if !store.pinnedSessions.isEmpty {
+                Section {
+                    ForEach(Array(pinned.enumerated()), id: \.element.id) { index, session in
+                        sessionRow(session, projectName: URL(filePath: session.cwd).lastPathComponent, selection: selection)
+                            .draggable(PinDrag(id: session.id))
+                            .modifier(GroupDropTarget<PinDrag>(indicatorOffset: 0) { movePin($0, onto: index) })
+                            .contextMenu { sessionMenu(session) }
                     }
-                }
-                ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
-                    section(group, at: index, in: groups, selection: selection)
-                }
-                if groups.contains(where: { $0.source.custom != nil }) {
-                    Color.clear
-                        .frame(height: 12)
-                        .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 2) { moveGroup($0, to: groups.count, in: groups) })
-                        .accessibilityHidden(true)
-                }
-                if !store.archivedSessions.isEmpty {
-                    Section {
-                        ForEach(archived) { session in
-                            sessionRow(session, projectName: nil, selection: selection)
-                                .contextMenu { Button("Unarchive") { store.unarchive(session.id) } }
-                        }
-                    } header: {
-                        GroupHeader(title: "Archived", help: "Archived sessions", count: store.archivedSessions.count, isExpanded: $isArchiveExpanded, menu: { EmptyView() }) { _ in EmptyView() }
-                    }
+                } header: {
+                    GroupHeader(title: "Pinned", help: "Pinned sessions", count: store.pinnedSessions.count, isExpanded: expansion(of: Self.pinnedID), menu: { EmptyView() }) { _ in EmptyView() }
                 }
             }
-            .padding(.bottom, 8)
+            ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                section(group, at: index, in: groups, selection: selection)
+            }
+            if groups.contains(where: { $0.source.custom != nil }) {
+                Color.clear
+                    .frame(height: 12)
+                    .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 2) { moveGroup($0, to: groups.count, in: groups) })
+                    .listRowInsets(EdgeInsets())
+                    .accessibilityHidden(true)
+            }
+            if !store.archivedSessions.isEmpty {
+                Section {
+                    ForEach(archived) { session in
+                        sessionRow(session, projectName: nil, selection: selection)
+                            .contextMenu { Button("Unarchive") { store.unarchive(session.id) } }
+                    }
+                } header: {
+                    GroupHeader(title: "Archived", help: "Archived sessions", count: store.archivedSessions.count, isExpanded: $isArchiveExpanded, menu: { EmptyView() }) { _ in EmptyView() }
+                }
+            }
         }
         .focusable()
         .focused($isFocused)
@@ -233,8 +231,8 @@ struct Sidebar: View, Equatable {
                 .buttonStyle(.plain)
                 .font(.subheadline)
                 .foregroundStyle(theme.secondary)
-                .padding(.leading, 32)
-                .padding(.vertical, 8)
+                .padding(.leading, 8)
+                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
             }
         } header: {
             header(group, at: index, in: groups)
@@ -345,15 +343,18 @@ struct Sidebar: View, Equatable {
 
     private func sessionRow(_ session: SessionSummary, projectName: String?, selection: SidebarItem?) -> some View {
         let tab = store.tab(forSession: session.id)
-        return SessionRow(
-            session: session,
-            projectName: projectName,
-            live: store.liveBySession[session.id],
-            isOpen: tab != nil,
-            hasBackgroundShell: store.backgroundShellIDs.contains(session.id),
-            pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
-            showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
-        )
+        // A layout container makes the row one static view, so List builds only the visible rows.
+        return HStack(spacing: 0) {
+            SessionRow(
+                session: session,
+                projectName: projectName,
+                live: store.liveBySession[session.id],
+                isOpen: tab != nil,
+                hasBackgroundShell: store.backgroundShellIDs.contains(session.id),
+                pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
+                showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
+            )
+        }
         .modifier(RowChrome(id: session.title, isSelected: selection == .session(session.id), isLocked: tab == nil && store.liveBySession[session.id].map { $0.attachID == nil } ?? false) {
             select(.session(session.id))
         })
@@ -418,9 +419,11 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
             }
         }
         .font(.system(size: 11))
-        .padding(.top, 28)
-        .padding(.horizontal, 8)
-        .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 16, drop: drop))
+        .padding(.top, 16)
+        .padding(.leading, -6)
+        .padding(.trailing, 6)
+        .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 4, drop: drop))
+        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
     }
@@ -442,7 +445,7 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
                     .onChange(of: isNameFocused) { if !isNameFocused { commit(renaming) } }
             } else {
                 Button {
-                    isExpanded.toggle()
+                    withAnimation(.snappy) { isExpanded.toggle() }
                 } label: {
                     HStack(spacing: 4) {
                         chevron
@@ -571,18 +574,18 @@ private struct RowChrome: ViewModifier {
         let isHighlighted = isHovering || Snapshot.forcedHover.contains(id)
         let fill = isSelected ? 0.1 : isHighlighted && !isLocked ? 0.05 : 0
         content
-            .padding(.horizontal, 24)
-            .background {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(theme.foreground.opacity(fill))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-            }
             .contentShape(.rect)
             .onTapGesture(perform: select)
             .onHover { isHovering = $0 }
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction(.default, select)
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(theme.foreground.opacity(fill))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+            )
     }
 }
 

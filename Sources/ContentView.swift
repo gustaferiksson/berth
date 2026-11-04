@@ -26,6 +26,7 @@ struct ContentView: View {
                     .toolbar(removing: .sidebarToggle)
             } else {
                 Sidebar()
+                    .scrollContentBackground(.hidden)
                     .background(store.theme.background ?? .clear)
                     .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
@@ -53,6 +54,8 @@ struct ContentView: View {
                 .animation(.default, value: store.updater.pendingRestart?.deadline)
             .inspector(isPresented: Binding(get: { isTrailing && showsTrailingSidebar }, set: { if isTrailing { showsTrailingSidebar = $0 } })) {
                 Sidebar()
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
                     .background(store.theme.background ?? .clear)
                     .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
                     .background(ScrollPocketSeparatorRemover())
