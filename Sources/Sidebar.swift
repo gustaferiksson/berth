@@ -644,10 +644,11 @@ private struct SessionRow: View {
                                     }
                                 }
                                 .font(.caption)
+                                .layoutPriority(1)
                             }
                             if let branch = session.branch {
                                 BranchText(branch: branch)
-                                    .layoutPriority(1)
+                                    .frame(minWidth: 72, alignment: .leading)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
