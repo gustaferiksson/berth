@@ -56,44 +56,35 @@ struct Sidebar: View, Equatable {
 
     private var groups: [Group] {
         store.sidebarGroups.map { group, tabs in
-            let isOpen = !isCollapsed(group.id)
             let sessions = expandedGroups.contains(group.id) ? group.sessions : Array(group.sessions.prefix(Self.visibleSessions))
-            return Group(
-                source: group,
-                count: tabs.count + group.sessions.count,
-                tabs: isOpen ? tabs : [],
-                sessions: isOpen ? sessions : [],
-                hiddenSessions: isOpen ? group.sessions.count - sessions.count : 0
-            )
+            return Group(source: group, count: tabs.count + group.sessions.count, tabs: tabs, sessions: sessions, hiddenSessions: group.sessions.count - sessions.count)
         }
     }
 
     private var items: [SidebarItem] {
         (isCollapsed(Self.terminalsID) ? [] : store.terminals).map { SidebarItem.tab($0.id) }
             + (isCollapsed(Self.pinnedID) ? [] : store.pinnedSessions).map { SidebarItem.session($0.id) }
-            + groups.flatMap { $0.tabs.map { SidebarItem.tab($0.id) } + $0.sessions.map { SidebarItem.session($0.id) } }
+            + groups.filter { !isCollapsed($0.id) }.flatMap { $0.tabs.map { SidebarItem.tab($0.id) } + $0.sessions.map { SidebarItem.session($0.id) } }
             + (isArchiveExpanded ? store.archivedSessions : []).map { SidebarItem.session($0.id) }
     }
 
     private var list: some View {
         let groups = groups
         let selection = cursor ?? store.selection ?? Snapshot.forcedSelection(in: store.groups)
-        let archived = isArchiveExpanded ? store.archivedSessions : []
-        let pinned = isCollapsed(Self.pinnedID) ? [] : store.pinnedSessions
         return List {
             if !store.terminals.isEmpty {
                 terminalsSection(selection: selection)
             }
             if !store.pinnedSessions.isEmpty {
-                Section {
-                    ForEach(Array(pinned.enumerated()), id: \.element.id) { index, session in
+                Section(isExpanded: expansion(of: Self.pinnedID)) {
+                    ForEach(Array(store.pinnedSessions.enumerated()), id: \.element.id) { index, session in
                         sessionRow(session, projectName: URL(filePath: session.cwd).lastPathComponent, selection: selection)
                             .draggable(PinDrag(id: session.id))
                             .modifier(GroupDropTarget<PinDrag>(indicatorOffset: 0) { movePin($0, onto: index) })
                             .contextMenu { sessionMenu(session) }
                     }
                 } header: {
-                    GroupHeader(title: "Pinned", help: "Pinned sessions", count: store.pinnedSessions.count, isExpanded: expansion(of: Self.pinnedID), menu: { EmptyView() }) { _ in EmptyView() }
+                    GroupHeader(title: "Pinned", help: "Pinned sessions", count: store.pinnedSessions.count, menu: { EmptyView() }) { _ in EmptyView() }
                 }
             }
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
@@ -107,13 +98,13 @@ struct Sidebar: View, Equatable {
                     .accessibilityHidden(true)
             }
             if !store.archivedSessions.isEmpty {
-                Section {
-                    ForEach(archived) { session in
+                Section(isExpanded: $isArchiveExpanded) {
+                    ForEach(store.archivedSessions) { session in
                         sessionRow(session, projectName: nil, selection: selection)
                             .contextMenu { Button("Unarchive") { store.unarchive(session.id) } }
                     }
                 } header: {
-                    GroupHeader(title: "Archived", help: "Archived sessions", count: store.archivedSessions.count, isExpanded: $isArchiveExpanded, menu: { EmptyView() }) { _ in EmptyView() }
+                    GroupHeader(title: "Archived", help: "Archived sessions", count: store.archivedSessions.count, menu: { EmptyView() }) { _ in EmptyView() }
                 }
             }
         }
@@ -194,15 +185,15 @@ struct Sidebar: View, Equatable {
     }
 
     private func terminalsSection(selection: SidebarItem?) -> some View {
-        Section {
-            ForEach(isCollapsed(Self.terminalsID) ? [] : store.terminals) { tab in
+        Section(isExpanded: expansion(of: Self.terminalsID)) {
+            ForEach(store.terminals) { tab in
                 TabRow(tab: tab, live: nil, terminal: tab.terminal) { store.close(tab.id) }
                     .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { select(.tab(tab.id)) })
                     .id(SidebarItem.tab(tab.id))
                     .contextMenu { Button("Close Terminal") { store.close(tab.id) } }
             }
         } header: {
-            GroupHeader(title: "Terminals", help: "Terminals", count: store.terminals.count, isExpanded: expansion(of: Self.terminalsID), menu: { EmptyView() }) { isHovering in
+            GroupHeader(title: "Terminals", help: "Terminals", count: store.terminals.count, menu: { EmptyView() }) { isHovering in
                 Button("New Terminal", systemImage: "plus") { store.newTerminal() }
                     .help("New terminal (⌘T)")
                     .labelStyle(.iconOnly)
@@ -212,7 +203,7 @@ struct Sidebar: View, Equatable {
     }
 
     private func section(_ group: Group, at index: Int, in groups: [Group], selection: SidebarItem?) -> some View {
-        Section {
+        Section(isExpanded: expansion(of: group.id)) {
             ForEach(group.tabs) { tab in
                 TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
                     .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { select(.tab(tab.id)) })
@@ -247,7 +238,6 @@ struct Sidebar: View, Equatable {
             title: source.title,
             help: source.folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? custom.map { $0.rules.map { ($0.path as NSString).abbreviatingWithTildeInPath }.joined(separator: ", ") } ?? source.title,
             count: group.count,
-            isExpanded: expansion(of: group.id),
             renaming: custom != nil && renaming?.id == custom?.id ? $renaming : nil,
             commitRename: { store.save($0) },
             dragID: custom.map { _ in source.id },
@@ -398,7 +388,6 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
     let title: String
     let help: String
     let count: Int
-    @Binding var isExpanded: Bool
     var renaming: Binding<CustomGroup?>?
     var commitRename: (CustomGroup) -> Void = { _ in }
     var dragID: String?
@@ -431,7 +420,6 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
     private var label: some View {
         HStack(spacing: 4) {
             if let renaming {
-                chevron
                 TextField("Group Name", text: $name)
                     .textFieldStyle(.plain)
                     .fontWeight(.semibold)
@@ -444,24 +432,14 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
                     .onExitCommand { renaming.wrappedValue = nil }
                     .onChange(of: isNameFocused) { if !isNameFocused { commit(renaming) } }
             } else {
-                Button {
-                    withAnimation(.snappy) { isExpanded.toggle() }
-                } label: {
-                    HStack(spacing: 4) {
-                        chevron
-                        Text(title)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(theme.secondary)
-                            .lineLimit(1)
-                        Text(count, format: .number)
-                            .monospacedDigit()
-                            .foregroundStyle(theme.secondary.opacity(0.6))
-                    }
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .help(help)
-                .accessibilityLabel("\(title), \(count) items, \(isExpanded ? "expanded" : "collapsed")")
+                Text(title)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(theme.secondary)
+                    .lineLimit(1)
+                    .help(help)
+                Text(count, format: .number)
+                    .monospacedDigit()
+                    .foregroundStyle(theme.secondary.opacity(0.6))
             }
             Spacer(minLength: 4)
             accessory(isHovering)
@@ -470,15 +448,6 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
         .frame(height: 24)
         .contentShape([.interaction, .dragPreview], .rect(cornerRadius: 8))
         .contextMenu(menuItems: menu)
-    }
-
-    private var chevron: some View {
-        Image(systemName: "chevron.right")
-            .font(.system(size: 11, weight: .semibold))
-            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-            .foregroundStyle(theme.secondary)
-            .frame(width: 16)
-            .padding(.trailing, 4)
     }
 
     private func commit(_ renaming: Binding<CustomGroup?>) {
