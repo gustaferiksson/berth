@@ -196,7 +196,7 @@ struct Sidebar: View, Equatable {
     private func terminalsSection(selection: SidebarItem?) -> some View {
         Section {
             ForEach(isCollapsed(Self.terminalsID) ? [] : store.terminals) { tab in
-                TabRow(tab: tab, live: nil, terminal: tab.terminal)
+                TabRow(tab: tab, live: nil, terminal: tab.terminal) { store.close(tab.id) }
                     .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { select(.tab(tab.id)) })
                     .id(SidebarItem.tab(tab.id))
                     .contextMenu { Button("Close Terminal") { store.close(tab.id) } }
@@ -681,6 +681,7 @@ private struct TabRow: View {
     let tab: Tab
     let live: LiveSession?
     @ObservedObject var terminal: TerminalViewState
+    var close: (() -> Void)?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -690,7 +691,7 @@ private struct TabRow: View {
                 Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary)
             }
         } else {
-            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, isLoaded: false, modified: nil) {
+            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, isLoaded: false, modified: nil, close: close) {
                 Text((tab.folder as NSString).abbreviatingWithTildeInPath)
                     .font(.caption)
                     .foregroundStyle(theme.secondary)
@@ -708,6 +709,7 @@ private struct CardRow<Detail: View>: View {
     let modified: Date?
     var lastActivity: Date?
     var hasBackgroundShell = false
+    var close: (() -> Void)?
     @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
 
@@ -718,6 +720,16 @@ private struct CardRow<Detail: View>: View {
                     .foregroundStyle(theme.foreground)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                if let close {
+                    Button("Close Terminal", systemImage: "xmark", action: close)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondary)
+                        .frame(width: 16, height: 16)
+                        .contentShape(.rect)
+                        .help("Close terminal")
+                }
                 if let modified {
                     Text(age(since: modified))
                         .font(.caption)
