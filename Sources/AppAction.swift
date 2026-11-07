@@ -2,11 +2,11 @@ import BerthCore
 import SwiftUI
 
 enum AppAction: Hashable {
-    case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, clearTerminal, archiveCurrentSession
+    case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
     case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, settings, checkForUpdates
 
-    static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .clearTerminal, .archiveCurrentSession]
+    static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
         + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .settings, .checkForUpdates]
     static let routedPastTerminal = ([.commandPalette] + palette).filter { $0.shortcut != nil }
@@ -20,6 +20,8 @@ enum AppAction: Hashable {
         case .switchTerminal: "Switch Terminal / Claude"
         case .clearTerminal: "Clear Terminal"
         case .archiveCurrentSession: "Archive Current Session"
+        case .flagCurrentSession: "Flag Current Session"
+        case .unflagCurrentSession: "Unflag Current Session"
         case let .groupBy(mode): "Group By \(mode.title)"
         case .newGroup: "New Group…"
         case .collapseAllGroups: "Collapse All Groups"
@@ -38,6 +40,7 @@ enum AppAction: Hashable {
         case .newTerminal: "shell tab"
         case .switchTerminal: "shell toggle jump"
         case .clearTerminal: "screen scrollback"
+        case .flagCurrentSession, .unflagCurrentSession: "follow up mark"
         case .groupBy: "sidebar"
         case .showStats: "usage tokens charts activity"
         case .harbor: "ambient boats piers overview"
@@ -56,6 +59,8 @@ enum AppAction: Hashable {
         case .switchTerminal: "apple.terminal"
         case .clearTerminal: "eraser"
         case .archiveCurrentSession: "archivebox"
+        case .flagCurrentSession: "flag"
+        case .unflagCurrentSession: "flag.slash"
         case .groupBy: "square.grid.3x1.below.line.grid.1x2"
         case .newGroup: "folder.badge.plus"
         case .collapseAllGroups: "rectangle.compress.vertical"
@@ -86,6 +91,8 @@ enum AppAction: Hashable {
         switch self {
         case .clearTerminal: store.focusedTerminal != nil
         case .archiveCurrentSession: if case .session = store.selection { true } else { false }
+        case .flagCurrentSession: if case let .session(id) = store.selection { !store.flaggedIDs.contains(id) } else { false }
+        case .unflagCurrentSession: if case let .session(id) = store.selection { store.flaggedIDs.contains(id) } else { false }
         case let .groupBy(mode): store.groupingMode != mode
         default: true
         }
@@ -100,6 +107,8 @@ enum AppAction: Hashable {
         case .switchTerminal: store.switchTerminal()
         case .clearTerminal: store.focusedTerminal?.performBindingAction("clear_screen")
         case .archiveCurrentSession: if case let .session(id) = store.selection { store.archive(id) }
+        case .flagCurrentSession: if case let .session(id) = store.selection { store.flag(id) }
+        case .unflagCurrentSession: if case let .session(id) = store.selection { store.unflag(id) }
         case let .groupBy(mode): store.groupingMode = mode
         case .newGroup: store.editingGroup = CustomGroup(name: "", rules: [])
         case .collapseAllGroups: store.setGroupsExpanded(false)
