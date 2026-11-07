@@ -104,6 +104,8 @@ struct Sidebar: View, Equatable {
                             .contextMenu {
                                 Button("Unarchive") { store.unarchive(session.id) }
                                 flagButton(session.id)
+                                Divider()
+                                copySessionIDButton(session.id)
                             }
                     }
                 } header: {
@@ -211,7 +213,10 @@ struct Sidebar: View, Equatable {
                 TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
                     .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { select(.tab(tab.id)) })
                     .id(SidebarItem.tab(tab.id))
-                    .contextMenu { Button("Unload Session") { store.close(tab.id) } }
+                    .contextMenu {
+                        Button("Unload Session") { store.close(tab.id) }
+                        if let sessionID = tab.sessionID { copySessionIDButton(sessionID) }
+                    }
             }
             ForEach(group.sessions) { session in
                 sessionRow(session, projectName: group.source.folder == session.cwd ? nil : URL(filePath: session.cwd).lastPathComponent, selection: selection)
@@ -338,6 +343,15 @@ struct Sidebar: View, Equatable {
         }
         flagButton(session.id)
         Button("Archive") { store.archive(session.id) }
+        Divider()
+        copySessionIDButton(session.id)
+    }
+
+    private func copySessionIDButton(_ sessionID: String) -> some View {
+        Button("Copy Session ID") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(sessionID, forType: .string)
+        }
     }
 
     @ViewBuilder
