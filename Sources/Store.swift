@@ -48,6 +48,7 @@ final class Store {
     var selectedTabID: Tab.ID? {
         didSet {
             if let oldValue { tabTouches[oldValue] = .now }
+            if let oldValue, let sessionID = tabs.first(where: { $0.id == oldValue })?.sessionID { seenAt[sessionID] = .now }
             saveOpenTabs()
         }
     }
@@ -97,6 +98,18 @@ final class Store {
     private(set) var pinnedSessions: [SessionSummary] = []
     private(set) var liveBySession: [String: LiveSession] = [:]
     private(set) var backgroundShellIDs: Set<String> = []
+    private(set) var seenAt = UserDefaults.standard.dictionary(forKey: "seenSessions") as? [String: Date] ?? [:] {
+        didSet { if persistsTabs { UserDefaults.standard.set(seenAt, forKey: "seenSessions") } }
+    }
+    private(set) var flaggedIDs = Set(UserDefaults.standard.stringArray(forKey: "flaggedSessions") ?? []) {
+        didSet { if persistsTabs { UserDefaults.standard.set(flaggedIDs.sorted(), forKey: "flaggedSessions") } }
+    }
+    var isAppActive = true {
+        didSet {
+            guard oldValue, !isAppActive, let sessionID = tabs.first(where: { $0.id == selectedTabID })?.sessionID else { return }
+            seenAt[sessionID] = .now
+        }
+    }
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
     private(set) var pullRequestStates = Snapshot.fixturePullRequestStates
@@ -165,6 +178,14 @@ final class Store {
     }
 
     private func applyGroups() {
+        if hasScanned {
+            let seen = Dictionary(summaries.map { ($0.id, seenAt[$0.id] ?? .now) }) { first, _ in first }
+            if seen != seenAt { seenAt = seen }
+
+            let flagged = flaggedIDs.intersection(summaries.map(\.id))
+            if flagged != flaggedIDs { flaggedIDs = flagged }
+        }
+
         let split = SessionArchive.split(summaries, archivedAt: archivedAt)
         if hasScanned, split.kept != archivedAt { archivedAt = split.kept }
         archivedSessions = split.archived
@@ -496,6 +517,29 @@ final class Store {
     func unarchive(_ sessionID: String) {
         archivedAt[sessionID] = nil
         applyGroups()
+    }
+
+    func isUnread(_ session: SessionSummary) -> Bool {
+        guard let seen = seenAt[session.id], session.lastActivity > seen else { return false }
+
+        let isViewed = isAppActive && tabs.first { $0.id == selectedTabID }?.sessionID == session.id
+        return !isViewed && liveBySession[session.id]?.activity != .working
+    }
+
+    func markRead(_ sessionID: String) {
+        seenAt[sessionID] = .now
+    }
+
+    func markUnread(_ sessionID: String) {
+        seenAt[sessionID] = .distantPast
+    }
+
+    func flag(_ sessionID: String) {
+        flaggedIDs.insert(sessionID)
+    }
+
+    func unflag(_ sessionID: String) {
+        flaggedIDs.remove(sessionID)
     }
 
     func pin(_ sessionID: String) {

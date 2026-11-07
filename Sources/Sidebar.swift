@@ -101,7 +101,10 @@ struct Sidebar: View, Equatable {
                 Section(isExpanded: $isArchiveExpanded) {
                     ForEach(store.archivedSessions) { session in
                         sessionRow(session, projectName: nil, selection: selection)
-                            .contextMenu { Button("Unarchive") { store.unarchive(session.id) } }
+                            .contextMenu {
+                                Button("Unarchive") { store.unarchive(session.id) }
+                                flagButton(session.id)
+                            }
                     }
                 } header: {
                     GroupHeader(title: "Archived", help: "Archived sessions", count: store.archivedSessions.count, menu: { EmptyView() }) { _ in EmptyView() }
@@ -328,7 +331,22 @@ struct Sidebar: View, Equatable {
         } else {
             Button("Pin") { store.pin(session.id) }
         }
+        if store.isUnread(session) {
+            Button("Mark as Read") { store.markRead(session.id) }
+        } else if store.selection != .session(session.id) {
+            Button("Mark as Unread") { store.markUnread(session.id) }
+        }
+        flagButton(session.id)
         Button("Archive") { store.archive(session.id) }
+    }
+
+    @ViewBuilder
+    private func flagButton(_ sessionID: String) -> some View {
+        if store.flaggedIDs.contains(sessionID) {
+            Button("Unflag") { store.unflag(sessionID) }
+        } else {
+            Button("Flag") { store.flag(sessionID) }
+        }
     }
 
     private func sessionRow(_ session: SessionSummary, projectName: String?, selection: SidebarItem?) -> some View {
@@ -341,6 +359,8 @@ struct Sidebar: View, Equatable {
                 live: store.liveBySession[session.id],
                 isOpen: tab != nil,
                 hasBackgroundShell: store.backgroundShellIDs.contains(session.id),
+                isUnread: store.isUnread(session),
+                isFlagged: store.flaggedIDs.contains(session.id),
                 pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
                 showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
             )
@@ -578,6 +598,8 @@ private struct SessionRow: View {
     let live: LiveSession?
     let isOpen: Bool
     let hasBackgroundShell: Bool
+    let isUnread: Bool
+    let isFlagged: Bool
     let pullRequestState: PullRequestState?
     @Binding var showsLockedNotice: Bool
     @Environment(\.ghosttyTheme) private var theme
@@ -592,6 +614,8 @@ private struct SessionRow: View {
             modified: session.lastPrompt,
             lastActivity: session.lastActivity,
             hasBackgroundShell: hasBackgroundShell,
+            isUnread: isUnread,
+            isFlagged: isFlagged,
             detail: {
                 if session.pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {
@@ -678,6 +702,8 @@ private struct CardRow<Detail: View>: View {
     let modified: Date?
     var lastActivity: Date?
     var hasBackgroundShell = false
+    var isUnread = false
+    var isFlagged = false
     var close: (() -> Void)?
     @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
@@ -698,6 +724,13 @@ private struct CardRow<Detail: View>: View {
                         .frame(width: 16, height: 16)
                         .contentShape(.rect)
                         .help("Close terminal")
+                }
+                if isFlagged {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(theme.closed)
+                        .help("Flagged")
+                        .accessibilityLabel("Flagged")
                 }
                 if let modified {
                     Text(age(since: modified))
@@ -740,13 +773,14 @@ private struct CardRow<Detail: View>: View {
         .padding(.trailing, -8)
         .padding(.vertical, 8)
         .overlay(alignment: .topLeading) {
-            StatusSlot(state: state).offset(x: -8, y: 8)
+            StatusSlot(state: state, isUnread: isUnread).offset(x: -8, y: 8)
         }
     }
 }
 
 private struct StatusSlot: View {
     let state: RowState?
+    let isUnread: Bool
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -759,6 +793,12 @@ private struct StatusSlot: View {
                     .frame(width: 8, height: 8)
                     .help("Needs you\(reason.map { ": \($0)" } ?? "")")
                     .accessibilityLabel("Needs you")
+            } else if state == nil, isUnread {
+                Circle()
+                    .fill(theme.unread)
+                    .frame(width: 8, height: 8)
+                    .help("Unread")
+                    .accessibilityLabel("Unread")
             }
         }
         .frame(width: 8, height: 16)

@@ -91,7 +91,11 @@ struct ContentView: View {
         .environment(\.ghosttyTheme, store.theme)
         .preferredColorScheme(store.theme.isDark ? .dark : .light)
         .background(WindowChrome(color: store.theme.background))
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in store.refreshPullRequests() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.isAppActive = true
+            store.refreshPullRequests()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
         .onChange(of: store.isStatsRequested) {
             guard store.isStatsRequested else { return }
             store.isStatsRequested = false

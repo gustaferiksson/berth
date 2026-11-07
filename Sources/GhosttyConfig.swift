@@ -89,6 +89,7 @@ struct GhosttyTheme: Equatable {
     let merged: Color
     let shellAttached: Color
     let closed: Color
+    let unread: Color
     let series: [Color]
 
     init(values: [String: String]) {
@@ -108,6 +109,7 @@ struct GhosttyTheme: Equatable {
         merged = readable("palette-5", .purple, 4.5)
         shellAttached = values["palette-13"] == values["palette-5"] ? .pink : readable("palette-13", .pink, 4.5)
         closed = readable("palette-1", .red, 4.5)
+        unread = readable("palette-4", .blue, 4.5)
         let slots = [("palette-6", Color.teal), ("palette-1", .red), ("palette-4", .blue), ("palette-3", .yellow), ("palette-5", .purple), ("palette-2", .green)]
         series = slots.enumerated().map { index, slot in
             slots[(index + 1)...].contains { values[$0.0] == values[slot.0] } ? slot.1 : readable(slot.0, slot.1, 3)

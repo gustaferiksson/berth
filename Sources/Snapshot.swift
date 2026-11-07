@@ -123,6 +123,13 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotPinned") {
             for session in store.groups.compactMap(\.sessions.first).suffix(2).reversed() { store.pin(session.id) }
         }
+        let topSessions = store.groups.first { !$0.sessions.isEmpty }?.sessions ?? []
+        if UserDefaults.standard.bool(forKey: "snapshotFlagged") {
+            for session in topSessions.enumerated().filter({ [0, 2].contains($0.offset) }).map(\.element) { store.flag(session.id) }
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotUnread") {
+            for session in topSessions.enumerated().filter({ [1, 3].contains($0.offset) }).map(\.element) { store.markUnread(session.id) }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
             for _ in 0..<2 { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
             store.tabs = store.tabs.map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: UUID().uuidString.lowercased(), terminal: $0.terminal) }
