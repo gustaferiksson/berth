@@ -3,39 +3,37 @@ import GhosttyTerminal
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct Sidebar: View, Equatable {
-    @Environment(Store.self) private var store
-    @Environment(\.ghosttyTheme) private var theme
-    @AppStorage("collapsedGroups") private var collapsedGroups = ""
-    @AppStorage("archivedExpanded") private var isArchiveExpanded = false
-    @State private var expandedGroups = Snapshot.expandedGroups
-    @State private var cursor: SidebarItem?
-    @State private var renaming: CustomGroup?
-    @State private var browseRoot: String?
-    @FocusState private var isFocused: Bool
-
-    private static let visibleSessions = 5
-    static let collapsedByDefault: Set = ["recent:older"]
-    private static let pinnedID = "pinned"
-    static let terminalsID = "terminals"
-
-    private struct Group {
+struct SidebarLayout: Equatable {
+    struct Group: Equatable, Identifiable {
         let source: SessionGroup
-        let count: Int
-        let tabs: [Tab]
-        let sessions: [SessionSummary]
-        let hiddenSessions: Int
+        let tabIDs: [Tab.ID]
+        let sessionIDs: [String]
+        let folders: [String]
         var id: String { source.id }
     }
+
+    let terminalIDs: [Tab.ID]
+    let pinnedIDs: [String]
+    let groups: [Group]
+    let archivedIDs: [String]
+    let isEmpty: Bool
+}
+
+struct Sidebar: View, Equatable {
+    @Environment(Store.self) private var store
+
+    static let collapsedByDefault: Set = ["recent:older"]
+    static let terminalsID = "terminals"
 
     // Its property wrappers never compare equal, so SwiftUI would re-render it on every ContentView update.
     static func == (_: Self, _: Self) -> Bool { true }
 
     var body: some View {
         ScrollViewReader { proxy in
-            list
-                .onChange(of: store.selection, initial: true) { _, selection in
-                    cursor = nil
+            SidebarList(layout: layout)
+                .equatable()
+                .onChange(of: store.selection, initial: true) { previous, selection in
+                    if previous != selection, store.sidebarCursor != nil { store.sidebarCursor = nil }
                     guard let selection else { return }
                     Task { withAnimation { proxy.scrollTo(selection) } }
                 }
@@ -47,69 +45,105 @@ struct Sidebar: View, Equatable {
                     guard Snapshot.scrollsToArchive, let id else { return }
                     Task { proxy.scrollTo(SidebarItem.session(id)) }
                 }
-                .onChange(of: cursor) { _, cursor in
+                .onChange(of: store.sidebarCursor) { _, cursor in
                     guard let cursor else { return }
                     withAnimation { proxy.scrollTo(cursor) }
                 }
         }
     }
 
+    private var layout: SidebarLayout {
+        SidebarLayout(
+            terminalIDs: store.terminals.map(\.id),
+            pinnedIDs: store.pinnedSessions.map(\.id),
+            groups: store.sidebarGroups.map { group, tabs in
+                SidebarLayout.Group(
+                    source: SessionGroup(kind: group.kind, sessions: []),
+                    tabIDs: tabs.map(\.id),
+                    sessionIDs: group.sessions.map(\.id),
+                    folders: group.folder.map { Array(Set(group.sessions.map(\.cwd)).union([$0])).sorted() } ?? []
+                )
+            },
+            archivedIDs: store.archivedSessions.map(\.id),
+            isEmpty: store.hasScanned && store.groups.isEmpty && store.pinnedSessions.isEmpty && store.tabs.isEmpty
+        )
+    }
+}
+
+private struct SidebarList: View, Equatable {
+    let layout: SidebarLayout
+    @Environment(Store.self) private var store
+    @Environment(\.ghosttyTheme) private var theme
+    @AppStorage("collapsedGroups") private var collapsedGroups = ""
+    @AppStorage("archivedExpanded") private var isArchiveExpanded = false
+    @State private var expandedGroups = Snapshot.expandedGroups
+    @State private var renaming: CustomGroup?
+    @State private var browseRoot: String?
+    @FocusState private var isFocused: Bool
+
+    private static let visibleSessions = 5
+    private static let pinnedID = "pinned"
+
+    private struct Group {
+        let layout: SidebarLayout.Group
+        let sessionIDs: [String]
+        let hiddenSessions: Int
+        var id: String { layout.id }
+        var count: Int { layout.tabIDs.count + layout.sessionIDs.count }
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.layout == rhs.layout }
+
     private var groups: [Group] {
-        store.sidebarGroups.map { group, tabs in
-            let sessions = expandedGroups.contains(group.id) ? group.sessions : Array(group.sessions.prefix(Self.visibleSessions))
-            return Group(source: group, count: tabs.count + group.sessions.count, tabs: tabs, sessions: sessions, hiddenSessions: group.sessions.count - sessions.count)
+        layout.groups.map { group in
+            let sessionIDs = expandedGroups.contains(group.id) ? group.sessionIDs : Array(group.sessionIDs.prefix(Self.visibleSessions))
+            return Group(layout: group, sessionIDs: sessionIDs, hiddenSessions: group.sessionIDs.count - sessionIDs.count)
         }
     }
 
     private var items: [SidebarItem] {
-        (isCollapsed(Self.terminalsID) ? [] : store.terminals).map { SidebarItem.tab($0.id) }
-            + (isCollapsed(Self.pinnedID) ? [] : store.pinnedSessions).map { SidebarItem.session($0.id) }
-            + groups.filter { !isCollapsed($0.id) }.flatMap { $0.tabs.map { SidebarItem.tab($0.id) } + $0.sessions.map { SidebarItem.session($0.id) } }
-            + (isArchiveExpanded ? store.archivedSessions : []).map { SidebarItem.session($0.id) }
+        (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
+            + (isCollapsed(Self.pinnedID) ? [] : layout.pinnedIDs).map(SidebarItem.session)
+            + groups.filter { !isCollapsed($0.id) }.flatMap { $0.layout.tabIDs.map(SidebarItem.tab) + $0.sessionIDs.map(SidebarItem.session) }
+            + (isArchiveExpanded ? layout.archivedIDs : []).map(SidebarItem.session)
     }
 
-    private var list: some View {
+    var body: some View {
         let groups = groups
-        let selection = cursor ?? store.selection ?? Snapshot.forcedSelection(in: store.groups)
-        return List {
-            if !store.terminals.isEmpty {
-                terminalsSection(selection: selection)
+        List {
+            if !layout.terminalIDs.isEmpty {
+                terminalsSection
             }
-            if !store.pinnedSessions.isEmpty {
+            if !layout.pinnedIDs.isEmpty {
                 Section(isExpanded: expansion(of: Self.pinnedID)) {
-                    ForEach(Array(store.pinnedSessions.enumerated()), id: \.element.id) { index, session in
-                        sessionRow(session, projectName: URL(filePath: session.cwd).lastPathComponent, selection: selection)
-                            .draggable(PinDrag(id: session.id))
+                    ForEach(Array(layout.pinnedIDs.enumerated()), id: \.element) { index, id in
+                        SessionItem(id: id, place: .pinned, select: select)
+                            .id(SidebarItem.session(id))
+                            .draggable(PinDrag(id: id))
                             .modifier(GroupDropTarget<PinDrag>(indicatorOffset: 0) { movePin($0, onto: index) })
-                            .contextMenu { sessionMenu(session) }
                     }
                 } header: {
-                    GroupHeader(title: "Pinned", help: "Pinned sessions", count: store.pinnedSessions.count, menu: { EmptyView() }) { _ in EmptyView() }
+                    GroupHeader(title: "Pinned", help: "Pinned sessions", count: layout.pinnedIDs.count, menu: { EmptyView() }) { _ in EmptyView() }
                 }
             }
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
-                section(group, at: index, in: groups, selection: selection)
+                section(group, at: index, in: groups)
             }
-            if groups.contains(where: { $0.source.custom != nil }) {
+            if groups.contains(where: { $0.layout.source.custom != nil }) {
                 Color.clear
                     .frame(height: 12)
                     .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 2) { moveGroup($0, to: groups.count, in: groups) })
                     .listRowInsets(EdgeInsets())
                     .accessibilityHidden(true)
             }
-            if !store.archivedSessions.isEmpty {
+            if !layout.archivedIDs.isEmpty {
                 Section(isExpanded: $isArchiveExpanded) {
-                    ForEach(store.archivedSessions) { session in
-                        sessionRow(session, projectName: nil, selection: selection)
-                            .contextMenu {
-                                Button("Unarchive") { store.unarchive(session.id) }
-                                flagButton(session.id)
-                                Divider()
-                                copySessionIDButton(session.id)
-                            }
+                    ForEach(layout.archivedIDs, id: \.self) { id in
+                        SessionItem(id: id, place: .archived, select: select)
+                            .id(SidebarItem.session(id))
                     }
                 } header: {
-                    GroupHeader(title: "Archived", help: "Archived sessions", count: store.archivedSessions.count, menu: { EmptyView() }) { _ in EmptyView() }
+                    GroupHeader(title: "Archived", help: "Archived sessions", count: layout.archivedIDs.count, menu: { EmptyView() }) { _ in EmptyView() }
                 }
             }
         }
@@ -119,12 +153,12 @@ struct Sidebar: View, Equatable {
         .onKeyPress(.downArrow) { move(by: 1, in: items) }
         .onKeyPress(.upArrow) { move(by: -1, in: items) }
         .onKeyPress(.return) {
-            guard let item = cursor ?? store.selection else { return .ignored }
+            guard let item = store.sidebarCursor ?? store.selection else { return .ignored }
             store.activate(item)
             return .handled
         }
-        .onKeyPress(.leftArrow) { setExpanded(false, around: selection, in: groups) }
-        .onKeyPress(.rightArrow) { setExpanded(true, around: selection, in: groups) }
+        .onKeyPress(.leftArrow) { setExpanded(false, in: groups) }
+        .onKeyPress(.rightArrow) { setExpanded(true, in: groups) }
         .onHover { store.isPointerInSidebar = $0 }
         .scrollEdgeEffectStyle(.soft, for: .top)
         .background(OverlayScroller())
@@ -134,7 +168,7 @@ struct Sidebar: View, Equatable {
         }
         .fileDialogDefaultDirectory(browseRoot.map { URL(filePath: $0) })
         .overlay {
-            if store.hasScanned, store.groups.isEmpty, store.pinnedSessions.isEmpty, store.tabs.isEmpty {
+            if layout.isEmpty {
                 ContentUnavailableView("No Claude Sessions", systemImage: "bubble.left.and.text.bubble.right", description: Text("Sessions you start with claude show up here, grouped by project."))
             }
         }
@@ -142,33 +176,37 @@ struct Sidebar: View, Equatable {
 
     private func move(by offset: Int, in items: [SidebarItem]) -> KeyPress.Result {
         guard !items.isEmpty else { return .ignored }
-        let current = (cursor ?? store.selection).flatMap(items.firstIndex(of:))
+
+        let current = (store.sidebarCursor ?? store.selection).flatMap(items.firstIndex(of:))
         let next = items[min(max((current ?? (offset > 0 ? -1 : items.count)) + offset, 0), items.count - 1)]
         let tab: Tab? = switch next {
         case let .tab(id): store.tabs.first { $0.id == id }
         case let .session(id): store.tab(forSession: id)
         }
         guard let tab else {
-            cursor = next
+            store.sidebarCursor = next
             return .handled
         }
+
         store.selectedTabID = tab.id
         store.isHarborShown = false
         return .handled
     }
 
-    private func setExpanded(_ expanded: Bool, around item: SidebarItem?, in groups: [Group]) -> KeyPress.Result {
-        if store.terminals.contains(where: { .tab($0.id) == item }) {
-            expansion(of: Self.terminalsID).wrappedValue = expanded
+    private func setExpanded(_ expanded: Bool, in groups: [Group]) -> KeyPress.Result {
+        let item = store.sidebarCursor ?? store.selection
+        if layout.terminalIDs.contains(where: { .tab($0) == item }) {
+            expansion(of: Sidebar.terminalsID).wrappedValue = expanded
             return .handled
         }
-        if case let .session(id) = item, store.pinnedSessions.contains(where: { $0.id == id }) {
+        if case let .session(id) = item, layout.pinnedIDs.contains(id) {
             expansion(of: Self.pinnedID).wrappedValue = expanded
             return .handled
         }
         guard let item, let group = groups.first(where: { group in
-            group.tabs.contains { .tab($0.id) == item } || group.sessions.contains { .session($0.id) == item }
+            group.layout.tabIDs.contains { .tab($0) == item } || group.sessionIDs.contains { .session($0) == item }
         }) else { return .ignored }
+
         expansion(of: group.id).wrappedValue = expanded
         return .handled
     }
@@ -179,7 +217,7 @@ struct Sidebar: View, Equatable {
     }
 
     private func moveGroup(_ id: String, to destination: Int, in groups: [Group]) -> Bool {
-        guard let source = groups.firstIndex(where: { $0.id == id && $0.source.custom != nil }) else { return false }
+        guard let source = groups.firstIndex(where: { $0.id == id && $0.layout.source.custom != nil }) else { return false }
         withAnimation(.snappy) { store.moveGroup(from: source, to: destination) }
         return true
     }
@@ -189,16 +227,14 @@ struct Sidebar: View, Equatable {
         return true
     }
 
-    private func terminalsSection(selection: SidebarItem?) -> some View {
-        Section(isExpanded: expansion(of: Self.terminalsID)) {
-            ForEach(store.terminals) { tab in
-                TabRow(tab: tab, live: nil, terminal: tab.terminal) { store.close(tab.id) }
-                    .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { select(.tab(tab.id)) })
-                    .id(SidebarItem.tab(tab.id))
-                    .contextMenu { Button("Close Terminal") { store.close(tab.id) } }
+    private var terminalsSection: some View {
+        Section(isExpanded: expansion(of: Sidebar.terminalsID)) {
+            ForEach(layout.terminalIDs, id: \.self) { id in
+                TabItem(id: id, select: select)
+                    .id(SidebarItem.tab(id))
             }
         } header: {
-            GroupHeader(title: "Terminals", help: "Terminals", count: store.terminals.count, menu: { EmptyView() }) { isHovering in
+            GroupHeader(title: "Terminals", help: "Terminals", count: layout.terminalIDs.count, menu: { EmptyView() }) { isHovering in
                 Button("New Terminal", systemImage: "plus") { store.newTerminal() }
                     .help("New terminal (⌘T)")
                     .labelStyle(.iconOnly)
@@ -207,22 +243,17 @@ struct Sidebar: View, Equatable {
         }
     }
 
-    private func section(_ group: Group, at index: Int, in groups: [Group], selection: SidebarItem?) -> some View {
+    private func section(_ group: Group, at index: Int, in groups: [Group]) -> some View {
         Section(isExpanded: expansion(of: group.id)) {
-            ForEach(group.tabs) { tab in
-                TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
-                    .modifier(RowChrome(id: tab.id.uuidString, isSelected: selection == .tab(tab.id), isLocked: false) { select(.tab(tab.id)) })
-                    .id(SidebarItem.tab(tab.id))
-                    .contextMenu {
-                        Button("Unload Session") { store.close(tab.id) }
-                        if let sessionID = tab.sessionID { copySessionIDButton(sessionID) }
-                    }
+            ForEach(group.layout.tabIDs, id: \.self) { id in
+                TabItem(id: id, select: select)
+                    .id(SidebarItem.tab(id))
             }
-            ForEach(group.sessions) { session in
-                sessionRow(session, projectName: group.source.folder == session.cwd ? nil : URL(filePath: session.cwd).lastPathComponent, selection: selection)
-                    .contextMenu { sessionMenu(session) }
+            ForEach(group.sessionIDs, id: \.self) { id in
+                SessionItem(id: id, place: .group(folder: group.layout.source.folder), select: select)
+                    .id(SidebarItem.session(id))
             }
-            if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && group.sessions.count > Self.visibleSessions {
+            if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && group.sessionIDs.count > Self.visibleSessions {
                 let isExpanded = expandedGroups.contains(group.id)
                 Button(isExpanded ? "Show Less" : "Show \(group.hiddenSessions) More") {
                     if isExpanded { expandedGroups.remove(group.id) } else { expandedGroups.insert(group.id) }
@@ -239,7 +270,7 @@ struct Sidebar: View, Equatable {
     }
 
     private func header(_ group: Group, at index: Int, in groups: [Group]) -> some View {
-        let source = group.source
+        let source = group.layout.source
         let custom = source.custom
         let singleFolder = source.folder ?? custom.flatMap { $0.rules.count == 1 && !$0.rules[0].includesSubfolders ? $0.rules[0].path : nil }
         return GroupHeader(
@@ -254,7 +285,7 @@ struct Sidebar: View, Equatable {
                 if let custom {
                     customGroupMenu(custom, at: index, of: groups.count, singleFolder: singleFolder)
                 } else if let folder = source.folder {
-                    folderGroupMenu(Array(Set(source.sessions.map(\.cwd)).union([folder])).sorted(), root: folder, title: source.title)
+                    folderGroupMenu(group.layout.folders, root: folder, title: source.title)
                 }
             }
         ) { isHovering in
@@ -328,65 +359,8 @@ struct Sidebar: View, Equatable {
         Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: root)]) }
     }
 
-    @ViewBuilder
-    private func sessionMenu(_ session: SessionSummary) -> some View {
-        if let tab = store.tab(forSession: session.id) { Button("Unload Session") { store.close(tab.id) } }
-        if store.pinnedSessions.contains(where: { $0.id == session.id }) {
-            Button("Unpin") { store.unpin(session.id) }
-        } else {
-            Button("Pin") { store.pin(session.id) }
-        }
-        if store.isUnread(session) {
-            Button("Mark as Read") { store.markRead(session.id) }
-        } else if store.selection != .session(session.id) {
-            Button("Mark as Unread") { store.markUnread(session.id) }
-        }
-        flagButton(session.id)
-        Button("Archive") { store.archive(session.id) }
-        Divider()
-        copySessionIDButton(session.id)
-    }
-
-    private func copySessionIDButton(_ sessionID: String) -> some View {
-        Button("Copy Session ID") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(sessionID, forType: .string)
-        }
-    }
-
-    @ViewBuilder
-    private func flagButton(_ sessionID: String) -> some View {
-        if store.flaggedIDs.contains(sessionID) {
-            Button("Unflag") { store.unflag(sessionID) }
-        } else {
-            Button("Flag") { store.flag(sessionID) }
-        }
-    }
-
-    private func sessionRow(_ session: SessionSummary, projectName: String?, selection: SidebarItem?) -> some View {
-        let tab = store.tab(forSession: session.id)
-        // A layout container makes the row one static view, so List builds only the visible rows.
-        return HStack(spacing: 0) {
-            SessionRow(
-                session: session,
-                projectName: projectName,
-                live: store.liveBySession[session.id],
-                isOpen: tab != nil,
-                hasBackgroundShell: store.backgroundShellIDs.contains(session.id),
-                isUnread: store.isUnread(session),
-                isFlagged: store.flaggedIDs.contains(session.id),
-                pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
-                showsLockedNotice: Binding(get: { store.lockedSessionID == session.id }, set: { if !$0 { store.lockedSessionID = nil } })
-            )
-        }
-        .modifier(RowChrome(id: session.title, isSelected: selection == .session(session.id), isLocked: tab == nil && store.liveBySession[session.id].map { $0.attachID == nil } ?? false) {
-            select(.session(session.id))
-        })
-        .id(SidebarItem.session(session.id))
-    }
-
     private func isCollapsed(_ id: String) -> Bool {
-        collapsedGroups.split(separator: "\n").contains { $0 == id } != Self.collapsedByDefault.contains(id)
+        collapsedGroups.split(separator: "\n").contains { $0 == id } != Sidebar.collapsedByDefault.contains(id)
     }
 
     private func expansion(of id: String) -> Binding<Bool> {
@@ -394,8 +368,122 @@ struct Sidebar: View, Equatable {
             !isCollapsed(id)
         } set: { expanded in
             let others = collapsedGroups.split(separator: "\n").filter { $0 != id }.map(String.init)
-            let isListed = expanded == Self.collapsedByDefault.contains(id)
+            let isListed = expanded == Sidebar.collapsedByDefault.contains(id)
             collapsedGroups = (isListed ? others + [id] : others).joined(separator: "\n")
+        }
+    }
+}
+
+private struct TabItem: View {
+    let id: Tab.ID
+    let select: (SidebarItem) -> Void
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let tab = store.tabs.first { $0.id == id }
+        // A layout container makes the row one static view, so List builds only the visible rows.
+        HStack(spacing: 0) {
+            if let tab, tab.kind == .shell {
+                TabRow(tab: tab, live: nil, terminal: tab.terminal) { store.close(tab.id) }
+            } else if let tab {
+                TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
+            }
+        }
+        .modifier(RowChrome(item: .tab(id), hoverID: id.uuidString, isLocked: false) { select(.tab(id)) })
+        .contextMenu {
+            if tab?.kind == .shell {
+                Button("Close Terminal") { store.close(id) }
+            } else {
+                Button("Unload Session") { store.close(id) }
+                if let sessionID = tab?.sessionID { CopySessionIDButton(sessionID: sessionID) }
+            }
+        }
+    }
+}
+
+private struct SessionItem: View {
+    enum Place: Equatable {
+        case pinned
+        case group(folder: String?)
+        case archived
+    }
+
+    let id: String
+    let place: Place
+    let select: (SidebarItem) -> Void
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let session = store.sessionsByID[id]
+        let tab = store.tab(forSession: id)
+        let live = store.liveBySession[id]
+        // A layout container makes the row one static view, so List builds only the visible rows.
+        HStack(spacing: 0) {
+            if let session {
+                SessionRow(
+                    session: session,
+                    projectName: place == .archived || place == .group(folder: session.cwd) ? nil : URL(filePath: session.cwd).lastPathComponent,
+                    live: live,
+                    isOpen: tab != nil,
+                    hasBackgroundShell: store.backgroundShellIDs.contains(id),
+                    isUnread: store.isUnread(session),
+                    isFlagged: store.flaggedIDs.contains(id),
+                    pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
+                    showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
+                )
+            }
+        }
+        .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: tab == nil && live.map { $0.attachID == nil } ?? false) {
+            select(.session(id))
+        })
+        .contextMenu {
+            if place == .archived {
+                Button("Unarchive") { store.unarchive(id) }
+                flagButton
+                Divider()
+                CopySessionIDButton(sessionID: id)
+            } else if let session {
+                menu(session, tab: tab)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func menu(_ session: SessionSummary, tab: Tab?) -> some View {
+        if let tab { Button("Unload Session") { store.close(tab.id) } }
+        if place == .pinned {
+            Button("Unpin") { store.unpin(id) }
+        } else {
+            Button("Pin") { store.pin(id) }
+        }
+        if store.isUnread(session) {
+            Button("Mark as Read") { store.markRead(id) }
+        } else if store.selection != .session(id) {
+            Button("Mark as Unread") { store.markUnread(id) }
+        }
+        flagButton
+        Button("Archive") { store.archive(id) }
+        Divider()
+        CopySessionIDButton(sessionID: id)
+    }
+
+    @ViewBuilder
+    private var flagButton: some View {
+        if store.flaggedIDs.contains(id) {
+            Button("Unflag") { store.unflag(id) }
+        } else {
+            Button("Flag") { store.flag(id) }
+        }
+    }
+}
+
+private struct CopySessionIDButton: View {
+    let sessionID: String
+
+    var body: some View {
+        Button("Copy Session ID") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(sessionID, forType: .string)
         }
     }
 }
@@ -566,15 +654,23 @@ private struct HeaderButtonStyle: ButtonStyle {
 }
 
 private struct RowChrome: ViewModifier {
-    let id: String
-    let isSelected: Bool
+    let item: SidebarItem
+    let hoverID: String
     let isLocked: Bool
     let select: () -> Void
     @State private var isHovering = false
+    @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
 
+    private var isSelected: Bool {
+        if let cursor = store.sidebarCursor { return cursor == item }
+        if case let .session(id) = item { return store.tabs.first { $0.id == store.selectedTabID }?.sessionID == id }
+        return item == store.selectedTabID.map(SidebarItem.tab)
+    }
+
     func body(content: Content) -> some View {
-        let isHighlighted = isHovering || Snapshot.forcedHover.contains(id)
+        let isSelected = isSelected
+        let isHighlighted = isHovering || Snapshot.forcedHover.contains(hoverID)
         let fill = isSelected ? 0.1 : isHighlighted && !isLocked ? 0.05 : 0
         content
             .contentShape(.rect)

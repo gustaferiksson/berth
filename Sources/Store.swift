@@ -53,6 +53,7 @@ final class Store {
         }
     }
     var lockedSessionID: String?
+    var sidebarCursor: SidebarItem?
     var missingFolder: String?
     var editingGroup: CustomGroup?
     var isStatsRequested = false
@@ -96,6 +97,7 @@ final class Store {
     private(set) var activeSessions: [SessionSummary] = []
     private(set) var archivedSessions: [SessionSummary] = []
     private(set) var pinnedSessions: [SessionSummary] = []
+    private(set) var sessionsByID: [String: SessionSummary] = [:]
     private(set) var liveBySession: [String: LiveSession] = [:]
     private(set) var backgroundShellIDs: Set<String> = []
     private(set) var seenAt = UserDefaults.standard.dictionary(forKey: "seenSessions") as? [String: Date] ?? [:] {
@@ -188,11 +190,13 @@ final class Store {
 
         let split = SessionArchive.split(summaries, archivedAt: archivedAt)
         if hasScanned, split.kept != archivedAt { archivedAt = split.kept }
-        archivedSessions = split.archived
-        activeSessions = split.active
+        if split.archived != archivedSessions { archivedSessions = split.archived }
+        if split.active != activeSessions { activeSessions = split.active }
+        let byID = Dictionary((split.active + split.archived).map { ($0.id, $0) }) { first, _ in first }
+        if byID != sessionsByID { sessionsByID = byID }
         let pins = SessionPins.split(split.active, pinned: pinnedIDs)
         if hasScanned, pins.kept != pinnedIDs { pinnedIDs = pins.kept }
-        pinnedSessions = pins.pinned
+        if pins.pinned != pinnedSessions { pinnedSessions = pins.pinned }
         let fresh = grouping.groups(pins.rest)
         let folders = fresh.compactMap(\.folder)
         let known = Set(groupOrder)
@@ -200,11 +204,12 @@ final class Store {
         let automatic = fresh.filter { $0.custom == nil && $0.folder == nil } + groupOrder.compactMap { folder in fresh.first { $0.folder == folder } }
         let ordered = SessionGrouping.place(fresh.filter { $0.custom != nil }, among: automatic)
         let previous = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
-        groups = ordered.map { group in
+        let shownGroups = ordered.map { group in
             guard isPointerInSidebar, let shown = previous[group.id] else { return group }
             let rank = Dictionary(uniqueKeysWithValues: shown.sessions.enumerated().map { ($1.id, $0) })
             return SessionGroup(kind: group.kind, sessions: group.sessions.sorted { rank[$0.id, default: -1] < rank[$1.id, default: -1] })
         }
+        if shownGroups != groups { groups = shownGroups }
     }
 
     var grouping: SessionGrouping {
@@ -223,7 +228,8 @@ final class Store {
         pullRequestsFetchedAt = .now
         Task {
             let states = await Task.detached { await PullRequestStatus.fetch(links) }.value
-            pullRequestStates.merge(states) { $1 }
+            let merged = pullRequestStates.merging(states) { $1 }
+            if merged != pullRequestStates { pullRequestStates = merged }
         }
     }
 
@@ -253,7 +259,7 @@ final class Store {
                 guard let cwd = summaries.first(where: { $0.id == tabs[index].sessionID })?.cwd, cwd != tabs[index].cwd else { continue }
                 tabs[index].cwd = cwd
             }
-            hasScanned = true
+            if !hasScanned { hasScanned = true }
             applyGroups()
             refreshLive()
             if searchIndexTask != nil { updateSearchIndex() }
@@ -287,16 +293,17 @@ final class Store {
 
     func refreshLive() {
         let live = fakeLive + LiveSession.load(from: Self.claudeDirectory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
-        liveBySession = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
+        let byID = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
+        if byID != liveBySession { liveBySession = byID }
         // Claude reports `shell` only while idle; a turn shows `busy`, so keep the mark until it reports plain idle.
-        backgroundShellIDs = Set(liveBySession.values.filter { $0.activity == .shell || $0.activity != .idle && backgroundShellIDs.contains($0.sessionId) }.map(\.sessionId))
+        let shells = Set(liveBySession.values.filter { $0.activity == .shell || $0.activity != .idle && backgroundShellIDs.contains($0.sessionId) }.map(\.sessionId))
+        if shells != backgroundShellIDs { backgroundShellIDs = shells }
         let claimed = Set(tabs.compactMap(\.sessionID))
-        let orphans = live.filter { !claimed.contains($0.sessionId) && ProcessAncestry.isDescendant($0.pid, of: getpid()) }
-        for session in orphans {
+        for session in live where !claimed.contains(session.sessionId) {
             guard let position = tabs.firstIndex(where: { tab in
                 tab.kind == .claude && tab.cwd == session.cwd && tab.sessionID.map { liveBySession[$0] == nil } ?? true
                     && session.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) >= tab.opened } ?? false
-            }) else { continue }
+            }), ProcessAncestry.isDescendant(session.pid, of: getpid()) else { continue }
             tabs[position].sessionID = session.sessionId
         }
         let needsYou = NeedsYou.update(previous: waitingSessionIDs, live: Array(liveBySession.values), inBerth: Set(tabs.compactMap(\.sessionID)))
