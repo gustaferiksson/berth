@@ -4,11 +4,11 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, settings, checkForUpdates
+    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, reviewChanges, settings, checkForUpdates
 
     static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
-        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .settings, .checkForUpdates]
+        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .reviewChanges, .settings, .checkForUpdates]
     static let routedPastTerminal = ([.commandPalette] + palette).filter { $0.shortcut != nil }
 
     var title: String {
@@ -28,6 +28,7 @@ enum AppAction: Hashable {
         case .expandAllGroups: "Expand All Groups"
         case .showStats: "Show Stats"
         case .harbor: "Harbor"
+        case .reviewChanges: "Review Changes"
         case .settings: "Settings…"
         case .checkForUpdates: "Check for Updates…"
         }
@@ -44,6 +45,7 @@ enum AppAction: Hashable {
         case .groupBy: "sidebar"
         case .showStats: "usage tokens charts activity"
         case .harbor: "ambient boats piers overview"
+        case .reviewChanges: "diff pr branch comments"
         case .settings: "preferences"
         case .checkForUpdates: "update version release"
         default: ""
@@ -67,6 +69,7 @@ enum AppAction: Hashable {
         case .expandAllGroups: "rectangle.expand.vertical"
         case .showStats: "chart.bar.xaxis"
         case .harbor: "sailboat"
+        case .reviewChanges: "plus.forwardslash.minus"
         case .settings: "gear"
         case .checkForUpdates: "arrow.down.circle"
         }
@@ -82,6 +85,7 @@ enum AppAction: Hashable {
         case .clearTerminal: KeyboardShortcut("k", modifiers: [.command, .option])
         case let .groupBy(mode): KeyboardShortcut(KeyEquivalent(Character("\((GroupingMode.allCases.firstIndex(of: mode) ?? 0) + 1)")), modifiers: [.control, .command])
         case .showStats: KeyboardShortcut("s", modifiers: [.command, .shift])
+        case .reviewChanges: KeyboardShortcut("r", modifiers: [.command, .shift])
         case .settings: KeyboardShortcut(",")
         default: nil
         }
@@ -94,6 +98,7 @@ enum AppAction: Hashable {
         case .flagCurrentSession: if case let .session(id) = store.selection { !store.flaggedIDs.contains(id) } else { false }
         case .unflagCurrentSession: if case let .session(id) = store.selection { store.flaggedIDs.contains(id) } else { false }
         case let .groupBy(mode): store.groupingMode != mode
+        case .reviewChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.tabs.first { $0.id == store.selectedTabID }.map { $0.kind == .claude && $0.sessionID != nil } == true
         default: true
         }
     }
@@ -115,6 +120,7 @@ enum AppAction: Hashable {
         case .expandAllGroups: store.setGroupsExpanded(true)
         case .showStats: store.isStatsRequested = true
         case .harbor: store.isHarborShown.toggle()
+        case .reviewChanges: store.toggleReview()
         case .settings: store.isSettingsRequested = true
         case .checkForUpdates: store.updater.check(.manual)
         }

@@ -1,0 +1,103 @@
+:root {
+  --bg: #282c34;
+  --fg: #abb2bf;
+  --contrast: #fff;
+  --sel: #3e4451;
+  --red: #e06c75;
+  --green: #98c379;
+  --yellow: #e5c07b;
+  --blue: #61afef;
+  --mag: #c678dd;
+  --cyan: #56b6c2;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --hi: color-mix(in srgb, var(--fg) 75%, var(--contrast));
+  --sec: color-mix(in srgb, var(--fg) 62%, var(--bg));
+  --line: color-mix(in srgb, var(--fg) 13%, transparent);
+  --wash: color-mix(in srgb, var(--fg) 7%, transparent);
+  --wash2: color-mix(in srgb, var(--fg) 13%, transparent);
+  --raised: color-mix(in srgb, var(--fg) 6%, var(--bg));
+}
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+html, body { height: 100% }
+body { margin: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); color: var(--fg); font: 13px/1.35 -apple-system, system-ui, sans-serif; -webkit-font-smoothing: antialiased }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; padding: 0 }
+button:disabled { cursor: default; opacity: .45 }
+:focus-visible { outline: 2px solid color-mix(in srgb, var(--blue) 70%, transparent); outline-offset: -2px }
+
+.rvh { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); flex: none; min-width: 0; white-space: nowrap }
+.rvh .sp { flex: 1 }
+.seg { display: inline-flex; padding: 2px; border-radius: 7px; background: var(--wash); flex: none }
+.seg button { padding: 3px 10px; border-radius: 5px; font-size: 12px; color: var(--sec) }
+.seg button:not(:disabled):hover { color: var(--hi) }
+.seg button.on { background: var(--wash2); color: var(--hi) }
+.meta { font-size: 11.5px; color: var(--sec); display: inline-flex; gap: 6px; align-items: center; overflow: hidden; text-overflow: ellipsis }
+.meta code { font: 11.5px var(--mono); color: var(--cyan) }
+.add { color: var(--green) }
+.del { color: var(--red) }
+#error { color: var(--yellow) }
+.icon { width: 26px; height: 26px; border-radius: 7px; color: var(--sec); font-size: 15px; display: grid; place-items: center }
+.icon:hover { background: var(--wash); color: var(--hi) }
+
+.rvb { flex: 1; min-height: 0; display: flex }
+.files { width: 260px; flex: none; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0 }
+.modes { margin: 8px 8px 4px; display: flex }
+.modes button { flex: 1; padding: 3px 2px; white-space: nowrap; font-size: 11.5px }
+.tree { flex: 1; min-height: 0; overflow: auto; padding: 4px 6px 8px; outline: none }
+.sf { display: flex; gap: 6px; align-items: center; height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; color: var(--fg); cursor: pointer; white-space: nowrap; min-width: 0 }
+.sf:hover { background: var(--wash) }
+.sf.on { background: color-mix(in srgb, var(--blue) 16%, transparent); color: var(--hi) }
+.tree:focus-visible .sf.on { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 55%, transparent) }
+.sf .nm { overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+.sf .dir { flex: 1 1 0; color: var(--sec); font-size: 11px; overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+.sf.dimf { color: var(--sec) }
+.sf.dimf.on { color: var(--hi) }
+.sf.fold { gap: 4px }
+.chev { width: 12px; flex: none; color: var(--sec); font-size: 9px; text-align: center }
+.chg { width: 5px; height: 5px; border-radius: 50%; background: var(--yellow); flex: none; margin-left: 2px }
+.st { font: 10px var(--mono); width: 10px; flex: none; color: var(--yellow) }
+.st.A { color: var(--green) }
+.st.D { color: var(--red) }
+.st.R { color: var(--blue) }
+.sf.D .nm { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--red) 60%, transparent) }
+.cb { font-size: 10px; color: var(--yellow); flex: none }
+.cnt { margin-left: auto; font: 10.5px var(--mono); flex: none; padding-left: 4px }
+.cnt .del { margin-left: 4px }
+.dirty { color: var(--yellow); font-size: 9px; flex: none }
+
+.cpanel { flex: none; max-height: 45%; display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding: 10px 8px 10px }
+.cpanel h4 { margin: 0; font-size: 11px; color: var(--sec); font-weight: 600; display: flex; justify-content: space-between }
+.clist { display: grid; gap: 4px; overflow: auto; min-height: 0 }
+.ci { font-size: 12px; padding: 6px 8px; border-radius: 6px; background: var(--wash); cursor: pointer }
+.ci:hover { background: var(--wash2) }
+.ci code { display: block; font: 10.5px var(--mono); color: var(--blue) }
+.ci span { color: var(--hi); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
+.btn { display: inline-flex; gap: 6px; align-items: center; justify-content: center; height: 26px; padding: 0 10px; border-radius: 7px; background: var(--wash2); color: var(--hi); font-size: 12px; white-space: nowrap }
+.btn.pri { background: var(--blue); color: var(--bg); font-weight: 600 }
+.btn.ghost { background: none; color: var(--sec) }
+.btn.ghost:hover { color: var(--hi) }
+.kbd { font: 10.5px var(--mono); opacity: .7 }
+
+.diffs { flex: 1; min-width: 0; display: flex; flex-direction: column }
+.fh { display: flex; align-items: center; gap: 8px; padding: 7px 14px; background: var(--wash); border-bottom: 1px solid var(--line); flex: none; font-size: 12px; white-space: nowrap; min-width: 0 }
+.fh b { font: 500 12px var(--mono); color: var(--hi) }
+.fh .dirn { font: 12px var(--mono); color: var(--sec); overflow: hidden; text-overflow: ellipsis; min-width: 0 }
+.fh .sp { flex: 1 }
+.fh .edited { font-size: 11px; color: var(--yellow) }
+.fh .saved { font-size: 11px; color: var(--green) }
+.host { flex: 1; min-height: 0 }
+.notice { flex: 1; display: grid; place-items: center; color: var(--sec); font-size: 13px }
+
+.add-comment-glyph { cursor: pointer }
+.add-comment-glyph::before { content: "+"; display: grid; place-items: center; width: 16px; height: 16px; margin: 1px 0 0 2px; border-radius: 4px; background: var(--blue); color: var(--bg); font: 700 13px/1 -apple-system, sans-serif }
+.thread { position: absolute; padding: 4px 14px 6px 8px; font: 12px/1.4 -apple-system, system-ui, sans-serif }
+.thread > div { padding: 8px 10px; border-radius: 8px; background: var(--raised); box-shadow: 0 0 0 1px var(--line); max-width: 680px }
+.thread header { display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--sec); margin-bottom: 3px }
+.thread header .sp { flex: 1 }
+.thread p { margin: 0; color: var(--hi); white-space: pre-wrap; overflow-wrap: anywhere }
+.thread.compose > div { box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 50%, transparent) }
+.thread textarea { display: block; width: 100%; min-height: 54px; padding: 6px 8px; border: 0; border-radius: 6px; background: color-mix(in srgb, var(--bg) 70%, #000); color: var(--hi); font: inherit; resize: vertical; outline: none }
+.thread footer { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; align-items: center }
+.thread footer .meta { margin-right: auto }
+.link { font-size: 11px; color: var(--sec) }
+.link:hover { color: var(--hi) }

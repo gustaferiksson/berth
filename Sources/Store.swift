@@ -49,6 +49,7 @@ final class Store {
         didSet {
             if let oldValue { tabTouches[oldValue] = .now }
             if let oldValue, let sessionID = tabs.first(where: { $0.id == oldValue })?.sessionID { seenAt[sessionID] = .now }
+            if selectedTabID != oldValue { reviewSessionID = nil }
             saveOpenTabs()
         }
     }
@@ -60,16 +61,25 @@ final class Store {
     var isSettingsRequested = false
     var isHarborShown = false {
         didSet {
-            guard oldValue, !isHarborShown, let terminal = focusedTerminal else { return }
+            if isHarborShown { reviewSessionID = nil }
+            guard oldValue, !isHarborShown, reviewSessionID == nil, let terminal = focusedTerminal else { return }
             DispatchQueue.main.async { terminal.requestFocus() }
         }
     }
+    var reviewSessionID: String? {
+        didSet {
+            guard oldValue != nil, reviewSessionID == nil, !isHarborShown, let terminal = focusedTerminal else { return }
+            DispatchQueue.main.async { terminal.requestFocus() }
+        }
+    }
+    @ObservationIgnored var reviewComments: [String: [ReviewComment]] = [:]
+    @ObservationIgnored var reviewControllers: [String: ReviewController] = [:]
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
         didSet {
             guard oldValue != nil, launcherMode == nil else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self, !isHarborShown else { return }
+                guard let self, !isHarborShown, reviewSessionID == nil else { return }
                 focusedTerminal?.requestFocus()
             }
         }
@@ -123,6 +133,7 @@ final class Store {
     @ObservationIgnored var lastKeyInput = Date.distantPast
     #if DEBUG
     @ObservationIgnored var probeOpenedClaude: [String] = []
+    @ObservationIgnored var probeReview: [String] = []
     #endif
     @ObservationIgnored private var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -352,6 +363,7 @@ final class Store {
         workingSessionCount == 0
             && lastKeyInput.timeIntervalSinceNow < -30
             && !terminals.contains { $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
+            && reviewControllers.values.allSatisfy(\.dirtyPaths.isEmpty)
     }
 
     var selection: SidebarItem? {
@@ -367,6 +379,7 @@ final class Store {
         selectedTabID = tab.id
         recentTabIDs = [tab.id] + recentTabIDs.filter { $0 != tab.id }
         isHarborShown = false
+        reviewSessionID = nil
         tab.terminal.requestFocus()
     }
 
@@ -411,6 +424,12 @@ final class Store {
         launcherMode = nil
         openShell(cwd: currentCwd)
         activate(selectedTabID.map(SidebarItem.tab))
+    }
+
+    func toggleReview() {
+        launcherMode = nil
+        reviewSessionID = reviewSessionID == nil ? tabs.first { $0.id == selectedTabID }?.sessionID : nil
+        isHarborShown = false
     }
 
     func switchTerminal() {
@@ -567,7 +586,8 @@ final class Store {
 
     func close(_ id: Tab.ID) {
         let processes = ProcessAncestry.descendants()
-        if let pid = tabs.first(where: { $0.id == id })?.sessionID.flatMap({ liveBySession[$0]?.pid }), ProcessAncestry.isDescendant(pid, of: getpid()) {
+        let sessionID = tabs.first { $0.id == id }?.sessionID
+        if let pid = sessionID.flatMap({ liveBySession[$0]?.pid }), ProcessAncestry.isDescendant(pid, of: getpid()) {
             for signal in [SIGHUP, SIGTERM] { kill(pid, signal) }
         }
         Task {
@@ -575,6 +595,10 @@ final class Store {
             ProcessAncestry.hangUpOrphans(of: processes)
             try? await Task.sleep(for: .seconds(1))
             refreshLive()
+        }
+        if let sessionID {
+            reviewControllers[sessionID]?.tearDown()
+            reviewComments[sessionID] = nil
         }
         tabs.removeAll { $0.id == id }
         recentTabIDs.removeAll { $0 == id }
