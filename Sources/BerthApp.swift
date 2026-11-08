@@ -12,6 +12,12 @@ private let settingsSnapshot: URL? = nil
 @main
 struct BerthApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
+
+    init() {
+        guard Snapshot.output != nil, UserDefaults.standard.string(forKey: "snapshotReview") != nil else { return }
+        UserDefaults.standard.register(defaults: [GeneralSettings.reviewKey: true])
+    }
 
     var body: some Scene {
         Window("Berth", id: "main") {
@@ -53,6 +59,9 @@ struct BerthApp: App {
                 Divider()
                 AppAction.showStats.menuButton(appDelegate.store)
                 Toggle(AppAction.harbor.title, isOn: Bindable(appDelegate.store).isHarborShown)
+                if isReviewEnabled {
+                    AppAction.reviewChanges.menuButton(appDelegate.store)
+                }
             }
         }
 
@@ -102,11 +111,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && $0.shortcut.map { String($0.key.character) } == event.charactersIgnoringModifiers?.lowercased() }) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && $0.shortcut.map { String($0.key.character) } == event.charactersIgnoringModifiers?.lowercased() }), action != .reviewChanges || action.isAvailable(in: store) {
                 action.perform(on: store)
                 return nil
             }
             guard flags == .command else { return event }
+            if event.charactersIgnoringModifiers == "w", store.reviewSessionID != nil {
+                store.reviewSessionID = nil
+                return nil
+            }
             if let number = event.charactersIgnoringModifiers.flatMap(Int.init), (1...9).contains(number) {
                 store.selectTab(number: number)
                 return nil

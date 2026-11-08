@@ -1,6 +1,7 @@
 import BerthCore
 import AppKit
 import SwiftUI
+import WebKit
 
 enum Snapshot {
     #if DEBUG
@@ -174,6 +175,12 @@ enum Snapshot {
         if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
             store.activate(.session(sessionID))
         }
+        let reviewFolder = UserDefaults.standard.string(forKey: "snapshotReview")
+        if let reviewFolder {
+            store.openShell(cwd: reviewFolder)
+            store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: reviewFolder, sessionID: "snapshot-review", terminal: $0.terminal) : $0 }
+            if AppAction.reviewChanges.isAvailable(in: store) { AppAction.reviewChanges.perform(on: store) }
+        }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
             store.openClaude(cwd: cwd)
         }
@@ -195,6 +202,25 @@ enum Snapshot {
         window.setContentSize(editedGroup != nil ? hosting.view.fittingSize : showsStats ? NSSize(width: 960, height: 800) : NSSize(width: 1200, height: 760))
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderFrontRegardless()
+        var reviewWebView: WKWebView?
+        let reviewEval = UserDefaults.standard.string(forKey: "snapshotReviewEval")
+        if reviewFolder != nil {
+            try? await Task.sleep(for: .milliseconds(200))
+            var views = window.contentView.map { [$0] } ?? []
+            while let view = views.popLast() {
+                reviewWebView = reviewWebView ?? view as? WKWebView
+                views.append(contentsOf: view.subviews)
+            }
+            let deadline = Date.now + 20
+            while Date.now < deadline, store.reviewSessionID != nil, !store.probeReview.contains(where: { $0.hasPrefix("out file") }) { try? await Task.sleep(for: .milliseconds(100)) }
+            try? await Task.sleep(for: .seconds(2))
+            if let reviewEval, let reviewWebView {
+                do { print("review eval: \(String(describing: try await reviewWebView.evaluateJavaScript(reviewEval)))") } catch { print("review eval failed: \(error)") }
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            for event in store.probeReview { print("review \(event)") }
+            store.probeReview = []
+        }
         if showsStats {
             let start = ContinuousClock.now
             let before = footprint()
@@ -260,17 +286,18 @@ enum Snapshot {
             let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
-            window.makeFirstResponder(store.focusedTerminal?.attachedPlatformView ?? window.contentView)
+            window.makeFirstResponder(store.reviewSessionID != nil ? reviewWebView : store.focusedTerminal?.attachedPlatformView ?? window.contentView)
+            if store.reviewSessionID != nil { _ = try? await reviewWebView?.evaluateJavaScript("diffEditor.getModifiedEditor().focus()") }
             let state = {
                 let focused = store.tabs.firstIndex { $0.terminal.attachedPlatformView === window.firstResponder }.map { "#\($0)" } ?? window.firstResponder.map { "\(type(of: $0))" } ?? "nil"
-                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent })"
+                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), review \(store.reviewSessionID != nil), dirty \(store.reviewControllers.values.flatMap(\.dirtyPaths))"
             }
             print("start: \(state())")
             print("key window is snapshot: \(NSApp.keyWindow === window), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             let observer = NotificationCenter.default.addObserver(forName: NSMenu.willSendActionNotification, object: nil, queue: nil) { note in
                 print("  menu action: \((note.userInfo?["MenuItem"] as? NSMenuItem)?.title ?? "?")")
             }
-            let keyCodes: [String: UInt16] = ["a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "3": 20, "9": 25, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27]
+            let keyCodes: [String: UInt16] = ["r": 15, "x": 7, "z": 6, "a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "3": 20, "9": 25, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27]
             let flagNames: [String: NSEvent.ModifierFlags] = ["cmd": .command, "shift": .shift, "alt": .option, "ctrl": .control]
             for spec in keys.split(separator: " ").map(String.init) {
                 if spec.hasPrefix("browse"), let index = Int(spec.dropFirst(6)), store.sidebarOrderedTabs.indices.contains(index) {
@@ -296,6 +323,9 @@ enum Snapshot {
                 try? await Task.sleep(for: .milliseconds(400))
                 let others = NSApp.windows.filter { $0 !== window && $0.isVisible }
                 print("  launcher \(String(describing: store.launcherMode)), \(state()), grouping \(store.groupingMode), windows \(others.map { $0.identifier?.rawValue ?? $0.title })")
+                if store.reviewSessionID != nil, let reviewEval, let reviewWebView { print("  review eval: \(String(describing: try? await reviewWebView.evaluateJavaScript(reviewEval)))") }
+                store.probeReview.forEach { print("  review \($0)") }
+                store.probeReview = []
                 others.forEach { $0.close() }
                 store.launcherMode = nil
                 try? await Task.sleep(for: .milliseconds(100))
@@ -338,6 +368,13 @@ enum Snapshot {
                 print("  \(item.state == .on ? "✓" : " ") \(item.title) \(item.keyEquivalentModifierMask.contains(.control) ? "⌃" : "")\(item.keyEquivalent)")
             }
         }
+        var views = window.contentView.map { [$0] } ?? []
+        var webViews = 0
+        while let view = views.popLast() {
+            if view is WKWebView { webViews += 1 }
+            views.append(contentsOf: view.subviews)
+        }
+        print("web views: \(webViews), review \(store.reviewSessionID ?? "off")")
         print("shell starts: \((try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0)")
         for tab in store.tabs { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-") pwd=\(tab.terminal.workingDirectory ?? "-") title=\(tab.terminal.title)") }
         guard !NSScreen.screens.contains(where: { $0.frame.intersects(window.frame) }) else { fail("window is on screen") }
