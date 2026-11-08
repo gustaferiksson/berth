@@ -29,6 +29,9 @@ targets:
     sources:
       - path: Sources
       - path: Resources/AppIcon.icon
+      - path: Resources/Review
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: BerthCore
       - package: GhosttyKit

@@ -13,6 +13,7 @@ struct ContentView: View {
     @AppStorage("trailingSidebarWidth") private var trailingSidebarWidth = 300.0
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
     @AppStorage("showsTrailingSidebar") private var showsTrailingSidebar = true
+    @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -77,6 +78,16 @@ struct ContentView: View {
                     }
                     .help("Switch between terminal and Claude (⌘J)")
                 }
+                if isReviewEnabled, AppAction.reviewChanges.isAvailable(in: store) {
+                    ToolbarItem {
+                        Picker("Mode", selection: Binding(get: { store.reviewSessionID != nil }, set: { _ in AppAction.reviewChanges.perform(on: store) })) {
+                            Text("Agent").tag(false)
+                            Text("Review").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                        .help("Switch between the Claude session and reviewing its changes (⇧⌘R)")
+                    }
+                }
                 if isTrailing {
                     ToolbarItem {
                         Button(showsTrailingSidebar ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right") {
@@ -96,6 +107,12 @@ struct ContentView: View {
             store.refreshPullRequests()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
+        .onChange(of: isReviewEnabled) {
+            guard !isReviewEnabled else { return }
+            store.reviewSessionID = nil
+            store.reviewControllers.values.forEach { $0.tearDown() }
+            store.reviewComments = [:]
+        }
         .onChange(of: store.isStatsRequested) {
             guard store.isStatsRequested else { return }
             store.isStatsRequested = false
@@ -122,9 +139,10 @@ struct ContentView: View {
 
 extension ContentView {
     private var sessions: some View {
-        ZStack {
+        let reviewed = isReviewEnabled ? store.tabs.first { $0.id == store.selectedTabID && $0.sessionID != nil && $0.sessionID == store.reviewSessionID } : nil
+        return ZStack {
             ForEach(store.tabs) { tab in
-                let isSelected = tab.id == store.selectedTabID && !store.isHarborShown
+                let isSelected = tab.id == store.selectedTabID && !store.isHarborShown && reviewed == nil
                 TerminalSurfaceView(context: tab.terminal)
                     .opacity(isSelected ? 1 : 0)
                     .allowsHitTesting(isSelected)
@@ -132,6 +150,9 @@ extension ContentView {
             }
             if store.isHarborShown {
                 Harbor()
+            } else if let reviewed, let sessionID = reviewed.sessionID {
+                ReviewView(sessionID: sessionID, folder: reviewed.cwd)
+                    .id(sessionID)
             } else if store.tabs.isEmpty {
                 ContentUnavailableView("No Open Session", systemImage: "terminal", description: Text("Pick a session in the sidebar, or start one with ⌘N."))
             }
