@@ -80,12 +80,9 @@ struct ContentView: View {
                 }
                 if isReviewEnabled, AppAction.reviewChanges.isAvailable(in: store) {
                     ToolbarItem {
-                        Picker("Mode", selection: Binding(get: { store.reviewSessionID != nil }, set: { _ in AppAction.reviewChanges.perform(on: store) })) {
-                            Text("Agent").tag(false)
-                            Text("Review").tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                        .help("Switch between the Claude session and reviewing its changes (⇧⌘R)")
+                        Toggle(AppAction.reviewChanges.title, systemImage: AppAction.reviewChanges.symbol, isOn: Binding(get: { store.reviewSessionID != nil }, set: { _ in AppAction.reviewChanges.perform(on: store) }))
+                            .toggleStyle(.button)
+                            .help("Review Changes (⇧⌘R)")
                     }
                 }
                 if isTrailing {
@@ -110,8 +107,7 @@ struct ContentView: View {
         .onChange(of: isReviewEnabled) {
             guard !isReviewEnabled else { return }
             store.reviewSessionID = nil
-            store.reviewControllers.values.forEach { $0.tearDown() }
-            store.reviewComments = [:]
+            store.reviewModels = [:]
         }
         .onChange(of: store.isStatsRequested) {
             guard store.isStatsRequested else { return }
@@ -150,8 +146,8 @@ extension ContentView {
             }
             if store.isHarborShown {
                 Harbor()
-            } else if let reviewed, let sessionID = reviewed.sessionID {
-                ReviewView(sessionID: sessionID, folder: reviewed.cwd)
+            } else if let sessionID = reviewed?.sessionID, let model = store.reviewModels[sessionID] {
+                ReviewView(sessionID: sessionID, model: model)
                     .id(sessionID)
             } else if store.tabs.isEmpty {
                 ContentUnavailableView("No Open Session", systemImage: "terminal", description: Text("Pick a session in the sidebar, or start one with ⌘N."))

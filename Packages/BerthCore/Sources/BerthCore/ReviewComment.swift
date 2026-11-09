@@ -1,12 +1,21 @@
 import Foundation
 
-public struct ReviewComment: Sendable, Hashable, Codable {
+public struct ReviewComment: Sendable, Hashable, Identifiable {
     public let id: String
     public let path: String
     public let line: Int
     public let endLine: Int
     public let text: String
     public let snippet: String
+
+    public init(id: String, path: String, line: Int, endLine: Int, text: String, snippet: String) {
+        self.id = id
+        self.path = path
+        self.line = line
+        self.endLine = endLine
+        self.text = text
+        self.snippet = snippet
+    }
 
     public static func prompt(for comments: [ReviewComment], branch: String, base: String) -> String {
         let printable = { (text: String) in String(String.UnicodeScalarView(text.unicodeScalars.filter { $0 == "\n" || $0 == "\t" || ($0.value >= 0x20 && $0.value != 0x7F) })) }

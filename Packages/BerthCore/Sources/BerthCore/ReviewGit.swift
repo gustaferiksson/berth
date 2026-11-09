@@ -1,14 +1,8 @@
 import Foundation
 import os
 
-public enum ReviewCompare: Sendable, Hashable {
-    case allChanges
-    case uncommitted
-    case pullRequest(Int)
-}
-
-public struct ReviewFile: Sendable, Hashable, Codable {
-    public enum Status: String, Sendable, Codable {
+public struct ReviewFile: Sendable, Hashable {
+    public enum Status: String, Sendable {
         case added = "A"
         case modified = "M"
         case deleted = "D"
@@ -32,15 +26,12 @@ public struct ReviewFile: Sendable, Hashable, Codable {
 
 public struct ReviewSnapshot: Sendable {
     public let root: String
-    public let compare: ReviewCompare
+    public let branch: String
     public let base: String
     public let mergeBase: String
-    public let modifiedRevision: String?
     public let files: [ReviewFile]
     public let fetchedAt: Date?
     public let fetchError: String?
-
-    public var isEditable: Bool { modifiedRevision == nil }
 }
 
 public enum ReviewText: Sendable, Equatable {
@@ -52,13 +43,16 @@ public enum ReviewText: Sendable, Equatable {
 public struct ReviewContents: Sendable, Equatable {
     public let original: ReviewText?
     public let modified: ReviewText?
+
+    public init(original: ReviewText?, modified: ReviewText?) {
+        self.original = original
+        self.modified = modified
+    }
 }
 
 public enum ReviewGitError: Error, Equatable {
     case git(arguments: [String], message: String)
-    case noBase
     case pathOutsideRoot(String)
-    case fetchFailed(String)
 }
 
 public enum ReviewGit {
@@ -66,31 +60,16 @@ public enum ReviewGit {
     private static let binaryProbeBytes = 8000
     private static let fetches = FetchThrottle()
 
-    public static func snapshot(_ compare: ReviewCompare, in folder: String) async throws -> ReviewSnapshot {
+    public static func snapshot(in folder: String) async throws -> ReviewSnapshot {
         let root = try await line(["rev-parse", "--show-toplevel"], in: folder)
-
-        if compare == .uncommitted {
-            let head = try await line(["rev-parse", "--verify", "HEAD^{commit}"], in: root)
-            let files = try await workingTreeChanges(from: head, in: root)
-            return ReviewSnapshot(root: root, compare: compare, base: "HEAD", mergeBase: head, modifiedRevision: nil, files: files, fetchedAt: nil, fetchError: nil)
-        }
-
-        guard let base = await base(in: root) else { throw ReviewGitError.noBase }
+        let branch = (try? await line(["rev-parse", "--abbrev-ref", "HEAD"], in: root)) ?? "HEAD"
+        let base = await base(in: root) ?? "HEAD"
         let baseRefspecs = base.hasPrefix("origin/") ? ["+refs/heads/\(base.dropFirst("origin/".count)):refs/remotes/\(base)"] : []
-
-        if case .pullRequest(let number) = compare {
-            let ref = "refs/berth/review/pr-\(number)"
-            let fetch = await fetches.fetch(baseRefspecs + ["+refs/pull/\(number)/head:\(ref)"], in: root)
-            guard let head = try? await line(["rev-parse", "--verify", "\(ref)^{commit}"], in: root) else { throw ReviewGitError.fetchFailed(fetch.error ?? ref) }
-            let mergeBase = try await line(["merge-base", base, head], in: root)
-            let diff = try await git(["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", "--no-color", mergeBase, head], in: root)
-            return ReviewSnapshot(root: root, compare: compare, base: base, mergeBase: mergeBase, modifiedRevision: head, files: changes(diff), fetchedAt: fetch.fetchedAt, fetchError: fetch.error)
-        }
 
         let fetch = await (baseRefspecs.isEmpty ? nil : fetches.fetch(baseRefspecs, in: root))
         let mergeBase = try await line(["merge-base", base, "HEAD"], in: root)
         let files = try await workingTreeChanges(from: mergeBase, in: root)
-        return ReviewSnapshot(root: root, compare: compare, base: base, mergeBase: mergeBase, modifiedRevision: nil, files: files, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
+        return ReviewSnapshot(root: root, branch: branch, base: base, mergeBase: mergeBase, files: files, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
     }
 
     public static func base(in root: String) async -> String? {
@@ -108,21 +87,10 @@ public enum ReviewGit {
         return nil
     }
 
-    public static func originRepository(in folder: String) async -> String? {
-        guard let url = try? await line(["remote", "get-url", "origin"], in: folder),
-              let match = url.firstMatch(of: /github\.com[:\/]([^\/]+\/[^\/]+?)(?:\.git)?\/?$/)
-        else { return nil }
-        return String(match.1)
-    }
-
     public static func contents(of file: ReviewFile, in snapshot: ReviewSnapshot) async throws -> ReviewContents {
         let original = try await (file.status == .added ? nil : blob(snapshot.mergeBase, path: file.oldPath ?? file.path, in: snapshot.root))
 
         if file.status == .deleted { return ReviewContents(original: original, modified: nil) }
-        if let revision = snapshot.modifiedRevision {
-            return ReviewContents(original: original, modified: try await blob(revision, path: file.path, in: snapshot.root))
-        }
-
         return ReviewContents(original: original, modified: try workingTreeText(file.path, in: snapshot.root))
     }
 
@@ -137,11 +105,6 @@ public enum ReviewGit {
         let data = try Data(contentsOf: url)
         guard !data.prefix(binaryProbeBytes).contains(0), let text = String(data: data, encoding: .utf8) else { return .binary }
         return .text(text)
-    }
-
-    public static func projectFiles(in root: String) async throws -> [String] {
-        let output = try await git(["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z"], in: root)
-        return output.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
     }
 
     public static func save(_ text: String, to path: String, in root: String) throws {

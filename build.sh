@@ -21,8 +21,6 @@ MARKETING_VERSION="${MARKETING_VERSION:-$(git describe --tags --always --dirty 2
 SIGN_ARGS+=( "MARKETING_VERSION=${MARKETING_VERSION}" )
 [[ -n "${CURRENT_PROJECT_VERSION:-}" ]] && SIGN_ARGS+=( "CURRENT_PROJECT_VERSION=${CURRENT_PROJECT_VERSION}" )
 
-./scripts/fetch-monaco.sh
-
 echo "▸ Generating Xcode project…"
 xcodegen generate --quiet
 

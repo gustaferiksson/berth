@@ -45,7 +45,7 @@ enum AppAction: Hashable {
         case .groupBy: "sidebar"
         case .showStats: "usage tokens charts activity"
         case .harbor: "ambient boats piers overview"
-        case .reviewChanges: "diff pr branch comments"
+        case .reviewChanges: "diff branch changes comments"
         case .settings: "preferences"
         case .checkForUpdates: "update version release"
         default: ""
