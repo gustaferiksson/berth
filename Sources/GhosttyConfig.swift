@@ -115,7 +115,7 @@ struct GhosttyTheme: Equatable {
         series = slots.enumerated().map { index, slot in
             slots[(index + 1)...].contains { values[$0.0] == values[slot.0] } ? slot.1 : readable(slot.0, slot.1, 3)
         }
-        let fontSize = values["font-size"].flatMap(Double.init) ?? 12
+        let fontSize = values["font-size"].flatMap(Double.init) ?? 13
         font = values["font-family"].flatMap { NSFontManager.shared.font(withFamily: $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")), traits: [], weight: 5, size: fontSize) } ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
     }
 }

@@ -71,16 +71,4 @@ enum ReviewHighlighter {
         if pathExtension == "css" { return css }
         return nil
     }
-
-    static func color(for capture: String, theme: GhosttyTheme) -> NSColor {
-        let kind = String(capture.prefix { $0 != "." })
-        if ["property", "attribute"].contains(kind) || ["string.special.key", "variable.member"].contains(capture) { return NSColor(theme.closed) }
-        if kind == "comment" { return NSColor(theme.secondary) }
-        if ["keyword", "charset", "import", "keyframes", "media", "namespace", "supports"].contains(kind) || capture == "text.title" { return NSColor(theme.merged) }
-        if ["string", "character", "escape"].contains(kind) || capture == "text.literal" { return NSColor(theme.working) }
-        if ["number", "boolean", "constant"].contains(kind) { return NSColor(theme.needsYou) }
-        if ["type", "constructor", "tag"].contains(kind) { return NSColor(theme.branch) }
-        if kind == "function" || ["text.uri", "text.reference"].contains(capture) { return NSColor(theme.unread) }
-        return NSColor(theme.foreground)
-    }
 }

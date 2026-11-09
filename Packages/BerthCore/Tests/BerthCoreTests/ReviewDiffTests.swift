@@ -14,13 +14,9 @@ struct SplitMix64: RandomNumberGenerator {
 }
 
 struct ReviewDiffTests {
-    func visualRow(_ line: Int, _ side: ReviewDiff.Side) -> Int {
-        line + side.fillerBeforeFirstLine + side.fillerAfterLine.filter { $0.key < line }.values.reduce(0, +)
-    }
-
     func startRow(_ lines: Range<Int>, _ side: ReviewDiff.Side) -> Int {
-        if !lines.isEmpty { return visualRow(lines.lowerBound, side) }
-        return lines.lowerBound == 0 ? 0 : visualRow(lines.lowerBound - 1, side) + 1
+        if !lines.isEmpty { return side.rows[lines.lowerBound] }
+        return lines.lowerBound == 0 ? 0 : side.rows[lines.lowerBound - 1] + 1
     }
 
     func assertAligned(_ original: String, _ modified: String, sourceLocation: SourceLocation = #_sourceLocation) -> ReviewDiff {
@@ -29,14 +25,16 @@ struct ReviewDiffTests {
         let newLines = modified.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false).map { String(String.UnicodeScalarView($0)).replacing(/\r$/, with: "") }
         #expect(diff.original.lineCount == oldLines.count, sourceLocation: sourceLocation)
         #expect(diff.modified.lineCount == newLines.count, sourceLocation: sourceLocation)
-        #expect(visualRow(diff.original.lineCount, diff.original) == visualRow(diff.modified.lineCount, diff.modified), sourceLocation: sourceLocation)
+        #expect(diff.original.rows.count == oldLines.count && diff.modified.rows.count == newLines.count, sourceLocation: sourceLocation)
+        #expect(diff.original.rowCount == diff.modified.rowCount, sourceLocation: sourceLocation)
+        #expect(diff.original.rows == diff.original.rows.sorted() && Set(diff.original.rows + diff.modified.rows).count == diff.original.rowCount, sourceLocation: sourceLocation)
 
         let unchangedOld = (0..<oldLines.count).filter { !diff.original.changedLines.contains($0) }
         let unchangedNew = (0..<newLines.count).filter { !diff.modified.changedLines.contains($0) }
         #expect(unchangedOld.count == unchangedNew.count, sourceLocation: sourceLocation)
         for (old, new) in zip(unchangedOld, unchangedNew) {
             #expect(oldLines[old] == newLines[new], sourceLocation: sourceLocation)
-            #expect(visualRow(old, diff.original) == visualRow(new, diff.modified), sourceLocation: sourceLocation)
+            #expect(diff.original.rows[old] == diff.modified.rows[new], sourceLocation: sourceLocation)
         }
         for hunk in diff.hunks {
             #expect(startRow(hunk.originalLines, diff.original) == startRow(hunk.modifiedLines, diff.modified), sourceLocation: sourceLocation)
@@ -52,15 +50,15 @@ struct ReviewDiffTests {
         let diff = assertAligned("a\nb\nc\n", "a\nb\nc\n")
         #expect(diff.hunks.isEmpty)
         #expect(diff.original.changedLines.isEmpty && diff.modified.changedLines.isEmpty)
-        #expect(diff.original.fillerAfterLine.isEmpty && diff.modified.fillerAfterLine.isEmpty)
+        #expect(diff.original.rows == [0, 1, 2, 3] && diff.modified.rows == [0, 1, 2, 3])
     }
 
     @Test func replacedBlockPadsTheShorterSideAfterItsBlock() {
         let diff = assertAligned("a\nx1\nx2\nx3\nb\n", "a\ny1\ny2\ny3\ny4\ny5\nb\n")
         #expect(Array(diff.original.changedLines) == [1, 2, 3])
         #expect(Array(diff.modified.changedLines) == [1, 2, 3, 4, 5])
-        #expect(diff.original.fillerAfterLine == [3: 2])
-        #expect(diff.modified.fillerAfterLine.isEmpty)
+        #expect(diff.original.rows == [0, 1, 2, 3, 6, 7])
+        #expect(diff.modified.rows == Array(0..<8))
         #expect(diff.hunks == [ReviewDiff.Hunk(originalLines: 1..<4, modifiedLines: 1..<6)])
     }
 
@@ -68,33 +66,32 @@ struct ReviewDiffTests {
         let diff = assertAligned("a\nb\nc\nd\n", "a\nnew1\nnew2\nb\nd\n")
         #expect(Array(diff.original.changedLines) == [2])
         #expect(Array(diff.modified.changedLines) == [1, 2])
-        #expect(diff.original.fillerAfterLine == [0: 2])
-        #expect(diff.modified.fillerAfterLine == [3: 1])
+        #expect(diff.original.rows == [0, 3, 4, 5, 6])
+        #expect(diff.modified.rows == [0, 1, 2, 3, 5, 6])
         #expect(diff.hunks.map(\.originalLines.lowerBound) == [1, 2])
         #expect(diff.hunks.map(\.modifiedLines.lowerBound) == [1, 4])
     }
 
     @Test func insertionAtTheTopPadsBeforeTheFirstLine() {
         let diff = assertAligned("a\nb\n", "x\ny\na\nb\n")
-        #expect(diff.original.fillerBeforeFirstLine == 2)
-        #expect(diff.original.fillerAfterLine.isEmpty)
+        #expect(diff.original.rows == [2, 3, 4])
     }
 
     @Test func addedAndDeletedFiles() {
         let added = assertAligned("", "a\nb\n")
         #expect(Array(added.modified.changedLines) == [0, 1])
-        #expect(added.original.fillerBeforeFirstLine == 2)
+        #expect(added.original.rows == [2])
 
         let deleted = assertAligned("a\nb\n", "")
         #expect(Array(deleted.original.changedLines) == [0, 1])
-        #expect(deleted.modified.fillerBeforeFirstLine == 2)
+        #expect(deleted.modified.rows == [2])
     }
 
     @Test func trailingNewlineAddsAnEmptyLine() {
         let diff = assertAligned("a\nb", "a\nb\n")
         #expect(diff.original.changedLines.isEmpty)
         #expect(Array(diff.modified.changedLines) == [2])
-        #expect(diff.original.fillerAfterLine == [1: 1])
+        #expect(diff.original.rows == [0, 1] && diff.original.rowCount == 3)
     }
 
     @Test func lineEndingsAreIgnored() {

@@ -80,12 +80,19 @@ struct ReviewView: View {
     @Bindable var model: ReviewModel
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
+    @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.oneDark
+    @AppStorage(ReviewStyle.fontFamilyKey) private var fontFamily = ""
+    @AppStorage(ReviewStyle.fontSizeKey) private var fontSize = 0.0
+    @AppStorage(ReviewStyle.lineHeightKey) private var lineHeight = 1.3
     @FocusState private var isFileListFocused: Bool
 
     var body: some View {
-        content
+        let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: theme)
+        content(style)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(theme.background ?? .clear)
+            .foregroundStyle(Color(nsColor: style.foreground))
+            .background(Color(nsColor: style.background), ignoresSafeAreaEdges: [])
+            .environment(\.colorScheme, style.isDark ? .dark : .light)
             .task { await model.load() }
             .task(id: model.selectedPath) { await model.loadSelectedContents() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
@@ -95,16 +102,16 @@ struct ReviewView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(_ style: ReviewStyle) -> some View {
         if let snapshot = model.snapshot, !snapshot.files.isEmpty {
             HStack(spacing: 0) {
-                fileColumn(snapshot)
+                fileColumn(snapshot, style)
                     .frame(width: 260)
-                Hairline(axis: .vertical)
+                Divider()
                 VStack(spacing: 0) {
-                    header(snapshot)
-                    Hairline(axis: .horizontal)
-                    diff
+                    header(snapshot, style)
+                    Divider()
+                    diff(style)
                 }
             }
         } else if let snapshot = model.snapshot {
@@ -132,10 +139,10 @@ struct ReviewView: View {
         }
     }
 
-    private func fileColumn(_ snapshot: ReviewSnapshot) -> some View {
+    private func fileColumn(_ snapshot: ReviewSnapshot, _ style: ReviewStyle) -> some View {
         VStack(spacing: 0) {
             List(snapshot.files, id: \.path, selection: $model.selectedPath) { file in
-                fileRow(file)
+                fileRow(file, style)
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
@@ -143,28 +150,30 @@ struct ReviewView: View {
             .onAppear { isFileListFocused = true }
 
             if !model.comments.isEmpty {
-                Hairline(axis: .horizontal)
-                comments
+                Divider()
+                comments(style)
             }
         }
     }
 
-    private func fileRow(_ file: ReviewFile) -> some View {
-        let statusColor = [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status]
+    private func fileRow(_ file: ReviewFile, _ style: ReviewStyle) -> some View {
+        let added = Color(nsColor: style.addedWord.withAlphaComponent(1))
+        let removed = Color(nsColor: style.removedWord.withAlphaComponent(1))
+        let statusColor = [ReviewFile.Status.added: added, .modified: Color(nsColor: style.color(forCapture: "type")), .deleted: removed, .renamed: Color(nsColor: style.color(forCapture: "function"))][file.status]
         return HStack(spacing: 6) {
             Text(file.status.rawValue)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(statusColor ?? theme.secondary)
+                .foregroundStyle(statusColor ?? Color(nsColor: style.secondary))
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
             HStack(spacing: 6) {
                 if let additions = file.additions, additions > 0 {
-                    Text("+\(additions)").foregroundStyle(theme.working)
+                    Text("+\(additions)").foregroundStyle(added)
                 }
                 if let deletions = file.deletions, deletions > 0 {
-                    Text("−\(deletions)").foregroundStyle(theme.closed)
+                    Text("−\(deletions)").foregroundStyle(removed)
                 }
             }
             .fixedSize()
@@ -174,7 +183,7 @@ struct ReviewView: View {
         .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 
-    private var comments: some View {
+    private func comments(_ style: ReviewStyle) -> some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -183,7 +192,7 @@ struct ReviewView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")")
                                     .font(.caption)
-                                    .foregroundStyle(theme.secondary)
+                                    .foregroundStyle(Color(nsColor: style.secondary))
                                 Text(comment.text)
                                     .lineLimit(3)
                             }
@@ -207,19 +216,19 @@ struct ReviewView: View {
         }
     }
 
-    private func header(_ snapshot: ReviewSnapshot) -> some View {
+    private func header(_ snapshot: ReviewSnapshot, _ style: ReviewStyle) -> some View {
         HStack(spacing: 8) {
             Text("\(snapshot.branch) → \(snapshot.base)")
-                .foregroundStyle(theme.branch)
+                .foregroundStyle(Color(nsColor: style.color(forCapture: "function")))
                 .lineLimit(1)
             Text(model.selectedPath ?? "")
-                .foregroundStyle(theme.secondary)
+                .foregroundStyle(Color(nsColor: style.secondary))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
             if let fetchError = snapshot.fetchError {
                 Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(theme.needsYou)
+                    .foregroundStyle(Color(nsColor: style.color(forCapture: "type")))
                     .help("Couldn’t fetch \(snapshot.base), comparing local refs: \(fetchError)")
             }
             if let path = model.selectedPath, let draft = model.drafts[path] {
@@ -235,15 +244,14 @@ struct ReviewView: View {
     }
 
     @ViewBuilder
-    private var diff: some View {
+    private func diff(_ style: ReviewStyle) -> some View {
         if let path = model.selectedPath, let contents = model.contents[path] {
             ReviewDiffPane(
                 path: path,
                 contents: contents,
                 draft: $model.drafts[path],
-                onComment: { line, endLine, text, snippet in
-                    model.comments.append(ReviewComment(id: UUID().uuidString, path: path, line: line, endLine: endLine, text: text, snippet: snippet))
-                }
+                comments: $model.comments,
+                style: style
             )
             .id(path)
         } else {

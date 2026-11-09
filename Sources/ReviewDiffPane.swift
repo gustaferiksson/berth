@@ -5,8 +5,9 @@ struct ReviewDiffPane: View {
     let path: String
     let contents: ReviewContents
     @Binding var draft: String?
-    let onComment: (_ line: Int, _ endLine: Int, _ text: String, _ snippet: String) -> Void
-    @Environment(\.ghosttyTheme) private var theme
+    @Binding var comments: [ReviewComment]
+    let style: ReviewStyle
+    @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
     @State private var analysis: ReviewDiffAnalysis?
 
     var body: some View {
@@ -22,14 +23,16 @@ struct ReviewDiffPane: View {
             let loaded = if case let .text(text)? = contents.modified { text } else { "" }
             let modified = draft ?? loaded
             ReviewDiffViews(
+                path: path,
                 original: original,
                 modified: modified,
                 isOriginalAbsent: contents.original == nil,
                 isModifiedAbsent: contents.modified == nil,
                 analysis: analysis,
-                theme: theme,
-                onEdit: { draft = $0 == loaded ? nil : $0 },
-                onComment: onComment
+                style: style,
+                showsMinimap: showsMinimap,
+                comments: $comments,
+                onEdit: { draft = $0 == loaded ? nil : $0 }
             )
             .task(id: [original, modified]) {
                 if analysis != nil { try? await Task.sleep(for: .milliseconds(300)) }
@@ -76,14 +79,16 @@ nonisolated struct ReviewDiffAnalysis: Sendable {
 }
 
 private struct ReviewDiffViews: NSViewRepresentable {
+    let path: String
     let original: String
     let modified: String
     let isOriginalAbsent: Bool
     let isModifiedAbsent: Bool
     let analysis: ReviewDiffAnalysis?
-    let theme: GhosttyTheme
+    let style: ReviewStyle
+    let showsMinimap: Bool
+    @Binding var comments: [ReviewComment]
     let onEdit: (String) -> Void
-    let onComment: (_ line: Int, _ endLine: Int, _ text: String, _ snippet: String) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -91,29 +96,42 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSStackView {
         let coordinator = context.coordinator
-        let stack = NSStackView(views: coordinator.makeSide(coordinator.left) + coordinator.makeSide(coordinator.right))
+        let stack = NSStackView(views: coordinator.makeSide(coordinator.left) + coordinator.makeSide(coordinator.right) + [coordinator.minimap, coordinator.ruler])
         stack.spacing = 0
         stack.views[1].widthAnchor.constraint(equalTo: stack.views[3].widthAnchor).isActive = true
+        coordinator.minimap.original = coordinator.left
+        coordinator.minimap.modified = coordinator.right
+        coordinator.ruler.original = coordinator.left
+        coordinator.ruler.modified = coordinator.right
+        for view in [coordinator.minimap, coordinator.ruler] {
+            view.setContentHuggingPriority(.required, for: .horizontal)
+            view.setContentCompressionResistancePriority(.required, for: .horizontal)
+        }
         return stack
     }
 
     func updateNSView(_ stack: NSStackView, context: Context) {
+        stack.appearance = NSAppearance(named: style.isDark ? .darkAqua : .aqua)
         context.coordinator.update(self)
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate, NSPopoverDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate {
         let left = ReviewTextView(usingTextLayoutManager: true)
         let right = ReviewTextView(usingTextLayoutManager: true)
+        let minimap = ReviewMinimap()
+        let ruler = ReviewOverviewRuler()
         private let undoManager = UndoManager()
         private var parent: ReviewDiffViews?
         private var loadedOriginal: String?
         private var loadedModified: String?
         private var applied: ReviewDiffAnalysis?
-        private var popover: NSPopover?
+        private var cards: [String: ReviewInlineComment] = [:]
+        private var draft: (view: ReviewInlineComment, owner: ReviewTextView, row: Int)?
 
         func makeSide(_ textView: ReviewTextView) -> [NSView] {
             let scrollView = NSScrollView()
             let gutter = ReviewGutter()
+            textView.kind = textView === left ? .original : .modified
             textView.delegate = self
             textView.textContentStorage?.delegate = textView
             textView.textLayoutManager?.renderingAttributesValidator = { [weak textView] _, fragment in textView?.colorSyntax(in: fragment) }
@@ -143,26 +161,28 @@ private struct ReviewDiffViews: NSViewRepresentable {
             scrollView.findBarPosition = .belowContent
             scrollView.contentView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(self, selector: #selector(clipViewDidScroll), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+            NotificationCenter.default.addObserver(self, selector: #selector(clipViewDidResize), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
 
             gutter.textView = textView
             gutter.drawsSeparator = textView === right
             gutter.setContentHuggingPriority(.required, for: .horizontal)
             gutter.setContentCompressionResistancePriority(.required, for: .horizontal)
             textView.gutter = gutter
-            gutter.onSelect = { [weak self, weak textView, weak gutter] lines, rect in
-                guard let self, let textView, let gutter else { return }
-                comment(on: textView, lines: lines, at: rect, in: gutter)
+            gutter.onSelect = { [weak self, weak textView] lines in
+                guard let self, let textView else { return }
+                comment(on: textView, lines: lines)
             }
             return [gutter, scrollView]
         }
 
         func update(_ view: ReviewDiffViews) {
             parent = view
+            minimap.isHidden = !view.showsMinimap
             right.isEditable = !view.isModifiedAbsent
             left.isAbsent = view.isOriginalAbsent
             right.isAbsent = view.isModifiedAbsent
 
-            let isThemeChanged = view.theme != left.theme
+            let isStyleChanged = view.style != left.style
             let isOriginalChanged = view.original != loadedOriginal
             let isModifiedChanged = view.modified != loadedModified
             if isOriginalChanged {
@@ -187,20 +207,25 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 right.side = analysis.diff.modified
                 right.syntaxRuns = analysis.modifiedRuns
             }
-            guard isThemeChanged || isOriginalChanged || isModifiedChanged || analysis != nil else { return }
-
-            left.tint = view.theme.closed
-            right.tint = view.theme.working
-            for textView in [left, right] {
-                textView.theme = view.theme
-                textView.refresh()
+            if isStyleChanged {
+                left.style = view.style
+                right.style = view.style
+                for inline in Array(cards.values) + [draft?.view].compactMap(\.self) { inline.apply(view.style) }
             }
+            if isStyleChanged || isOriginalChanged || isModifiedChanged || analysis != nil {
+                reload()
+            }
+            layoutInline()
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? ReviewTextView, textView === right else { return }
             loadedModified = textView.string
             parent?.onEdit(textView.string)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            (notification.object as? ReviewTextView)?.gutter?.needsDisplay = true
         }
 
         func undoManager(for view: NSTextView) -> UndoManager? {
@@ -210,75 +235,123 @@ private struct ReviewDiffViews: NSViewRepresentable {
         @objc private func clipViewDidScroll(_ notification: Notification) {
             left.gutter?.needsDisplay = true
             right.gutter?.needsDisplay = true
+            minimap.needsDisplay = true
+            ruler.needsDisplay = true
+            layoutInline()
             guard let source = notification.object as? NSClipView, let target = [left, right].compactMap(\.enclosingScrollView).first(where: { $0.contentView !== source }), target.contentView.bounds.minY != source.bounds.minY else { return }
 
             target.contentView.scroll(to: NSPoint(x: target.contentView.bounds.minX, y: source.bounds.minY))
             target.reflectScrolledClipView(target.contentView)
         }
 
-        private func comment(on textView: ReviewTextView, lines: ClosedRange<Int>, at rect: NSRect, in gutter: ReviewGutter) {
+        @objc private func clipViewDidResize(_ notification: Notification) {
+            minimap.needsDisplay = true
+            ruler.needsDisplay = true
+            layoutInline()
+        }
+
+        private func reload() {
+            left.refresh()
+            right.refresh()
+            documentsDidResize()
+        }
+
+        private func documentsDidResize() {
+            for (textView, partner) in [(left, right), (right, left)] where textView.isAbsent {
+                textView.minimumHeight = (partner.textLayoutManager?.usageBoundsForTextContainer.height ?? 0) + 2 * partner.textContainerInset.height
+                textView.setFrameSize(NSSize(width: textView.frame.width, height: textView.minSize.height))
+            }
+            minimap.invalidate()
+            ruler.needsDisplay = true
+        }
+
+        private func layoutInline() {
+            guard let parent else { return }
+
+            let comments = parent.comments.filter { $0.path == parent.path }
+            for (id, card) in cards where !comments.contains(where: { $0.id == id }) {
+                card.removeFromSuperview()
+                cards[id] = nil
+            }
+            var placed: [(view: ReviewInlineComment, owner: ReviewTextView, row: Int)] = []
+            for comment in comments {
+                let owner = comment.side == .original ? left : right
+                let numbers = comment.endLine > comment.line ? "Lines \(comment.line)–\(comment.endLine)" : "Line \(comment.line)"
+                let card = cards[comment.id] ?? ReviewInlineComment(title: comment.side == .original ? "Removed \(numbers)" : numbers, text: comment.text, kind: .card(onDelete: { [weak self] in self?.parent?.comments.removeAll { $0.id == comment.id } }), style: owner.style)
+                cards[comment.id] = card
+                if card.superview == nil { owner.addSubview(card) }
+                let rows = owner.side?.rows ?? []
+                card.isHidden = !rows.indices.contains(comment.endLine - 1)
+                if !card.isHidden { placed.append((card, owner, rows[comment.endLine - 1])) }
+            }
+            placed += [draft].compactMap(\.self)
+
+            let inset: CGFloat = 6
+            let indent = right.textContainerOrigin.x + (right.textContainer?.lineFragmentPadding ?? 0)
+            let width = max((right.enclosingScrollView?.contentView.bounds.width ?? 0) - indent - 2 * inset, 200)
+            let heights = placed.map { $0.view.fittingHeight(forWidth: width) }
+            var reserved: [Int: CGFloat] = [:]
+            for (item, height) in zip(placed, heights) { reserved[item.row, default: 0] += height + inset * 2 }
+            reserved = reserved.mapValues { $0.rounded(.up) }
+            if reserved != right.reserved {
+                left.reserved = reserved
+                right.reserved = reserved
+                documentsDidResize()
+            }
+
+            var stacked: [Int: CGFloat] = [:]
+            for (item, height) in zip(placed, heights) {
+                let top = item.owner.top(ofRow: item.row + 1) - reserved[item.row, default: 0] + stacked[item.row, default: 0] + inset
+                stacked[item.row, default: 0] += height + inset * 2
+                item.view.frame = NSRect(x: item.owner.visibleRect.minX + indent, y: top, width: width, height: height)
+            }
+        }
+
+        private func comment(on textView: ReviewTextView, lines: ClosedRange<Int>) {
+            guard let rows = textView.side?.rows, rows.indices.contains(lines.upperBound) else { return }
+
             let isRemoval = textView === left && lines.contains { left.side?.changedLines.contains($0) == true }
-            let hunks = applied?.diff.hunks ?? []
-            let delta = { (line: Int) in hunks.filter { $0.originalLines.upperBound <= line }.reduce(0) { $0 + $1.modifiedLines.count - $1.originalLines.count } }
-            let usesOwnNumbers = textView === right || isRemoval
-            let first = usesOwnNumbers ? lines.lowerBound : lines.lowerBound + delta(lines.lowerBound)
-            let last = usesOwnNumbers ? lines.upperBound : lines.upperBound + delta(lines.upperBound)
+            let owner = textView === left && !isRemoval ? right : textView
+            let ownerRows = owner.side?.rows ?? []
+            let first = owner === textView ? lines.lowerBound : ownerRows.partitioningIndex { $0 >= rows[lines.lowerBound] }
+            let last = owner === textView ? lines.upperBound : ownerRows.partitioningIndex { $0 >= rows[lines.upperBound] }
             let source = (isRemoval ? loadedOriginal : loadedModified) ?? ""
             let texts = source.split(separator: "\n", omittingEmptySubsequences: false).dropFirst(first).prefix(last - first + 1)
             let snippet = texts.map { isRemoval ? "-\($0)" : String($0) }.joined(separator: "\n")
             let numbers = last > first ? "Lines \(first + 1)–\(last + 1)" : "Line \(first + 1)"
+            let path = parent?.path ?? ""
 
-            let popover = NSPopover()
-            popover.behavior = .transient
-            popover.delegate = self
-            popover.contentViewController = NSHostingController(rootView: ReviewCommentField(title: isRemoval ? "Removed \(numbers)" : numbers) { [weak self] text in
-                self?.parent?.onComment(first + 1, last + 1, text, snippet)
-                self?.popover?.close()
-            })
-            self.popover = popover
-            popover.show(relativeTo: rect, of: gutter, preferredEdge: .maxX)
+            let other = textView === left ? right : left
+            draft?.view.removeFromSuperview()
+            other.selectedLines = nil
+            other.needsDisplay = true
+            let view = ReviewInlineComment(title: isRemoval ? "Removed \(numbers)" : numbers, text: "", kind: .draft(
+                onAdd: { [weak self] text in
+                    self?.parent?.comments.append(ReviewComment(id: UUID().uuidString, path: path, line: first + 1, endLine: last + 1, text: text, snippet: snippet, side: isRemoval ? .original : .modified))
+                    self?.closeDraft()
+                },
+                onCancel: { [weak self] in self?.closeDraft() },
+                onResize: { [weak self] in self?.layoutInline() }
+            ), style: owner.style)
+            owner.addSubview(view)
+            draft = (view, owner, rows[lines.upperBound])
+            layoutInline()
+            owner.window?.makeFirstResponder(view.field)
+            owner.scrollToVisible(NSRect(x: owner.visibleRect.minX, y: view.frame.minY, width: 1, height: view.frame.height))
         }
 
-        func popoverDidClose(_ notification: Notification) {
-            for gutter in [left.gutter, right.gutter].compactMap(\.self) {
-                gutter.selection = nil
-                gutter.needsDisplay = true
+        private func closeDraft() {
+            guard let draft else { return }
+
+            if draft.owner.window?.firstResponder === draft.view.field { draft.owner.window?.makeFirstResponder(draft.owner) }
+            draft.view.removeFromSuperview()
+            self.draft = nil
+            for textView in [left, right] {
+                textView.selectedLines = nil
+                textView.needsDisplay = true
+                textView.gutter?.needsDisplay = true
             }
-            popover = nil
+            layoutInline()
         }
-    }
-}
-
-private struct ReviewCommentField: View {
-    let title: String
-    let onSubmit: (String) -> Void
-    @State private var text = ""
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-            TextField("Comment", text: $text, axis: .vertical)
-                .lineLimit(3...8)
-                .textFieldStyle(.roundedBorder)
-                .focused($isFocused)
-                .onSubmit(submit)
-            HStack {
-                Spacer()
-                Button("Comment", action: submit)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }
-        .padding(12)
-        .frame(width: 320)
-        .onAppear { isFocused = true }
-    }
-
-    private func submit() {
-        let comment = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !comment.isEmpty else { return }
-        onSubmit(comment)
     }
 }
