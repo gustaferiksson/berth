@@ -72,8 +72,7 @@ final class Store {
             DispatchQueue.main.async { terminal.requestFocus() }
         }
     }
-    @ObservationIgnored var reviewComments: [String: [ReviewComment]] = [:]
-    @ObservationIgnored var reviewControllers: [String: ReviewController] = [:]
+    var reviewModels: [String: ReviewModel] = [:]
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
         didSet {
@@ -133,7 +132,6 @@ final class Store {
     @ObservationIgnored var lastKeyInput = Date.distantPast
     #if DEBUG
     @ObservationIgnored var probeOpenedClaude: [String] = []
-    @ObservationIgnored var probeReview: [String] = []
     #endif
     @ObservationIgnored private var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -363,7 +361,7 @@ final class Store {
         workingSessionCount == 0
             && lastKeyInput.timeIntervalSinceNow < -30
             && !terminals.contains { $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
-            && reviewControllers.values.allSatisfy(\.dirtyPaths.isEmpty)
+            && !reviewModels.values.contains { $0.hasUnsavedEdits }
     }
 
     var selection: SidebarItem? {
@@ -428,7 +426,9 @@ final class Store {
 
     func toggleReview() {
         launcherMode = nil
-        reviewSessionID = reviewSessionID == nil ? tabs.first { $0.id == selectedTabID }?.sessionID : nil
+        let tab = reviewSessionID == nil ? tabs.first { $0.id == selectedTabID } : nil
+        if let tab, let sessionID = tab.sessionID, reviewModels[sessionID] == nil { reviewModels[sessionID] = ReviewModel(folder: tab.cwd) }
+        reviewSessionID = tab?.sessionID
         isHarborShown = false
     }
 
@@ -596,10 +596,7 @@ final class Store {
             try? await Task.sleep(for: .seconds(1))
             refreshLive()
         }
-        if let sessionID {
-            reviewControllers[sessionID]?.tearDown()
-            reviewComments[sessionID] = nil
-        }
+        if let sessionID { reviewModels[sessionID] = nil }
         tabs.removeAll { $0.id == id }
         recentTabIDs.removeAll { $0 == id }
         guard selectedTabID == id else { return }

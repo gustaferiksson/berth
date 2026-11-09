@@ -44,7 +44,7 @@ struct GeneralSettings: View {
             } header: {
                 Text("Review")
             } footer: {
-                Text("Experimental. Adds Review Changes (⇧⌘R) to Claude sessions: a diff of the branch, uncommitted changes or PR, with line comments sent back to Claude.")
+                Text("Experimental. Adds Review Changes (⇧⌘R) to Claude sessions: a diff of the session’s branch and uncommitted work, with line comments sent back to Claude.")
             }
         }
         .formStyle(.grouped)

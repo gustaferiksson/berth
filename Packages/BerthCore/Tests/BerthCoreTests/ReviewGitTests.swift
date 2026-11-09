@@ -97,14 +97,14 @@ final class ReviewGitTests {
         #expect(await ReviewGit.base(in: repo.path) == "master")
     }
 
-    @Test func allChangesIncludeCommittedWorkUncommittedOnlyLocalWork() async throws {
+    @Test func snapshotIncludesCommittedUncommittedAndUntrackedWork() async throws {
         let repo = try await featureRepo()
         try FileManager.default.createDirectory(at: repo.appending(path: "empty"), withIntermediateDirectories: true)
-        let all = try await ReviewGit.snapshot(.allChanges, in: repo.appending(path: "empty").path)
+        let all = try await ReviewGit.snapshot(in: repo.appending(path: "empty").path)
         #expect(all.root == (try await git(repo, "rev-parse", "--show-toplevel")))
+        #expect(all.branch == "feature")
         #expect(all.base == "main")
         #expect(all.mergeBase == (try await git(repo, "rev-parse", "main")))
-        #expect(all.isEditable)
         #expect(all.files.map(\.path) == ["committed.txt", "gone.txt", "image.bin", "keep.txt", "logo.bin", "new.txt", "renamed file.txt"])
         #expect(all.files.map(\.status) == [.added, .deleted, .added, .modified, .added, .added, .renamed])
         #expect(all.files.first { $0.path == "renamed file.txt" }?.oldPath == "old.txt")
@@ -113,17 +113,23 @@ final class ReviewGitTests {
         #expect(all.files.first { $0.path == "logo.bin" }.map { [$0.additions, $0.deletions] } == [nil, nil])
         #expect(all.files.first { $0.path == "image.bin" }?.additions == nil)
         #expect(all.fetchedAt == nil && all.fetchError == nil)
+    }
 
-        let uncommitted = try await ReviewGit.snapshot(.uncommitted, in: repo.path)
-        #expect(uncommitted.base == "HEAD")
-        #expect(uncommitted.mergeBase == (try await git(repo, "rev-parse", "HEAD")))
-        #expect(uncommitted.files.map(\.path) == ["gone.txt", "image.bin", "keep.txt", "new.txt", "renamed file.txt"])
+    @Test func withoutABaseTheSnapshotShowsUncommittedWork() async throws {
+        let repo = try await repo("baseless")
+        try await git(repo, "branch", "-m", "trunk")
+        try write(repo, "keep.txt", "changed\n")
+
+        let snapshot = try await ReviewGit.snapshot(in: repo.path)
+        #expect(snapshot.base == "HEAD")
+        #expect(snapshot.mergeBase == (try await git(repo, "rev-parse", "HEAD")))
+        #expect(snapshot.files.map(\.path) == ["keep.txt"])
     }
 
     @Test func contentsForEachSide() async throws {
         let repo = try await featureRepo()
         try Data(repeating: 65, count: 3 * 1024 * 1024).write(to: repo.appending(path: "huge.txt"))
-        let snapshot = try await ReviewGit.snapshot(.allChanges, in: repo.path)
+        let snapshot = try await ReviewGit.snapshot(in: repo.path)
         let file = { (path: String) in try #require(snapshot.files.first { $0.path == path }) }
 
         #expect(try await ReviewGit.contents(of: file("new.txt"), in: snapshot) == ReviewContents(original: nil, modified: .text("a\nb")))
@@ -134,40 +140,6 @@ final class ReviewGitTests {
         #expect(try await ReviewGit.contents(of: file("huge.txt"), in: snapshot) == ReviewContents(original: nil, modified: .tooLarge(bytes: 3 * 1024 * 1024)))
     }
 
-    @Test func projectFilesListTrackedAndUntrackedButNotIgnored() async throws {
-        let repo = try await featureRepo()
-        #expect(try await ReviewGit.projectFiles(in: repo.path).sorted() == [".gitignore", "committed.txt", "gone.txt", "image.bin", "keep.txt", "logo.bin", "new.txt", "renamed file.txt"])
-    }
-
-    @Test func pullRequestIsFetchedFromOriginAndReadOnly() async throws {
-        let origin = root.appending(path: "origin.git")
-        try FileManager.default.createDirectory(at: origin, withIntermediateDirectories: true)
-        try await git(origin, "init", "--quiet", "--bare", "-b", "main")
-        let repo = try await repo("pr")
-        try await git(repo, "remote", "add", "origin", origin.path)
-        try await git(repo, "push", "--quiet", "origin", "main")
-        try await git(repo, "checkout", "--quiet", "-b", "contributor")
-        try write(repo, "keep.txt", "one\n2\n")
-        try write(repo, "pr.txt", "from the pr\n")
-        try await git(repo, "add", ".")
-        try await git(repo, "commit", "--quiet", "-m", "pr work")
-        try await git(repo, "push", "--quiet", "origin", "HEAD:refs/pull/7/head")
-        let prHead = try await git(repo, "rev-parse", "HEAD")
-        try await git(repo, "checkout", "--quiet", "main")
-        try await git(repo, "branch", "--quiet", "-D", "contributor")
-
-        let snapshot = try await ReviewGit.snapshot(.pullRequest(7), in: repo.path)
-        #expect(snapshot.base == "origin/main")
-        #expect(snapshot.modifiedRevision == prHead)
-        #expect(!snapshot.isEditable)
-        #expect(snapshot.fetchedAt != nil && snapshot.fetchError == nil)
-        #expect(try await git(repo, "rev-parse", "refs/berth/review/pr-7") == prHead)
-        #expect(snapshot.files.map(\.path) == ["keep.txt", "pr.txt"])
-
-        let keep = try #require(snapshot.files.first { $0.path == "keep.txt" })
-        #expect(try await ReviewGit.contents(of: keep, in: snapshot) == ReviewContents(original: .text("one\ntwo\n"), modified: .text("one\n2\n")))
-    }
-
     @Test func unreachableOriginStillComparesExistingRefs() async throws {
         let repo = try await repo("offline")
         try await git(repo, "update-ref", "refs/remotes/origin/main", "main")
@@ -175,15 +147,11 @@ final class ReviewGitTests {
         try await git(repo, "checkout", "--quiet", "-b", "feature")
         try write(repo, "keep.txt", "changed\n")
 
-        let snapshot = try await ReviewGit.snapshot(.allChanges, in: repo.path)
+        let snapshot = try await ReviewGit.snapshot(in: repo.path)
         #expect(snapshot.base == "origin/main")
         #expect(snapshot.fetchedAt == nil)
-        #expect(snapshot.fetchError?.isEmpty == false)
+        #expect(snapshot.fetchError?.contains("missing.git") == true)
         #expect(snapshot.files.map(\.path) == ["keep.txt"])
-        await #expect { try await ReviewGit.snapshot(.pullRequest(1), in: repo.path) } throws: { error in
-            guard case ReviewGitError.fetchFailed(let message) = error else { return false }
-            return message.contains("missing.git")
-        }
     }
 
     @Test func hungFetchIsKilledAfterTheTimeout() async throws {
