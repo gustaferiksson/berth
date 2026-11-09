@@ -120,6 +120,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.reviewSessionID = nil
                 return nil
             }
+            if event.charactersIgnoringModifiers == "f", let textView = event.window?.firstResponder as? ReviewTextView {
+                let showFindInterface = NSMenuItem()
+                showFindInterface.tag = NSTextFinder.Action.showFindInterface.rawValue
+                textView.performTextFinderAction(showFindInterface)
+                return nil
+            }
             if let number = event.charactersIgnoringModifiers.flatMap(Int.init), (1...9).contains(number) {
                 store.selectTab(number: number)
                 return nil

@@ -33,9 +33,20 @@ This is the slim first version; the rest is listed under Later.
   counts), the session's comments below it with a delete button each, and Send N Comments.
 - Header above the diff: branch → base, the file path, a fetch warning when the fetch
   failed, Refresh.
-- Diff: `ReviewDiffPane` gets the file's `ReviewContents`, a draft binding and
-  `onComment` / `onSave`. For now it shows both sides as read-only monospaced text; the
-  side-by-side TextKit 2 diff replaces it.
+- Diff: `ReviewDiffPane` gets the file's `ReviewContents`, a draft binding and `onComment`.
+  Base on the left (read only), working tree on the right (editable unless deleted), in the
+  Ghostty font (`font-family`, `font-size`, else monospaced 12) and theme colours. Filler rows
+  keep unchanged lines side by side, changed lines are tinted full width (closed red left,
+  working green right) with changed words tinted stronger, and tree-sitter syntax colours.
+  Scrolling either side scrolls the other. Added and deleted files show the missing side as
+  filler; a binary or too large side is a `ContentUnavailableView`.
+- Each side has a line number gutter. Clicking or dragging across numbers opens a popover to
+  write a comment (↩ or Comment adds it). Right side numbers are used; unchanged lines on the
+  left map to their right side numbers; changed lines on the left keep the base's numbers and
+  the snippet's lines are prefixed with `-`.
+- Edits on the right become the file's draft; 300 ms after the last edit the diff and
+  highlighting are recomputed off the main thread. Save (⌘S) appears in the header while
+  there is a draft. Undo is per file view.
 - Loading, no changes and errors (not a git repository, git failures) are
   `ContentUnavailableView`s; the last two offer Refresh.
 
@@ -45,6 +56,8 @@ This is the slim first version; the rest is listed under Later.
 |---|---|---|
 | ⇧⌘R, View ▸ Review Changes, palette, toolbar toggle | a Claude tab | Toggles Review for the selected session |
 | ⌘W | Review | Leaves Review |
+| ⌘S, Save in the header | Review, the file has a draft | Saves it through `ReviewGit.save` |
+| ⌘F | the diff | The focused side's find bar |
 | Send N Comments | the file column | See Comments |
 
 ⌘J keeps its meaning (Switch Terminal / Claude). Selecting any tab or session leaves
@@ -66,6 +79,5 @@ also refused when the file on disk changed since it was loaded.
 
 ## Later
 
-The side-by-side TextKit 2 diff with syntax highlighting, editing and inline comments;
-uncommitted and PR compares; a folder tree and whole-project files; go to definition;
+Inline comment display in the diff; uncommitted and PR compares; a folder tree and whole-project files; go to definition;
 per-prompt snapshots; posting comments to GitHub.

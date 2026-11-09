@@ -150,7 +150,6 @@ struct ReviewView: View {
     }
 
     private func fileRow(_ file: ReviewFile) -> some View {
-        let parent = (file.path as NSString).deletingLastPathComponent
         let statusColor = [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status]
         return HStack(spacing: 6) {
             Text(file.status.rawValue)
@@ -158,11 +157,7 @@ struct ReviewView: View {
                 .foregroundStyle(statusColor ?? theme.secondary)
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
-                .layoutPriority(1)
-            Text(parent)
-                .foregroundStyle(theme.secondary)
-                .lineLimit(1)
-                .truncationMode(.head)
+                .truncationMode(.middle)
             Spacer(minLength: 4)
             HStack(spacing: 6) {
                 if let additions = file.additions, additions > 0 {
@@ -227,6 +222,10 @@ struct ReviewView: View {
                     .foregroundStyle(theme.needsYou)
                     .help("Couldn’t fetch \(snapshot.base), comparing local refs: \(fetchError)")
             }
+            if let path = model.selectedPath, let draft = model.drafts[path] {
+                Button("Save") { model.save(draft, to: path) }
+                    .keyboardShortcut("s")
+            }
             refreshButton
                 .buttonStyle(.borderless)
         }
@@ -244,9 +243,9 @@ struct ReviewView: View {
                 draft: $model.drafts[path],
                 onComment: { line, endLine, text, snippet in
                     model.comments.append(ReviewComment(id: UUID().uuidString, path: path, line: line, endLine: endLine, text: text, snippet: snippet))
-                },
-                onSave: { model.save($0, to: path) }
+                }
             )
+            .id(path)
         } else {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
