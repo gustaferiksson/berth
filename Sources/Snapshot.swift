@@ -250,8 +250,12 @@ enum Snapshot {
                 try? await Task.sleep(for: .milliseconds(500))
                 report("scrolled")
             }
-            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewWheel"), sides.count == 2, let separator = spec.firstIndex(of: ":"), let delta = Int32(spec[spec.index(after: separator)...]), let scrollView = (spec[..<separator] == "left" ? sides[0] : sides[1]).enclosingScrollView {
-                let point = scrollView.convert(NSPoint(x: scrollView.bounds.midX, y: scrollView.bounds.midY), to: nil)
+            func descendantViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendantViews) }
+            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewWheel"), sides.count == 2, let separator = spec.firstIndex(of: ":"), let delta = Int32(spec[spec.index(after: separator)...]) {
+                let views = descendantViews(window.contentView ?? NSView())
+                let targets: [Substring: NSView?] = ["left": sides[0].enclosingScrollView, "right": sides[1].enclosingScrollView, "gutter-left": sides[0].gutter, "minimap": views.first { $0 is ReviewMinimap }, "ruler": views.first { $0 is ReviewOverviewRuler }]
+                let area = targets[spec[..<separator]].flatMap(\.self) ?? NSView()
+                let point = area.convert(NSPoint(x: area.bounds.midX, y: area.bounds.midY), to: nil)
                 let target = window.contentView?.hitTest(window.contentView?.superview?.convert(point, from: nil) ?? point)
                 let before = clips()
                 if let cgEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -delta, wheel2: 0, wheel3: 0), let event = NSEvent(cgEvent: cgEvent) { target?.scrollWheel(with: event) }
@@ -265,8 +269,7 @@ enum Snapshot {
                     if type == .leftMouseDown { view.mouseDown(with: event) } else if type == .leftMouseDragged { view.mouseDragged(with: event) } else { view.mouseUp(with: event) }
                 }
             }
-            func descendantViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendantViews) }
-            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewMinimap"), let minimap = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewMinimap }).first {
+            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewMinimap"), let minimap = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewMinimap }).first, !minimap.isHidden {
                 let ys = spec.split(separator: "-").compactMap { Double($0) }.map { CGFloat($0) }
                 let before = (clips(), minimap.renders)
                 mouse(minimap, ys + [ys.last ?? 0])
@@ -311,7 +314,7 @@ enum Snapshot {
                     type(character, keyCode, flags)
                 }
                 try? await Task.sleep(for: .milliseconds(300))
-                print("typed: field \(draft()?.field.string.debugDescription ?? "-"), draft height \(draft()?.frame.height ?? -1), reserved \(sides[1].reserved)")
+                print("typed: field \(draft()?.field.string.debugDescription ?? "-"), Add Comment enabled \(draft()?.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Add Comment" }?.isEnabled ?? false), draft height \(draft()?.frame.height ?? -1), reserved \(sides[1].reserved)")
                 report("typed")
                 type("\r", 36, [])
                 try? await Task.sleep(for: .milliseconds(500))
