@@ -213,9 +213,14 @@ enum Snapshot {
             print("review selected \(model.selectedPath ?? "-"), contents loaded \(model.selectedPath.flatMap { model.contents[$0] } != nil), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
             let sides = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }
+            let clips = { sides.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }.joined(separator: "/") }
+            let save = { (suffix: String) in
+                guard let image = image(of: window) else { return }
+                try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
+            }
             let report = { (label: String) in
                 for (index, side) in sides.enumerated() {
-                    print("\(label) \(index == 0 ? "left" : "right"): TextKit 2 \(side.textLayoutManager != nil), layoutManager requests \(side.layoutManagerRequests), height \(side.frame.height), usage \(side.textLayoutManager?.usageBoundsForTextContainer.height ?? -1), clip y \(side.enclosingScrollView?.contentView.bounds.minY ?? -1)")
+                    print("\(label) \(index == 0 ? "left" : "right"): TextKit 2 \(side.textLayoutManager != nil), layoutManager requests \(side.layoutManagerRequests), height \(side.frame.height), usage \(side.textLayoutManager?.usageBoundsForTextContainer.height ?? -1), clip y \(side.enclosingScrollView?.contentView.bounds.minY ?? -1), reserved \(side.reserved), inline \(side.subviews.compactMap { $0 as? ReviewInlineComment }.filter { !$0.isHidden }.map { "\($0.frame)" })")
                 }
                 guard sides.count == 2 else { return }
                 let rows = sides.map { side in
@@ -225,7 +230,10 @@ enum Snapshot {
                 }
                 let diff = ReviewDiff(original: sides[0].string, modified: sides[1].string)
                 let checks = diff.hunks.compactMap { hunk in rows[0][hunk.originalLines.upperBound].flatMap { left in rows[1][hunk.modifiedLines.upperBound].map { (hunk, left, $0) } } }
-                print("\(label) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.filter { $0.1 != $0.2 }.count): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
+                let unchanged = zip((0..<diff.original.lineCount).filter { !diff.original.changedLines.contains($0) }, (0..<diff.modified.lineCount).filter { !diff.modified.changedLines.contains($0) })
+                let shifted = unchanged.filter { pair in rows[0][pair.0].flatMap { left in rows[1][pair.1].map { left != $0 } } ?? false }.count
+                let arithmetic = unchanged.filter { pair in rows[1][pair.1].map { $0 != sides[1].top(ofRow: diff.modified.rows[pair.1]) } ?? false }.count
+                print("\(label) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.filter { $0.1 != $0.2 }.count), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
             }
             report("review")
             if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last {
@@ -242,32 +250,88 @@ enum Snapshot {
                 try? await Task.sleep(for: .milliseconds(500))
                 report("scrolled")
             }
+            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewWheel"), sides.count == 2, let separator = spec.firstIndex(of: ":"), let delta = Int32(spec[spec.index(after: separator)...]), let scrollView = (spec[..<separator] == "left" ? sides[0] : sides[1]).enclosingScrollView {
+                let point = scrollView.convert(NSPoint(x: scrollView.bounds.midX, y: scrollView.bounds.midY), to: nil)
+                let target = window.contentView?.hitTest(window.contentView?.superview?.convert(point, from: nil) ?? point)
+                let before = clips()
+                if let cgEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -delta, wheel2: 0, wheel3: 0), let event = NSEvent(cgEvent: cgEvent) { target?.scrollWheel(with: event) }
+                try? await Task.sleep(for: .milliseconds(500))
+                print("wheel \(spec) over \(target.map { "\(type(of: $0))" } ?? "nil"): clip y left/right \(before) → \(clips())")
+            }
+            let mouse = { (view: NSView, ys: [CGFloat]) in
+                for (index, y) in ys.enumerated() {
+                    let type: NSEvent.EventType = index == 0 ? .leftMouseDown : index == ys.count - 1 ? .leftMouseUp : .leftMouseDragged
+                    guard let event = NSEvent.mouseEvent(with: type, location: view.convert(NSPoint(x: view.bounds.midX, y: y), to: nil), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+                    if type == .leftMouseDown { view.mouseDown(with: event) } else if type == .leftMouseDragged { view.mouseDragged(with: event) } else { view.mouseUp(with: event) }
+                }
+            }
+            func descendantViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendantViews) }
+            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewMinimap"), let minimap = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewMinimap }).first {
+                let ys = spec.split(separator: "-").compactMap { Double($0) }.map { CGFloat($0) }
+                let before = (clips(), minimap.renders)
+                mouse(minimap, ys + [ys.last ?? 0])
+                try? await Task.sleep(for: .milliseconds(300))
+                print("minimap \(minimap.isHidden ? "hidden" : "shown") \(minimap.frame.size) drag \(spec): clip y left/right \(before.0) → \(clips()), renders \(before.1) → \(minimap.renders)")
+            }
+            if let y = UserDefaults.standard.string(forKey: "snapshotReviewRuler").flatMap(Double.init), let ruler = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewOverviewRuler }).first {
+                let before = clips()
+                mouse(ruler, [CGFloat(y), CGFloat(y)])
+                try? await Task.sleep(for: .milliseconds(300))
+                print("ruler \(ruler.frame.size) click \(y): clip y left/right \(before) → \(clips())")
+            }
             if let spec = UserDefaults.standard.string(forKey: "snapshotReviewGutter"), sides.count == 2, let separator = spec.firstIndex(of: ":") {
                 let side = spec[..<separator] == "left" ? sides[0] : sides[1]
                 let lines = spec[spec.index(after: separator)...].split(separator: "-").compactMap { Int($0) }
-                let points = lines.map { line in
-                    var y: CGFloat = 0
-                    side.enumerateRows(in: side.bounds) { index, row, _, startsLine in if startsLine, index == line - 1 { y = row.midY } }
-                    return side.convert(NSPoint(x: side.visibleRect.minX, y: y), to: nil)
-                }
-                if let gutter = side.gutter, let first = points.first, let last = points.last {
-                    for (type, point) in [(NSEvent.EventType.leftMouseDown, first), (.leftMouseDragged, last), (.leftMouseUp, last)] {
-                        guard let event = NSEvent.mouseEvent(with: type, location: NSPoint(x: gutter.convert(gutter.bounds, to: nil).midX, y: point.y), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
-                        if type == .leftMouseDown { gutter.mouseDown(with: event) } else if type == .leftMouseDragged { gutter.mouseDragged(with: event) } else { gutter.mouseUp(with: event) }
+                let drag = {
+                    let ys = lines.map { line in
+                        var y: CGFloat = 0
+                        side.enumerateRows(in: side.bounds) { index, row, _, startsLine in if startsLine, index == line - 1 { y = row.midY } }
+                        return side.gutter.map { $0.convert(side.convert(NSPoint(x: 0, y: y), to: nil), from: nil).y } ?? 0
                     }
+                    if let gutter = side.gutter { mouse(gutter, ys + [ys.last ?? 0]) }
                 }
-                try? await Task.sleep(for: .seconds(1))
-                let popover = NSApp.windows.first { $0 !== window && $0.isVisible && "\(type(of: $0))".contains("Popover") }
-                print("gutter \(spec): popover \(popover.map { "\(type(of: $0)) \($0.frame), first responder \($0.firstResponder.map { "\(type(of: $0))" } ?? "nil")" } ?? "none")")
-                if let popover, let image = image(of: popover) {
-                    try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + ".popover.png"))
+                let draft = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.first { $0.field.isEditable } }
+                let type = { (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) in
+                    guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { return }
+                    window.sendEvent(event)
                 }
-                for (character, keyCode) in [("f", 3), ("i", 34), ("x", 7), ("\r", 36)] as [(String, UInt16)] {
-                    guard let popover, let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: popover.windowNumber, context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode) else { continue }
-                    popover.sendEvent(event)
-                    try? await Task.sleep(for: .milliseconds(200))
+                let clock = ContinuousClock.now
+                drag()
+                let opened = ContinuousClock.now - clock
+                try? await Task.sleep(for: .milliseconds(500))
+                print("gutter \(spec) opened in \(opened): selected \(sides.map { $0.selectedLines.map { "\($0)" } ?? "-" }), draft \(draft().map { "\($0.frame) in \($0.superview === sides[0] ? "left" : "right")" } ?? "none"), first responder is draft field \(window.firstResponder === draft()?.field)")
+                report("draft")
+                save(".draft.png")
+                type("\u{1B}", 53, [])
+                try? await Task.sleep(for: .milliseconds(300))
+                print("after esc: draft \(draft() == nil ? "closed" : "open"), selected \(sides.map { $0.selectedLines.map { "\($0)" } ?? "-" }), reserved \(sides[1].reserved)")
+                drag()
+                try? await Task.sleep(for: .milliseconds(300))
+                for (character, keyCode, flags) in [("f", 3, []), ("i", 34, []), ("x", 7, []), ("\r", 36, .shift), ("i", 34, []), ("t", 17, [])] as [(String, UInt16, NSEvent.ModifierFlags)] {
+                    type(character, keyCode, flags)
                 }
-                print("comments: \(model.comments.map { "\($0.path):\($0.line)-\($0.endLine) \($0.text.debugDescription) snippet \($0.snippet.debugDescription)" })")
+                try? await Task.sleep(for: .milliseconds(300))
+                print("typed: field \(draft()?.field.string.debugDescription ?? "-"), draft height \(draft()?.frame.height ?? -1), reserved \(sides[1].reserved)")
+                report("typed")
+                type("\r", 36, [])
+                try? await Task.sleep(for: .milliseconds(500))
+                print("comments: \(model.comments.map { "\($0.path):\($0.line)-\($0.endLine) \($0.side) \($0.text.debugDescription) snippet \($0.snippet.debugDescription)" }), draft \(draft() == nil ? "closed" : "open")")
+                report("card")
+                save(".card.png")
+                if UserDefaults.standard.bool(forKey: "snapshotReviewDelete") {
+                    let button = sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.flatMap(\.subviews).compactMap { $0 as? NSButton }.first { $0.toolTip == "Delete Comment" }
+                    button?.performClick(nil)
+                    try? await Task.sleep(for: .milliseconds(500))
+                    let cards = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.count }
+                    print("after card delete: comments \(model.comments.map(\.id)), cards \(cards())")
+                    report("deleted")
+                    model.comments.append(ReviewComment(id: "list", path: model.selectedPath ?? "", line: 1, endLine: 1, text: "From the list", snippet: ""))
+                    try? await Task.sleep(for: .milliseconds(500))
+                    let added = cards()
+                    model.comments.removeAll { $0.id == "list" }
+                    try? await Task.sleep(for: .milliseconds(500))
+                    print("model append then list delete: cards \(added) → \(cards()), reserved \(sides[1].reserved)")
+                }
             }
         }
         if showsStats {

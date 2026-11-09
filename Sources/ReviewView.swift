@@ -241,9 +241,7 @@ struct ReviewView: View {
                 path: path,
                 contents: contents,
                 draft: $model.drafts[path],
-                onComment: { line, endLine, text, snippet in
-                    model.comments.append(ReviewComment(id: UUID().uuidString, path: path, line: line, endLine: endLine, text: text, snippet: snippet))
-                }
+                comments: $model.comments
             )
             .id(path)
         } else {

@@ -38,12 +38,26 @@ This is the slim first version; the rest is listed under Later.
   Ghostty font (`font-family`, `font-size`, else monospaced 12) and theme colours. Filler rows
   keep unchanged lines side by side, changed lines are tinted full width (closed red left,
   working green right) with changed words tinted stronger, and tree-sitter syntax colours.
-  Scrolling either side scrolls the other. Added and deleted files show the missing side as
-  filler; a binary or too large side is a `ContentUnavailableView`.
-- Each side has a line number gutter. Clicking or dragging across numbers opens a popover to
-  write a comment (↩ or Comment adds it). Right side numbers are used; unchanged lines on the
-  left map to their right side numbers; changed lines on the left keep the base's numbers and
+  Scrolling either side (text, gutter, minimap or ruler) scrolls both, for added and deleted
+  files too. Added and deleted files show the missing side as filler; a binary or too large
+  side is a `ContentUnavailableView`.
+- Right of the right side: a VS Code style minimap (80 pt, Settings toggle
+  `reviewShowsMinimap`, default on): blocks per non-blank run in syntax colours, full-width
+  green bands for added lines and red for removed rows from the aligned left side, the
+  viewport as a translucent rectangle; click or drag scrolls. Then a 10 pt overview ruler,
+  always shown: red (left lane) and green (right lane) marks by aligned row, a faint viewport
+  band, click or drag to jump.
+- Each side has a line number gutter. Clicking or dragging across numbers highlights those
+  lines (number and text) and opens an inline comment box below the last one, spanning the
+  text width, with the same space reserved on the other side so lines stay aligned: header
+  "Line 33" / "Lines 31–33", a borderless field in the editor font ("Leave a comment",
+  focused at once), Cancel and Add Comment (default, enabled with text). ↩ adds, ⇧↩ inserts
+  a newline, Esc cancels. One box at a time; a new selection replaces it. Right side numbers
+  are used and unchanged lines on the left map to their right side numbers (the box opens on
+  the right); changed lines on the left keep the base's numbers, the box opens on the left and
   the snippet's lines are prefixed with `-`.
+- Added comments stay in the diff as compact cards (line label, text, × on hover) on their
+  side, below their last line. Deleting a card or the comment in the file column removes both.
 - Edits on the right become the file's draft; 300 ms after the last edit the diff and
   highlighting are recomputed off the main thread. Save (⌘S) appears in the header while
   there is a draft. Undo is per file view.
@@ -65,7 +79,8 @@ Review, as with Harbor.
 
 ## Comments
 
-- Added through the diff pane's `onComment` and listed in the file column.
+- Added inline in the diff (see Layout), listed in the file column and shown as cards in the
+  diff; both views read `ReviewModel.comments`.
 - Send N Comments pastes `ReviewComment.prompt` (one block per comment: path, line range,
   the snippet, the comment) into the session's claude prompt without submitting it, then
   returns to the terminal. Sent comments are cleared. If Claude isn't running in the tab,
@@ -79,5 +94,5 @@ also refused when the file on disk changed since it was loaded.
 
 ## Later
 
-Inline comment display in the diff; uncommitted and PR compares; a folder tree and whole-project files; go to definition;
+Uncommitted and PR compares; a folder tree and whole-project files; go to definition;
 per-prompt snapshots; posting comments to GitHub.

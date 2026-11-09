@@ -1,20 +1,26 @@
 import Foundation
 
 public struct ReviewComment: Sendable, Hashable, Identifiable {
+    public enum Side: Sendable, Hashable {
+        case original, modified
+    }
+
     public let id: String
     public let path: String
     public let line: Int
     public let endLine: Int
     public let text: String
     public let snippet: String
+    public let side: Side
 
-    public init(id: String, path: String, line: Int, endLine: Int, text: String, snippet: String) {
+    public init(id: String, path: String, line: Int, endLine: Int, text: String, snippet: String, side: Side = .modified) {
         self.id = id
         self.path = path
         self.line = line
         self.endLine = endLine
         self.text = text
         self.snippet = snippet
+        self.side = side
     }
 
     public static func prompt(for comments: [ReviewComment], branch: String, base: String) -> String {

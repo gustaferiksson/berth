@@ -2,18 +2,50 @@ import AppKit
 import BerthCore
 import SwiftUI
 
+struct ReviewColors {
+    let font: NSFont
+    let background: NSColor
+    let foreground: NSColor
+    let secondary: NSColor
+    let removed: NSColor
+    let added: NSColor
+    let raised: NSColor
+    let hairline: NSColor
+    let selection = NSColor.selectedContentBackgroundColor.withAlphaComponent(0.3)
+
+    init(theme: GhosttyTheme) {
+        font = theme.font
+        background = theme.background.map(NSColor.init) ?? .textBackgroundColor
+        foreground = NSColor(theme.foreground)
+        secondary = NSColor(theme.secondary)
+        removed = NSColor(theme.closed)
+        added = NSColor(theme.working)
+        raised = foreground.withAlphaComponent(0.05)
+        hairline = foreground.withAlphaComponent(0.15)
+    }
+}
+
 final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     var theme = GhosttyTheme(values: [:]) {
-        didSet { captureColors = [:] }
+        didSet {
+            captureColors = [:]
+            colors = ReviewColors(theme: theme)
+        }
     }
     var tint = Color.clear
     var isAbsent = false
     var side: ReviewDiff.Side?
     var syntaxRuns: [ReviewHighlighter.Span] = []
+    var reserved: [Int: CGFloat] = [:] {
+        didSet { reloadParagraphs(changedFrom: oldValue) }
+    }
+    var selectedLines: ClosedRange<Int>?
+    var minimumHeight: CGFloat = 0
     weak var gutter: ReviewGutter?
+    private(set) var colors = ReviewColors(theme: GhosttyTheme(values: [:]))
     private(set) var layoutManagerRequests = 0
-    private var lineStarts = [0]
-    private var rowHeight: CGFloat = 15
+    private(set) var lineStarts = [0]
+    private(set) var rowHeight: CGFloat = 15
     private var paragraphStyle = NSParagraphStyle()
     private var captureColors: [String: NSColor] = [:]
     private var isStale = false
@@ -24,7 +56,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(NSSize(width: max(newSize.width, enclosingScrollView?.contentSize.width ?? 0), height: newSize.height))
+        super.setFrameSize(NSSize(width: max(newSize.width, enclosingScrollView?.contentSize.width ?? 0), height: max(newSize.height, minimumHeight)))
     }
 
     override func didChangeText() {
@@ -90,6 +122,28 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         }
     }
 
+    var changedRows: IndexSet {
+        guard let side else { return IndexSet() }
+        return IndexSet(side.changedLines.compactMap { side.rows.indices.contains($0) ? side.rows[$0] : nil })
+    }
+
+    func top(ofRow row: Int) -> CGFloat {
+        textContainerOrigin.y + CGFloat(row) * rowHeight + reserved.filter { $0.key < row }.values.reduce(0, +)
+    }
+
+    func scrollVertically(to y: CGFloat) {
+        guard let scrollView = enclosingScrollView else { return }
+        let clip = scrollView.contentView
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: min(max(y, 0), max(frame.height - clip.bounds.height, 0))))
+        scrollView.reflectScrolledClipView(clip)
+    }
+
+    func color(for capture: String) -> NSColor {
+        let color = captureColors[capture] ?? ReviewHighlighter.color(for: capture, theme: theme)
+        captureColors[capture] = color
+        return color
+    }
+
     func line(atY y: CGFloat) -> Int? {
         guard let storage = textContentStorage, let fragment = textLayoutManager?.textLayoutFragment(for: CGPoint(x: 0, y: y - textContainerOrigin.y)) else { return nil }
 
@@ -112,9 +166,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
         manager.setRenderingAttributes([:], for: range)
         for run in syntaxRuns[syntaxRuns.partitioningIndex { NSMaxRange($0.range) > start }...].prefix(while: { $0.range.location < end }) {
-            let color = captureColors[run.capture] ?? ReviewHighlighter.color(for: run.capture, theme: theme)
-            captureColors[run.capture] = color
-            add(.foregroundColor, color, run.range)
+            add(.foregroundColor, color(for: run.capture), run.range)
         }
         let words = side?.changedWordRangesInText ?? []
         for word in words[words.partitioningIndex { NSMaxRange($0) > start }...].prefix(while: { $0.location < end }) {
@@ -126,9 +178,14 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         guard let side, let textStorage else { return nil }
 
         let line = lineStarts.partitioningIndex { $0 > range.location } - 1
+        guard side.rows.indices.contains(line) else { return nil }
+
         let endsLine = line + 1 == lineStarts.count || NSMaxRange(range) == lineStarts[line + 1]
-        let before = range.location == 0 ? CGFloat(side.fillerBeforeFirstLine) * rowHeight : 0
-        let after = endsLine ? CGFloat(side.fillerAfterLine[line, default: 0]) * rowHeight : 0
+        let row = side.rows[line]
+        let next = line + 1 < side.rows.count ? side.rows[line + 1] : side.rowCount
+        let space = { (rows: Range<Int>) in CGFloat(rows.count) * self.rowHeight + self.reserved.filter { rows.contains($0.key) }.values.reduce(0, +) }
+        let before = range.location == 0 ? space(0..<row) : 0
+        let after = endsLine ? space(row..<next) - rowHeight : 0
         guard before > 0 || after > 0 else { return nil }
 
         let style = NSMutableParagraphStyle()
@@ -145,21 +202,45 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         super.drawBackground(in: rect)
 
         let filler = NSColor(theme.foreground).withAlphaComponent(0.05)
-        guard !isAbsent else {
+        let changed = NSColor(tint).withAlphaComponent(0.2)
+        if isAbsent {
             filler.setFill()
             rect.fill(using: .sourceOver)
-            return
+        } else {
+            enumerateRows(in: rect) { line, row, fillers, _ in
+                if side?.changedLines.contains(line) == true {
+                    changed.setFill()
+                    row.fill(using: .sourceOver)
+                }
+                if selectedLines?.contains(line) == true {
+                    colors.selection.setFill()
+                    row.fill(using: .sourceOver)
+                }
+                filler.setFill()
+                fillers.forEach { $0.fill(using: .sourceOver) }
+            }
         }
 
-        let changed = NSColor(tint).withAlphaComponent(0.2)
-        enumerateRows(in: rect) { line, row, fillers, _ in
-            if side?.changedLines.contains(line) == true {
-                changed.setFill()
-                row.fill(using: .sourceOver)
-            }
-            filler.setFill()
-            fillers.forEach { $0.fill(using: .sourceOver) }
+        backgroundColor.setFill()
+        for (row, height) in reserved {
+            NSRect(x: rect.minX, y: top(ofRow: row + 1) - height, width: rect.width, height: height).fill()
         }
+    }
+
+    private func reloadParagraphs(changedFrom old: [Int: CGFloat]) {
+        guard let side, let storage = textContentStorage, let textStorage, let manager = textLayoutManager else { return }
+
+        let rows = Set(old.keys).union(reserved.keys).filter { old[$0] != reserved[$0] }
+        let lines = Set(rows.map { row in max(side.rows.partitioningIndex { $0 > row } - 1, 0) }).filter { $0 < lineStarts.count }
+        storage.performEditingTransaction {
+            for line in lines {
+                let end = line + 1 < lineStarts.count ? lineStarts[line + 1] : textStorage.length
+                textStorage.setAttributes(typingAttributes, range: NSRange(location: lineStarts[line], length: end - lineStarts[line]))
+            }
+        }
+        manager.ensureLayout(for: manager.documentRange)
+        gutter?.needsDisplay = true
+        needsDisplay = true
     }
 
     private func countLines() {
@@ -174,12 +255,11 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
 final class ReviewGutter: NSView {
     weak var textView: ReviewTextView?
-    var selection: ClosedRange<Int>?
     var drawsSeparator = false
     var thickness: CGFloat = 40 {
         didSet { invalidateIntrinsicContentSize() }
     }
-    var onSelect: (_ lines: ClosedRange<Int>, _ rect: NSRect) -> Void = { _, _ in }
+    var onSelect: (ClosedRange<Int>) -> Void = { _ in }
     private var anchor: Int?
 
     override var isFlipped: Bool { true }
@@ -204,8 +284,8 @@ final class ReviewGutter: NSView {
             guard startsLine else { return }
 
             let rect = convert(row, from: textView)
-            if selection?.contains(line) == true {
-                NSColor.selectedContentBackgroundColor.withAlphaComponent(0.35).setFill()
+            if textView.selectedLines?.contains(line) == true {
+                textView.colors.selection.setFill()
                 NSRect(x: 0, y: rect.minY, width: bounds.width, height: rect.height).fill(using: .sourceOver)
             }
             let label = NSAttributedString(string: "\(line + 1)", attributes: [.font: textView.theme.font, .foregroundColor: textView.side?.changedLines.contains(line) == true ? changed : number])
@@ -215,20 +295,28 @@ final class ReviewGutter: NSView {
 
     override func mouseDown(with event: NSEvent) {
         anchor = line(at: event)
-        selection = anchor.map { $0...$0 }
-        needsDisplay = true
+        select(anchor.map { $0...$0 })
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let anchor, let line = line(at: event) else { return }
-        selection = min(anchor, line)...max(anchor, line)
-        needsDisplay = true
+        select(min(anchor, line)...max(anchor, line))
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard anchor != nil, let selection else { return }
+        guard anchor != nil, let selection = textView?.selectedLines else { return }
         anchor = nil
-        onSelect(selection, NSRect(origin: convert(event.locationInWindow, from: nil), size: .zero).insetBy(dx: -1, dy: -1))
+        onSelect(selection)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        textView?.enclosingScrollView?.scrollWheel(with: event)
+    }
+
+    private func select(_ lines: ClosedRange<Int>?) {
+        textView?.selectedLines = lines
+        textView?.needsDisplay = true
+        needsDisplay = true
     }
 
     private func line(at event: NSEvent) -> Int? {

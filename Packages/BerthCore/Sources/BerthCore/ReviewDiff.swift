@@ -4,18 +4,9 @@ public struct ReviewDiff: Sendable, Equatable {
     public struct Side: Sendable, Equatable {
         public internal(set) var lineCount: Int
         public internal(set) var changedLines = IndexSet()
-        public internal(set) var fillerBeforeFirstLine = 0
-        public internal(set) var fillerAfterLine: [Int: Int] = [:]
+        public internal(set) var rows: [Int] = []
+        public internal(set) var rowCount = 0
         public internal(set) var changedWordRangesInText: [NSRange] = []
-
-        mutating func addFiller(_ count: Int, afterLine line: Int) {
-            guard count > 0 else { return }
-            if line < 0 {
-                fillerBeforeFirstLine += count
-            } else {
-                fillerAfterLine[line, default: 0] += count
-            }
-        }
     }
 
     public struct Hunk: Sendable, Equatable {
@@ -67,22 +58,27 @@ public struct ReviewDiff: Sendable, Equatable {
         var newWords = IndexSet()
         var i = 0
         var j = 0
+        var row = 0
         while i < oldLines.count || j < newLines.count {
             let oldStart = i
             let newStart = j
             while i < oldLines.count, removed.contains(i) { i += 1 }
             while j < newLines.count, inserted.contains(j) { j += 1 }
             guard i > oldStart || j > newStart else {
+                original.rows.append(row)
+                modified.rows.append(row)
                 i += 1
                 j += 1
+                row += 1
                 continue
             }
 
             hunks.append(Hunk(originalLines: oldStart..<i, modifiedLines: newStart..<j))
             original.changedLines.insert(integersIn: oldStart..<i)
             modified.changedLines.insert(integersIn: newStart..<j)
-            original.addFiller((j - newStart) - (i - oldStart), afterLine: i - 1)
-            modified.addFiller((i - oldStart) - (j - newStart), afterLine: j - 1)
+            original.rows += (row..<(row + i - oldStart))
+            modified.rows += (row..<(row + j - newStart))
+            row += max(i - oldStart, j - newStart)
 
             guard !isTooDifferent else { continue }
             for pair in 0..<min(i - oldStart, j - newStart) {
@@ -92,6 +88,8 @@ public struct ReviewDiff: Sendable, Equatable {
             }
         }
 
+        original.rowCount = row
+        modified.rowCount = row
         original.changedWordRangesInText = oldWords.rangeView.map { NSRange($0) }
         modified.changedWordRangesInText = newWords.rangeView.map { NSRange($0) }
         self.original = original
