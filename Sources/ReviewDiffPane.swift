@@ -6,8 +6,8 @@ struct ReviewDiffPane: View {
     let contents: ReviewContents
     @Binding var draft: String?
     @Binding var comments: [ReviewComment]
-    @Environment(\.ghosttyTheme) private var theme
-    @AppStorage("reviewShowsMinimap") private var showsMinimap = true
+    let style: ReviewStyle
+    @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
     @State private var analysis: ReviewDiffAnalysis?
 
     var body: some View {
@@ -29,7 +29,7 @@ struct ReviewDiffPane: View {
                 isOriginalAbsent: contents.original == nil,
                 isModifiedAbsent: contents.modified == nil,
                 analysis: analysis,
-                theme: theme,
+                style: style,
                 showsMinimap: showsMinimap,
                 comments: $comments,
                 onEdit: { draft = $0 == loaded ? nil : $0 }
@@ -85,7 +85,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let isOriginalAbsent: Bool
     let isModifiedAbsent: Bool
     let analysis: ReviewDiffAnalysis?
-    let theme: GhosttyTheme
+    let style: ReviewStyle
     let showsMinimap: Bool
     @Binding var comments: [ReviewComment]
     let onEdit: (String) -> Void
@@ -111,6 +111,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     }
 
     func updateNSView(_ stack: NSStackView, context: Context) {
+        stack.appearance = NSAppearance(named: style.isDark ? .darkAqua : .aqua)
         context.coordinator.update(self)
     }
 
@@ -130,6 +131,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         func makeSide(_ textView: ReviewTextView) -> [NSView] {
             let scrollView = NSScrollView()
             let gutter = ReviewGutter()
+            textView.kind = textView === left ? .original : .modified
             textView.delegate = self
             textView.textContentStorage?.delegate = textView
             textView.textLayoutManager?.renderingAttributesValidator = { [weak textView] _, fragment in textView?.colorSyntax(in: fragment) }
@@ -180,7 +182,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             left.isAbsent = view.isOriginalAbsent
             right.isAbsent = view.isModifiedAbsent
 
-            let isThemeChanged = view.theme != left.theme
+            let isStyleChanged = view.style != left.style
             let isOriginalChanged = view.original != loadedOriginal
             let isModifiedChanged = view.modified != loadedModified
             if isOriginalChanged {
@@ -205,15 +207,12 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 right.side = analysis.diff.modified
                 right.syntaxRuns = analysis.modifiedRuns
             }
-            if isThemeChanged {
-                cards.values.forEach { $0.removeFromSuperview() }
-                cards = [:]
+            if isStyleChanged {
+                left.style = view.style
+                right.style = view.style
+                for inline in Array(cards.values) + [draft?.view].compactMap(\.self) { inline.apply(view.style) }
             }
-            if isThemeChanged || isOriginalChanged || isModifiedChanged || analysis != nil {
-                left.tint = view.theme.closed
-                right.tint = view.theme.working
-                left.theme = view.theme
-                right.theme = view.theme
+            if isStyleChanged || isOriginalChanged || isModifiedChanged || analysis != nil {
                 reload()
             }
             layoutInline()
@@ -223,6 +222,10 @@ private struct ReviewDiffViews: NSViewRepresentable {
             guard let textView = notification.object as? ReviewTextView, textView === right else { return }
             loadedModified = textView.string
             parent?.onEdit(textView.string)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            (notification.object as? ReviewTextView)?.gutter?.needsDisplay = true
         }
 
         func undoManager(for view: NSTextView) -> UndoManager? {
@@ -274,7 +277,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             for comment in comments {
                 let owner = comment.side == .original ? left : right
                 let numbers = comment.endLine > comment.line ? "Lines \(comment.line)–\(comment.endLine)" : "Line \(comment.line)"
-                let card = cards[comment.id] ?? ReviewInlineComment(title: comment.side == .original ? "Removed \(numbers)" : numbers, text: comment.text, kind: .card(onDelete: { [weak self] in self?.parent?.comments.removeAll { $0.id == comment.id } }), colors: owner.colors)
+                let card = cards[comment.id] ?? ReviewInlineComment(title: comment.side == .original ? "Removed \(numbers)" : numbers, text: comment.text, kind: .card(onDelete: { [weak self] in self?.parent?.comments.removeAll { $0.id == comment.id } }), style: owner.style)
                 cards[comment.id] = card
                 if card.superview == nil { owner.addSubview(card) }
                 let rows = owner.side?.rows ?? []
@@ -284,7 +287,8 @@ private struct ReviewDiffViews: NSViewRepresentable {
             placed += [draft].compactMap(\.self)
 
             let inset: CGFloat = 6
-            let width = max((right.enclosingScrollView?.contentView.bounds.width ?? 0) - 2 * inset, 200)
+            let indent = right.textContainerOrigin.x + (right.textContainer?.lineFragmentPadding ?? 0)
+            let width = max((right.enclosingScrollView?.contentView.bounds.width ?? 0) - indent - 2 * inset, 200)
             let heights = placed.map { $0.view.fittingHeight(forWidth: width) }
             var reserved: [Int: CGFloat] = [:]
             for (item, height) in zip(placed, heights) { reserved[item.row, default: 0] += height + inset * 2 }
@@ -299,7 +303,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             for (item, height) in zip(placed, heights) {
                 let top = item.owner.top(ofRow: item.row + 1) - reserved[item.row, default: 0] + stacked[item.row, default: 0] + inset
                 stacked[item.row, default: 0] += height + inset * 2
-                item.view.frame = NSRect(x: item.owner.visibleRect.minX + inset, y: top, width: width, height: height)
+                item.view.frame = NSRect(x: item.owner.visibleRect.minX + indent, y: top, width: width, height: height)
             }
         }
 
@@ -328,7 +332,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 },
                 onCancel: { [weak self] in self?.closeDraft() },
                 onResize: { [weak self] in self?.layoutInline() }
-            ), colors: owner.colors)
+            ), style: owner.style)
             owner.addSubview(view)
             draft = (view, owner, rows[lines.upperBound])
             layoutInline()

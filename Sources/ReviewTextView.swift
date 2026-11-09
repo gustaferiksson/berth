@@ -1,38 +1,9 @@
 import AppKit
 import BerthCore
-import SwiftUI
-
-struct ReviewColors {
-    let font: NSFont
-    let background: NSColor
-    let foreground: NSColor
-    let secondary: NSColor
-    let removed: NSColor
-    let added: NSColor
-    let raised: NSColor
-    let hairline: NSColor
-    let selection = NSColor.selectedContentBackgroundColor.withAlphaComponent(0.3)
-
-    init(theme: GhosttyTheme) {
-        font = theme.font
-        background = theme.background.map(NSColor.init) ?? .textBackgroundColor
-        foreground = NSColor(theme.foreground)
-        secondary = NSColor(theme.secondary)
-        removed = NSColor(theme.closed)
-        added = NSColor(theme.working)
-        raised = foreground.withAlphaComponent(0.05)
-        hairline = foreground.withAlphaComponent(0.15)
-    }
-}
 
 final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
-    var theme = GhosttyTheme(values: [:]) {
-        didSet {
-            captureColors = [:]
-            colors = ReviewColors(theme: theme)
-        }
-    }
-    var tint = Color.clear
+    var style = ReviewStyle(scheme: .oneDark, fontFamily: "", fontSize: 0, lineHeightMultiple: 1.3, ghostty: GhosttyTheme(values: [:]))
+    var kind = ReviewComment.Side.modified
     var isAbsent = false
     var side: ReviewDiff.Side?
     var syntaxRuns: [ReviewHighlighter.Span] = []
@@ -42,12 +13,11 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     var selectedLines: ClosedRange<Int>?
     var minimumHeight: CGFloat = 0
     weak var gutter: ReviewGutter?
-    private(set) var colors = ReviewColors(theme: GhosttyTheme(values: [:]))
     private(set) var layoutManagerRequests = 0
     private(set) var lineStarts = [0]
     private(set) var rowHeight: CGFloat = 15
+    private var rowPadding: CGFloat = 0
     private var paragraphStyle = NSParagraphStyle()
-    private var captureColors: [String: NSColor] = [:]
     private var isStale = false
 
     override var layoutManager: NSLayoutManager? {
@@ -69,28 +39,33 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     func refresh() {
         guard let storage = textContentStorage, let textStorage, let manager = textLayoutManager else { return }
 
-        let font = theme.font
+        let font = style.font
         let digitWidth = ("0" as NSString).size(withAttributes: [.font: font]).width
-        let style = NSMutableParagraphStyle()
-        rowHeight = (font.ascender - font.descender + font.leading).rounded(.up)
-        style.minimumLineHeight = rowHeight
-        style.maximumLineHeight = rowHeight
-        style.tabStops = []
-        style.defaultTabInterval = digitWidth * 4
-        paragraphStyle = style
+        let paragraph = NSMutableParagraphStyle()
+        rowHeight = style.lineHeight
+        rowPadding = ((rowHeight - (font.ascender - font.descender + font.leading)) / 2).rounded()
+        paragraph.minimumLineHeight = rowHeight - rowPadding
+        paragraph.maximumLineHeight = rowHeight - rowPadding
+        paragraph.paragraphSpacing = rowPadding
+        paragraph.tabStops = []
+        paragraph.defaultTabInterval = digitWidth * 4
+        paragraphStyle = paragraph
         countLines()
 
-        let background = theme.background.map(NSColor.init) ?? .textBackgroundColor
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(theme.foreground), .paragraphStyle: style]
-        backgroundColor = background
-        enclosingScrollView?.backgroundColor = background
-        insertionPointColor = NSColor(theme.foreground)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: style.foreground, .paragraphStyle: paragraph]
+        backgroundColor = style.background
+        enclosingScrollView?.backgroundColor = style.background
+        insertionPointColor = style.foreground
+        selectedTextAttributes = [.backgroundColor: style.selection]
         typingAttributes = attributes
 
         let caret = window?.firstResponder === self ? selectedRange().location : nil
         let caretTop = caret.flatMap(fragmentTop).map { $0 - visibleRect.minY }
         storage.performEditingTransaction {
             textStorage.setAttributes(attributes, range: NSRange(location: 0, length: textStorage.length))
+            for run in syntaxRuns where NSMaxRange(run.range) <= textStorage.length && style.font(forCapture: run.capture) != font {
+                textStorage.addAttribute(.font, value: style.font(forCapture: run.capture), range: run.range)
+            }
         }
         isStale = false
         manager.invalidateRenderingAttributes(for: manager.documentRange)
@@ -114,8 +89,8 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
             let offset = storage.offset(from: storage.documentRange.location, to: fragment.rangeInElement.location)
             let line = lineStarts.partitioningIndex { $0 > offset } - 1
-            let top = frame.minY + (fragment.textLineFragments.first?.typographicBounds.maxY ?? rowHeight) - rowHeight
-            let bottom = frame.minY + (fragment.textLineFragments.last?.typographicBounds.maxY ?? rowHeight)
+            let top = frame.minY + (fragment.textLineFragments.first?.typographicBounds.maxY ?? rowHeight) - rowHeight + rowPadding
+            let bottom = frame.minY + (fragment.textLineFragments.last?.typographicBounds.maxY ?? rowHeight) + rowPadding
             let fillers = [NSRect(x: rect.minX, y: frame.minY, width: rect.width, height: top - frame.minY), NSRect(x: rect.minX, y: bottom, width: rect.width, height: frame.maxY - bottom)]
             body(line, NSRect(x: rect.minX, y: top, width: rect.width, height: rowHeight), fillers, lineStarts[line] == offset)
             return true
@@ -136,12 +111,6 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         let clip = scrollView.contentView
         clip.scroll(to: NSPoint(x: clip.bounds.minX, y: min(max(y, 0), max(frame.height - clip.bounds.height, 0))))
         scrollView.reflectScrolledClipView(clip)
-    }
-
-    func color(for capture: String) -> NSColor {
-        let color = captureColors[capture] ?? ReviewHighlighter.color(for: capture, theme: theme)
-        captureColors[capture] = color
-        return color
     }
 
     func line(atY y: CGFloat) -> Int? {
@@ -166,11 +135,11 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
         manager.setRenderingAttributes([:], for: range)
         for run in syntaxRuns[syntaxRuns.partitioningIndex { NSMaxRange($0.range) > start }...].prefix(while: { $0.range.location < end }) {
-            add(.foregroundColor, color(for: run.capture), run.range)
+            add(.foregroundColor, style.color(forCapture: run.capture), run.range)
         }
         let words = side?.changedWordRangesInText ?? []
         for word in words[words.partitioningIndex { NSMaxRange($0) > start }...].prefix(while: { $0.location < end }) {
-            add(.backgroundColor, NSColor(tint).withAlphaComponent(0.35), word)
+            add(.backgroundColor, kind == .original ? style.removedWord : style.addedWord, word)
         }
     }
 
@@ -190,9 +159,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
         let style = NSMutableParagraphStyle()
         style.setParagraphStyle(paragraphStyle)
-        style.minimumLineHeight = rowHeight + before
-        style.maximumLineHeight = rowHeight + before
-        style.paragraphSpacing = after
+        style.minimumLineHeight = rowHeight - rowPadding + before
+        style.maximumLineHeight = rowHeight - rowPadding + before
+        style.paragraphSpacing = after + rowPadding
         let text = NSMutableAttributedString(attributedString: textStorage.attributedSubstring(from: range))
         text.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: text.length))
         return NSTextParagraph(attributedString: text)
@@ -201,10 +170,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
 
-        let filler = NSColor(theme.foreground).withAlphaComponent(0.05)
-        let changed = NSColor(tint).withAlphaComponent(0.2)
+        let changed = kind == .original ? style.removedLine : style.addedLine
         if isAbsent {
-            filler.setFill()
+            style.filler.setFill()
             rect.fill(using: .sourceOver)
         } else {
             enumerateRows(in: rect) { line, row, fillers, _ in
@@ -213,10 +181,10 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
                     row.fill(using: .sourceOver)
                 }
                 if selectedLines?.contains(line) == true {
-                    colors.selection.setFill()
+                    style.selection.setFill()
                     row.fill(using: .sourceOver)
                 }
-                filler.setFill()
+                style.filler.setFill()
                 fillers.forEach { $0.fill(using: .sourceOver) }
             }
         }
@@ -235,7 +203,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         storage.performEditingTransaction {
             for line in lines {
                 let end = line + 1 < lineStarts.count ? lineStarts[line + 1] : textStorage.length
-                textStorage.setAttributes(typingAttributes, range: NSRange(location: lineStarts[line], length: end - lineStarts[line]))
+                textStorage.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: lineStarts[line], length: end - lineStarts[line]))
             }
         }
         manager.ensureLayout(for: manager.documentRange)
@@ -274,22 +242,26 @@ final class ReviewGutter: NSView {
         textView.backgroundColor.setFill()
         bounds.fill()
         if drawsSeparator {
-            NSColor(textView.theme.foreground).withAlphaComponent(0.1).setFill()
+            textView.style.commentBorder.setFill()
             NSRect(x: 0, y: 0, width: 1 / (window?.backingScaleFactor ?? 2), height: bounds.height).fill(using: .sourceOver)
         }
 
-        let number = NSColor(textView.theme.secondary)
-        let changed = NSColor(textView.tint)
+        let style = textView.style
+        let changed = (textView.kind == .original ? style.removedWord : style.addedWord).withAlphaComponent(1)
+        let caret = textView.window?.firstResponder === textView ? textView.lineStarts.partitioningIndex { $0 > textView.selectedRange().location } - 1 : nil
         textView.enumerateRows(in: textView.visibleRect) { line, row, _, startsLine in
             guard startsLine else { return }
 
             let rect = convert(row, from: textView)
-            if textView.selectedLines?.contains(line) == true {
-                textView.colors.selection.setFill()
+            let isSelected = textView.selectedLines?.contains(line) == true
+            if isSelected {
+                style.selection.setFill()
                 NSRect(x: 0, y: rect.minY, width: bounds.width, height: rect.height).fill(using: .sourceOver)
             }
-            let label = NSAttributedString(string: "\(line + 1)", attributes: [.font: textView.theme.font, .foregroundColor: textView.side?.changedLines.contains(line) == true ? changed : number])
-            label.draw(at: NSPoint(x: bounds.width - label.size().width - 8, y: rect.minY))
+            let color = textView.side?.changedLines.contains(line) == true ? changed : isSelected || line == caret ? style.currentLineNumber : style.gutterForeground
+            let label = NSAttributedString(string: "\(line + 1)", attributes: [.font: style.font, .foregroundColor: color])
+            let size = label.size()
+            label.draw(at: NSPoint(x: bounds.width - size.width - 8, y: rect.minY + (rect.height - size.height) / 2))
         }
     }
 

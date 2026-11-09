@@ -35,14 +35,16 @@ This is the slim first version; the rest is listed under Later.
   failed, Refresh.
 - Diff: `ReviewDiffPane` gets the file's `ReviewContents`, a draft binding and `onComment`.
   Base on the left (read only), working tree on the right (editable unless deleted), in the
-  Ghostty font (`font-family`, `font-size`, else monospaced 12) and theme colours. Filler rows
-  keep unchanged lines side by side, changed lines are tinted full width (closed red left,
-  working green right) with changed words tinted stronger, and tree-sitter syntax colours.
+  Review style (Settings > Appearance > Review: colour scheme, One Dark by default, or Match
+  Terminal; font family and size, default the terminal's; line height, default 1.3). The whole
+  Review screen uses the style's background and light or dark appearance; changes apply live. Filler rows
+  keep unchanged lines side by side, changed lines are tinted full width (the style's removed tint left,
+  added tint right) with changed words tinted stronger, and tree-sitter syntax colours.
   Scrolling either side (text, gutter, minimap or ruler) scrolls both, for added and deleted
   files too. Added and deleted files show the missing side as filler; a binary or too large
   side is a `ContentUnavailableView`.
-- Right of the right side: a VS Code style minimap (80 pt, Settings toggle
-  `reviewShowsMinimap`, default on): blocks per non-blank run in syntax colours, full-width
+- Right of the right side: a VS Code style minimap (80 pt, Settings > Appearance > Review
+  toggle `reviewShowsMinimap`, default on): blocks per non-blank run in syntax colours, full-width
   green bands for added lines and red for removed rows from the aligned left side, the
   viewport as a translucent rectangle; click or drag scrolls. Then a 10 pt overview ruler,
   always shown: red (left lane) and green (right lane) marks by aligned row, a faint viewport

@@ -321,6 +321,17 @@ enum Snapshot {
                 print("comments: \(model.comments.map { "\($0.path):\($0.line)-\($0.endLine) \($0.side) \($0.text.debugDescription) snippet \($0.snippet.debugDescription)" }), draft \(draft() == nil ? "closed" : "open")")
                 report("card")
                 save(".card.png")
+                if let spec = UserDefaults.standard.string(forKey: "snapshotReviewRestyle"), let separator = spec.firstIndex(of: ":") {
+                    let keys = [ReviewStyle.colorSchemeKey, ReviewStyle.lineHeightKey]
+                    let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
+                    UserDefaults.standard.set(String(spec[..<separator]), forKey: keys[0])
+                    UserDefaults.standard.set(Double(spec[spec.index(after: separator)...]) ?? 1.3, forKey: keys[1])
+                    try? await Task.sleep(for: .milliseconds(800))
+                    print("restyled \(spec): text view background \(sides[1].backgroundColor), row height \(sides[1].rowHeight), inline \(sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.map { "\($0.frame) \($0.appearance?.name.rawValue ?? "-")" })")
+                    report("restyled")
+                    save(".restyled.png")
+                    for (key, value) in zip(keys, saved) { UserDefaults.standard.set(value, forKey: key) }
+                }
                 if UserDefaults.standard.bool(forKey: "snapshotReviewDelete") {
                     let button = sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.flatMap(\.subviews).compactMap { $0 as? NSButton }.first { $0.toolTip == "Delete Comment" }
                     button?.performClick(nil)

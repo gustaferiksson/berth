@@ -13,7 +13,7 @@ final class ReviewInlineComment: NSView {
     private let padding: CGFloat = 8
     private let headerHeight: CGFloat = 16
 
-    init(title: String, text: String, kind: Kind, colors: ReviewColors) {
+    init(title: String, text: String, kind: Kind, style: ReviewStyle) {
         self.kind = kind
         header = NSTextField(labelWithString: title)
         if case .draft = kind {
@@ -24,7 +24,6 @@ final class ReviewInlineComment: NSView {
             buttons = [NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Delete Comment") ?? NSImage(), target: nil, action: #selector(delete))]
             buttons[0].isBordered = false
             buttons[0].isHidden = true
-            buttons[0].contentTintColor = colors.secondary
             buttons[0].toolTip = "Delete Comment"
         }
         super.init(frame: .zero)
@@ -33,18 +32,12 @@ final class ReviewInlineComment: NSView {
         layer?.cornerRadius = 6
         layer?.masksToBounds = true
         layer?.borderWidth = 1
-        layer?.borderColor = colors.hairline.cgColor
-        layer?.backgroundColor = colors.raised.cgColor
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
 
         header.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-        header.textColor = colors.secondary
         header.lineBreakMode = .byTruncatingTail
 
         field.string = text
-        field.font = colors.font
-        field.textColor = colors.foreground
-        field.insertionPointColor = colors.foreground
         field.drawsBackground = false
         field.isRichText = false
         field.allowsUndo = true
@@ -52,7 +45,6 @@ final class ReviewInlineComment: NSView {
         field.textContainerInset = .zero
         field.textContainer?.lineFragmentPadding = 0
         field.textContainer?.widthTracksTextView = true
-        field.placeholder = NSAttributedString(string: "Leave a comment", attributes: [.font: colors.font, .foregroundColor: colors.secondary])
         field.onSubmit = { [weak self] in self?.add() }
         field.onCancel = { [weak self] in self?.cancel() }
         field.onChange = { [weak self] in self?.fieldDidChange() }
@@ -63,6 +55,7 @@ final class ReviewInlineComment: NSView {
             button.sizeToFit()
         }
         for view in [header, field] + buttons { addSubview(view) }
+        apply(style)
     }
 
     @available(*, unavailable)
@@ -71,6 +64,21 @@ final class ReviewInlineComment: NSView {
     }
 
     override var isFlipped: Bool { true }
+
+    func apply(_ style: ReviewStyle) {
+        appearance = NSAppearance(named: style.isDark ? .darkAqua : .aqua)
+        layer?.borderColor = style.commentBorder.cgColor
+        layer?.backgroundColor = style.commentBackground.cgColor
+        header.textColor = style.secondary
+        if case .card = kind { buttons[0].contentTintColor = style.secondary }
+        field.font = style.font
+        field.textColor = style.foreground
+        field.insertionPointColor = style.foreground
+        field.selectedTextAttributes = [.backgroundColor: style.selection]
+        field.placeholder = NSAttributedString(string: "Leave a comment", attributes: [.font: style.font, .foregroundColor: style.secondary])
+        needsLayout = true
+        field.needsDisplay = true
+    }
 
     func fittingHeight(forWidth width: CGFloat) -> CGFloat {
         let buttonsHeight = if case .draft = kind { 8 + (buttons.map(\.frame.height).max() ?? 0) } else { CGFloat(0) }

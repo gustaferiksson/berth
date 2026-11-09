@@ -38,6 +38,7 @@ struct ReviewStyle: Equatable {
     let lineHeight: CGFloat
     let background: NSColor
     let foreground: NSColor
+    let secondary: NSColor
     let gutterForeground: NSColor
     let currentLineNumber: NSColor
     let selection: NSColor
@@ -108,6 +109,7 @@ struct ReviewStyle: Equatable {
         self.background = background
         self.foreground = foreground
         self.gutterForeground = gutterForeground
+        secondary = foreground.withAlphaComponent(0.6)
         currentLineNumber = foreground
         self.selection = selection
         self.removedLine = removedLine

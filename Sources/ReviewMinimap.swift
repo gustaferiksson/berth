@@ -29,12 +29,12 @@ final class ReviewMinimap: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let modified, let mapping else { return }
 
-        modified.colors.background.setFill()
+        modified.style.background.setFill()
         bounds.fill()
         let image = image ?? render(scale: mapping.scale)
         self.image = image
         image?.draw(in: NSRect(x: 0, y: -mapping.clip.minY * (mapping.scale - mapping.slope), width: bounds.width, height: image?.size.height ?? 0), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-        modified.colors.foreground.withAlphaComponent(0.1).setFill()
+        modified.style.foreground.withAlphaComponent(0.1).setFill()
         NSRect(x: 0, y: mapping.clip.minY * mapping.slope, width: bounds.width, height: mapping.clip.height * mapping.scale).fill(using: .sourceOver)
     }
 
@@ -73,8 +73,8 @@ final class ReviewMinimap: NSView {
         context.translateBy(x: 0, y: -size.height)
         let rowHeight = modified.rowHeight * scale
         let added = modified.changedRows
-        for (rows, color) in [(original.changedRows.subtracting(added), modified.colors.removed), (added, modified.colors.added)] {
-            context.setFillColor(color.withAlphaComponent(0.35).cgColor)
+        for (rows, color) in [(original.changedRows.subtracting(added), modified.style.removedWord), (added, modified.style.addedWord)] {
+            context.setFillColor(color.withAlphaComponent(0.6).cgColor)
             for row in rows {
                 context.fill(CGRect(x: 0, y: modified.top(ofRow: row) * scale, width: size.width, height: rowHeight))
             }
@@ -83,7 +83,7 @@ final class ReviewMinimap: NSView {
         let units = Array(modified.string.utf16)
         let rows = modified.side?.rows ?? []
         let runs = modified.syntaxRuns
-        let foreground = modified.colors.foreground
+        let foreground = modified.style.foreground
         var run = 0
         context.setAlpha(0.6)
         for (line, start) in modified.lineStarts.enumerated() {
@@ -95,7 +95,7 @@ final class ReviewMinimap: NSView {
                 let unit = offset < end ? units[offset] : 0x20
                 while run < runs.count, NSMaxRange(runs[run].range) <= offset { run += 1 }
                 let isBlank = unit == 0x20 || unit == 0x09 || unit == 0x0D
-                let color = isBlank ? nil : run < runs.count && runs[run].range.location <= offset ? modified.color(for: runs[run].capture) : foreground
+                let color = isBlank ? nil : run < runs.count && runs[run].range.location <= offset ? modified.style.color(forCapture: runs[run].capture) : foreground
                 if let current = segment, current.color !== color {
                     context.setFillColor(current.color.cgColor)
                     context.fill(CGRect(x: 4 + CGFloat(current.column), y: y, width: CGFloat(column - current.column), height: rowHeight * 0.7))
@@ -123,21 +123,21 @@ final class ReviewOverviewRuler: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let modified, let original, let clip = modified.enclosingScrollView?.contentView.bounds, modified.frame.height > 0 else { return }
 
-        modified.colors.background.setFill()
+        modified.style.background.setFill()
         bounds.fill()
-        modified.colors.hairline.setFill()
+        modified.style.commentBorder.setFill()
         NSRect(x: 0, y: 0, width: 1 / (window?.backingScaleFactor ?? 2), height: bounds.height).fill()
 
         let factor = bounds.height / modified.frame.height
-        for (lane, rows, color) in [(0, original.changedRows, modified.colors.removed), (1, modified.changedRows, modified.colors.added)] {
-            color.setFill()
+        for (lane, rows, color) in [(0, original.changedRows, modified.style.removedWord), (1, modified.changedRows, modified.style.addedWord)] {
+            color.withAlphaComponent(1).setFill()
             for range in rows.rangeView {
                 let top = modified.top(ofRow: range.lowerBound) * factor
                 let bottom = modified.top(ofRow: range.upperBound) * factor
                 NSRect(x: 1.5 + CGFloat(lane) * 4, y: top, width: 3.5, height: max(bottom - top, 2)).fill()
             }
         }
-        modified.colors.foreground.withAlphaComponent(0.12).setFill()
+        modified.style.foreground.withAlphaComponent(0.12).setFill()
         NSRect(x: 0, y: clip.minY * factor, width: bounds.width, height: max(clip.height * factor, 4)).fill(using: .sourceOver)
     }
 
