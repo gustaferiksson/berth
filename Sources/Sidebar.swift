@@ -566,7 +566,8 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
             Spacer(minLength: 4)
             accessory(isHovering)
         }
-        .padding(.trailing, 2)
+        // While hovered, the system disclosure chevron takes this much of the header's trailing edge.
+        .padding(.trailing, isHovering ? 2 : 25)
         .frame(height: 24)
         .contentShape([.interaction, .dragPreview], .rect(cornerRadius: 8))
         .contextMenu(menuItems: menu)
