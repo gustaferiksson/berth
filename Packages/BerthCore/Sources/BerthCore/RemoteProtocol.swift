@@ -11,8 +11,11 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let waitingSince: Double?
     public let isOpen: Bool
     public let isLocked: Bool
+    public let lastPrompt: Date?
+    public let pullRequest: RemotePullRequest?
+    public let isUnread: Bool?
 
-    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool) {
+    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil) {
         self.id = id
         self.title = title
         self.folder = folder
@@ -23,6 +26,21 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
         self.waitingSince = waitingSince
         self.isOpen = isOpen
         self.isLocked = isLocked
+        self.lastPrompt = lastPrompt
+        self.pullRequest = pullRequest
+        self.isUnread = isUnread
+    }
+}
+
+public struct RemotePullRequest: Codable, Sendable, Hashable {
+    public let number: Int
+    public let state: String
+    public let url: URL
+
+    public init(number: Int, state: String, url: URL) {
+        self.number = number
+        self.state = state
+        self.url = url
     }
 }
 
@@ -53,8 +71,11 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
     public let oldText: String?
     public let newText: String?
     public let isError: Bool
+    public let date: Date?
+    public let detail: String?
+    public let images: [Data]?
 
-    public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false) {
+    public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false, date: Date? = nil, detail: String? = nil, images: [Data]? = nil) {
         self.id = id
         self.kind = kind
         self.text = text
@@ -65,11 +86,18 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
         self.oldText = oldText
         self.newText = newText
         self.isError = isError
+        self.date = date
+        self.detail = detail
+        self.images = images
     }
 }
 
 public enum RemoteKey: String, Codable, Sendable, CaseIterable {
     case enter, escape, shiftTab, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9
+}
+
+public enum RemoteSessionAction: String, Codable, Sendable {
+    case show, pin, unpin, markRead, markUnread, archive, interrupt
 }
 
 public enum RemoteClientMessage: Codable, Sendable {
@@ -78,6 +106,8 @@ public enum RemoteClientMessage: Codable, Sendable {
     case prompt(sessionID: String, text: String)
     case key(sessionID: String, key: RemoteKey, waitingFor: String?, waitingSince: Double?)
     case newSession(folder: String, prompt: String)
+    case session(sessionID: String, action: RemoteSessionAction)
+    case refresh
 }
 
 public enum RemoteServerMessage: Codable, Sendable {

@@ -1,3 +1,4 @@
+import AppKit
 import BerthCore
 import CryptoKit
 import Foundation
@@ -162,6 +163,12 @@ final class RemoteServer {
             press(key, in: sessionID, answering: waitingFor, since: waitingSince, from: connection)
         case let .newSession(folder, prompt):
             Task { await startSession(in: folder, prompt: prompt, from: connection) }
+        case let .session(sessionID, action):
+            perform(action, on: sessionID, from: connection)
+        case .refresh:
+            store.refresh()
+            store.refreshPullRequests()
+            send(try? JSONEncoder().encode(sessionsMessage), to: connection)
         }
     }
 
@@ -179,7 +186,10 @@ final class RemoteServer {
                 waitingFor: live?.waitingFor,
                 waitingSince: live?.status == "waiting" ? live?.statusUpdatedAt : nil,
                 isOpen: open.contains(session.id),
-                isLocked: live.map { $0.attachID == nil } ?? false && !open.contains(session.id)
+                isLocked: live.map { $0.attachID == nil } ?? false && !open.contains(session.id),
+                lastPrompt: session.lastPrompt,
+                pullRequest: self.store.pullRequest(for: session).map { RemotePullRequest(number: $0.number, state: $0.state.rawValue, url: $0.url) },
+                isUnread: self.store.isUnread(session)
             )
         }
         let starting = store.tabs.filter { $0.kind == .claude && $0.sessionID.map { store.sessionsByID[$0] == nil } ?? false }.compactMap { tab in
@@ -289,6 +299,30 @@ final class RemoteServer {
         case .digit9: TerminalKeyPress(.digit9)
         }
         terminal.sendKey(press)
+    }
+
+    private func perform(_ action: RemoteSessionAction, on sessionID: String, from connection: NWConnection) {
+        switch action {
+        case .show:
+            store.activate(.session(sessionID))
+            NSApp.activate()
+        case .pin:
+            store.pin(sessionID)
+        case .unpin:
+            store.unpin(sessionID)
+        case .markRead:
+            store.markRead(sessionID)
+        case .markUnread:
+            store.markUnread(sessionID)
+        case .archive:
+            guard store.liveBySession[sessionID] == nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude is still running in this session, so it can’t be archived from here")), to: connection) }
+            store.archive(sessionID)
+        case .interrupt:
+            store.refreshLive()
+            guard store.liveBySession[sessionID]?.status == "busy", let terminal = store.tab(forSession: sessionID)?.terminal else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude isn’t working in a Berth tab for this session")), to: connection) }
+            store.lastKeyInput = .now
+            terminal.sendKey(TerminalKeyPress(.escape))
+        }
     }
 
     private func startSession(in folder: String, prompt: String, from connection: NWConnection) async {

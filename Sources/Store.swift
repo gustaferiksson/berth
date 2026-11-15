@@ -373,8 +373,8 @@ final class Store {
 
     private var fakeLive: [LiveSession] {
         #if DEBUG
-        let statuses = fakeWaiting.map { [$0 ? #""status":"waiting","waitingFor":"permission""# : #""status":"busy""#] }
-            ?? (UserDefaults.standard.bool(forKey: "snapshotFakeStatus") ? [#""status":"waiting","waitingFor":"permission""#, #""status":"busy""#, #""status":"shell""#] : [])
+        let statuses = fakeWaiting.map { [$0 ? #""status":"waiting","waitingFor":"permission prompt""# : #""status":"busy""#] }
+            ?? (UserDefaults.standard.bool(forKey: "snapshotFakeStatus") ? [#""status":"waiting","waitingFor":"permission prompt""#, #""status":"busy""#, #""status":"shell""#] : [])
         return fakeLiveSessions + zip(groups.first { !$0.sessions.isEmpty }?.sessions ?? [], statuses).compactMap { session, status in
             let json = #"{"pid":1,"sessionId":"\#(session.id)","cwd":"\#(session.cwd)",\#(status)}"#
             return try? JSONDecoder().decode(LiveSession.self, from: Data(json.utf8))
