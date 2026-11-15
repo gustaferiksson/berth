@@ -144,6 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UNUserNotificationCenter.current().delegate = self
             store.start(restoringTabs: true)
             store.updater.start()
+            store.remote.update()
             return
         }
         store.persistsTabs = false
