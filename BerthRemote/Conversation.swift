@@ -89,12 +89,23 @@ enum ToolKind {
         case .command: "ran \(count) \(count == 1 ? "command" : "commands")"
         case .read: "read \(count) \(count == 1 ? "file" : "files")"
         case .edit: "edited \(count) \(count == 1 ? "file" : "files")"
-        case .search: "searched code \(count) \(count == 1 ? "time" : "times")"
-        case .web: "searched the web \(count) \(count == 1 ? "time" : "times")"
+        case .search: "searched code \(count == 1 ? "once" : "\(count) times")"
+        case .web: "searched the web \(count == 1 ? "once" : "\(count) times")"
         case .agent: "ran \(count) \(count == 1 ? "agent" : "agents")"
         case .todo: "updated the todo list"
         case .question: "asked \(count) \(count == 1 ? "question" : "questions")"
         case .other: "used \(count) \(count == 1 ? "tool" : "tools")"
+        }
+    }
+}
+
+enum LiveCall: Equatable {
+    case running(String)
+    case waiting(String)
+
+    var id: String {
+        switch self {
+        case let .running(id), let .waiting(id): id
         }
     }
 }

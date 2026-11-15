@@ -11,9 +11,10 @@ let expandsCalls = false
 struct TurnView: View {
     let turn: Turn
     let isFinished: Bool
-    let liveCallID: String?
+    let liveCall: LiveCall?
 
     @State private var showsWork = false
+    @ScaledMetric(relativeTo: .subheadline) private var iconWidth = 22
 
     var body: some View {
         let lastWork = turn.parts.lastIndex { if case .work = $0 { true } else { false } }
@@ -26,7 +27,7 @@ struct TurnView: View {
             if let folded {
                 DisclosureGroup(isExpanded: $showsWork) {
                     VStack(alignment: .leading, spacing: 16) {
-                        ForEach(folded) { TurnPartView(part: $0, liveCallID: nil) }
+                        ForEach(folded) { TurnPartView(part: $0, liveCall: nil) }
                     }
                     .padding(.top, 12)
                 } label: {
@@ -36,26 +37,27 @@ struct TurnView: View {
                 }
                 .tint(.secondary)
             }
-            ForEach(turn.parts[(folded?.endIndex ?? 0)...]) { TurnPartView(part: $0, liveCallID: liveCallID) }
+            ForEach(turn.parts[(folded?.endIndex ?? 0)...]) { TurnPartView(part: $0, liveCall: liveCall) }
             if turn.isInterrupted {
                 Label("Interrupted", systemImage: "stop.circle")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
         }
+        .labelReservedIconWidth(iconWidth)
     }
 }
 
 private struct TurnPartView: View {
     let part: TurnPart
-    let liveCallID: String?
+    let liveCall: LiveCall?
 
     var body: some View {
         switch part {
         case let .reply(entry):
             MarkdownText(text: entry.text)
         case let .work(calls):
-            WorkGroupView(calls: calls, liveCallID: liveCallID)
+            WorkGroupView(calls: calls, liveCall: liveCall)
         }
     }
 }
@@ -178,12 +180,12 @@ struct CodeBox: View {
 
 private struct WorkGroupView: View {
     let calls: [ToolCall]
-    let liveCallID: String?
+    let liveCall: LiveCall?
 
     @State private var isExpanded = expandsWork
 
     var body: some View {
-        let live = calls.last.flatMap { $0.id == liveCallID ? $0 : nil }
+        let live = calls.last.flatMap { $0.id == liveCall?.id ? $0 : nil }
         let done = live == nil ? calls : Array(calls.dropLast())
         let kinds = Set(done.map(\.kind))
 
@@ -191,7 +193,7 @@ private struct WorkGroupView: View {
             if done.count > 1 {
                 DisclosureGroup(isExpanded: $isExpanded) {
                     VStack(alignment: .leading, spacing: 10) {
-                        ForEach(done) { ToolCallRow(call: $0, isLive: false) }
+                        ForEach(done) { ToolCallRow(call: $0, live: nil) }
                     }
                     .padding(.top, 10)
                     .padding(.leading, 12)
@@ -206,10 +208,10 @@ private struct WorkGroupView: View {
                     .foregroundStyle(.secondary)
                 }
             } else {
-                ForEach(done) { ToolCallRow(call: $0, isLive: false) }
+                ForEach(done) { ToolCallRow(call: $0, live: nil) }
             }
             if let live {
-                ToolCallRow(call: live, isLive: true)
+                ToolCallRow(call: live, live: liveCall)
             }
         }
         .tint(.secondary)
@@ -218,14 +220,14 @@ private struct WorkGroupView: View {
 
 private struct ToolCallRow: View {
     let call: ToolCall
-    let isLive: Bool
+    let live: LiveCall?
 
     @State private var isExpanded = expandsCalls
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let isError = call.result?.isError == true
-        let verb = Text(isLive ? call.verb.present : call.verb.past)
+        let verb = Text(live == nil ? call.verb.past : call.verb.present)
         let subject = Text(call.subject).font(call.kind == .command ? .subheadline.monospaced() : .subheadline)
 
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -236,9 +238,12 @@ private struct ToolCallRow: View {
                 Text("\(verb) \(subject)")
                     .lineLimit(1)
             } icon: {
-                if isLive, !reduceMotion {
+                if case .running = live, !reduceMotion {
                     ProgressView()
                         .controlSize(.small)
+                } else if case .waiting = live {
+                    Image(systemName: "hand.raised")
+                        .foregroundStyle(.orange)
                 } else {
                     Image(systemName: isError ? "xmark.circle" : call.kind.icon)
                         .foregroundStyle(isError ? .red : .secondary)

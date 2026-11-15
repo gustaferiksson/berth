@@ -17,7 +17,8 @@ struct SessionView: View {
             LazyVStack(alignment: .leading, spacing: 32) {
                 ForEach(turns) { turn in
                     let isLast = turn.id == turns.last?.id
-                    TurnView(turn: turn, isFinished: !isLast || !isBusy, liveCallID: isLast && session?.status == "busy" ? turn.openCall?.id : nil)
+                    let openCall = isLast ? turn.openCall : nil
+                    TurnView(turn: turn, isFinished: !isLast || !isBusy, liveCall: openCall.flatMap { session?.status == "busy" ? .running($0.id) : session?.status == "waiting" ? .waiting($0.id) : nil })
                 }
             }
             .padding()
