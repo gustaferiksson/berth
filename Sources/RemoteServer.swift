@@ -24,6 +24,8 @@ final class RemoteServer {
         var transcript: URL?
         var end: Int?
         var queue: [String] = []
+        var activity = TranscriptActivity()
+        var sentActivity: RemoteActivity?
         var isReading = false
         var needsRead = false
     }
@@ -283,7 +285,7 @@ final class RemoteServer {
             return
         }
         guard let url = store.index.url(ofSession: sessionID) else {
-            if client.end == nil { send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: [], isContinuation: false, queued: [])), to: client.connection) }
+            if client.end == nil { send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: [], isContinuation: false, queued: [], activity: nil)), to: client.connection) }
             clients[id]?.end = 0
             return
         }
@@ -292,7 +294,21 @@ final class RemoteServer {
         clients[id]?.isReading = true
         clients[id]?.needsRead = false
         let queue = client.queue
-        let chunk = await Task.detached { TranscriptTail.read(url, after: after, queue: queue) }.value
+        let live = store.liveBySession[sessionID]
+        let catalogDirectory = Store.claudeDirectory.appending(path: "cache/model-catalog")
+        let previous = url == client.transcript ? client.activity : TranscriptActivity()
+        let (chunk, activity, report) = await Task.detached {
+            let chunk = TranscriptTail.read(url, after: after, queue: queue)
+            var activity = previous
+            activity.read(url)
+            let finished = Set(activity.runningAgentIDs.filter { agent in
+                let meta = (try? JSONSerialization.jsonObject(with: Data(contentsOf: url.deletingPathExtension().appending(path: "subagents/agent-\(agent).meta.json")))) as? [String: Any]
+                return meta?["finished"] as? Bool == true || meta?["stoppedByUser"] as? Bool == true
+            })
+            let catalogs = ((try? FileManager.default.contentsOfDirectory(at: catalogDirectory, includingPropertiesForKeys: nil)) ?? []).compactMap { try? Data(contentsOf: $0) }
+            let window = activity.model.flatMap { TranscriptActivity.contextWindow(of: $0, catalogs: catalogs) }
+            return (chunk, activity, RemoteActivity(tasks: activity.tasks(of: live, now: .now) { finished.contains($0) }, context: activity.context(window: window)))
+        }.value
         guard let current = clients[id] else { return }
 
         clients[id]?.isReading = false
@@ -300,8 +316,10 @@ final class RemoteServer {
             clients[id]?.transcript = url
             clients[id]?.end = chunk.end
             clients[id]?.queue = chunk.queue
-            if !chunk.isContinuation || !chunk.entries.isEmpty || chunk.queue != current.queue {
-                send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: chunk.entries, isContinuation: chunk.isContinuation, queued: chunk.queuedPrompts)), to: current.connection)
+            clients[id]?.activity = activity
+            clients[id]?.sentActivity = report
+            if !chunk.isContinuation || !chunk.entries.isEmpty || chunk.queue != current.queue || report != current.sentActivity {
+                send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: chunk.entries, isContinuation: chunk.isContinuation, queued: chunk.queuedPrompts, activity: report)), to: current.connection)
             }
         }
         if current.needsRead { await streamTranscript(to: id) }

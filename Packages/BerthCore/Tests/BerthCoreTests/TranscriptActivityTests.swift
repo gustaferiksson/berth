@@ -1,0 +1,169 @@
+import Foundation
+import Testing
+@testable import BerthCore
+
+struct TranscriptActivityTests {
+    let launches = [
+        #"{"type":"assistant","timestamp":"2026-11-01T10:00:00.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-shell","name":"Bash","input":{"command":"npm run dev","description":"Start the dev server","run_in_background":true}}],"usage":{"input_tokens":10,"cache_read_input_tokens":1000,"cache_creation_input_tokens":90,"output_tokens":5}}}"#,
+        #"{"type":"user","timestamp":"2026-11-01T10:00:01.000Z","message":{"content":[{"tool_use_id":"tu-shell","type":"tool_result","content":"Command running in background with ID: bshell1."}]},"toolUseResult":{"stdout":"","backgroundTaskId":"bshell1"}}"#,
+        #"{"type":"assistant","timestamp":"2026-11-01T10:01:00.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-agent","name":"Agent","input":{"description":"Review the parser","prompt":"…"}}],"usage":{"input_tokens":10,"cache_read_input_tokens":2000,"cache_creation_input_tokens":0,"output_tokens":5}}}"#,
+        #"{"type":"user","timestamp":"2026-11-01T10:01:01.000Z","message":{"content":[{"tool_use_id":"tu-agent","type":"tool_result","content":"Async agent launched successfully."}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"agent1"}}"#,
+        #"{"type":"assistant","timestamp":"2026-11-01T10:02:00.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-monitor","name":"Monitor","input":{"description":"Watch CI","command":"gh run watch","timeout_ms":600000}}],"usage":{"input_tokens":10,"cache_read_input_tokens":3000,"cache_creation_input_tokens":0,"output_tokens":5}}}"#,
+        #"{"type":"user","timestamp":"2026-11-01T10:02:01.000Z","message":{"content":[{"tool_use_id":"tu-monitor","type":"tool_result","content":"Monitor started."}]},"toolUseResult":{"taskId":"bmon1","timeoutMs":600000,"persistent":false}}"#,
+    ]
+    let live = try! JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":1,"sessionId":"s","cwd":"/","status":"busy","startedAt":1793523600000}"#.utf8))
+    let now = try! Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse("2026-11-01T10:03:00.000Z")
+
+    func activity(_ lines: [String]) -> TranscriptActivity {
+        var activity = TranscriptActivity()
+        activity.apply(Data((lines.joined(separator: "\n") + "\n").utf8))
+        return activity
+    }
+
+    func session(_ status: String, startedAt: String = "1793523600000") -> LiveSession {
+        try! JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":1,"sessionId":"s","cwd":"/","status":"\#(status)","startedAt":\#(startedAt)}"#.utf8))
+    }
+
+    @Test func launchesShellsAgentsAndMonitorsInTheBackground() {
+        let tasks = activity(launches).tasks(of: live, now: now) { _ in false }
+        #expect(tasks.map(\.id) == ["bshell1", "agent1", "bmon1"])
+        #expect(tasks.map(\.kind) == [RemoteTask.shell, RemoteTask.agent, RemoteTask.monitor])
+        #expect(tasks.map(\.title) == ["Start the dev server", "Review the parser", "Watch CI"])
+    }
+
+    @Test func notificationsEndTasksInEveryCarrier() {
+        let ended = activity(launches + [
+            #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:10.000Z","content":"<task-notification>\n<task-id>bshell1</task-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>"}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:02:20.000Z","origin":{"kind":"task-notification"},"message":{"content":"<task-notification>\n<task-id>agent1</task-id>\n<status>failed</status>\n</task-notification>"}}"#,
+            #"{"type":"attachment","timestamp":"2026-11-01T10:02:30.000Z","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>\n<task-id>bmon1</task-id>\n<status>stopped</status>\n</task-notification>"}}"#,
+        ])
+        #expect(ended.tasks(of: live, now: now) { _ in false }.isEmpty)
+    }
+
+    @Test func oneNotificationCanEndSeveralTasks() {
+        let ended = activity(launches + [
+            #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:10.000Z","content":"<task-notification>\n<task-id>bshell1</task-id>\n<task-id>agent1</task-id>\n<status>failed</status>\n</task-notification>"}"#,
+        ])
+        #expect(ended.tasks(of: live, now: now) { _ in false }.map(\.id) == ["bmon1"])
+    }
+
+    @Test func ignoresNotificationTextOutsideItsCarriers() {
+        let quoted = activity(launches + [
+            #"{"type":"user","timestamp":"2026-11-01T10:02:10.000Z","message":{"content":[{"tool_use_id":"tu-other","type":"tool_result","content":"<task-notification><task-id>bshell1</task-id><status>completed</status></task-notification>"}]}}"#,
+            #"{"type":"queue-operation","operation":"remove","timestamp":"2026-11-01T10:02:11.000Z","content":"<task-notification><task-id>agent1</task-id><status>completed</status></task-notification>"}"#,
+        ])
+        #expect(quoted.tasks(of: live, now: now) { _ in false }.count == 3)
+    }
+
+    @Test func taskStopKillsWithoutANotification() {
+        let stopped = activity(launches + [
+            #"{"type":"assistant","timestamp":"2026-11-01T10:02:30.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-stop","name":"TaskStop","input":{"task_id":"bshell1"}}],"usage":{"input_tokens":1}}}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:02:31.000Z","message":{"content":[{"tool_use_id":"tu-stop","type":"tool_result","content":"Stopped"}]},"toolUseResult":{"message":"Successfully stopped task: bshell1","task_id":"bshell1","task_type":"local_bash"}}"#,
+            #"{"type":"assistant","timestamp":"2026-11-01T10:02:40.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-stop2","name":"TaskStop","input":{"task_id":"agent1"}}],"usage":{"input_tokens":1}}}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:02:41.000Z","message":{"content":[{"tool_use_id":"tu-stop2","type":"tool_result","content":"No task found","is_error":true}]},"toolUseResult":"Error: No task found"}"#,
+        ])
+        #expect(stopped.tasks(of: live, now: now) { _ in false }.map(\.id) == ["agent1", "bmon1"])
+    }
+
+    @Test func monitorsEndWhenTheyExpire() {
+        let events = activity(launches + [
+            #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:20.000Z","content":"<task-notification>\n<task-id>bmon1</task-id>\n<summary>Monitor event</summary>\n<event>new comment</event>\n</task-notification>"}"#,
+        ])
+        #expect(events.tasks(of: live, now: now) { _ in false }.map(\.id).contains("bmon1"))
+        #expect(!events.tasks(of: live, now: now + 600) { _ in false }.map(\.id).contains("bmon1"))
+
+        let expired = activity(launches + [
+            #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:20.000Z","content":"<task-notification>\n<task-id>bmon1</task-id>\n<event>[Monitor expired after 10m with no events delivered.]</event>\n</task-notification>"}"#,
+        ])
+        #expect(!expired.tasks(of: live, now: now) { _ in false }.map(\.id).contains("bmon1"))
+    }
+
+    @Test func resumedAgentsRunAgainUntilTheirNextNotification() {
+        let resumed = activity(launches + [
+            #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:10.000Z","content":"<task-notification><task-id>agent1</task-id><status>completed</status></task-notification>"}"#,
+            #"{"type":"assistant","timestamp":"2026-11-01T10:02:20.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-send","name":"SendMessage","input":{"to":"agent1","summary":"One more fix","message":"…"}}],"usage":{"input_tokens":1}}}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:02:21.000Z","message":{"content":[{"tool_use_id":"tu-send","type":"tool_result","content":"Resumed"}]},"toolUseResult":{"success":true,"message":"Resumed","resumedAgentId":"agent1"}}"#,
+        ])
+        #expect(resumed.tasks(of: live, now: now) { _ in false }.first { $0.id == "agent1" }?.title == "Review the parser")
+
+        let finished = activity(launches + [
+            #"{"type":"assistant","timestamp":"2026-11-01T10:02:20.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-send","name":"SendMessage","input":{"to":"agent1","summary":"One more fix"}}],"usage":{"input_tokens":1}}}"#,
+            #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:20.500Z","content":"<task-notification><task-id>agent1</task-id><status>completed</status></task-notification>"}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:02:21.000Z","message":{"content":[{"tool_use_id":"tu-send","type":"tool_result","content":"Resumed"}]},"toolUseResult":{"success":true,"resumedAgentId":"agent1"}}"#,
+        ])
+        #expect(!finished.tasks(of: live, now: now) { _ in false }.map(\.id).contains("agent1"))
+    }
+
+    @Test func foregroundAgentsRunUntilTheirResultWhileTheSessionWorks() {
+        let call = #"{"type":"assistant","timestamp":"2026-11-01T10:02:30.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-fg","name":"Agent","input":{"description":"Explore the code"}}],"usage":{"input_tokens":1}}}"#
+        let pending = activity([call])
+        #expect(pending.tasks(of: session("busy"), now: now) { _ in false }.map(\.id) == ["tu-fg"])
+        #expect(pending.tasks(of: session("idle"), now: now) { _ in false }.isEmpty)
+
+        let interrupted = activity([call, #"{"type":"user","timestamp":"2026-11-01T10:02:40.000Z","message":{"content":[{"tool_use_id":"tu-fg","type":"tool_result","content":"[Request interrupted by user for tool use]","is_error":true}]},"toolUseResult":"Error: interrupted"}"#])
+        #expect(interrupted.tasks(of: session("busy"), now: now) { _ in false }.isEmpty)
+    }
+
+    @Test func nothingRunsOutsideTheLiveProcess() {
+        let all = activity(launches)
+        #expect(all.tasks(of: nil, now: now) { _ in false }.isEmpty)
+        #expect(all.tasks(of: session("busy", startedAt: "1793527290000"), now: now) { _ in false }.map(\.id) == ["bmon1"])
+        #expect(all.tasks(of: session("idle"), now: now) { _ in false }.map(\.id) == ["agent1", "bmon1"])
+        #expect(all.tasks(of: live, now: now) { $0 == "agent1" }.map(\.id) == ["bshell1", "bmon1"])
+    }
+
+    @Test func readsIncrementallyAcrossPartialLines() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "activity-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let text = launches.joined(separator: "\n") + "\n"
+        let split = text.index(text.startIndex, offsetBy: launches[0].count + 40)
+        try Data(text[..<split].utf8).write(to: url)
+
+        var activity = TranscriptActivity()
+        activity.read(url)
+        #expect(activity.tasks(of: live, now: now) { _ in false }.isEmpty)
+        #expect(activity.end == launches[0].utf8.count + 1)
+
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(text[split...].utf8))
+        try handle.close()
+        activity.read(url)
+        #expect(activity.tasks(of: live, now: now) { _ in false }.map(\.id) == ["bshell1", "agent1", "bmon1"])
+        #expect(activity.end == text.utf8.count)
+    }
+
+    @Test func contextIsTheLastMainReplysPromptSize() throws {
+        let catalog = Data(#"{"fetchedAt":2,"catalog":{"config":{"models":[{"id":"claude-test-1","runtime":{"max_input_tokens":4000}}]}}}"#.utf8)
+        let stale = Data(#"{"fetchedAt":1,"catalog":{"config":{"models":[{"id":"claude-test-1","runtime":{"max_input_tokens":9000}}]}}}"#.utf8)
+        #expect(TranscriptActivity.contextWindow(of: "claude-test-1", catalogs: [stale, catalog]) == 4000)
+        #expect(TranscriptActivity.contextWindow(of: "claude-other", catalogs: [catalog]) == nil)
+
+        let replies = activity(launches + [
+            #"{"type":"assistant","isSidechain":true,"timestamp":"2026-11-01T10:02:50.000Z","message":{"model":"claude-test-1","content":[],"usage":{"input_tokens":99999}}}"#,
+            #"{"type":"assistant","isApiErrorMessage":true,"timestamp":"2026-11-01T10:02:55.000Z","message":{"model":"<synthetic>","content":[],"usage":{"input_tokens":0}}}"#,
+        ])
+        let context = try #require(replies.context(window: 4000))
+        #expect(context.model == "claude-test-1" && context.tokens == 3010 && context.window == 4000 && context.compactions == 0)
+        #expect(replies.context(window: 3000)?.window == nil)
+    }
+
+    @Test func compactionHidesTheSizeUntilTheNextReply() {
+        let boundary = #"{"type":"system","subtype":"compact_boundary","timestamp":"2026-11-01T10:05:00.000Z","compactMetadata":{"trigger":"auto","preTokens":3010,"postTokens":200}}"#
+        let compacted = activity(launches + [boundary])
+        #expect(compacted.context(window: 4000)?.tokens == nil && compacted.context(window: 4000)?.compactions == 1)
+
+        let next = activity(launches + [boundary, #"{"type":"assistant","timestamp":"2026-11-01T10:06:00.000Z","message":{"model":"claude-test-1","content":[{"type":"text","text":"Hi"}],"usage":{"input_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":700}}}"#])
+        #expect(next.context(window: 4000)?.tokens == 705 && next.context(window: 4000)?.lastCompaction != nil)
+    }
+
+    @Test func transcriptMessagesDecodeWithAndWithoutActivity() throws {
+        guard case let .transcript(_, _, _, _, missing) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"transcript":{"sessionID":"s","entries":[],"isContinuation":true,"queued":[]}}"#.utf8)) else { throw CancellationError() }
+        #expect(missing == nil)
+
+        let activity = RemoteActivity(tasks: [RemoteTask(id: "b1", kind: "future-kind", title: "t", started: .now)], context: nil)
+        let data = try JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: "s", entries: [], isContinuation: false, queued: nil, activity: activity))
+        guard case let .transcript(_, _, _, _, decoded) = try JSONDecoder().decode(RemoteServerMessage.self, from: data) else { throw CancellationError() }
+        #expect(decoded == activity)
+    }
+}

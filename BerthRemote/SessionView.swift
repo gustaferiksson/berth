@@ -8,6 +8,8 @@ struct SessionView: View {
     @State private var isAtBottom = true
     @State private var draft = ""
     @State private var attachments: [Attachment] = []
+    @State private var isShowingRunning = UserDefaults.standard.bool(forKey: "snapshotRunning")
+    @State private var isShowingContext = UserDefaults.standard.bool(forKey: "snapshotContext")
 
     var body: some View {
         let session = client.groups.lazy.flatMap(\.sessions).first { $0.id == sessionID }
@@ -15,6 +17,7 @@ struct SessionView: View {
         let turns = Turn.turns(from: entries ?? [])
         let isBusy = session?.status == "busy" || session?.status == "waiting"
         let queued = session?.status == nil ? [] : client.queued[sessionID] ?? []
+        let activity = client.activity[sessionID]
 
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
@@ -69,13 +72,26 @@ struct SessionView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            SessionControls(
-                session: session,
-                sessionID: sessionID,
-                pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil,
-                draft: $draft,
-                attachments: $attachments
-            )
+            VStack(spacing: 6) {
+                if let tasks = activity?.tasks, !tasks.isEmpty {
+                    RunningSummary(tasks: tasks) { isShowingRunning = true }
+                }
+                SessionControls(
+                    session: session,
+                    sessionID: sessionID,
+                    pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil,
+                    draft: $draft,
+                    attachments: $attachments
+                )
+            }
+        }
+        .sheet(isPresented: $isShowingRunning) {
+            RunningSheet(tasks: activity?.tasks ?? [])
+        }
+        .sheet(isPresented: $isShowingContext) {
+            if let context = activity?.context {
+                ContextSheet(context: context)
+            }
         }
         .navigationTitle(session?.title ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
@@ -85,6 +101,11 @@ struct SessionView: View {
                     .font(.footnote)
                     .monospaced()
                     .foregroundStyle(.secondary)
+            }
+            if activity?.context != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Context", systemImage: "chart.pie") { isShowingContext = true }
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu("Session Actions", systemImage: "ellipsis") {
