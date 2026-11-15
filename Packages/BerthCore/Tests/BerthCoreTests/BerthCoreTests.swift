@@ -173,6 +173,46 @@ struct TranscriptTests {
         #expect(Transcript.summary(of: url)?.lastPrompt == prompt)
     }
 
+    @Test func queuedHumanPromptCountsAsTheLastPrompt() throws {
+        let head = records(#"{"type":"user","cwd":"/x","timestamp":"2026-10-29T09:00:00.000Z","message":{"content":"start"}}"#)
+        let tail = records("""
+        {"type":"assistant","timestamp":"2026-10-29T10:00:00.000Z","message":{"content":[{"type":"tool_use"}]}}
+        {"type":"attachment","timestamp":"2026-10-29T10:01:00.000Z","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"[Image #1] and this"},{"type":"image","source":{"data":"AAAA"}}],"commandMode":"prompt","origin":{"kind":"human"}}}
+        {"type":"attachment","timestamp":"2026-10-29T10:02:00.000Z","attachment":{"type":"queued_command","prompt":"<task-notification>done</task-notification>","commandMode":"task-notification","origin":{"kind":"task-notification"}}}
+        {"type":"attachment","timestamp":"2026-10-29T10:03:00.000Z","attachment":{"type":"queued_command","prompt":"report","commandMode":"prompt","origin":{"kind":"peer"}}}
+        {"type":"attachment","timestamp":"2026-10-29T10:04:00.000Z","isSidechain":true,"attachment":{"type":"queued_command","prompt":"subagent","commandMode":"prompt","origin":{"kind":"human"},"humanTurn":true}}
+        {"type":"attachment","timestamp":"2026-10-29T10:05:00.000Z","attachment":{"type":"hook_success","content":"ok"}}
+        """)
+        let summary = try #require(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail))
+        #expect(summary.lastPrompt == (try Date("2026-10-29T10:01:00.000Z", strategy: .iso8601)))
+        #expect(summary.lastActivity == (try Date("2026-10-29T10:01:00.000Z", strategy: .iso8601)))
+    }
+
+    func transcript(withPrompt prompt: String, followedByToolResults count: Int) throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appending(path: "berth-\(UUID().uuidString)/-x/far.jsonl")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let toolResult = #"{"type":"user","timestamp":"2026-10-29T10:05:00.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"\#(String(repeating: "x", count: 4000))"}]}}"#
+        let lines = [#"{"type":"user","cwd":"/x","timestamp":"2026-10-29T09:00:00.000Z","message":{"content":"start"}}"#]
+            + Array(repeating: toolResult, count: 20) + [prompt] + Array(repeating: toolResult, count: count) + [
+                #"{"type":"assistant","timestamp":"2026-10-29T10:06:00.000Z","message":{"content":[{"type":"tool_use"}]}}"#,
+                #"{"type":"ai-title","aiTitle":"Long task"}"#,
+            ]
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        return url
+    }
+
+    @Test func queuedPromptBeyondTheTailIsFound() throws {
+        let url = try transcript(withPrompt: #"{"type":"attachment","timestamp":"2026-10-29T10:00:00.000Z","attachment":{"type":"queued_command","prompt":"and the docs","commandMode":"prompt","origin":{"kind":"human"},"humanTurn":true}}"#, followedByToolResults: 40)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
+        #expect(Transcript.summary(of: url)?.lastPrompt == (try Date("2026-10-29T10:00:00.000Z", strategy: .iso8601)))
+    }
+
+    @Test func promptMoreThanAMegabyteBeforeTheEndIsFoundOnTheFirstRead() throws {
+        let url = try transcript(withPrompt: #"{"type":"user","timestamp":"2026-10-29T10:00:00.000Z","message":{"content":"long task"}}"#, followedByToolResults: 300)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
+        #expect(Transcript.summary(of: url)?.lastPrompt == (try Date("2026-10-29T10:00:00.000Z", strategy: .iso8601)))
+    }
+
     func transcriptBehindHugeLines(junkBytes: Int) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "berth-\(UUID().uuidString)/-Users-example-Repos-delta/huge.jsonl")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
