@@ -6,6 +6,7 @@ struct SessionControls: View {
     let turnStart: Date?
     let pendingCall: ToolCall?
     let isAtBottom: Bool
+    @Binding var draft: String
     let scrollToEnd: () -> Void
 
     var body: some View {
@@ -36,7 +37,7 @@ struct SessionControls: View {
                 } else if let session, session.status == "waiting" {
                     ApprovalCard(session: session, pendingCall: session.waitingFor == "permission prompt" ? pendingCall : nil)
                 } else {
-                    Composer(sessionID: sessionID, isWorking: isWorking)
+                    Composer(sessionID: sessionID, isWorking: isWorking, draft: $draft)
                 }
             }
             .padding(.horizontal)
@@ -126,9 +127,9 @@ private struct ApprovalCard: View {
 private struct Composer: View {
     let sessionID: String
     let isWorking: Bool
+    @Binding var draft: String
 
     @Environment(RemoteClient.self) private var client
-    @State private var draft = ""
 
     var body: some View {
         let isEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

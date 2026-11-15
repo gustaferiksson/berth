@@ -70,11 +70,11 @@ private struct PromptBubble: View {
             if let images = entry.images {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
-                        if let image = UIImage(data: data) {
+                        if let image = UIImage(data: data), image.size.height > 0 {
                             Image(uiImage: image)
                                 .resizable()
-                                .scaledToFit()
-                                .frame(maxWidth: 200, maxHeight: 120)
+                                .scaledToFill()
+                                .frame(width: min(200, 120 * image.size.width / image.size.height), height: 120)
                                 .clipShape(.rect(cornerRadius: 12))
                                 .accessibilityLabel("Image \(index + 1)")
                         }
@@ -227,7 +227,7 @@ private struct ToolCallRow: View {
 
     var body: some View {
         let isError = call.result?.isError == true
-        let verb = Text(live == nil ? call.verb.past : call.verb.present)
+        let verb = Text(live == nil ? call.verb.past : live == .waiting(call.id) ? "Waiting for approval:" : call.verb.present)
         let subject = Text(call.subject).font(call.kind == .command ? .subheadline.monospaced() : .subheadline)
 
         DisclosureGroup(isExpanded: $isExpanded) {

@@ -55,10 +55,7 @@ public enum TranscriptTail {
             let date = (object["timestamp"] as? String).flatMap { try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0) }
 
             if type == "attachment" {
-                guard let attachment = object["attachment"] as? [String: Any],
-                      attachment["type"] as? String == "queued_command", attachment["commandMode"] as? String == "prompt",
-                      (attachment["origin"] as? [String: Any])?["kind"] as? String == "human" || attachment["humanTurn"] as? Bool == true
-                else { return [] }
+                guard (try? decoder.decode(Record.self, from: Data(line)))?.isQueuedPrompt == true, let attachment = object["attachment"] as? [String: Any] else { return [] }
                 let blocks = attachment["prompt"] as? [[String: Any]] ?? [["type": "text", "text": attachment["prompt"] as? String ?? ""]]
                 let text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n").prefix(maxText)
                 return [prompt(id: uuid, text: String(text), date: date, blocks: blocks)]

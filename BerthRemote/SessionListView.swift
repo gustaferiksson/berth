@@ -113,26 +113,32 @@ private struct SessionRow: View {
 private struct SessionSummaryView: View {
     let session: RemoteSession
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     var body: some View {
         let project = Text(URL(filePath: session.folder).lastPathComponent)
         let branch = session.branch.map { Text(" · \($0)") } ?? Text("")
-        let pullRequest = session.pullRequest.map { pullRequest in
-            Text(" · #\(String(pullRequest.number))")
-                .foregroundStyle(pullRequest.state == "Open" ? .green : pullRequest.state == "Merged" ? .purple : pullRequest.state == "Closed" ? .red : .secondary)
-        } ?? Text("")
+        let titleLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 3)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
 
         VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+            titleLayout {
                 Text(session.title)
                     .lineLimit(2)
                 Spacer(minLength: 0)
                 SessionStatus(session: session)
                     .font(.subheadline)
             }
-            Text("\(session.isLocked ? Text("\(Image(systemName: "lock.fill")) ") : Text(""))\(project)\(branch)\(pullRequest)")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            HStack(spacing: 0) {
+                Text("\(session.isLocked ? Text("\(Image(systemName: "lock.fill")) ") : Text(""))\(project)\(branch)")
+                    .lineLimit(1)
+                if let pullRequest = session.pullRequest {
+                    Text(" · #\(String(pullRequest.number))")
+                        .foregroundStyle(pullRequest.state == "Open" ? .green : pullRequest.state == "Merged" ? .purple : pullRequest.state == "Closed" ? .red : .secondary)
+                        .fixedSize()
+                }
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
     }

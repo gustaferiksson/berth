@@ -6,6 +6,7 @@ struct SessionView: View {
     @Environment(RemoteClient.self) private var client
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
+    @State private var draft = ""
 
     var body: some View {
         let session = client.groups.lazy.flatMap(\.sessions).first { $0.id == sessionID }
@@ -45,6 +46,7 @@ struct SessionView: View {
                 turnStart: turns.last?.prompt?.date ?? session?.lastPrompt,
                 pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil,
                 isAtBottom: isAtBottom,
+                draft: $draft,
                 scrollToEnd: scrollToEnd
             )
         }
