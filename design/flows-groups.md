@@ -65,4 +65,4 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
   at the bottom in every mode.
 - Recent: buckets without sessions are hidden; headers have no +; Older starts collapsed.
 - Not a git repo (Repository mode): the folder is its own root.
-- Without `gh`: PR tags show uncoloured, as before.
+- Without `gh`: no PR tags.

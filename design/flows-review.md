@@ -32,7 +32,11 @@ This is the slim first version; the rest is listed under Later.
   working, needs-you, closed and branch colours, file name, dimmed parent folder, +/-
   counts), the session's comments below it with a delete button each, and Send N Comments.
 - Header above the diff: branch → base, the file path, a fetch warning when the fetch
-  failed, Refresh.
+  failed, Refresh. When the reviewed branch has a PR (the sidebar's data,
+  `Store.pullRequest(in:branch:)`), the left side becomes two lines: the PR title, `#number`
+  and a state pill (Open, Draft, Merged, Closed in the sidebar tag's colours), then
+  `base ← head` with the head in the branch colour (base is still the guessed one). Open on
+  GitHub sits before Refresh. No CI checks.
 - Diff: `ReviewDiffPane` gets the file's `ReviewContents`, a draft binding and `onComment`.
   Base on the left (read only), working tree on the right (editable unless deleted), in the
   Review style (Settings > Appearance > Review: colour scheme, One Dark by default, or Match

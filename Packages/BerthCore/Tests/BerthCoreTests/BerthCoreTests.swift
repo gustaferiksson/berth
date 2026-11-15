@@ -71,16 +71,19 @@ struct TranscriptTests {
         #expect(Transcript.summary(id: "b", folder: "-x", modified: .now, head: head, tail: detached)?.branch == nil)
     }
 
-    @Test func pullRequestIsTheLastLinkedOne() {
-        let head = Transcript.records(in: Data(#"{"type":"user","cwd":"/x","message":{"content":"hi"}}"#.utf8), dropFirst: false, dropLast: false)
-        let tail = Transcript.records(in: Data("""
-        {"type":"pr-link","prNumber":7,"prUrl":"https://github.com/example/alpha/pull/7","prRepository":"example/alpha"}
-        {"type":"pr-link","prNumber":9,"prUrl":"https://github.com/example/alpha/pull/9","prRepository":"example/alpha"}
+    @Test func branchesAreOrderedByLastAppearanceWithRememberedOnesBeforeTheHead() {
+        let head = Transcript.records(in: Data("""
+        {"type":"user","cwd":"/x","gitBranch":"main","message":{"content":"hi"}}
+        {"type":"assistant","gitBranch":"feat/start"}
         """.utf8), dropFirst: false, dropLast: false)
-        let pullRequest = Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail)?.pullRequest
-        #expect(pullRequest?.number == 9)
-        #expect(pullRequest?.repository == "example/alpha")
-        #expect(Transcript.summary(id: "b", folder: "-x", modified: .now, head: head, tail: [])?.pullRequest == nil)
+        let tail = Transcript.records(in: Data("""
+        {"type":"assistant","gitBranch":"feat/cards"}
+        {"type":"assistant","gitBranch":"HEAD"}
+        {"type":"assistant","gitBranch":"main"}
+        """.utf8), dropFirst: false, dropLast: false)
+        let summary = Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail, earlierBranches: ["feat/middle", "feat/cards"])
+        #expect(summary?.branch == "main")
+        #expect(summary?.branches == ["main", "feat/cards", "feat/middle", "feat/start"])
     }
 
     @Test func resumingWithoutConversationKeepsTheOldActivity() throws {
@@ -166,7 +169,7 @@ struct TranscriptTests {
         try handle.write(contentsOf: Data((toolLoop.joined(separator: "\n") + "\n").utf8))
         try handle.close()
         let known = try Date("2026-10-29T09:59:00.000Z", strategy: .iso8601)
-        #expect(Transcript.summary(of: url, after: (size: size, lastPrompt: known))?.lastPrompt == known)
+        #expect(Transcript.summary(of: url, after: (size: size, lastPrompt: known, branches: []))?.lastPrompt == known)
         #expect(Transcript.summary(of: url)?.lastPrompt == prompt)
     }
 
@@ -431,6 +434,26 @@ struct RepositoryRootTests {
         #expect(RepositoryRoot.resolve(worktree.appending(path: "src").path) == repo.path)
         #expect(RepositoryRoot.resolve(root.appending(path: "loose").path) == root.appending(path: "loose").path)
         #expect(RepositoryRoot.resolve("/nonexistent/berth/folder") == "/nonexistent/berth/folder")
+    }
+
+    @Test func parsesGitHubRemotesOnly() {
+        #expect(RepositoryRoot.gitHubRepository(remoteURL: "https://github.com/example/alpha.git") == "example/alpha")
+        #expect(RepositoryRoot.gitHubRepository(remoteURL: "https://token@github.com/example/alpha") == "example/alpha")
+        #expect(RepositoryRoot.gitHubRepository(remoteURL: "git@github.com:example/alpha.git") == "example/alpha")
+        #expect(RepositoryRoot.gitHubRepository(remoteURL: "ssh://git@github.com/example/my.repo") == "example/my.repo")
+        #expect(RepositoryRoot.gitHubRepository(remoteURL: "https://gitlab.com/example/alpha.git") == nil)
+        #expect(RepositoryRoot.gitHubRepository(remoteURL: "https://github.com/example/alpha/pulls") == nil)
+    }
+
+    @Test func resolvesTheOriginOfARealRepository() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "berth-origin-\(UUID().uuidString)").resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appending(path: "plain"), withIntermediateDirectories: true)
+        _ = try await ReviewGit.git(["init", "--quiet", root.appending(path: "repo").path], in: root.path)
+        _ = try await ReviewGit.git(["remote", "add", "origin", "git@github.com:example/alpha.git"], in: root.appending(path: "repo").path)
+        let repositories = await RepositoryRoot.gitHubRepositories(of: [root.appending(path: "repo").path, root.appending(path: "plain").path])
+        #expect(repositories[root.appending(path: "repo").path] == .some("example/alpha"))
+        #expect(repositories[root.appending(path: "plain").path] == .some(nil))
     }
 }
 

@@ -428,7 +428,7 @@ private struct SessionItem: View {
                     hasBackgroundShell: store.backgroundShellIDs.contains(id),
                     isUnread: store.isUnread(session),
                     isFlagged: store.flaggedIDs.contains(id),
-                    pullRequestState: session.pullRequest.flatMap { store.pullRequestStates[$0.url] },
+                    pullRequest: store.pullRequest(for: session),
                     showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
                 )
             }
@@ -711,7 +711,7 @@ private struct SessionRow: View {
     let hasBackgroundShell: Bool
     let isUnread: Bool
     let isFlagged: Bool
-    let pullRequestState: PullRequestState?
+    let pullRequest: PullRequest?
     @Binding var showsLockedNotice: Bool
     @Environment(\.ghosttyTheme) private var theme
 
@@ -728,7 +728,7 @@ private struct SessionRow: View {
             isUnread: isUnread,
             isFlagged: isFlagged,
             detail: {
-                if session.pullRequest != nil || session.branch != nil || projectName != nil {
+                if pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {
                         HStack(spacing: 8) {
                             if let projectName {
@@ -756,8 +756,8 @@ private struct SessionRow: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        if let pullRequest = session.pullRequest {
-                            PullRequestTag(link: pullRequest, state: pullRequestState)
+                        if let pullRequest {
+                            PullRequestTag(pullRequest: pullRequest)
                                 .fixedSize()
                         }
                     }
@@ -917,19 +917,18 @@ private struct StatusSlot: View {
 }
 
 private struct PullRequestTag: View {
-    let link: PullRequestLink
-    let state: PullRequestState?
+    let pullRequest: PullRequest
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @State private var isHovering = false
 
     var body: some View {
-        let color = color(for: state)
+        let color = pullRequest.state.color(in: theme)
         Button {
-            openURL(link.url)
+            openURL(pullRequest.url)
         } label: {
             Label {
-                Text(verbatim: "#\(link.number)")
+                Text(verbatim: "#\(pullRequest.number)")
             } icon: {
                 Image(systemName: "arrow.triangle.pull")
             }
@@ -942,14 +941,15 @@ private struct PullRequestTag: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .help("Open pull request #\(link.number)")
+        .help("Open pull request #\(pullRequest.number)")
     }
+}
 
-    private func color(for state: PullRequestState?) -> Color {
-        guard let state else { return theme.secondary }
-        if state == .open { return theme.working }
-        if state == .merged { return theme.merged }
-        if state == .closed { return theme.closed }
+extension PullRequestState {
+    func color(in theme: GhosttyTheme) -> Color {
+        if self == .open { return theme.working }
+        if self == .merged { return theme.merged }
+        if self == .closed { return theme.closed }
         return theme.secondary
     }
 }
