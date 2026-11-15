@@ -233,13 +233,21 @@ final class Store {
     }
 
     func refreshPullRequests() {
-        let branches = Set((pinnedSessions + groups.flatMap(\.sessions)).flatMap(pullRequestBranches))
+        let branches = Set((pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches))
         guard !branches.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
         pullRequestsFetchedAt = .now
         Task {
             let fetched = await Task.detached { await PullRequestStatus.fetch(branches) }.value
             let merged = pullRequests.merging(fetched) { $1 }
             if merged != pullRequests { pullRequests = merged }
+        }
+    }
+
+    private func resolvePullRequests() {
+        let unresolved = Set(summaries.filter { !$0.branches.isEmpty }.compactMap { repositoryRoots[$0.cwd] }).filter { repositories[$0] == nil }
+        Task {
+            if !unresolved.isEmpty { repositories.merge(await Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
+            if (pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) { refreshPullRequests() }
         }
     }
 
@@ -290,9 +298,7 @@ final class Store {
             applyGroups()
             refreshLive()
             if searchIndexTask != nil { updateSearchIndex() }
-            let unresolved = Set(self.summaries.filter { !$0.branches.isEmpty }.compactMap { repositoryRoots[$0.cwd] }).filter { repositories[$0] == nil }
-            if !unresolved.isEmpty { repositories.merge(await Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
-            if (pinnedSessions + groups.flatMap(\.sessions)).flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) { refreshPullRequests() }
+            resolvePullRequests()
         }
     }
 
