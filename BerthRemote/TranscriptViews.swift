@@ -157,7 +157,7 @@ private struct PromptBubble: View {
             }
             ForEach(files.enumerated(), id: \.offset) { _, name in
                 Label(name, systemImage: "doc.fill")
-                    .font(.subheadline)
+                    .font(.subheadline.monospaced())
                     .lineLimit(1)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -389,15 +389,18 @@ private struct ToolCallRow: View {
 
     var body: some View {
         let isError = call.result?.isError == true
-        let verb = Text(live == nil ? call.verb.past : live == .waiting(call.id) ? "Waiting for approval:" : call.verb.present)
-        let subject = Text(call.subject).font(call.kind == .command ? .subheadline.monospaced() : .subheadline)
+        let isWaiting = live == .waiting(call.id)
+        let verb = Text(live == nil ? call.verb.past : isWaiting ? "Waiting for approval:" : call.verb.present)
+        let subject = Text(call.subject).font([.command, .read, .edit, .search].contains(call.kind) ? .subheadline.monospaced() : .subheadline)
+        let description = [.command, .agent].contains(call.kind) ? call.use.detail.flatMap { $0.isEmpty ? nil : $0 } : nil
+        let title = description.map { isWaiting ? Text("\(verb) \($0)") : Text($0) } ?? Text("\(verb) \(subject)")
 
         DisclosureGroup(isExpanded: $isExpanded) {
             ToolCallDetail(call: call)
                 .padding(.top, 8)
         } label: {
             Label {
-                Text("\(verb) \(subject)")
+                title
                     .lineLimit(1)
             } icon: {
                 if case .running = live, !reduceMotion {
@@ -431,9 +434,9 @@ private struct ToolCallDetail: View {
                 if let newText = call.use.newText {
                     CodeBox(text: newText, tint: .green, maxHeight: 240)
                 }
-            } else if let detail = call.use.detail ?? (call.kind == .other ? call.use.text : nil) {
+            } else if call.kind != .agent, let detail = call.use.detail ?? (call.kind == .other ? call.use.text : nil) {
                 Text(detail)
-                    .font(.footnote)
+                    .font(call.kind == .search ? .footnote.monospaced() : .footnote)
                     .foregroundStyle(.secondary)
             }
             if let result = call.result, !result.text.isEmpty, call.kind != .edit || result.isError {

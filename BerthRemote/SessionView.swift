@@ -78,9 +78,14 @@ struct SessionView: View {
             )
         }
         .navigationTitle(session?.title ?? "Session")
-        .navigationSubtitle([session.map { URL(filePath: $0.folder).lastPathComponent }, session?.branch].compactMap(\.self).joined(separator: " · "))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .subtitle) {
+                Text([session.map { URL(filePath: $0.folder).lastPathComponent }, session?.branch].compactMap(\.self).joined(separator: " · "))
+                    .font(.footnote)
+                    .monospaced()
+                    .foregroundStyle(.secondary)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu("Session Actions", systemImage: "ellipsis") {
                     Button("Open on Mac", systemImage: "macbook", action: openOnMac)
