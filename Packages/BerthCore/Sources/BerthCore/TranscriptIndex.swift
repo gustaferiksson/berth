@@ -36,6 +36,10 @@ public struct TranscriptIndex: Sendable {
         return next.values.compactMap(\.summary)
     }
 
+    public func url(ofSession id: String) -> URL? {
+        entries.first { $0.value.summary?.id == id }.map { URL(filePath: $0.key) }
+    }
+
     public var searchSources: [TranscriptSearchIndex.Source] {
         let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
         return entries.flatMap { path, entry -> [TranscriptSearchIndex.Source] in

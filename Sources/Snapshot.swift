@@ -89,6 +89,7 @@ enum Snapshot {
             store.customGroups = (try? JSONDecoder().decode([CustomGroup].self, from: data)) ?? []
         }
         await store.waitForScan()
+        if UserDefaults.standard.bool(forKey: "snapshotRemote") { store.remote.update() }
         if UserDefaults.standard.bool(forKey: "snapshotFakeWaiting") {
             for (step, waiting) in [false, true, true, false, true].enumerated() {
                 if step == 2, let session = store.groups.first(where: { !$0.sessions.isEmpty })?.sessions.first {
