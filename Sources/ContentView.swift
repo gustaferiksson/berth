@@ -34,6 +34,12 @@ struct ContentView: View {
             }
         } detail: {
             sessions
+                .overlay(alignment: .topTrailing) {
+                    if store.terminalSearch != nil {
+                        TerminalFindBar()
+                            .padding(12)
+                    }
+                }
                 .overlay {
                     if let mode = store.launcherMode {
                         ZStack(alignment: .top) {
