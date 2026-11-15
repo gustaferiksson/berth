@@ -71,14 +71,15 @@ public enum RemoteKey: String, Codable, Sendable, CaseIterable {
 }
 
 public enum RemoteClientMessage: Codable, Sendable {
-    case hello(token: String)
+    case auth(hmac: Data)
     case subscribe(sessionID: String)
     case prompt(sessionID: String, text: String)
-    case key(sessionID: String, key: RemoteKey)
+    case key(sessionID: String, key: RemoteKey, waitingFor: String?)
     case newSession(folder: String, prompt: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
+    case challenge(nonce: Data)
     case sessions(groups: [RemoteGroup], folders: [String])
     case transcript(sessionID: String, entries: [RemoteEntry], isContinuation: Bool)
     case opened(sessionID: String)

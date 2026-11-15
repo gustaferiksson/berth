@@ -22,6 +22,17 @@ struct TranscriptTailTests {
         #expect(parsed.entries[4].command == "swift test" && parsed.entries[4].toolID == "t2")
     }
 
+    @Test func capsEveryField() {
+        let long = String(repeating: "y", count: 5000)
+        let capped = [
+            #"{"type":"user","uuid":"u1","message":{"role":"user","content":"\#(long)"}}"#,
+            #"{"type":"assistant","uuid":"a1","message":{"content":[{"type":"text","text":"\#(long)"},{"type":"tool_use","id":"\#(long)","name":"\#(long)","input":{"file_path":"\#(long)"}}]}}"#,
+        ]
+        let entries = TranscriptTail.entries(in: Data((capped.joined(separator: "\n") + "\n").utf8), dropFirst: false).entries
+        let fields = entries.flatMap { [$0.text, $0.toolID, $0.name, $0.filePath].compactMap(\.self) }
+        #expect(entries.count == 3 && fields.count == 6 && fields.allSatisfy { $0.count == TranscriptTail.maxText })
+    }
+
     @Test func continuesFromTheLastCompleteLine() throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "tail-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: url) }
