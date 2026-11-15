@@ -5,78 +5,25 @@ import UniformTypeIdentifiers
 struct SessionControls: View {
     let session: RemoteSession?
     let sessionID: String
-    let turnStart: Date?
     let pendingCall: ToolCall?
-    let isAtBottom: Bool
     @Binding var draft: String
     @Binding var attachments: [Attachment]
-    let scrollToEnd: () -> Void
 
     var body: some View {
-        let isWorking = session?.status == "busy"
-
-        GlassEffectContainer(spacing: 12) {
-            VStack(spacing: 12) {
-                if isWorking || !isAtBottom {
-                    ZStack(alignment: .trailing) {
-                        if isWorking {
-                            WorkingCapsule(since: turnStart)
-                                .frame(maxWidth: .infinity)
-                        }
-                        if !isAtBottom {
-                            Button("Scroll to End", systemImage: "arrow.down", action: scrollToEnd)
-                                .labelStyle(.iconOnly)
-                                .buttonStyle(.glass)
-                                .buttonBorderShape(.circle)
-                                .controlSize(.large)
-                        }
-                    }
-                }
-                if let session, session.isLocked {
-                    Label("Running in another terminal, so read-only here.", systemImage: "lock")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
-                } else if let session, session.status == "waiting" {
-                    ApprovalCard(session: session, pendingCall: session.waitingFor == "permission prompt" ? pendingCall : nil)
-                } else {
-                    Composer(sessionID: sessionID, isWorking: isWorking, draft: $draft, attachments: $attachments)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.bottom, 8)
-        }
-    }
-}
-
-private struct WorkingCapsule: View {
-    let since: Date?
-
-    @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1, paused: scenePhase != .active)) { context in
-            Label {
-                if let since {
-                    Text("Working \(Duration.seconds(max(0, context.date.timeIntervalSince(since)).rounded(.down)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2)))")
-                        .monospacedDigit()
-                } else {
-                    Text("Working")
-                }
-            } icon: {
-                if reduceMotion {
-                    Image(systemName: "hourglass")
-                } else {
-                    ProgressView()
-                        .controlSize(.small)
-                }
+        Group {
+            if let session, session.isLocked {
+                Label("Running in another terminal, so read-only here.", systemImage: "lock")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 8)
+            } else if let session, session.status == "waiting" {
+                ApprovalCard(session: session, pendingCall: session.waitingFor == "permission prompt" ? pendingCall : nil)
+            } else {
+                Composer(sessionID: sessionID, isWorking: session?.status == "busy", draft: $draft, attachments: $attachments)
             }
         }
-        .font(.subheadline)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .glassEffect(in: .capsule)
+        .padding(.horizontal)
+        .padding(.bottom, 8)
     }
 }
 
@@ -137,58 +84,64 @@ private struct Composer: View {
     @State private var isPickingPhotos = false
     @State private var isImportingFiles = false
     @State private var photoItems: [PhotosPickerItem] = []
+    @FocusState private var isFocused: Bool
+    @ScaledMetric private var rowHeight = 48
 
     var body: some View {
         let isEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
         let isUploaded = attachments.allSatisfy { client.uploads[$0.id] == .done }
+        let stops = isWorking && isEmpty
 
-        HStack(alignment: .bottom, spacing: 8) {
-            if client.features.contains(RemoteUpload.feature) {
-                Menu("Attach", systemImage: "plus") {
-                    Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
-                    Button("Files", systemImage: "folder") { isImportingFiles = true }
+        GlassEffectContainer(spacing: 8) {
+            HStack(alignment: .bottom, spacing: 8) {
+                Group {
+                    if client.features.contains(RemoteUpload.feature) {
+                        Menu("Attach", systemImage: "plus") {
+                            Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
+                            Button("Files", systemImage: "folder") { isImportingFiles = true }
+                        }
+                    } else {
+                        Button("Attach", systemImage: "plus") { client.notice = "Update Berth on your Mac to send attachments" }
+                    }
                 }
                 .labelStyle(.iconOnly)
                 .font(.title3)
-                .frame(width: 48, height: 48)
+                .frame(width: rowHeight, height: rowHeight)
                 .glassEffect(.regular.interactive(), in: .circle)
-            }
-            VStack(alignment: .leading, spacing: 0) {
-                if !attachments.isEmpty {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 8) {
-                            ForEach(attachments) { attachment in
-                                AttachmentChip(attachment: attachment, state: client.uploads[attachment.id]) {
-                                    attachments.removeAll { $0.id == attachment.id }
+                VStack(alignment: .leading, spacing: 0) {
+                    if !attachments.isEmpty {
+                        ScrollView(.horizontal) {
+                            HStack(spacing: 8) {
+                                ForEach(attachments) { attachment in
+                                    AttachmentChip(attachment: attachment, state: client.uploads[attachment.id]) {
+                                        attachments.removeAll { $0.id == attachment.id }
+                                    }
                                 }
                             }
+                            .padding([.horizontal, .top], 8)
                         }
-                        .padding([.horizontal, .top], 8)
+                        .scrollIndicators(.hidden)
                     }
-                    .scrollIndicators(.hidden)
-                }
-                HStack(alignment: .bottom, spacing: 8) {
-                    TextField(isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
-                        .lineLimit(1...6)
-                        .padding(.leading, 16)
-                        .padding(.vertical, 12)
-                    if isWorking, isEmpty {
-                        Button("Stop", systemImage: "stop.fill", action: stop)
+                    HStack(alignment: .bottom, spacing: 8) {
+                        TextField(isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
+                            .lineLimit(1...6)
+                            .focused($isFocused)
+                            .padding(.leading, 16)
+                            .padding(.vertical, 12)
+                            .frame(minHeight: rowHeight)
+                        Button(stops ? "Stop" : "Send", systemImage: stops ? "stop.fill" : "arrow.up") {
+                            if stops { stop() } else { send() }
+                        }
                             .labelStyle(.iconOnly)
                             .buttonStyle(.glassProminent)
                             .buttonBorderShape(.circle)
-                            .padding(6)
-                    } else {
-                        Button("Send", systemImage: "arrow.up", action: send)
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.glassProminent)
-                            .buttonBorderShape(.circle)
-                            .padding(6)
-                            .disabled(isEmpty || !isUploaded)
+                            .frame(height: rowHeight)
+                            .padding(.trailing, 6)
+                            .disabled(!stops && (isEmpty || !isUploaded))
                     }
                 }
+                .glassEffect(.regular, in: .rect(cornerRadius: rowHeight / 2))
             }
-            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
         }
         .disabled(client.state != .connected)
         .photosPicker(isPresented: $isPickingPhotos, selection: $photoItems, maxSelectionCount: 4, matching: .images)
@@ -202,6 +155,11 @@ private struct Composer: View {
         }
         #if DEBUG
         .task { await attachForSnapshot() }
+        .task {
+            guard focusesAndExpands else { return }
+            try? await Task.sleep(for: .seconds(4))
+            isFocused = true
+        }
         #endif
     }
 

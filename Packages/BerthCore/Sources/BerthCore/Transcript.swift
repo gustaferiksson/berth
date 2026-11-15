@@ -194,6 +194,8 @@ struct Record: Decodable {
     let origin: Origin?
     let message: Message?
     let attachment: Attachment?
+    let operation: String?
+    let content: String?
 
     struct Origin: Decodable {
         let kind: String?

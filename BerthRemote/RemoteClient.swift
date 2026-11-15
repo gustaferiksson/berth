@@ -35,6 +35,7 @@ final class RemoteClient {
     private(set) var groups: [RemoteGroup] = []
     private(set) var folders: [String] = []
     private(set) var entries: [String: [RemoteEntry]] = [:]
+    private(set) var queued: [String: [String]] = [:]
     private(set) var features: [String] = []
     private(set) var uploads: [String: UploadState] = [:]
     var notice: String?
@@ -179,8 +180,9 @@ final class RemoteClient {
             state = .connected
             failures = 0
             if let subscribedSessionID { send(.subscribe(sessionID: subscribedSessionID)) }
-        case let .transcript(sessionID, chunk, isContinuation):
+        case let .transcript(sessionID, chunk, isContinuation, queued):
             entries[sessionID] = (isContinuation ? entries[sessionID] ?? [] : []) + chunk
+            self.queued[sessionID] = queued ?? []
         case let .opened(sessionID):
             openedSessionID = sessionID
         case let .notice(message):

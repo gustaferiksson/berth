@@ -46,7 +46,7 @@ struct SettingsView: View {
                     Text("To revoke this phone’s access, use Regenerate Token in Berth’s General settings on your Mac, then connect again with the new token.")
                 }
                 Section("Preview") {
-                    TurnView(turn: Self.preview, isFinished: true, liveCall: nil)
+                    TurnView(turn: Self.preview, isFinished: true, isWorking: false, liveCall: nil)
                         .modifier(ConversationStyle())
                         .allowsHitTesting(false)
                         .padding(.vertical, 8)
