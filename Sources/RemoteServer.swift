@@ -158,8 +158,8 @@ final class RemoteServer {
             Task { await streamTranscript(to: id) }
         case let .prompt(sessionID, text):
             Task { await submit(text, in: sessionID, from: connection) }
-        case let .key(sessionID, key, waitingFor):
-            press(key, in: sessionID, answering: waitingFor, from: connection)
+        case let .key(sessionID, key, waitingFor, waitingSince):
+            press(key, in: sessionID, answering: waitingFor, since: waitingSince, from: connection)
         case let .newSession(folder, prompt):
             Task { await startSession(in: folder, prompt: prompt, from: connection) }
         }
@@ -177,12 +177,13 @@ final class RemoteServer {
                 lastActivity: session.lastActivity,
                 status: live?.status,
                 waitingFor: live?.waitingFor,
+                waitingSince: live?.status == "waiting" ? live?.statusUpdatedAt : nil,
                 isOpen: open.contains(session.id),
                 isLocked: live.map { $0.attachID == nil } ?? false && !open.contains(session.id)
             )
         }
         let starting = store.tabs.filter { $0.kind == .claude && $0.sessionID.map { store.sessionsByID[$0] == nil } ?? false }.compactMap { tab in
-            tab.sessionID.map { RemoteSession(id: $0, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: store.liveBySession[$0]?.status, waitingFor: store.liveBySession[$0]?.waitingFor, isOpen: true, isLocked: false) }
+            tab.sessionID.map { RemoteSession(id: $0, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: store.liveBySession[$0]?.status, waitingFor: store.liveBySession[$0]?.waitingFor, waitingSince: store.liveBySession[$0].flatMap { $0.status == "waiting" ? $0.statusUpdatedAt : nil }, isOpen: true, isLocked: false) }
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.map(remote)) }
@@ -267,9 +268,9 @@ final class RemoteServer {
         terminal.sendKey(.enter)
     }
 
-    private func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, from connection: NWConnection) {
+    private func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, since waitingSince: Double?, from connection: NWConnection) {
         store.refreshLive()
-        guard let live = store.liveBySession[sessionID], live.status == "waiting", live.waitingFor == waitingFor else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude’s question changed, so the key wasn’t sent")), to: connection) }
+        guard let live = store.liveBySession[sessionID], live.status == "waiting", live.waitingFor == waitingFor, live.statusUpdatedAt == waitingSince else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude’s question changed, so the key wasn’t sent")), to: connection) }
         guard let terminal = store.tab(forSession: sessionID)?.terminal else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude isn’t running in a Berth tab for this session")), to: connection) }
 
         store.lastKeyInput = .now

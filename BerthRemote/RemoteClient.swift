@@ -106,6 +106,7 @@ final class RemoteClient {
         do {
             while true {
                 guard case let .string(text) = try await task.receive() else { continue }
+                guard self.task === task else { return }
                 let message = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(text.utf8))
                 guard case let .challenge(nonce) = message else {
                     apply(message)

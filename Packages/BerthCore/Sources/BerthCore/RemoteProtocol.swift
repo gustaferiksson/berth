@@ -8,10 +8,11 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let lastActivity: Date
     public let status: String?
     public let waitingFor: String?
+    public let waitingSince: Double?
     public let isOpen: Bool
     public let isLocked: Bool
 
-    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, isOpen: Bool, isLocked: Bool) {
+    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool) {
         self.id = id
         self.title = title
         self.folder = folder
@@ -19,6 +20,7 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
         self.lastActivity = lastActivity
         self.status = status
         self.waitingFor = waitingFor
+        self.waitingSince = waitingSince
         self.isOpen = isOpen
         self.isLocked = isLocked
     }
@@ -74,7 +76,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case auth(hmac: Data)
     case subscribe(sessionID: String)
     case prompt(sessionID: String, text: String)
-    case key(sessionID: String, key: RemoteKey, waitingFor: String?)
+    case key(sessionID: String, key: RemoteKey, waitingFor: String?, waitingSince: Double?)
     case newSession(folder: String, prompt: String)
 }
 

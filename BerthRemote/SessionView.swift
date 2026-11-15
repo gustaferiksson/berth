@@ -13,7 +13,7 @@ struct SessionView: View {
     var body: some View {
         let entries = client.entries[sessionID] ?? []
         let results = Dictionary(entries.filter { $0.kind == .toolResult }.compactMap { entry in entry.toolID.map { ($0, entry) } }) { _, last in last }
-        let pending = entries.last { $0.kind == .toolUse && results[$0.toolID ?? ""] == nil && $0.name.map { session?.waitingFor?.contains($0) == true } == true }
+        let pending = session?.waitingFor == "permission prompt" ? entries.last { $0.kind == .toolUse && results[$0.toolID ?? ""] == nil } : nil
 
         ScrollViewReader { proxy in
             ScrollView {
@@ -55,7 +55,7 @@ struct SessionView: View {
                         }
                         HStack {
                             ForEach([("1", RemoteKey.digit1), ("2", .digit2), ("3", .digit3), ("Esc", .escape)], id: \.0) { label, key in
-                                Button(label) { client.send(.key(sessionID: sessionID, key: key, waitingFor: session?.waitingFor)) }
+                                Button(label) { client.send(.key(sessionID: sessionID, key: key, waitingFor: session?.waitingFor, waitingSince: session?.waitingSince)) }
                                     .buttonStyle(.bordered)
                                     .frame(maxWidth: .infinity)
                             }
