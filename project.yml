@@ -111,4 +111,10 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         SWIFT_APPROACHABLE_CONCURRENCY: YES
+      configs:
+        Release:
+          DEVELOPMENT_TEAM: 82K3YC8HVF
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: Berth Remote Ad Hoc
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
     scheme: {}
