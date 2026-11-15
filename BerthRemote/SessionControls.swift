@@ -132,12 +132,12 @@ private struct Composer: View {
                         Button(stops ? "Stop" : "Send", systemImage: stops ? "stop.fill" : "arrow.up") {
                             if stops { stop() } else { send() }
                         }
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.glassProminent)
-                            .buttonBorderShape(.circle)
-                            .frame(height: rowHeight)
-                            .padding(.trailing, 6)
-                            .disabled(!stops && (isEmpty || !isUploaded))
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.glassProminent)
+                        .buttonBorderShape(.circle)
+                        .frame(height: rowHeight)
+                        .padding(.trailing, 6)
+                        .disabled(!stops && (isEmpty || !isUploaded))
                     }
                 }
                 .glassEffect(.regular, in: .rect(cornerRadius: rowHeight / 2))
