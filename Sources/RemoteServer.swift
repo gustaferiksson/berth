@@ -29,6 +29,7 @@ final class RemoteServer {
 
     private struct Upload {
         let file: URL
+        let owner: ObjectIdentifier
         var size = 0
         var isComplete = false
     }
@@ -118,7 +119,10 @@ final class RemoteServer {
         connection.stateUpdateHandler = { [weak self] state in
             MainActor.assumeIsolated {
                 if case .failed = state { connection.cancel() }
-                if case .cancelled = state { self?.clients[id] = nil }
+                if case .cancelled = state {
+                    self?.clients[id] = nil
+                    for (upload, entry) in self?.uploads ?? [:] where entry.owner == id && !entry.isComplete { self?.discardUpload(upload) }
+                }
             }
         }
         connection.start(queue: .main)
@@ -189,12 +193,14 @@ final class RemoteServer {
 
         if offset == 0, uploads[id] == nil {
             guard uploads.values.filter({ !$0.isComplete }).count < 8 else { return fail("Too many uploads at once") }
-            let safe = String(URL(filePath: name).lastPathComponent.replacing(/[^A-Za-z0-9._-]/, with: "-").drop { $0 == "." || $0 == "-" }.prefix(100))
-            let file = Self.uploadsDirectory.appending(path: id).appending(path: safe.isEmpty ? "file" : safe)
+            let safe = String(name.split(separator: "/").last ?? "").replacing(/[^A-Za-z0-9._-]/, with: "-").drop { $0 == "." || $0 == "-" }
+            let cleaned = URL(filePath: safe.isEmpty ? "file" : String(safe))
+            let stem = cleaned.deletingPathExtension().lastPathComponent.prefix(90)
+            let file = Self.uploadsDirectory.appending(path: id).appending(path: "\(stem)\(cleaned.pathExtension.isEmpty ? "" : ".\(cleaned.pathExtension.prefix(10))")")
             guard (try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)) != nil,
                   FileManager.default.createFile(atPath: file.path, contents: nil)
             else { return fail("Berth couldn’t save the file") }
-            uploads[id] = Upload(file: file)
+            uploads[id] = Upload(file: file, owner: ObjectIdentifier(connection))
         }
 
         guard let upload = uploads[id], !upload.isComplete, offset == upload.size, upload.size + chunk.count <= RemoteUpload.maxBytes else {

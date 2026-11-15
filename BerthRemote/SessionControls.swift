@@ -229,7 +229,7 @@ private struct Composer: View {
 
     private func attach(_ data: Data, name: String, isImage: Bool) async {
         guard let prepared = await Task.detached(operation: { Attachment.prepared(data, name: name, isImage: isImage) }).value else {
-            client.notice = "\(name) is over \(RemoteUpload.maxBytes >> 20) MB or isn’t a readable image"
+            client.notice = isImage ? "\(name) couldn’t be read as an image or is over \(RemoteUpload.maxBytes >> 20) MB" : "\(name) is over \(RemoteUpload.maxBytes >> 20) MB"
             return
         }
         attachments.append(prepared.attachment)

@@ -26,7 +26,12 @@ final class RemoteClient {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private(set) var state = State.disconnected(nil)
+    private(set) var state = State.disconnected(nil) {
+        didSet {
+            guard state != .connected else { return }
+            for (id, upload) in uploads where upload == .uploading { uploads[id] = .failed("The connection dropped") }
+        }
+    }
     private(set) var groups: [RemoteGroup] = []
     private(set) var folders: [String] = []
     private(set) var entries: [String: [RemoteEntry]] = [:]
