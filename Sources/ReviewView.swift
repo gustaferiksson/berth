@@ -13,7 +13,7 @@ final class ReviewModel {
     var comments: [ReviewComment] = []
     var notice: String?
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
-    @ObservationIgnored private var editors: [String: ReviewTextView] = [:]
+    @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
 
     var hasUnsavedEdits: Bool { !drafts.isEmpty }
 
@@ -43,6 +43,7 @@ final class ReviewModel {
         do {
             let loaded = try await ReviewGit.contents(of: file, in: snapshot)
             if drafts[file.path] == nil { loadedTexts[file.path] = if case let .text(text)? = loaded.modified { text } else { nil } }
+            editors[file.path] = editors[file.path] ?? ReviewTextView(usingTextLayoutManager: true)
             contents[file.path] = loaded
         } catch {
             notice = "Couldn’t read \(file.path): \(Self.describe(error))"
@@ -68,12 +69,6 @@ final class ReviewModel {
         loadedTexts[path] = text
         drafts[path] = nil
         contents[path] = contents[path].map { ReviewContents(original: $0.original, modified: .text(text)) }
-    }
-
-    func editor(for path: String) -> ReviewTextView {
-        let editor = editors[path] ?? ReviewTextView(usingTextLayoutManager: true)
-        editors[path] = editor
-        return editor
     }
 
     private static func describe(_ error: any Error) -> String {
@@ -252,11 +247,11 @@ struct ReviewView: View {
 
     @ViewBuilder
     private func diff(_ style: ReviewStyle) -> some View {
-        if let path = model.selectedPath, let contents = model.contents[path] {
+        if let path = model.selectedPath, let contents = model.contents[path], let editor = model.editors[path] {
             ReviewDiffPane(
                 path: path,
                 contents: contents,
-                editor: model.editor(for: path),
+                editor: editor,
                 draft: $model.drafts[path],
                 comments: $model.comments,
                 style: style

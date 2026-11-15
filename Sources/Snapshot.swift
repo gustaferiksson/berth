@@ -442,7 +442,7 @@ enum Snapshot {
                 if let model = store.reviewSessionID.flatMap({ store.reviewModels[$0] }), spec == "refresh" || spec.hasPrefix("file") {
                     if spec == "refresh" { await model.load() } else { model.selectedPath = model.snapshot?.files.dropFirst(Int(spec.dropFirst(4)) ?? 0).first?.path ?? model.selectedPath }
                     try? await Task.sleep(for: .seconds(1))
-                    if let path = model.selectedPath { window.makeFirstResponder(model.editor(for: path)) }
+                    if let editor = model.selectedPath.flatMap({ model.editors[$0] }) { window.makeFirstResponder(editor) }
                     print("\(spec) (\(spec == "refresh" ? "reloads Review" : "selects that Review file") and focuses its right side):\n  \(state())")
                     continue
                 }
