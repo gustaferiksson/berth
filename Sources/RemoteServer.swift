@@ -27,6 +27,14 @@ final class RemoteServer {
         var needsRead = false
     }
 
+    private struct Upload {
+        let file: URL
+        var size = 0
+        var isComplete = false
+    }
+
+    static let uploadsDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appending(path: "\(Bundle.main.bundleIdentifier ?? "dev.gustaf.berth")/RemoteUploads")
+
     private(set) var failure: String?
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var listener: NWListener?
@@ -34,7 +42,8 @@ final class RemoteServer {
     @ObservationIgnored private var clients: [ObjectIdentifier: Client] = [:]
     @ObservationIgnored private var lastSessions: Data?
     @ObservationIgnored private var token = ""
-    @ObservationIgnored private var resuming: Set<String> = []
+    @ObservationIgnored private var submitting: Set<String> = []
+    @ObservationIgnored private var uploads: [String: Upload] = [:]
 
     init(store: Store) {
         self.store = store
@@ -157,8 +166,8 @@ final class RemoteServer {
             clients[id]?.transcript = nil
             clients[id]?.end = nil
             Task { await streamTranscript(to: id) }
-        case let .prompt(sessionID, text):
-            Task { await submit(text, in: sessionID, from: connection) }
+        case let .prompt(sessionID, text, attachments):
+            Task { await submit(text, attachments: attachments ?? [], in: sessionID, from: connection) }
         case let .key(sessionID, key, waitingFor, waitingSince):
             press(key, in: sessionID, answering: waitingFor, since: waitingSince, from: connection)
         case let .newSession(folder, prompt):
@@ -169,7 +178,48 @@ final class RemoteServer {
             store.refresh()
             store.refreshPullRequests()
             send(try? JSONEncoder().encode(sessionsMessage), to: connection)
+        case let .upload(uploadID, name, offset, chunk, isLast):
+            receiveUpload(uploadID, name: name, offset: offset, chunk: chunk, isLast: isLast, from: connection)
         }
+    }
+
+    private func receiveUpload(_ uploadID: String, name: String, offset: Int, chunk: Data, isLast: Bool, from connection: NWConnection) {
+        let fail = { (message: String) in self.send(try? JSONEncoder().encode(RemoteServerMessage.uploaded(id: uploadID, error: message)), to: connection) }
+        guard let id = UUID(uuidString: uploadID)?.uuidString else { return fail("The upload had an invalid id") }
+
+        if offset == 0, uploads[id] == nil {
+            guard uploads.values.filter({ !$0.isComplete }).count < 8 else { return fail("Too many uploads at once") }
+            let safe = String(URL(filePath: name).lastPathComponent.replacing(/[^A-Za-z0-9._-]/, with: "-").drop { $0 == "." || $0 == "-" }.prefix(100))
+            let file = Self.uploadsDirectory.appending(path: id).appending(path: safe.isEmpty ? "file" : safe)
+            guard (try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)) != nil,
+                  FileManager.default.createFile(atPath: file.path, contents: nil)
+            else { return fail("Berth couldn’t save the file") }
+            uploads[id] = Upload(file: file)
+        }
+
+        guard let upload = uploads[id], !upload.isComplete, offset == upload.size, upload.size + chunk.count <= RemoteUpload.maxBytes else {
+            discardUpload(id)
+            return fail("The upload failed or is over \(RemoteUpload.maxBytes >> 20) MB")
+        }
+        do {
+            let handle = try FileHandle(forWritingTo: upload.file)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: chunk)
+        } catch {
+            discardUpload(id)
+            return fail("Berth couldn’t save the file")
+        }
+
+        uploads[id]?.size += chunk.count
+        uploads[id]?.isComplete = isLast
+        guard isLast else { return }
+        send(try? JSONEncoder().encode(RemoteServerMessage.uploaded(id: uploadID, error: nil)), to: connection)
+    }
+
+    private func discardUpload(_ id: String) {
+        guard let upload = uploads.removeValue(forKey: id) else { return }
+        try? FileManager.default.removeItem(at: upload.file.deletingLastPathComponent())
     }
 
     private var sessionsMessage: RemoteServerMessage {
@@ -197,7 +247,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path))
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature])
     }
 
     private func observeSessions() {
@@ -248,18 +298,21 @@ final class RemoteServer {
         if current.needsRead { await streamTranscript(to: id) }
     }
 
-    private func submit(_ text: String, in sessionID: String, from connection: NWConnection) async {
+    private func submit(_ text: String, attachments: [String], in sessionID: String, from connection: NWConnection) async {
+        let files = attachments.compactMap { UUID(uuidString: $0).flatMap { uploads[$0.uuidString] }.flatMap { $0.isComplete ? $0.file : nil } }
+        guard files.count == attachments.count else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "An attachment didn’t finish uploading, so the message wasn’t sent")), to: connection) }
+        guard !submitting.contains(sessionID) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "The previous message is still being sent or the session is starting, so this one wasn’t sent")), to: connection) }
+        submitting.insert(sessionID)
+        defer { submitting.remove(sessionID) }
+
         guard store.sessionsByID[sessionID] != nil || store.tab(forSession: sessionID) != nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown session")), to: connection) }
         store.refreshLive()
         guard store.liveBySession[sessionID]?.status != "waiting" else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude is waiting for an answer, so the message wasn’t sent")), to: connection) }
-        guard !resuming.contains(sessionID) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "This session is still starting, so the message wasn’t sent")), to: connection) }
 
         if store.tab(forSession: sessionID) == nil || store.liveBySession[sessionID] == nil {
             if let live = store.liveBySession[sessionID], live.attachID == nil, store.tab(forSession: sessionID) == nil {
                 return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "This session is running in another terminal, so it is read-only here")), to: connection)
             }
-            resuming.insert(sessionID)
-            defer { resuming.remove(sessionID) }
             store.activate(.session(sessionID))
             let deadline = Date.now + 30
             while Date.now < deadline, store.tab(forSession: sessionID) == nil || store.liveBySession[sessionID] == nil {
@@ -270,12 +323,29 @@ final class RemoteServer {
         }
 
         store.refreshLive()
-        guard let terminal = store.tab(forSession: sessionID)?.terminal, let live = store.liveBySession[sessionID] else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude didn’t start for this session")), to: connection) }
-        guard live.status != "waiting" else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude is waiting for an answer, so the message wasn’t sent")), to: connection) }
+        guard let terminal = store.tab(forSession: sessionID)?.terminal, store.liveBySession[sessionID] != nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude didn’t start for this session")), to: connection) }
 
+        let images = files.filter { ["jpg", "jpeg", "png", "gif", "webp"].contains($0.pathExtension.lowercased()) }
+        let message = (files.filter { !images.contains($0) }.map { "@\($0.path)" } + [text]).filter { !$0.isEmpty }.joined(separator: " ")
         store.lastKeyInput = .now
-        terminal.paste(text: text)
+        for image in images {
+            guard isAcceptingInput(sessionID, from: connection) else { return }
+            terminal.paste(text: image.path)
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        guard isAcceptingInput(sessionID, from: connection) else { return }
+        terminal.paste(text: images.isEmpty ? message : " \(message)")
+        if !images.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
+        guard isAcceptingInput(sessionID, from: connection) else { return }
+        store.lastKeyInput = .now
         terminal.sendKey(.enter)
+    }
+
+    private func isAcceptingInput(_ sessionID: String, from connection: NWConnection) -> Bool {
+        store.refreshLive()
+        guard store.liveBySession[sessionID]?.status == "waiting" else { return true }
+        send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude started waiting for an answer, so the message wasn’t sent")), to: connection)
+        return false
     }
 
     private func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, since waitingSince: Double?, from connection: NWConnection) {
@@ -332,7 +402,7 @@ final class RemoteServer {
         guard let sessionID = store.tabs.first(where: { $0.id == store.selectedTabID })?.sessionID else { return }
         send(try? JSONEncoder().encode(RemoteServerMessage.opened(sessionID: sessionID)), to: connection)
         guard !prompt.isEmpty else { return }
-        await submit(prompt, in: sessionID, from: connection)
+        await submit(prompt, attachments: [], in: sessionID, from: connection)
     }
 
     private func send(_ data: Data?, to connection: NWConnection) {

@@ -6,15 +6,21 @@ struct SessionListView: View {
     @State private var isStartingSession = false
     @State private var query = ""
     @State private var expandedGroups: [String: Bool] = [:]
+    @State private var isShowingSettings = UserDefaults.standard.bool(forKey: "snapshotSettings")
 
     var body: some View {
         let pinned = Set(client.groups.first { $0.id == "pinned" }?.sessions.map(\.id) ?? [])
-        let groups = query.isEmpty ? client.groups : client.groups.compactMap { group in
-            let sessions = group.sessions.filter { session in
-                [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) }
-            }
-            return sessions.isEmpty ? nil : RemoteGroup(id: group.id, title: group.title, sessions: sessions)
+        let rank = ["waiting": 0, "busy": 1, "shell": 2]
+        let matches = { (session: RemoteSession) in
+            query.isEmpty || [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) }
         }
+        let active = client.groups
+            .flatMap { group in group.sessions.filter { $0.status != nil || group.id == "starting" } }
+            .sorted { (rank[$0.status ?? ""] ?? 3, $1.lastActivity) < (rank[$1.status ?? ""] ?? 3, $0.lastActivity) }
+        let activeIDs = Set(active.map(\.id))
+        let groups = ([RemoteGroup(id: "active", title: "Active", sessions: active)] + client.groups.filter { $0.id != "starting" })
+            .map { group in RemoteGroup(id: group.id, title: group.title, sessions: group.sessions.filter { (group.id == "active" || !activeIDs.contains($0.id)) && matches($0) }) }
+            .filter { !$0.sessions.isEmpty }
 
         NavigationStack(path: $path) {
             List {
@@ -42,9 +48,7 @@ struct SessionListView: View {
             .navigationDestination(for: String.self) { SessionView(sessionID: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Menu("Berth", systemImage: "ellipsis") {
-                        Button("Disconnect", systemImage: "xmark.circle", role: .destructive) { client.disconnect() }
-                    }
+                    Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button("New Session", systemImage: "plus") { isStartingSession = true }
@@ -53,6 +57,9 @@ struct SessionListView: View {
             }
             .sheet(isPresented: $isStartingSession) {
                 NewSessionView()
+            }
+            .sheet(isPresented: $isShowingSettings) {
+                SettingsView()
             }
             .onChange(of: client.openedSessionID) {
                 guard let id = client.openedSessionID else { return }
@@ -116,30 +123,33 @@ private struct SessionSummaryView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        let project = Text(URL(filePath: session.folder).lastPathComponent)
-        let branch = session.branch.map { Text(" · \($0)") } ?? Text("")
-        let titleLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 3)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+        let isProminent = session.status != nil || session.isUnread == true
+        let lock = session.isLocked ? Text("\(Image(systemName: "lock.fill")) ") : Text("")
+        let branch = session.branch.map { Text("  \(Image(systemName: "arrow.triangle.branch")) \($0)") } ?? Text("")
+        let titleLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
 
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             titleLayout {
                 Text(session.title)
+                    .foregroundStyle(isProminent ? .primary : .secondary)
                     .lineLimit(2)
                 Spacer(minLength: 0)
                 SessionStatus(session: session)
                     .font(.subheadline)
             }
-            HStack(spacing: 0) {
-                Text("\(session.isLocked ? Text("\(Image(systemName: "lock.fill")) ") : Text(""))\(project)\(branch)")
+            HStack(spacing: 10) {
+                Text("\(lock)\(URL(filePath: session.folder).lastPathComponent)\(branch)")
                     .lineLimit(1)
                 if let pullRequest = session.pullRequest {
-                    Text(" · #\(String(pullRequest.number))")
+                    Text("\(Image(systemName: "arrow.triangle.pull")) \(String(pullRequest.number))")
                         .foregroundStyle(pullRequest.state == "Open" ? .green : pullRequest.state == "Merged" ? .purple : pullRequest.state == "Closed" ? .red : .secondary)
                         .fixedSize()
                 }
             }
-            .font(.subheadline)
+            .font(.footnote)
             .foregroundStyle(.secondary)
         }
+        .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
 }
@@ -149,17 +159,36 @@ private struct SessionStatus: View {
 
     var body: some View {
         if session.status == "waiting" {
-            Text("\(Image(systemName: "exclamationmark.bubble.fill")) Needs You")
+            Text("\(Image(systemName: "exclamationmark.bubble.fill")) Needs you")
                 .bold()
                 .foregroundStyle(.orange)
         } else if session.status == "busy" {
             Text("\(Text(Image(systemName: "circle.fill")).font(.caption2)) \(Text(session.lastPrompt ?? session.lastActivity, style: .timer))")
                 .monospacedDigit()
                 .foregroundStyle(.green)
-        } else {
-            Text("\(session.isUnread == true ? Text("\(Text(Image(systemName: "circle.fill")).font(.caption2).accessibilityLabel("Unread")) ").foregroundStyle(.blue) : Text(""))\(Text(session.lastActivity, format: .relative(presentation: .numeric, unitsStyle: .narrow)))")
+        } else if session.status == "shell" {
+            Text("\(Image(systemName: "terminal")) Task running")
                 .foregroundStyle(.secondary)
+        } else if session.isLocked {
+            Text("Read-only")
+                .foregroundStyle(.secondary)
+        } else if session.status != nil {
+            Text(session.isUnread == true ? "\(Text(Image(systemName: "circle.fill")).font(.caption2)) Done" : "Idle")
+                .foregroundStyle(session.isUnread == true ? .blue : .secondary)
+        } else {
+            Text("\(session.isUnread == true ? Text("\(Text(Image(systemName: "circle.fill")).font(.caption2).accessibilityLabel("Unread")) ").foregroundStyle(.blue) : Text(""))\(age)")
+                .foregroundStyle(.tertiary)
         }
+    }
+
+    private var age: String {
+        let seconds = Date.now.timeIntervalSince(session.lastActivity)
+        if seconds < 60 { return "Now" }
+        if seconds < 3600 { return "\(Int(seconds / 60))m" }
+        if seconds < 6 * 3600 || Calendar.current.isDateInToday(session.lastActivity) { return "\(Int(seconds / 3600))h" }
+        if Calendar.current.isDateInYesterday(session.lastActivity) { return "Yesterday" }
+        if seconds < 6 * 86400 { return session.lastActivity.formatted(.dateTime.weekday(.wide)) }
+        return session.lastActivity.formatted(.dateTime.day().month(.abbreviated))
     }
 }
 
