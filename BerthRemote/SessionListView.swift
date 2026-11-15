@@ -4,29 +4,51 @@ struct SessionListView: View {
     @Environment(RemoteClient.self) private var client
     @State private var path: [String] = UserDefaults.standard.string(forKey: "remoteSession").map { [$0] } ?? []
     @State private var isStartingSession = false
+    @State private var query = ""
+    @State private var expandedGroups: [String: Bool] = [:]
 
     var body: some View {
+        let pinned = Set(client.groups.first { $0.id == "pinned" }?.sessions.map(\.id) ?? [])
+        let groups = query.isEmpty ? client.groups : client.groups.compactMap { group in
+            let sessions = group.sessions.filter { session in
+                [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) }
+            }
+            return sessions.isEmpty ? nil : RemoteGroup(id: group.id, title: group.title, sessions: sessions)
+        }
+
         NavigationStack(path: $path) {
             List {
-                ForEach(client.groups) { group in
-                    Section(group.title) {
+                ForEach(groups) { group in
+                    Section(group.title, isExpanded: Binding { expandedGroups[group.id] ?? true } set: { expandedGroups[group.id] = $0 }) {
                         ForEach(group.sessions) { session in
-                            NavigationLink(value: session.id) {
-                                SessionRow(session: session)
-                            }
+                            SessionRow(session: session, isPinned: pinned.contains(session.id))
                         }
                     }
                 }
             }
+            .listStyle(.sidebar)
+            .overlay {
+                if client.groups.isEmpty, client.state != .connected {
+                    ContentUnavailableView("Reconnecting", systemImage: "wifi.slash", description: Text("Berth Remote reconnects when your Mac is reachable."))
+                } else if client.groups.isEmpty {
+                    ContentUnavailableView("No Sessions", systemImage: "text.bubble", description: Text("Start a session with the + button."))
+                } else if groups.isEmpty {
+                    ContentUnavailableView.search
+                }
+            }
+            .searchable(text: $query, prompt: "Search Sessions")
+            .refreshable { client.send(.refresh) }
             .navigationTitle("Sessions")
             .navigationDestination(for: String.self) { SessionView(sessionID: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Disconnect", systemImage: "xmark") { client.disconnect() }
+                    Menu("Berth", systemImage: "ellipsis") {
+                        Button("Disconnect", systemImage: "xmark.circle", role: .destructive) { client.disconnect() }
+                    }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .primaryAction) {
                     Button("New Session", systemImage: "plus") { isStartingSession = true }
-                        .disabled(client.folders.isEmpty)
+                        .disabled(client.folders.isEmpty || client.state != .connected)
                 }
             }
             .sheet(isPresented: $isStartingSession) {
@@ -43,23 +65,93 @@ struct SessionListView: View {
 
 private struct SessionRow: View {
     let session: RemoteSession
+    let isPinned: Bool
+
+    @Environment(RemoteClient.self) private var client
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: session.isLocked ? "lock.fill" : session.status == "waiting" ? "exclamationmark.bubble.fill" : session.status == "busy" ? "ellipsis.circle.fill" : session.status == nil ? "circle" : "circle.fill")
-                .foregroundStyle(session.status == "waiting" ? .orange : session.status == "busy" ? .green : .secondary)
-                .frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.title)
-                    .lineLimit(1)
-                Text([URL(filePath: session.folder).lastPathComponent, session.branch].compactMap(\.self).joined(separator: " · "))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        NavigationLink(value: session.id) {
+            SessionSummaryView(session: session)
+        }
+        .swipeActions(edge: .leading) {
+            Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") { perform(isPinned ? .unpin : .pin) }
+                .tint(.yellow)
+        }
+        .swipeActions(edge: .trailing) {
+            if session.status == nil {
+                Button("Archive", systemImage: "archivebox") { perform(.archive) }
+                    .tint(.indigo)
             }
-            Spacer()
-            Text(session.lastActivity, format: .relative(presentation: .numeric, unitsStyle: .narrow))
-                .font(.caption)
+            Button(session.isUnread == true ? "Mark as Read" : "Mark as Unread", systemImage: session.isUnread == true ? "envelope.open" : "envelope.badge") {
+                perform(session.isUnread == true ? .markRead : .markUnread)
+            }
+            .tint(.blue)
+        }
+        .contextMenu {
+            Button("Open on Mac", systemImage: "macbook") { perform(.show) }
+            Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") { perform(isPinned ? .unpin : .pin) }
+            Button(session.isUnread == true ? "Mark as Read" : "Mark as Unread", systemImage: session.isUnread == true ? "envelope.open" : "envelope.badge") {
+                perform(session.isUnread == true ? .markRead : .markUnread)
+            }
+            if let pullRequest = session.pullRequest, pullRequest.url.scheme == "https" {
+                Link(destination: pullRequest.url) {
+                    Label("Open Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull")
+                }
+            }
+            if session.status == nil {
+                Divider()
+                Button("Archive", systemImage: "archivebox") { perform(.archive) }
+            }
+        }
+    }
+
+    private func perform(_ action: RemoteSessionAction) {
+        client.send(.session(sessionID: session.id, action: action))
+    }
+}
+
+private struct SessionSummaryView: View {
+    let session: RemoteSession
+
+    var body: some View {
+        let project = Text(URL(filePath: session.folder).lastPathComponent)
+        let branch = session.branch.map { Text(" · \($0)") } ?? Text("")
+        let pullRequest = session.pullRequest.map { pullRequest in
+            Text(" · #\(String(pullRequest.number))")
+                .foregroundStyle(pullRequest.state == "Open" ? .green : pullRequest.state == "Merged" ? .purple : pullRequest.state == "Closed" ? .red : .secondary)
+        } ?? Text("")
+
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(session.title)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+                SessionStatus(session: session)
+                    .font(.subheadline)
+            }
+            Text("\(session.isLocked ? Text("\(Image(systemName: "lock.fill")) ") : Text(""))\(project)\(branch)\(pullRequest)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct SessionStatus: View {
+    let session: RemoteSession
+
+    var body: some View {
+        if session.status == "waiting" {
+            Text("\(Image(systemName: "exclamationmark.bubble.fill")) Needs You")
+                .bold()
+                .foregroundStyle(.orange)
+        } else if session.status == "busy" {
+            Text("\(Text(Image(systemName: "circle.fill")).font(.caption2)) \(Text(session.lastPrompt ?? session.lastActivity, style: .timer))")
+                .monospacedDigit()
+                .foregroundStyle(.green)
+        } else {
+            Text("\(session.isUnread == true ? Text("\(Text(Image(systemName: "circle.fill")).font(.caption2).accessibilityLabel("Unread")) ").foregroundStyle(.blue) : Text(""))\(Text(session.lastActivity, format: .relative(presentation: .numeric, unitsStyle: .narrow)))")
                 .foregroundStyle(.secondary)
         }
     }
@@ -75,9 +167,18 @@ private struct NewSessionView: View {
         NavigationStack {
             Form {
                 Picker("Folder", selection: $folder) {
-                    ForEach(client.folders, id: \.self) { Text(URL(filePath: $0).lastPathComponent).tag($0) }
+                    ForEach(client.folders, id: \.self) { folder in
+                        VStack(alignment: .leading) {
+                            Text(URL(filePath: folder).lastPathComponent)
+                            Text(folder)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .tag(folder)
+                    }
                 }
-                TextField("Prompt", text: $prompt, axis: .vertical)
+                .pickerStyle(.navigationLink)
+                TextField("What should Claude do?", text: $prompt, axis: .vertical)
                     .lineLimit(3...8)
             }
             .navigationTitle("New Session")
@@ -87,14 +188,16 @@ private struct NewSessionView: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Start") {
-                        client.send(.newSession(folder: folder, prompt: prompt))
-                        dismiss()
-                    }
-                    .disabled(folder.isEmpty)
+                    Button("Start", action: start)
+                        .disabled(folder.isEmpty)
                 }
             }
             .onAppear { folder = client.folders.first ?? "" }
         }
+    }
+
+    private func start() {
+        client.send(.newSession(folder: folder, prompt: prompt))
+        dismiss()
     }
 }

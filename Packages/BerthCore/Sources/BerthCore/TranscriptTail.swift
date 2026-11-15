@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 public enum TranscriptTail {
     public struct Chunk: Sendable {
@@ -11,6 +13,10 @@ public enum TranscriptTail {
     static let maxTailBytes = 8 * 1024 * 1024
     static let maxText = 4000
     static let minEntries = 50
+    static let maxDetail = 300
+    static let maxImages = 4
+    static let thumbnailPixels = 360
+    static let maxThumbnailBytes = 96 * 1024
 
     public static func read(_ url: URL, after offset: Int?) -> Chunk? {
         guard let handle = try? FileHandle(forReadingFrom: url), let size = (try? handle.seekToEnd()).map(Int.init) else { return nil }
@@ -40,27 +46,40 @@ public enum TranscriptTail {
         let decoder = JSONDecoder()
         let entries = lines.flatMap { line -> [RemoteEntry] in
             guard !line.starts(with: Data(#"{"type":"api-request"#.utf8)),
-                  line.range(of: Data(#""type":"user""#.utf8)) != nil || line.range(of: Data(#""type":"assistant""#.utf8)) != nil,
+                  line.range(of: Data(#""type":"user""#.utf8)) != nil || line.range(of: Data(#""type":"assistant""#.utf8)) != nil || line.range(of: Data(#""type":"queued_command""#.utf8)) != nil,
                   let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
-                  let type = object["type"] as? String, type == "user" || type == "assistant",
+                  let type = object["type"] as? String,
                   object["isSidechain"] as? Bool != true, object["isMeta"] as? Bool != true,
-                  let uuid = (object["uuid"] as? String)?.prefix(maxText),
-                  let message = object["message"] as? [String: Any]
+                  let uuid = (object["uuid"] as? String).map({ String($0.prefix(maxText)) })
             else { return [] }
+            let date = (object["timestamp"] as? String).flatMap { try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0) }
 
-            if type == "user", let prompt = (try? decoder.decode(Record.self, from: Data(line)))?.typedPrompt {
-                return [RemoteEntry(id: String(uuid), kind: .prompt, text: String(prompt.prefix(maxText)))]
+            if type == "attachment" {
+                guard let attachment = object["attachment"] as? [String: Any],
+                      attachment["type"] as? String == "queued_command", attachment["commandMode"] as? String == "prompt",
+                      (attachment["origin"] as? [String: Any])?["kind"] as? String == "human" || attachment["humanTurn"] as? Bool == true
+                else { return [] }
+                let blocks = attachment["prompt"] as? [[String: Any]] ?? [["type": "text", "text": attachment["prompt"] as? String ?? ""]]
+                let text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n").prefix(maxText)
+                return [prompt(id: uuid, text: String(text), date: date, blocks: blocks)]
             }
 
+            guard type == "user" || type == "assistant", let message = object["message"] as? [String: Any] else { return [] }
             let blocks = message["content"] as? [[String: Any]] ?? []
+
+            if type == "user", let text = (try? decoder.decode(Record.self, from: Data(line)))?.typedPrompt {
+                return [prompt(id: uuid, text: String(text.prefix(maxText)), date: date, blocks: blocks)]
+            }
+
             return blocks.enumerated().compactMap { index, block in
                 let id = "\(uuid)-\(index)"
                 if type == "assistant", block["type"] as? String == "text", let text = block["text"] as? String {
-                    return RemoteEntry(id: id, kind: .reply, text: String(text.prefix(maxText)))
+                    return RemoteEntry(id: id, kind: .reply, text: String(text.prefix(maxText)), date: date)
                 }
                 if type == "assistant", block["type"] as? String == "tool_use", let name = block["name"] as? String {
                     let input = block["input"] as? [String: Any] ?? [:]
                     let raw = String(decoding: (try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data(), as: UTF8.self)
+                    let question = ((input["questions"] as? [[String: Any]])?.first)?["question"] as? String
                     return RemoteEntry(
                         id: id,
                         kind: .toolUse,
@@ -68,16 +87,39 @@ public enum TranscriptTail {
                         toolID: (block["id"] as? String).map { String($0.prefix(maxText)) },
                         name: String(name.prefix(maxText)),
                         command: (input["command"] as? String).map { String($0.prefix(maxText)) },
-                        filePath: (input["file_path"] as? String).map { String($0.prefix(maxText)) },
+                        filePath: (input["file_path"] as? String ?? input["notebook_path"] as? String).map { String($0.prefix(maxText)) },
                         oldText: (input["old_string"] as? String).map { String($0.prefix(maxText)) },
-                        newText: (input["new_string"] as? String ?? input["content"] as? String).map { String($0.prefix(maxText)) }
+                        newText: (input["new_string"] as? String ?? input["content"] as? String).map { String($0.prefix(maxText)) },
+                        date: date,
+                        detail: (question ?? ["description", "pattern", "query", "url", "skill"].lazy.compactMap { input[$0] as? String }.first).map { String($0.prefix(maxDetail)) }
                     )
                 }
                 guard type == "user", block["type"] as? String == "tool_result" else { return nil }
                 let content = block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
-                return RemoteEntry(id: id, kind: .toolResult, text: String(content.prefix(maxText)), toolID: (block["tool_use_id"] as? String).map { String($0.prefix(maxText)) }, isError: block["is_error"] as? Bool ?? false)
+                return RemoteEntry(id: id, kind: .toolResult, text: String(content.prefix(maxText)), toolID: (block["tool_use_id"] as? String).map { String($0.prefix(maxText)) }, isError: block["is_error"] as? Bool ?? false, date: date)
             }
         }
         return (entries, consumed)
+    }
+
+    static func prompt(id: String, text: String, date: Date?, blocks: [[String: Any]]) -> RemoteEntry {
+        let images = Array(blocks.lazy.compactMap { block -> Data? in
+            guard block["type"] as? String == "image",
+                  let base64 = (block["source"] as? [String: Any])?["data"] as? String,
+                  let data = Data(base64Encoded: base64),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                      kCGImageSourceThumbnailMaxPixelSize: thumbnailPixels,
+                  ] as CFDictionary)
+            else { return nil }
+            let output = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+            CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.7] as CFDictionary)
+            return CGImageDestinationFinalize(destination) && output.length <= maxThumbnailBytes ? output as Data : nil
+        }.prefix(maxImages))
+        let shown = images.isEmpty ? text : text.replacing(/\[Image #\d+\]/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return RemoteEntry(id: id, kind: .prompt, text: shown, date: date, images: images.isEmpty ? nil : images)
     }
 }
