@@ -41,6 +41,7 @@ final class Store {
     static let claudeDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude")
 
     let updater = AppUpdater()
+    @ObservationIgnored lazy var remote = RemoteServer(store: self)
 
     var tabs: [Tab] = [] {
         didSet { saveOpenTabs() }
@@ -133,7 +134,7 @@ final class Store {
     #if DEBUG
     @ObservationIgnored var probeOpenedClaude: [String] = []
     #endif
-    @ObservationIgnored private var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
+    @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var searchIndexTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FileWatcher?

@@ -8,6 +8,9 @@ struct GeneralSettings: View {
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
     @AppStorage(reviewKey) private var isReviewEnabled = false
+    @AppStorage(RemoteServer.enabledKey) private var isRemoteEnabled = false
+    @AppStorage(RemoteServer.tokenKey) private var remoteToken = ""
+    @Environment(Store.self) private var store
 
     var body: some View {
         Form {
@@ -46,8 +49,26 @@ struct GeneralSettings: View {
             } footer: {
                 Text("Experimental. Adds Review Changes (⇧⌘R) to Claude sessions: a diff of the session’s branch and uncommitted work, with line comments sent back to Claude.")
             }
+            Section {
+                Toggle("Allow remote control", isOn: $isRemoteEnabled)
+                if isRemoteEnabled {
+                    LabeledContent("Token") {
+                        Text(remoteToken)
+                            .font(.body.monospaced())
+                            .textSelection(.enabled)
+                    }
+                }
+            } header: {
+                Text("Remote")
+            } footer: {
+                Text("Experimental. Listens on 127.0.0.1:\(String(RemoteServer.port)) only. To reach it from your phone, run `tailscale serve --bg \(String(RemoteServer.port))` and connect Berth Remote to wss://<this Mac>.<tailnet>.ts.net with the token.")
+            }
         }
         .formStyle(.grouped)
-        .frame(height: 500)
+        .frame(height: 680)
+        .onChange(of: isRemoteEnabled) {
+            if remoteToken.isEmpty { remoteToken = Data((0..<24).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString() }
+            store.remote.update()
+        }
     }
 }
