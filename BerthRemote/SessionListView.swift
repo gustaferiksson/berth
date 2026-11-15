@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SessionListView: View {
     @Environment(RemoteClient.self) private var client
+    @Environment(UpdateCheck.self) private var updates
     @State private var path: [String] = UserDefaults.standard.string(forKey: "remoteSession").map { [$0] } ?? []
     @State private var isStartingSession = false
     @State private var query = ""
@@ -24,6 +25,13 @@ struct SessionListView: View {
 
         NavigationStack(path: $path) {
             List {
+                if let version = updates.available, query.isEmpty {
+                    Section {
+                        Link(destination: UpdateCheck.installURL) {
+                            Label("Install Berth Remote \(version)", systemImage: "arrow.down.circle")
+                        }
+                    }
+                }
                 ForEach(groups) { group in
                     Section(group.title, isExpanded: Binding { expandedGroups[group.id] ?? true } set: { expandedGroups[group.id] = $0 }) {
                         ForEach(group.sessions) { session in
@@ -132,7 +140,7 @@ private struct SessionSummaryView: View {
             titleLayout {
                 Text(session.title)
                     .foregroundStyle(isProminent ? .primary : .secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
                 Spacer(minLength: 0)
                 SessionStatus(session: session)
                     .font(.subheadline)
@@ -147,6 +155,7 @@ private struct SessionSummaryView: View {
                 }
             }
             .font(.footnote)
+            .monospaced()
             .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
@@ -169,20 +178,16 @@ private struct SessionStatus: View {
         } else if session.status == "shell" {
             Text("\(Image(systemName: "terminal")) Task running")
                 .foregroundStyle(.secondary)
-        } else if session.isLocked {
-            Text("Read-only")
-                .foregroundStyle(.secondary)
-        } else if session.status != nil {
-            Text(session.isUnread == true ? "\(Text(Image(systemName: "circle.fill")).font(.caption2)) Done" : "Idle")
-                .foregroundStyle(session.isUnread == true ? .blue : .secondary)
         } else {
-            Text("\(session.isUnread == true ? Text("\(Text(Image(systemName: "circle.fill")).font(.caption2).accessibilityLabel("Unread")) ").foregroundStyle(.blue) : Text(""))\(age)")
-                .foregroundStyle(.tertiary)
+            TimelineView(.everyMinute) { context in
+                Text("\(session.isUnread == true ? Text("\(Text(Image(systemName: "circle.fill")).font(.caption2).accessibilityLabel("Unread")) ").foregroundStyle(.blue) : Text(""))\(age(at: context.date))")
+                    .foregroundStyle(session.status == nil ? .tertiary : .secondary)
+            }
         }
     }
 
-    private var age: String {
-        let seconds = Date.now.timeIntervalSince(session.lastActivity)
+    private func age(at now: Date) -> String {
+        let seconds = now.timeIntervalSince(session.lastActivity)
         if seconds < 60 { return "Now" }
         if seconds < 3600 { return "\(Int(seconds / 60))m" }
         if seconds < 6 * 3600 || Calendar.current.isDateInToday(session.lastActivity) { return "\(Int(seconds / 3600))h" }
@@ -209,6 +214,7 @@ private struct NewSessionView: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
+                        .monospaced()
                         .tag(folder)
                     }
                 }

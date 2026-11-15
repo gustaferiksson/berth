@@ -46,6 +46,7 @@ struct AttachmentChip: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(attachment.name)
+                    .monospaced()
                     .lineLimit(1)
                 if case let .failed(message) = state {
                     Text(message)

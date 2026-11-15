@@ -12,7 +12,7 @@ final class UpdateCheck {
 
     func checkIfDue() async {
         #if DEBUG
-        return
+        available = UserDefaults.standard.string(forKey: "snapshotUpdateAvailable")
         #else
         guard available == nil, !Self.currentVersion.hasSuffix("-local") else { return }
         if let lastCheck, Date.now.timeIntervalSince(lastCheck) < 24 * 60 * 60 { return }

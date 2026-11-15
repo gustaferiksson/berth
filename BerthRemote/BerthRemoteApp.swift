@@ -16,14 +16,6 @@ struct BerthRemoteApp: App {
                     ConnectView()
                 }
             }
-            .safeAreaInset(edge: .bottom) {
-                if let version = updates.available {
-                    Link(destination: UpdateCheck.installURL) {
-                        Label("Install Berth Remote \(version)", systemImage: "arrow.down.circle")
-                    }
-                    .buttonStyle(.glassProminent)
-                }
-            }
             .safeAreaInset(edge: .top) {
                 if client.state == .reconnecting {
                     Label {
@@ -36,6 +28,7 @@ struct BerthRemoteApp: App {
                 }
             }
             .environment(client)
+            .environment(updates)
             .preferredColorScheme(colorScheme == "light" ? .light : colorScheme == "dark" ? .dark : nil)
             .task(id: scenePhase) {
                 if scenePhase == .background { return client.suspend() }
