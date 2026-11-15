@@ -7,6 +7,11 @@ public enum TranscriptTail {
         public let entries: [RemoteEntry]
         public let end: Int
         public let isContinuation: Bool
+        public let queue: [String]
+
+        public var queuedPrompts: [String] {
+            queue.filter { !$0.isEmpty && !$0.hasPrefix("<") }
+        }
     }
 
     static let tailBytes = 256 * 1024
@@ -18,29 +23,29 @@ public enum TranscriptTail {
     static let thumbnailPixels = 360
     static let maxThumbnailBytes = 96 * 1024
 
-    public static func read(_ url: URL, after offset: Int?) -> Chunk? {
+    public static func read(_ url: URL, after offset: Int?, queue: [String] = []) -> Chunk? {
         guard let handle = try? FileHandle(forReadingFrom: url), let size = (try? handle.seekToEnd()).map(Int.init) else { return nil }
         defer { try? handle.close() }
 
         if let offset, offset <= size, size - offset <= tailBytes {
             guard (try? handle.seek(toOffset: UInt64(offset))) != nil else { return nil }
-            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: false)
-            return Chunk(entries: parsed.entries, end: offset + parsed.consumed, isContinuation: true)
+            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: false, queue: queue)
+            return Chunk(entries: parsed.entries, end: offset + parsed.consumed, isContinuation: true, queue: parsed.queue)
         }
 
         var window = tailBytes
         while true {
             let start = max(0, size - window)
             guard (try? handle.seek(toOffset: UInt64(start))) != nil else { return nil }
-            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: start > 0)
+            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: start > 0, queue: [])
             if start == 0 || window >= maxTailBytes || parsed.entries.count >= minEntries {
-                return Chunk(entries: parsed.entries, end: start + parsed.consumed, isContinuation: false)
+                return Chunk(entries: parsed.entries, end: start + parsed.consumed, isContinuation: false, queue: parsed.queue)
             }
             window *= 2
         }
     }
 
-    static func entries(in data: Data, dropFirst: Bool) -> (entries: [RemoteEntry], consumed: Int) {
+    static func entries(in data: Data, dropFirst: Bool, queue: [String]) -> (entries: [RemoteEntry], consumed: Int, queue: [String]) {
         let consumed = data.lastIndex(of: UInt8(ascii: "\n")).map { data.distance(from: data.startIndex, to: $0) + 1 } ?? 0
         let lines = data.prefix(consumed).split(separator: UInt8(ascii: "\n")).dropFirst(dropFirst ? 1 : 0)
         let decoder = JSONDecoder()
@@ -96,7 +101,21 @@ public enum TranscriptTail {
                 return RemoteEntry(id: id, kind: .toolResult, text: String(content.prefix(maxText)), toolID: (block["tool_use_id"] as? String).map { String($0.prefix(maxText)) }, isError: block["is_error"] as? Bool ?? false, date: date)
             }
         }
-        return (entries, consumed)
+        let operations = lines.lazy
+            .filter { $0.range(of: Data(#""type":"queue-operation""#.utf8)) != nil }
+            .compactMap { try? decoder.decode(Record.self, from: Data($0)) }
+        let queue = operations.reduce(into: queue) { queue, record in
+            if record.operation == "enqueue" {
+                queue.append(record.content ?? "")
+            } else if record.operation == "dequeue", !queue.isEmpty {
+                queue.removeFirst()
+            } else if record.operation == "remove", let index = queue.firstIndex(of: record.content ?? "") {
+                queue.remove(at: index)
+            } else if record.operation == "popAll" {
+                queue.removeAll()
+            }
+        }
+        return (entries, consumed, queue)
     }
 
     static func prompt(id: String, text: String, date: Date?, blocks: [[String: Any]]) -> RemoteEntry {

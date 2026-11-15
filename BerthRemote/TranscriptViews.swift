@@ -3,14 +3,17 @@ import SwiftUI
 #if DEBUG
 let expandsWork = UserDefaults.standard.bool(forKey: "snapshotExpanded")
 let expandsCalls = UserDefaults.standard.bool(forKey: "snapshotExpandedCalls")
+let focusesAndExpands = UserDefaults.standard.bool(forKey: "snapshotFocusAndExpand")
 #else
 let expandsWork = false
 let expandsCalls = false
+let focusesAndExpands = false
 #endif
 
 struct TurnView: View {
     let turn: Turn
     let isFinished: Bool
+    let isWorking: Bool
     let liveCall: LiveCall?
 
     @State private var showsWork = false
@@ -29,6 +32,12 @@ struct TurnView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         ForEach(folded) { TurnPartView(part: $0, liveCall: nil) }
                     }
+                    .padding(.leading, 14)
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(.quaternary)
+                            .frame(width: 3)
+                    }
                     .padding(.top, 12)
                 } label: {
                     Label(turn.duration.map { "Worked for \($0.formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow)))" } ?? "Worked", systemImage: "clock")
@@ -43,8 +52,69 @@ struct TurnView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
+            if isWorking {
+                WorkingStatus(since: turn.prompt?.date)
+            }
         }
         .labelReservedIconWidth(iconWidth)
+        #if DEBUG
+        .task { await expandForSnapshot() }
+        #endif
+    }
+
+    #if DEBUG
+    private func expandForSnapshot() async {
+        guard focusesAndExpands, isFinished else { return }
+        try? await Task.sleep(for: .seconds(6))
+        for _ in 0..<4 {
+            showsWork.toggle()
+            print("snapshotFocusAndExpand: \(turn.id) showsWork \(showsWork)")
+            try? await Task.sleep(for: .seconds(1.5))
+        }
+    }
+    #endif
+}
+
+private struct WorkingStatus: View {
+    let since: Date?
+
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1, paused: scenePhase != .active)) { context in
+            Label {
+                if let since {
+                    Text("Working · \(Duration.seconds(max(0, context.date.timeIntervalSince(since)).rounded(.down)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2)))")
+                        .monospacedDigit()
+                } else {
+                    Text("Working")
+                }
+            } icon: {
+                if reduceMotion {
+                    Image(systemName: "hourglass")
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+    }
+}
+
+struct QueuedPrompt: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            PromptBubble(entry: RemoteEntry(id: text, kind: .prompt, text: text))
+                .opacity(0.6)
+            Label("Queued", systemImage: "clock")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

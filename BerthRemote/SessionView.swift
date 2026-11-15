@@ -14,13 +14,26 @@ struct SessionView: View {
         let entries = client.entries[sessionID]
         let turns = Turn.turns(from: entries ?? [])
         let isBusy = session?.status == "busy" || session?.status == "waiting"
+        let queued = session?.status == nil ? [] : client.queued[sessionID] ?? []
 
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 32) {
+            VStack(alignment: .leading, spacing: 32) {
                 ForEach(turns) { turn in
                     let isLast = turn.id == turns.last?.id
                     let openCall = isLast ? turn.openCall : nil
-                    TurnView(turn: turn, isFinished: !isLast || !isBusy, liveCall: openCall.flatMap { session?.status == "busy" ? .running($0.id) : session?.status == "waiting" ? .waiting($0.id) : nil })
+                    TurnView(
+                        turn: turn,
+                        isFinished: !isLast || !isBusy,
+                        isWorking: isLast && session?.status == "busy",
+                        liveCall: openCall.flatMap { session?.status == "busy" ? .running($0.id) : session?.status == "waiting" ? .waiting($0.id) : nil }
+                    )
+                }
+                if !queued.isEmpty {
+                    VStack(alignment: .trailing, spacing: 12) {
+                        ForEach(queued.enumerated(), id: \.offset) { _, text in
+                            QueuedPrompt(text: text)
+                        }
+                    }
                 }
             }
             .padding()
@@ -34,23 +47,34 @@ struct SessionView: View {
             guard isAtBottom else { return }
             position.scrollTo(edge: .bottom)
         }
+        .onChange(of: queued) {
+            guard isAtBottom else { return }
+            position.scrollTo(edge: .bottom)
+        }
         .overlay {
             if entries == nil {
                 ProgressView()
-            } else if turns.isEmpty {
+            } else if turns.isEmpty, queued.isEmpty {
                 ContentUnavailableView("No Messages Yet", systemImage: "text.bubble", description: Text("Messages appear here once Claude starts."))
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if !isAtBottom {
+                Button("Scroll to End", systemImage: "arrow.down", action: scrollToEnd)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .controlSize(.large)
+                    .padding()
             }
         }
         .safeAreaInset(edge: .bottom) {
             SessionControls(
                 session: session,
                 sessionID: sessionID,
-                turnStart: turns.last?.prompt?.date ?? session?.lastPrompt,
                 pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil,
-                isAtBottom: isAtBottom,
                 draft: $draft,
-                attachments: $attachments,
-                scrollToEnd: scrollToEnd
+                attachments: $attachments
             )
         }
         .navigationTitle(session?.title ?? "Session")

@@ -14,7 +14,7 @@ struct TranscriptTailTests {
     ]
 
     @Test func readsConversationAndToolCalls() {
-        let parsed = TranscriptTail.entries(in: Data((lines.joined(separator: "\n") + "\n").utf8), dropFirst: false)
+        let parsed = TranscriptTail.entries(in: Data((lines.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: [])
         #expect(parsed.entries.map(\.kind) == [.prompt, .reply, .toolUse, .toolResult, .toolUse])
         #expect(parsed.entries[0].text == "Rename the widget")
         #expect(parsed.entries[2].filePath == "/w.swift" && parsed.entries[2].oldText == "old" && parsed.entries[2].newText == "new")
@@ -28,7 +28,7 @@ struct TranscriptTailTests {
             #"{"type":"user","uuid":"u1","message":{"role":"user","content":"\#(long)"}}"#,
             #"{"type":"assistant","uuid":"a1","message":{"content":[{"type":"text","text":"\#(long)"},{"type":"tool_use","id":"\#(long)","name":"\#(long)","input":{"file_path":"\#(long)"}}]}}"#,
         ]
-        let entries = TranscriptTail.entries(in: Data((capped.joined(separator: "\n") + "\n").utf8), dropFirst: false).entries
+        let entries = TranscriptTail.entries(in: Data((capped.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: []).entries
         let fields = entries.flatMap { [$0.text, $0.toolID, $0.name, $0.filePath].compactMap(\.self) }
         #expect(entries.count == 3 && fields.count == 6 && fields.allSatisfy { $0.count == TranscriptTail.maxText })
     }
@@ -50,6 +50,24 @@ struct TranscriptTailTests {
         #expect(next.isContinuation && next.entries.map(\.id) == ["a2-0"])
         #expect(TranscriptTail.read(url, after: next.end)?.entries.isEmpty == true)
     }
+
+    @Test func followsClaudesPromptQueue() {
+        let operations = [
+            #"{"type":"queue-operation","operation":"dequeue"}"#,
+            #"{"type":"queue-operation","operation":"enqueue","content":"first"}"#,
+            #"{"type":"queue-operation","operation":"enqueue","content":"<task-notification>done</task-notification>"}"#,
+            #"{"type":"queue-operation","operation":"enqueue","content":"second"}"#,
+            #"{"type":"queue-operation","operation":"enqueue","content":"third"}"#,
+            #"{"type":"queue-operation","operation":"dequeue"}"#,
+            #"{"type":"queue-operation","operation":"remove","content":"third","reason":"absorbed_mid_turn"}"#,
+        ]
+        let parsed = TranscriptTail.entries(in: Data((operations.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: [])
+        #expect(parsed.entries.isEmpty && parsed.queue == ["<task-notification>done</task-notification>", "second"])
+        #expect(TranscriptTail.Chunk(entries: [], end: 0, isContinuation: true, queue: parsed.queue).queuedPrompts == ["second"])
+
+        let popped = TranscriptTail.entries(in: Data((#"{"type":"queue-operation","operation":"popAll","content":"second"}"# + "\n").utf8), dropFirst: false, queue: parsed.queue)
+        #expect(popped.queue.isEmpty)
+    }
 }
 
 struct RemoteProtocolTests {
@@ -59,5 +77,8 @@ struct RemoteProtocolTests {
 
         guard case let .sessions(groups, folders, features) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"sessions":{"groups":[],"folders":["/f"]}}"#.utf8)) else { throw CancellationError() }
         #expect(groups.isEmpty && folders == ["/f"] && features == nil)
+
+        guard case let .transcript(_, entries, _, queued) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"transcript":{"sessionID":"s","entries":[],"isContinuation":true}}"#.utf8)) else { throw CancellationError() }
+        #expect(entries.isEmpty && queued == nil)
     }
 }

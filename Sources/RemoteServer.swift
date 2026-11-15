@@ -23,6 +23,7 @@ final class RemoteServer {
         var sessionID: String?
         var transcript: URL?
         var end: Int?
+        var queue: [String] = []
         var isReading = false
         var needsRead = false
     }
@@ -282,7 +283,7 @@ final class RemoteServer {
             return
         }
         guard let url = store.index.url(ofSession: sessionID) else {
-            if client.end == nil { send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: [], isContinuation: false)), to: client.connection) }
+            if client.end == nil { send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: [], isContinuation: false, queued: [])), to: client.connection) }
             clients[id]?.end = 0
             return
         }
@@ -290,15 +291,17 @@ final class RemoteServer {
         let after = url == client.transcript ? client.end : nil
         clients[id]?.isReading = true
         clients[id]?.needsRead = false
-        let chunk = await Task.detached { TranscriptTail.read(url, after: after) }.value
+        let queue = client.queue
+        let chunk = await Task.detached { TranscriptTail.read(url, after: after, queue: queue) }.value
         guard let current = clients[id] else { return }
 
         clients[id]?.isReading = false
         if let chunk, current.sessionID == sessionID, current.transcript == client.transcript, current.end == client.end {
             clients[id]?.transcript = url
             clients[id]?.end = chunk.end
-            if !chunk.isContinuation || !chunk.entries.isEmpty {
-                send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: chunk.entries, isContinuation: chunk.isContinuation)), to: current.connection)
+            clients[id]?.queue = chunk.queue
+            if !chunk.isContinuation || !chunk.entries.isEmpty || chunk.queue != current.queue {
+                send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: chunk.entries, isContinuation: chunk.isContinuation, queued: chunk.queuedPrompts)), to: current.connection)
             }
         }
         if current.needsRead { await streamTranscript(to: id) }

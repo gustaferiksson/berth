@@ -120,7 +120,7 @@ public enum RemoteClientMessage: Codable, Sendable {
 public enum RemoteServerMessage: Codable, Sendable {
     case challenge(nonce: Data)
     case sessions(groups: [RemoteGroup], folders: [String], features: [String]?)
-    case transcript(sessionID: String, entries: [RemoteEntry], isContinuation: Bool)
+    case transcript(sessionID: String, entries: [RemoteEntry], isContinuation: Bool, queued: [String]?)
     case opened(sessionID: String)
     case notice(message: String)
     case uploaded(id: String, error: String?)
