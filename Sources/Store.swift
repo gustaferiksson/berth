@@ -373,10 +373,11 @@ final class Store {
 
     private var fakeLive: [LiveSession] {
         #if DEBUG
-        let statuses = fakeWaiting.map { [$0 ? #""status":"waiting","waitingFor":"permission prompt""# : #""status":"busy""#] }
-            ?? (UserDefaults.standard.bool(forKey: "snapshotFakeStatus") ? [#""status":"waiting","waitingFor":"permission prompt""#, #""status":"busy""#, #""status":"shell""#] : [])
+        let statuses = fakeWaiting.map { [$0 ? #""status":"waiting","waitingFor":"permission prompt","pid":1"# : #""status":"busy","pid":1"#] }
+            ?? (UserDefaults.standard.bool(forKey: "snapshotFakeStatus") ? [#""status":"waiting","waitingFor":"permission prompt","pid":1"#, #""status":"busy","pid":1"#, #""status":"shell","pid":1"#] : [])
+            + (UserDefaults.standard.bool(forKey: "snapshotFakeStatus") && UserDefaults.standard.bool(forKey: "snapshotRemote") ? [#""status":"idle","pid":1"#, #""status":"idle","pid":2"#] : [])
         return fakeLiveSessions + zip(groups.first { !$0.sessions.isEmpty }?.sessions ?? [], statuses).compactMap { session, status in
-            let json = #"{"pid":1,"sessionId":"\#(session.id)","cwd":"\#(session.cwd)",\#(status)}"#
+            let json = #"{"sessionId":"\#(session.id)","cwd":"\#(session.cwd)",\#(status)}"#
             return try? JSONDecoder().decode(LiveSession.self, from: Data(json.utf8))
         }
         #else

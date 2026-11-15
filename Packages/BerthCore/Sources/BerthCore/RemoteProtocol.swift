@@ -100,20 +100,28 @@ public enum RemoteSessionAction: String, Codable, Sendable {
     case show, pin, unpin, markRead, markUnread, archive, interrupt
 }
 
+nonisolated public enum RemoteUpload {
+    public static let feature = "upload"
+    public static let maxBytes = 20 << 20
+    public static let chunkBytes = 512 << 10
+}
+
 public enum RemoteClientMessage: Codable, Sendable {
     case auth(hmac: Data)
     case subscribe(sessionID: String)
-    case prompt(sessionID: String, text: String)
+    case prompt(sessionID: String, text: String, attachments: [String]?)
     case key(sessionID: String, key: RemoteKey, waitingFor: String?, waitingSince: Double?)
     case newSession(folder: String, prompt: String)
     case session(sessionID: String, action: RemoteSessionAction)
     case refresh
+    case upload(id: String, name: String, offset: Int, chunk: Data, isLast: Bool)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
     case challenge(nonce: Data)
-    case sessions(groups: [RemoteGroup], folders: [String])
+    case sessions(groups: [RemoteGroup], folders: [String], features: [String]?)
     case transcript(sessionID: String, entries: [RemoteEntry], isContinuation: Bool)
     case opened(sessionID: String)
     case notice(message: String)
+    case uploaded(id: String, error: String?)
 }

@@ -51,3 +51,13 @@ struct TranscriptTailTests {
         #expect(TranscriptTail.read(url, after: next.end)?.entries.isEmpty == true)
     }
 }
+
+struct RemoteProtocolTests {
+    @Test func decodesMessagesFromTheReleasedApps() throws {
+        guard case let .prompt(sessionID, text, attachments) = try JSONDecoder().decode(RemoteClientMessage.self, from: Data(#"{"prompt":{"sessionID":"s","text":"hi"}}"#.utf8)) else { throw CancellationError() }
+        #expect(sessionID == "s" && text == "hi" && attachments == nil)
+
+        guard case let .sessions(groups, folders, features) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"sessions":{"groups":[],"folders":["/f"]}}"#.utf8)) else { throw CancellationError() }
+        #expect(groups.isEmpty && folders == ["/f"] && features == nil)
+    }
+}

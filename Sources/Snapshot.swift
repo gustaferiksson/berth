@@ -148,7 +148,7 @@ enum Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotHarbor") {
             let faked = store.liveBySession.values.filter { $0.pid == 1 }
-            for _ in faked { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
+            for _ in faked { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path, command: UserDefaults.standard.string(forKey: "snapshotRemoteLog").map { "/usr/bin/tee -a '\($0)'" }) }
             store.tabs = zip(store.tabs, faked).map { Tab(id: $0.id, kind: .claude, cwd: $1.cwd, sessionID: $1.sessionId, terminal: $0.terminal) }
             store.selectedTabID = store.tabs.first?.id
             store.isHarborShown = true

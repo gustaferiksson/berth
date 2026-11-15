@@ -66,6 +66,10 @@ private struct PromptBubble: View {
     let entry: RemoteEntry
 
     var body: some View {
+        let uploads = /@\S*\/RemoteUploads\/[0-9A-Fa-f-]{36}\/(\S+)/
+        let files = entry.text.matches(of: uploads).map { String($0.output.1) }
+        let text = entry.text.replacing(uploads, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+
         VStack(alignment: .trailing, spacing: 6) {
             if let images = entry.images {
                 HStack(spacing: 6) {
@@ -75,17 +79,25 @@ private struct PromptBubble: View {
                                 .resizable()
                                 .scaledToFill()
                                 .frame(width: min(200, 120 * image.size.width / image.size.height), height: 120)
-                                .clipShape(.rect(cornerRadius: 12))
+                                .clipShape(.rect(cornerRadius: 14))
                                 .accessibilityLabel("Image \(index + 1)")
                         }
                     }
                 }
             }
-            if !entry.text.isEmpty {
-                Text(verbatim: entry.text)
+            ForEach(files.enumerated(), id: \.offset) { _, name in
+                Label(name, systemImage: "doc.fill")
+                    .font(.subheadline)
+                    .lineLimit(1)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.fill.tertiary, in: .rect(cornerRadius: 14))
+            }
+            if !text.isEmpty {
+                Text(verbatim: text)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(.fill.tertiary, in: .rect(cornerRadius: 19))
+                    .background(.fill.tertiary, in: .rect(cornerRadius: 20))
                     .textSelection(.enabled)
             }
         }
@@ -98,82 +110,162 @@ private struct MarkdownText: View {
     let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(MarkdownBlock.blocks(in: text).enumerated(), id: \.offset) { _, block in
-                if block.kind == .prose {
-                    Text(block.attributed)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    CodeBox(text: block.lines.joined(separator: "\n"))
-                }
+                MarkdownBlockView(block: block)
             }
         }
         .textSelection(.enabled)
     }
 }
 
+private struct MarkdownBlockView: View {
+    let block: MarkdownBlock
+
+    var body: some View {
+        let text = Text(MarkdownBlock.inline(block.lines.joined(separator: "\n")))
+
+        switch block.kind {
+        case .paragraph:
+            text
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case let .heading(level):
+            text
+                .font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
+                .padding(.top, 6)
+        case let .item(marker, depth):
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(marker)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                text
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.leading, CGFloat(depth) * 18)
+        case let .code(language):
+            CodeBox(text: block.lines.joined(separator: "\n"), language: language)
+        case .table:
+            MarkdownTable(lines: block.lines)
+        }
+    }
+}
+
+private struct MarkdownTable: View {
+    let lines: [String]
+
+    var body: some View {
+        let rows = lines
+            .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "|")).components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) } }
+            .filter { row in !row.allSatisfy { $0.allSatisfy { "-: ".contains($0) } } }
+
+        ScrollView(.horizontal) {
+            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
+                ForEach(rows.enumerated(), id: \.offset) { index, row in
+                    GridRow {
+                        ForEach(row.enumerated(), id: \.offset) { _, cell in
+                            Text(MarkdownBlock.inline(cell))
+                                .bold(index == 0)
+                        }
+                    }
+                    if index < rows.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+            .font(.subheadline)
+            .padding(14)
+        }
+        .scrollIndicators(.hidden)
+        .background(.fill.quaternary, in: .rect(cornerRadius: 12))
+    }
+}
+
 private struct MarkdownBlock {
-    enum Kind { case prose, code, table }
+    enum Kind: Equatable {
+        case paragraph, table
+        case heading(Int)
+        case item(String, depth: Int)
+        case code(String)
+    }
 
     let kind: Kind
     var lines: [String]
 
-    var attributed: AttributedString {
-        var result = AttributedString()
-        for (index, line) in lines.enumerated() {
-            let heading = line.prefixMatch(of: /#{1,6}\s+/)
-            let bullet = line.replacing(/^(\s*)[-*+]\s/, maxReplacements: 1) { "\($0.output.1)• " }
-            let source = heading.map { String(line[$0.range.upperBound...]) } ?? bullet
-            var rendered = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
-            if heading != nil { rendered.font = .headline }
-            result += index == 0 ? rendered : AttributedString("\n") + rendered
-        }
-        return result.transformingAttributes(\.link) { $0.value = nil }
+    static func inline(_ source: String) -> AttributedString {
+        let parsed = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
+        return parsed.transformingAttributes(\.link) { $0.value = nil }
     }
 
     static func blocks(in text: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
         var isInFence = false
+        var continues = false
         for line in text.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("```") {
                 isInFence.toggle()
-                if isInFence { blocks.append(MarkdownBlock(kind: .code, lines: [])) }
+                if isInFence { blocks.append(MarkdownBlock(kind: .code(String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)), lines: [])) }
+                continues = false
+                continue
+            }
+            if isInFence {
+                blocks[blocks.count - 1].lines.append(line)
                 continue
             }
 
-            let kind: Kind = isInFence ? .code : trimmed.hasPrefix("|") ? .table : .prose
-            if blocks.last?.kind == kind {
-                blocks[blocks.count - 1].lines.append(line)
-            } else if kind != .prose || !trimmed.isEmpty {
-                blocks.append(MarkdownBlock(kind: kind, lines: [line]))
+            if trimmed.isEmpty {
+                continues = false
+            } else if let heading = trimmed.prefixMatch(of: /(#{1,6})\s+/) {
+                blocks.append(MarkdownBlock(kind: .heading(heading.output.1.count), lines: [String(trimmed[heading.range.upperBound...])]))
+                continues = false
+            } else if let item = line.prefixMatch(of: /(\s*)([-*+]|\d+[.)])\s+/) {
+                let marker = String(item.output.2)
+                blocks.append(MarkdownBlock(kind: .item(marker.first?.isNumber == true ? marker : "•", depth: item.output.1.count / 2), lines: [String(line[item.range.upperBound...])]))
+                continues = true
+            } else if trimmed.hasPrefix("|") {
+                if blocks.last?.kind == .table { blocks[blocks.count - 1].lines.append(trimmed) } else { blocks.append(MarkdownBlock(kind: .table, lines: [trimmed])) }
+                continues = false
+            } else if continues {
+                blocks[blocks.count - 1].lines.append(trimmed)
+            } else {
+                blocks.append(MarkdownBlock(kind: .paragraph, lines: [line]))
+                continues = true
             }
         }
-        return blocks.map { block in
-            guard block.kind == .prose else { return block }
-            let lines = block.lines.reversed().drop { $0.trimmingCharacters(in: .whitespaces).isEmpty }.reversed()
-            return MarkdownBlock(kind: .prose, lines: Array(lines))
-        }
+        return blocks
     }
 }
 
 struct CodeBox: View {
     let text: String
+    var language = ""
     var tint: Color?
     var maxHeight: CGFloat = .infinity
 
+    @AppStorage("conversationCodeSize") private var codeSize = "medium"
     @State private var height: CGFloat = 0
 
     var body: some View {
-        ScrollView(maxHeight.isFinite ? [.horizontal, .vertical] : .horizontal) {
-            Text(verbatim: text)
-                .font(.footnote.monospaced())
-                .padding(12)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+        VStack(alignment: .leading, spacing: 0) {
+            if !language.isEmpty {
+                Text(language)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+            }
+            ScrollView(maxHeight.isFinite ? [.horizontal, .vertical] : .horizontal) {
+                Text(verbatim: text)
+                    .font((codeSize == "small" ? Font.caption : codeSize == "large" ? .callout : .footnote).monospaced())
+                    .lineSpacing(1)
+                    .padding(12)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+            }
+            .frame(height: maxHeight.isFinite ? min(height, maxHeight) : nil)
+            .scrollIndicators(.hidden)
         }
-        .frame(height: maxHeight.isFinite ? min(height, maxHeight) : nil)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.map { AnyShapeStyle($0.opacity(0.12)) } ?? AnyShapeStyle(.fill.quaternary), in: .rect(cornerRadius: 10))
+        .background(tint.map { AnyShapeStyle($0.opacity(0.12)) } ?? AnyShapeStyle(.fill.quaternary), in: .rect(cornerRadius: 12))
         .textSelection(.enabled)
     }
 }

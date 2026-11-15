@@ -4,6 +4,7 @@ import SwiftUI
 struct BerthRemoteApp: App {
     @State private var client = RemoteClient()
     @State private var updates = UpdateCheck()
+    @AppStorage("colorScheme") private var colorScheme = "system"
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -35,6 +36,7 @@ struct BerthRemoteApp: App {
                 }
             }
             .environment(client)
+            .preferredColorScheme(colorScheme == "light" ? .light : colorScheme == "dark" ? .dark : nil)
             .task(id: scenePhase) {
                 if scenePhase == .background { return client.suspend() }
                 guard scenePhase == .active else { return }

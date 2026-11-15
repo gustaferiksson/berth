@@ -5,6 +5,12 @@ import Security
 
 @Observable
 final class RemoteClient {
+    enum UploadState: Equatable {
+        case uploading
+        case done
+        case failed(String)
+    }
+
     enum State: Equatable {
         case disconnected(String?)
         case connecting
@@ -20,10 +26,17 @@ final class RemoteClient {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private(set) var state = State.disconnected(nil)
+    private(set) var state = State.disconnected(nil) {
+        didSet {
+            guard state != .connected else { return }
+            for (id, upload) in uploads where upload == .uploading { uploads[id] = .failed("The connection dropped") }
+        }
+    }
     private(set) var groups: [RemoteGroup] = []
     private(set) var folders: [String] = []
     private(set) var entries: [String: [RemoteEntry]] = [:]
+    private(set) var features: [String] = []
+    private(set) var uploads: [String: UploadState] = [:]
     var notice: String?
     var openedSessionID: String?
     @ObservationIgnored private var task: URLSessionWebSocketTask?
@@ -86,6 +99,24 @@ final class RemoteClient {
         Task { try? await task.send(.string(String(decoding: data, as: UTF8.self))) }
     }
 
+    func upload(_ data: Data, id: String, name: String) async {
+        uploads[id] = .uploading
+        guard let task, state == .connected, features.contains(RemoteUpload.feature) else {
+            uploads[id] = .failed("Not connected to Berth")
+            return
+        }
+
+        do {
+            for offset in stride(from: 0, to: max(data.count, 1), by: RemoteUpload.chunkBytes) {
+                let end = min(offset + RemoteUpload.chunkBytes, data.count)
+                let message = RemoteClientMessage.upload(id: id, name: name, offset: offset, chunk: data.subdata(in: offset..<end), isLast: end == data.count)
+                try await task.send(.string(String(decoding: try JSONEncoder().encode(message), as: UTF8.self)))
+            }
+        } catch {
+            uploads[id] = .failed("The upload was interrupted")
+        }
+    }
+
     private static func save(token: String) -> Bool {
         SecItemDelete(tokenQuery as CFDictionary)
         let item = tokenQuery.merging([kSecValueData as String: Data(token.utf8), kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]) { $1 }
@@ -140,9 +171,10 @@ final class RemoteClient {
 
     private func apply(_ message: RemoteServerMessage) {
         switch message {
-        case let .sessions(groups, folders):
+        case let .sessions(groups, folders, features):
             self.groups = groups
             self.folders = folders
+            self.features = features ?? []
             guard state != .connected else { return }
             state = .connected
             failures = 0
@@ -153,6 +185,8 @@ final class RemoteClient {
             openedSessionID = sessionID
         case let .notice(message):
             notice = message
+        case let .uploaded(id, error):
+            uploads[id] = error.map(UploadState.failed) ?? .done
         case .challenge:
             return
         }

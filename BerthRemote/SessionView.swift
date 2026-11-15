@@ -7,6 +7,7 @@ struct SessionView: View {
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
     @State private var draft = ""
+    @State private var attachments: [Attachment] = []
 
     var body: some View {
         let session = client.groups.lazy.flatMap(\.sessions).first { $0.id == sessionID }
@@ -23,6 +24,7 @@ struct SessionView: View {
                 }
             }
             .padding()
+            .modifier(ConversationStyle())
         }
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
@@ -47,6 +49,7 @@ struct SessionView: View {
                 pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil,
                 isAtBottom: isAtBottom,
                 draft: $draft,
+                attachments: $attachments,
                 scrollToEnd: scrollToEnd
             )
         }
@@ -63,8 +66,6 @@ struct SessionView: View {
                         }
                     }
                     Button("Mark as Unread", systemImage: "circle.fill", action: markUnread)
-                    Divider()
-                    Button("Disconnect", systemImage: "xmark.circle", role: .destructive) { client.disconnect() }
                 }
             }
         }
