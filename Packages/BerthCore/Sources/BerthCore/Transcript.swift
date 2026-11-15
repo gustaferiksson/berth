@@ -24,7 +24,6 @@ public enum Transcript {
     static let headBytes = 32 * 1024
     static let tailBytes = 64 * 1024
     static let maxTailBytes = 8 * 1024 * 1024
-    static let promptScanBytes = 1024 * 1024
     static let maxTitleLength = 120
 
     public static func summary(of url: URL, after known: (size: Int, lastPrompt: Date, branches: [String])? = nil) -> SessionSummary? {
@@ -40,7 +39,7 @@ public enum Transcript {
         let earlierPrompt = tailOffset == 0 || lastPrompt(in: tailRecords) != nil ? nil : lastPrompt(
             in: handle,
             before: firstLineEnd,
-            floor: max(firstLineEnd - promptScanBytes, (known?.size ?? 0) - tailBytes, 0)
+            floor: max((known?.size ?? 0) - tailBytes, 0)
         ) ?? known?.lastPrompt
         return summary(
             id: url.deletingPathExtension().lastPathComponent,
@@ -100,7 +99,7 @@ public enum Transcript {
     }
 
     static func lastPrompt(in records: [Record]) -> Date? {
-        records.last { $0.typedPrompt != nil && $0.timestamp != nil }?.date
+        records.last { ($0.typedPrompt != nil || $0.isQueuedPrompt) && $0.timestamp != nil }?.date
     }
 
     static func lastPrompt(in handle: FileHandle, before end: Int, floor: Int) -> Date? {
@@ -113,7 +112,8 @@ public enum Transcript {
             let lines = (chunk + carry).split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false)
             carry = start > floor ? Data(lines.first ?? Data()) : Data()
             let candidates = lines.dropFirst(start > floor ? 1 : 0).filter { line in
-                line.range(of: Data(#""type":"user""#.utf8)) != nil
+                line.range(of: Data(#""type":"queued_command""#.utf8)) != nil
+                    || line.range(of: Data(#""type":"user""#.utf8)) != nil
                     && line.range(of: Data(#""type":"tool_result""#.utf8)) == nil
                     && line.range(of: Data(#""isCompactSummary":true"#.utf8)) == nil
             }
@@ -136,7 +136,7 @@ public enum Transcript {
             }
             return lines.dropFirst(dropFirst ? 1 : 0).dropLast(dropLast ? 1 : 0).compactMap { line in
                 let has = { (pattern: StaticString) in memmem(line.baseAddress, line.count, pattern.utf8Start, pattern.utf8CodeUnitCount) != nil }
-                guard !line.starts(with: #"{"type":"api-request"#.utf8), !has(#""type":"tool_result""#), !has(#""type":"attachment""#) else { return nil }
+                guard !line.starts(with: #"{"type":"api-request"#.utf8), !has(#""type":"tool_result""#), !has(#""type":"attachment""#) || has(#""type":"queued_command""#) else { return nil }
                 return try? decoder.decode(Record.self, from: Data(line))
             }
         }
@@ -193,9 +193,17 @@ struct Record: Decodable {
     let isCompactSummary: Bool?
     let origin: Origin?
     let message: Message?
+    let attachment: Attachment?
 
     struct Origin: Decodable {
         let kind: String?
+    }
+
+    struct Attachment: Decodable {
+        let type: String?
+        let commandMode: String?
+        let origin: Origin?
+        let humanTurn: Bool?
     }
 
     var date: Date? {
@@ -203,7 +211,12 @@ struct Record: Decodable {
     }
 
     var isConversation: Bool {
-        (type == "assistant" && isSidechain != true) || promptText != nil
+        (type == "assistant" && isSidechain != true) || promptText != nil || isQueuedPrompt
+    }
+
+    var isQueuedPrompt: Bool {
+        type == "attachment" && isSidechain != true && attachment?.type == "queued_command" && attachment?.commandMode == "prompt"
+            && (attachment?.origin?.kind == "human" || attachment?.humanTurn == true)
     }
 
     var typedPrompt: String? {
