@@ -119,7 +119,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           cp dist/BerthRemote.ipa "dist/BerthRemote-$version.ipa"
-          gh release upload "$GITHUB_REF_NAME" "dist/BerthRemote-$version.ipa" dist/manifest.plist
+          gh release upload --clobber "$GITHUB_REF_NAME" "dist/BerthRemote-$version.ipa" dist/manifest.plist
 
       - name: Stage the install page
         run: |

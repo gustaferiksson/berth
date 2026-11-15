@@ -16,7 +16,6 @@ final class UpdateCheck {
         #else
         guard available == nil, !Self.currentVersion.hasSuffix("-local") else { return }
         if let lastCheck, Date.now.timeIntervalSince(lastCheck) < 24 * 60 * 60 { return }
-        lastCheck = .now
 
         let request = URLRequest(url: Self.manifestURL, cachePolicy: .reloadIgnoringLocalCacheData)
         guard let (data, response) = try? await URLSession.shared.data(for: request),
@@ -27,6 +26,7 @@ final class UpdateCheck {
               let latest = metadata["bundle-version"] as? String
         else { return }
 
+        lastCheck = .now
         available = latest.compare(Self.currentVersion, options: .numeric) == .orderedDescending ? latest : nil
         #endif
     }
