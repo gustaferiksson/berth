@@ -4,6 +4,7 @@ import SwiftUI
 struct ReviewDiffPane: View {
     let path: String
     let contents: ReviewContents
+    let editor: ReviewTextView
     @Binding var draft: String?
     @Binding var comments: [ReviewComment]
     let style: ReviewStyle
@@ -24,6 +25,7 @@ struct ReviewDiffPane: View {
             let modified = draft ?? loaded
             ReviewDiffViews(
                 path: path,
+                editor: editor,
                 original: original,
                 modified: modified,
                 isOriginalAbsent: contents.original == nil,
@@ -80,6 +82,7 @@ nonisolated struct ReviewDiffAnalysis: Sendable {
 
 private struct ReviewDiffViews: NSViewRepresentable {
     let path: String
+    let editor: ReviewTextView
     let original: String
     let modified: String
     let isOriginalAbsent: Bool
@@ -91,7 +94,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let onEdit: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(right: editor)
     }
 
     func makeNSView(context: Context) -> NSStackView {
@@ -115,18 +118,28 @@ private struct ReviewDiffViews: NSViewRepresentable {
         context.coordinator.update(self)
     }
 
+    static func dismantleNSView(_ stack: NSStackView, coordinator: Coordinator) {
+        coordinator.right.subviews.filter { $0 is ReviewInlineComment }.forEach { $0.removeFromSuperview() }
+        coordinator.right.selectedLines = nil
+        coordinator.right.reserved = [:]
+    }
+
     final class Coordinator: NSObject, NSTextViewDelegate {
         let left = ReviewTextView(usingTextLayoutManager: true)
-        let right = ReviewTextView(usingTextLayoutManager: true)
+        let right: ReviewTextView
         let minimap = ReviewMinimap()
         let ruler = ReviewOverviewRuler()
-        private let undoManager = UndoManager()
         private var parent: ReviewDiffViews?
         private var loadedOriginal: String?
         private var loadedModified: String?
         private var applied: ReviewDiffAnalysis?
         private var cards: [String: ReviewInlineComment] = [:]
         private var draft: (view: ReviewInlineComment, owner: ReviewTextView, row: Int)?
+
+        init(right: ReviewTextView) {
+            self.right = right
+            loadedModified = right.string
+        }
 
         func makeSide(_ textView: ReviewTextView) -> [NSView] {
             let scrollView = NSScrollView()
@@ -196,7 +209,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 right.string = view.modified
                 right.side = nil
                 right.syntaxRuns = []
-                undoManager.removeAllActions()
+                right.history.removeAllActions()
             }
 
             let analysis = view.analysis.flatMap { $0.id != applied?.id && $0.original == loadedOriginal && $0.modified == loadedModified ? $0 : nil }
@@ -229,7 +242,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         func undoManager(for view: NSTextView) -> UndoManager? {
-            undoManager
+            right.history
         }
 
         @objc private func clipViewDidScroll(_ notification: Notification) {

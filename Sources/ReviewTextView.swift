@@ -13,6 +13,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     var selectedLines: ClosedRange<Int>?
     var minimumHeight: CGFloat = 0
     weak var gutter: ReviewGutter?
+    let history = UndoManager()
     private(set) var layoutManagerRequests = 0
     private(set) var lineStarts = [0]
     private(set) var rowHeight: CGFloat = 15

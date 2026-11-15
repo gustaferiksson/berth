@@ -62,7 +62,8 @@ This is the slim first version; the rest is listed under Later.
   side, below their last line. Deleting a card or the comment in the file column removes both.
 - Edits on the right become the file's draft; 300 ms after the last edit the diff and
   highlighting are recomputed off the main thread. Save (⌘S) appears in the header while
-  there is a draft. Undo is per file view.
+  there is a draft. Each file keeps its own undo history while Review's model lives (switching
+  files and Refresh keep it); reloading a file whose text changed on disk clears it.
 - Loading, no changes and errors (not a git repository, git failures) are
   `ContentUnavailableView`s; the last two offer Refresh.
 

@@ -13,6 +13,7 @@ final class ReviewModel {
     var comments: [ReviewComment] = []
     var notice: String?
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
+    @ObservationIgnored private var editors: [String: ReviewTextView] = [:]
 
     var hasUnsavedEdits: Bool { !drafts.isEmpty }
 
@@ -67,6 +68,12 @@ final class ReviewModel {
         loadedTexts[path] = text
         drafts[path] = nil
         contents[path] = contents[path].map { ReviewContents(original: $0.original, modified: .text(text)) }
+    }
+
+    func editor(for path: String) -> ReviewTextView {
+        let editor = editors[path] ?? ReviewTextView(usingTextLayoutManager: true)
+        editors[path] = editor
+        return editor
     }
 
     private static func describe(_ error: any Error) -> String {
@@ -249,6 +256,7 @@ struct ReviewView: View {
             ReviewDiffPane(
                 path: path,
                 contents: contents,
+                editor: model.editor(for: path),
                 draft: $model.drafts[path],
                 comments: $model.comments,
                 style: style

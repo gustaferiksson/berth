@@ -416,7 +416,7 @@ enum Snapshot {
             if store.reviewSessionID == nil { window.makeFirstResponder(store.focusedTerminal?.attachedPlatformView ?? window.contentView) }
             let state = {
                 let focused = store.tabs.firstIndex { $0.terminal.attachedPlatformView === window.firstResponder }.map { "#\($0)" } ?? window.firstResponder.map { "\(type(of: $0))" } ?? "nil"
-                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), review \(store.reviewSessionID != nil), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits })"
+                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), review \(store.reviewSessionID != nil), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits })" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
             }
             print("start: \(state())")
             print("key window is snapshot: \(NSApp.keyWindow === window), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
@@ -425,6 +425,7 @@ enum Snapshot {
             }
             let keyCodes: [String: UInt16] = ["r": 15, "x": 7, "z": 6, "a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "3": 20, "9": 25, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27]
             let flagNames: [String: NSEvent.ModifierFlags] = ["cmd": .command, "shift": .shift, "alt": .option, "ctrl": .control]
+            let gap = UserDefaults.standard.string(forKey: "snapshotKeysGap").flatMap(Int.init) ?? 400
             for spec in keys.split(separator: " ").map(String.init) {
                 if spec.hasPrefix("browse"), let index = Int(spec.dropFirst(6)), store.sidebarOrderedTabs.indices.contains(index) {
                     store.selectedTabID = store.sidebarOrderedTabs[index].id
@@ -438,15 +439,27 @@ enum Snapshot {
                     print("exit (typed into the selected terminal):\n  \(state())")
                     continue
                 }
+                if let model = store.reviewSessionID.flatMap({ store.reviewModels[$0] }), spec == "refresh" || spec.hasPrefix("file") {
+                    if spec == "refresh" { await model.load() } else { model.selectedPath = model.snapshot?.files.dropFirst(Int(spec.dropFirst(4)) ?? 0).first?.path ?? model.selectedPath }
+                    try? await Task.sleep(for: .seconds(1))
+                    if let path = model.selectedPath { window.makeFirstResponder(model.editor(for: path)) }
+                    print("\(spec) (\(spec == "refresh" ? "reloads Review" : "selects that Review file") and focuses its right side):\n  \(state())")
+                    continue
+                }
                 let parts = spec.split(separator: "+").map(String.init)
                 guard let key = parts.last, let keyCode = keyCodes[key] else { continue }
                 let flags = NSEvent.ModifierFlags(parts.dropLast().compactMap { flagNames[$0] })
                 let characters = ["enter": "\r", "tab": "\t"][key] ?? key
-                let shifted = flags.contains(.shift) ? ["[": "{", "]": "}", ",": "<"][characters] ?? characters.uppercased() : characters
-                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: shifted, charactersIgnoringModifiers: shifted, isARepeat: false, keyCode: keyCode) else { continue }
                 print("\(spec):")
-                NSApp.sendEvent(event)
-                try? await Task.sleep(for: .milliseconds(400))
+                // Only a synthesized plain key sent to the window types; only a CGEvent-backed chord (51 is its private window number field) matches ⇧⌘Z.
+                if flags.isEmpty, let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) {
+                    window.sendEvent(event)
+                } else if let source = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) {
+                    source.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
+                    source.setIntegerValueField(CGEventField(rawValue: 51)!, value: Int64(window.windowNumber))
+                    NSEvent(cgEvent: source).map(NSApp.sendEvent)
+                }
+                try? await Task.sleep(for: .milliseconds(gap))
                 let others = NSApp.windows.filter { $0 !== window && $0.isVisible }
                 print("  launcher \(String(describing: store.launcherMode)), \(state()), grouping \(store.groupingMode), windows \(others.map { $0.identifier?.rawValue ?? $0.title })")
                 others.forEach { $0.close() }
