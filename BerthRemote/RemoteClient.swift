@@ -29,6 +29,7 @@ final class RemoteClient {
     private(set) var state = State.disconnected(nil) {
         didSet {
             guard state != .connected else { return }
+            activity = [:]
             for (id, upload) in uploads where upload == .uploading { uploads[id] = .failed("The connection dropped") }
         }
     }
