@@ -13,6 +13,7 @@ final class ReviewModel {
     var comments: [ReviewComment] = []
     var notice: String?
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
+    @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
 
     var hasUnsavedEdits: Bool { !drafts.isEmpty }
 
@@ -42,6 +43,7 @@ final class ReviewModel {
         do {
             let loaded = try await ReviewGit.contents(of: file, in: snapshot)
             if drafts[file.path] == nil { loadedTexts[file.path] = if case let .text(text)? = loaded.modified { text } else { nil } }
+            editors[file.path] = editors[file.path] ?? ReviewTextView(usingTextLayoutManager: true)
             contents[file.path] = loaded
         } catch {
             notice = "Couldn’t read \(file.path): \(Self.describe(error))"
@@ -285,10 +287,11 @@ struct ReviewView: View {
 
     @ViewBuilder
     private func diff(_ style: ReviewStyle) -> some View {
-        if let path = model.selectedPath, let contents = model.contents[path] {
+        if let path = model.selectedPath, let contents = model.contents[path], let editor = model.editors[path] {
             ReviewDiffPane(
                 path: path,
                 contents: contents,
+                editor: editor,
                 draft: $model.drafts[path],
                 comments: $model.comments,
                 style: style
