@@ -78,7 +78,7 @@ struct RemoteProtocolTests {
         guard case let .sessions(groups, folders, features) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"sessions":{"groups":[],"folders":["/f"]}}"#.utf8)) else { throw CancellationError() }
         #expect(groups.isEmpty && folders == ["/f"] && features == nil)
 
-        guard case let .transcript(_, entries, _, queued) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"transcript":{"sessionID":"s","entries":[],"isContinuation":true}}"#.utf8)) else { throw CancellationError() }
+        guard case let .transcript(_, entries, _, queued, _) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"transcript":{"sessionID":"s","entries":[],"isContinuation":true}}"#.utf8)) else { throw CancellationError() }
         #expect(entries.isEmpty && queued == nil)
     }
 }

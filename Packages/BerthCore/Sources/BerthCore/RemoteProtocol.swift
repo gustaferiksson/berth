@@ -92,6 +92,52 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+public struct RemoteActivity: Codable, Sendable, Hashable {
+    public let tasks: [RemoteTask]
+    public let context: RemoteContext?
+
+    public init(tasks: [RemoteTask], context: RemoteContext?) {
+        self.tasks = tasks
+        self.context = context
+    }
+}
+
+public struct RemoteTask: Codable, Sendable, Hashable, Identifiable {
+    public static let agent = "agent"
+    public static let shell = "shell"
+    public static let monitor = "monitor"
+
+    public let id: String
+    public let kind: String
+    public let title: String
+    public let started: Date
+
+    public init(id: String, kind: String, title: String, started: Date) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.started = started
+    }
+}
+
+public struct RemoteContext: Codable, Sendable, Hashable {
+    public let model: String
+    public let tokens: Int?
+    public let window: Int?
+    public let date: Date
+    public let compactions: Int
+    public let lastCompaction: Date?
+
+    public init(model: String, tokens: Int?, window: Int?, date: Date, compactions: Int, lastCompaction: Date?) {
+        self.model = model
+        self.tokens = tokens
+        self.window = window
+        self.date = date
+        self.compactions = compactions
+        self.lastCompaction = lastCompaction
+    }
+}
+
 public enum RemoteKey: String, Codable, Sendable, CaseIterable {
     case enter, escape, shiftTab, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9
 }
@@ -120,7 +166,7 @@ public enum RemoteClientMessage: Codable, Sendable {
 public enum RemoteServerMessage: Codable, Sendable {
     case challenge(nonce: Data)
     case sessions(groups: [RemoteGroup], folders: [String], features: [String]?)
-    case transcript(sessionID: String, entries: [RemoteEntry], isContinuation: Bool, queued: [String]?)
+    case transcript(sessionID: String, entries: [RemoteEntry], isContinuation: Bool, queued: [String]?, activity: RemoteActivity?)
     case opened(sessionID: String)
     case notice(message: String)
     case uploaded(id: String, error: String?)
