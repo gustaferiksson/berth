@@ -65,7 +65,7 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 500)
+        .frame(height: 680)
         .onChange(of: isRemoteEnabled) {
             if remoteToken.isEmpty { remoteToken = Data((0..<24).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString() }
             store.remote.update()
