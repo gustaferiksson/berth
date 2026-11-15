@@ -9,7 +9,7 @@ struct BerthRemoteApp: App {
     var body: some Scene {
         WindowGroup {
             ZStack {
-                if client.state == .connected {
+                if client.state == .connected || client.state == .reconnecting {
                     SessionListView()
                 } else {
                     ConnectView()
@@ -23,13 +23,22 @@ struct BerthRemoteApp: App {
                     .buttonStyle(.glassProminent)
                 }
             }
-            .environment(client)
-            .task {
-                guard let url = UserDefaults.standard.string(forKey: "remoteURL").flatMap(URL.init(string:)), let token = UserDefaults.standard.string(forKey: "remoteToken"), !token.isEmpty else { return }
-                client.connect(to: url, token: token)
+            .safeAreaInset(edge: .top) {
+                if client.state == .reconnecting {
+                    Label {
+                        Text("Reconnecting…")
+                    } icon: {
+                        ProgressView()
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
             }
+            .environment(client)
             .task(id: scenePhase) {
+                if scenePhase == .background { return client.suspend() }
                 guard scenePhase == .active else { return }
+                client.resume()
                 await updates.checkIfDue()
             }
         }

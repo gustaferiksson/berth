@@ -13,7 +13,7 @@ struct SessionView: View {
     var body: some View {
         let entries = client.entries[sessionID] ?? []
         let results = Dictionary(entries.filter { $0.kind == .toolResult }.compactMap { entry in entry.toolID.map { ($0, entry) } }) { _, last in last }
-        let pending = entries.last { $0.kind == .toolUse && results[$0.toolID ?? ""] == nil }
+        let pending = entries.last { $0.kind == .toolUse && results[$0.toolID ?? ""] == nil && $0.name.map { session?.waitingFor?.contains($0) == true } == true }
 
         ScrollViewReader { proxy in
             ScrollView {
@@ -22,7 +22,7 @@ struct SessionView: View {
                         if entry.kind == .toolUse {
                             ToolCallView(call: entry, result: results[entry.toolID ?? ""])
                         } else {
-                            Text((try? AttributedString(markdown: entry.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(entry.text))
+                            Text(((try? AttributedString(markdown: entry.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(entry.text)).transformingAttributes(\.link) { $0.value = nil })
                                 .textSelection(.enabled)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
@@ -44,19 +44,26 @@ struct SessionView: View {
             VStack(spacing: 8) {
                 if session?.status == "waiting" {
                     VStack(alignment: .leading, spacing: 8) {
-                        Label("\(pending?.name ?? "Claude") needs you", systemImage: "exclamationmark.bubble.fill")
+                        Label(session?.waitingFor ?? "Claude needs you", systemImage: "exclamationmark.bubble.fill")
                             .font(.subheadline.bold())
                             .foregroundStyle(.orange)
-                        Text(pending.map { $0.command ?? $0.filePath ?? $0.text } ?? session?.waitingFor ?? "")
-                            .font(.caption.monospaced())
-                            .lineLimit(4)
+                            .lineLimit(3)
+                        if let pending {
+                            Text(pending.command ?? pending.filePath ?? pending.text)
+                                .font(.caption.monospaced())
+                                .lineLimit(4)
+                        }
                         HStack {
                             ForEach([("1", RemoteKey.digit1), ("2", .digit2), ("3", .digit3), ("Esc", .escape)], id: \.0) { label, key in
-                                Button(label) { client.send(.key(sessionID: sessionID, key: key)) }
+                                Button(label) { client.send(.key(sessionID: sessionID, key: key, waitingFor: session?.waitingFor)) }
                                     .buttonStyle(.bordered)
                                     .frame(maxWidth: .infinity)
                             }
                         }
+                        .disabled(client.state != .connected)
+                        Text("Picks an option of Claude’s question by number. Usually 1 is yes, 2 is yes and don’t ask again, 3 is no.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                     .padding(12)
                     .background(.orange.opacity(0.12), in: .rect(cornerRadius: 16))
@@ -65,7 +72,7 @@ struct SessionView: View {
                     Text("Running in another terminal, so read-only here.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                } else {
+                } else if session?.status != "waiting" {
                     HStack(alignment: .bottom) {
                         TextField("Message Claude", text: $draft, axis: .vertical)
                             .lineLimit(1...6)
@@ -78,7 +85,7 @@ struct SessionView: View {
                         }
                         .labelStyle(.iconOnly)
                         .font(.title)
-                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || client.state != .connected)
                     }
                 }
             }
@@ -88,7 +95,7 @@ struct SessionView: View {
         }
         .navigationTitle(session?.title ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
-        .task { client.send(.subscribe(sessionID: sessionID)) }
+        .task { client.subscribe(to: sessionID) }
         .alert("Berth", isPresented: Binding { client.notice != nil } set: { if !$0 { client.notice = nil } }) {
             Button("OK") {}
         } message: {
