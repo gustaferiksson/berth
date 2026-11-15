@@ -8,10 +8,11 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let lastActivity: Date
     public let status: String?
     public let waitingFor: String?
+    public let waitingSince: Double?
     public let isOpen: Bool
     public let isLocked: Bool
 
-    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, isOpen: Bool, isLocked: Bool) {
+    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool) {
         self.id = id
         self.title = title
         self.folder = folder
@@ -19,6 +20,7 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
         self.lastActivity = lastActivity
         self.status = status
         self.waitingFor = waitingFor
+        self.waitingSince = waitingSince
         self.isOpen = isOpen
         self.isLocked = isLocked
     }
@@ -71,14 +73,15 @@ public enum RemoteKey: String, Codable, Sendable, CaseIterable {
 }
 
 public enum RemoteClientMessage: Codable, Sendable {
-    case hello(token: String)
+    case auth(hmac: Data)
     case subscribe(sessionID: String)
     case prompt(sessionID: String, text: String)
-    case key(sessionID: String, key: RemoteKey)
+    case key(sessionID: String, key: RemoteKey, waitingFor: String?, waitingSince: Double?)
     case newSession(folder: String, prompt: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
+    case challenge(nonce: Data)
     case sessions(groups: [RemoteGroup], folders: [String])
     case transcript(sessionID: String, entries: [RemoteEntry], isContinuation: Bool)
     case opened(sessionID: String)

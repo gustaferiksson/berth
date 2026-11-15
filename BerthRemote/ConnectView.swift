@@ -3,7 +3,7 @@ import SwiftUI
 struct ConnectView: View {
     @Environment(RemoteClient.self) private var client
     @AppStorage("remoteURL") private var address = ""
-    @AppStorage("remoteToken") private var token = ""
+    @State private var token = ""
 
     var body: some View {
         NavigationStack {
@@ -16,11 +16,11 @@ struct ConnectView: View {
                         .autocorrectionDisabled()
                     SecureField("Token", text: $token)
                 } footer: {
-                    Text("Turn on Remote in Berth’s General settings and expose it with tailscale serve.")
+                    Text("Turn on Remote in Berth’s General settings, expose it with tailscale serve and enter its wss:// address.")
                 }
                 Section {
                     Button(client.state == .connecting ? "Connecting…" : "Connect", action: connect)
-                        .disabled(URL(string: address)?.scheme == nil || token.isEmpty || client.state == .connecting)
+                        .disabled(RemoteClient.url(from: address) == nil || token.isEmpty || client.state == .connecting)
                 }
                 if case let .disconnected(error?) = client.state {
                     Section {
@@ -30,11 +30,12 @@ struct ConnectView: View {
                 }
             }
             .navigationTitle("Berth Remote")
+            .onAppear { token = RemoteClient.savedToken ?? "" }
         }
     }
 
     private func connect() {
-        guard let url = URL(string: address) else { return }
+        guard let url = RemoteClient.url(from: address) else { return }
         client.connect(to: url, token: token)
     }
 }

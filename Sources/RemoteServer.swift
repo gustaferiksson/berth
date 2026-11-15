@@ -1,27 +1,39 @@
 import BerthCore
+import CryptoKit
 import Foundation
 import GhosttyTerminal
 import Network
 import Observation
 
+@Observable
 final class RemoteServer {
     static let enabledKey = "remoteEnabled"
     static let tokenKey = "remoteToken"
+    #if DEBUG
+    static let port = UInt16(UserDefaults.standard.string(forKey: "snapshotRemotePort") ?? "") ?? 7878
+    #else
     static let port: UInt16 = 7878
+    #endif
 
     private struct Client {
         let connection: NWConnection
+        let nonce: Data
         var isAuthenticated = false
         var sessionID: String?
         var transcript: URL?
         var end: Int?
+        var isReading = false
+        var needsRead = false
     }
 
-    private unowned let store: Store
-    private var listener: NWListener?
-    private var watcher: FileWatcher?
-    private var clients: [ObjectIdentifier: Client] = [:]
-    private var lastSessions: Data?
+    private(set) var failure: String?
+    @ObservationIgnored private unowned let store: Store
+    @ObservationIgnored private var listener: NWListener?
+    @ObservationIgnored private var watcher: FileWatcher?
+    @ObservationIgnored private var clients: [ObjectIdentifier: Client] = [:]
+    @ObservationIgnored private var lastSessions: Data?
+    @ObservationIgnored private var token = ""
+    @ObservationIgnored private var resuming: Set<String> = []
 
     init(store: Store) {
         self.store = store
@@ -30,25 +42,45 @@ final class RemoteServer {
     func update() {
         let token = UserDefaults.standard.string(forKey: Self.tokenKey) ?? ""
         guard UserDefaults.standard.bool(forKey: Self.enabledKey), !token.isEmpty else { return stop() }
+
+        if token != self.token {
+            for client in clients.values { client.connection.cancel() }
+            self.token = token
+        }
         guard listener == nil else { return }
 
         let websocket = NWProtocolWebSocket.Options()
         websocket.autoReplyPing = true
         websocket.maximumMessageSize = 1 << 20
+        websocket.setClientRequestHandler(.main) { _, headers in
+            NWProtocolWebSocket.Response(status: headers.contains { $0.name.caseInsensitiveCompare("Origin") == .orderedSame } ? .reject : .accept, subprotocol: nil)
+        }
         let parameters = NWParameters.tcp
         parameters.defaultProtocolStack.applicationProtocols.insert(websocket, at: 0)
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: Self.port)!)
-        parameters.allowLocalEndpointReuse = true
-        guard let listener = try? NWListener(using: parameters) else { return }
+        let listener: NWListener
+        do {
+            listener = try NWListener(using: parameters)
+        } catch {
+            failure = "Couldn’t listen on port \(Self.port): \(error)"
+            return
+        }
 
         listener.newConnectionHandler = { [weak self] connection in
             MainActor.assumeIsolated { self?.accept(connection) }
         }
         listener.stateUpdateHandler = { [weak self] state in
-            guard case let .failed(error) = state else { return }
             MainActor.assumeIsolated {
-                print("remote: listener failed: \(error)")
-                self?.stop()
+                switch state {
+                case .ready:
+                    self?.failure = nil
+                case let .failed(error), let .waiting(error):
+                    print("remote: listener failed: \(error)")
+                    self?.stop()
+                    self?.failure = "Couldn’t listen on port \(Self.port): \(error)"
+                default:
+                    break
+                }
             }
         }
         listener.start(queue: .main)
@@ -62,13 +94,17 @@ final class RemoteServer {
         listener = nil
         watcher = nil
         lastSessions = nil
+        failure = nil
         for client in clients.values { client.connection.cancel() }
         clients = [:]
     }
 
     private func accept(_ connection: NWConnection) {
+        guard clients.values.filter({ !$0.isAuthenticated }).count < 4 else { return connection.cancel() }
+
         let id = ObjectIdentifier(connection)
-        clients[id] = Client(connection: connection)
+        let nonce = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
+        clients[id] = Client(connection: connection, nonce: nonce)
         connection.stateUpdateHandler = { [weak self] state in
             MainActor.assumeIsolated {
                 if case .failed = state { connection.cancel() }
@@ -76,6 +112,7 @@ final class RemoteServer {
             }
         }
         connection.start(queue: .main)
+        send(try? JSONEncoder().encode(RemoteServerMessage.challenge(nonce: nonce)), to: connection)
         receive(on: connection)
         Task {
             try? await Task.sleep(for: .seconds(10))
@@ -95,27 +132,34 @@ final class RemoteServer {
 
     private func handle(_ data: Data, from connection: NWConnection) {
         let id = ObjectIdentifier(connection)
-        guard let client = clients[id], let message = try? JSONDecoder().decode(RemoteClientMessage.self, from: data) else { return connection.cancel() }
+        guard let client = clients[id] else { return connection.cancel() }
 
         guard client.isAuthenticated else {
-            let token = Array((UserDefaults.standard.string(forKey: Self.tokenKey) ?? "").utf8)
-            guard case let .hello(offered) = message, Array(offered.utf8).count == token.count, zip(offered.utf8, token).reduce(0, { $0 | ($1.0 ^ $1.1) }) == 0 else { return connection.cancel() }
+            guard !token.isEmpty, data.count <= 256,
+                  case let .auth(hmac)? = try? JSONDecoder().decode(RemoteClientMessage.self, from: data),
+                  HMAC<SHA256>.isValidAuthenticationCode(hmac, authenticating: client.nonce, using: SymmetricKey(data: Data(token.utf8)))
+            else {
+                let metadata = NWProtocolWebSocket.Metadata(opcode: .close)
+                metadata.closeCode = .protocolCode(.policyViolation)
+                return connection.send(content: nil, contentContext: NWConnection.ContentContext(identifier: "close", metadata: [metadata]), isComplete: true, completion: .contentProcessed { _ in connection.cancel() })
+            }
             clients[id]?.isAuthenticated = true
             return send(try? JSONEncoder().encode(sessionsMessage), to: connection)
         }
 
+        guard let message = try? JSONDecoder().decode(RemoteClientMessage.self, from: data) else { return connection.cancel() }
         switch message {
-        case .hello:
+        case .auth:
             return
         case let .subscribe(sessionID):
             clients[id]?.sessionID = sessionID
             clients[id]?.transcript = nil
             clients[id]?.end = nil
-            streamTranscripts()
+            Task { await streamTranscript(to: id) }
         case let .prompt(sessionID, text):
             Task { await submit(text, in: sessionID, from: connection) }
-        case let .key(sessionID, key):
-            press(key, in: sessionID, from: connection)
+        case let .key(sessionID, key, waitingFor, waitingSince):
+            press(key, in: sessionID, answering: waitingFor, since: waitingSince, from: connection)
         case let .newSession(folder, prompt):
             Task { await startSession(in: folder, prompt: prompt, from: connection) }
         }
@@ -133,12 +177,13 @@ final class RemoteServer {
                 lastActivity: session.lastActivity,
                 status: live?.status,
                 waitingFor: live?.waitingFor,
+                waitingSince: live?.status == "waiting" ? live?.statusUpdatedAt : nil,
                 isOpen: open.contains(session.id),
                 isLocked: live.map { $0.attachID == nil } ?? false && !open.contains(session.id)
             )
         }
         let starting = store.tabs.filter { $0.kind == .claude && $0.sessionID.map { store.sessionsByID[$0] == nil } ?? false }.compactMap { tab in
-            tab.sessionID.map { RemoteSession(id: $0, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: store.liveBySession[$0]?.status, waitingFor: store.liveBySession[$0]?.waitingFor, isOpen: true, isLocked: false) }
+            tab.sessionID.map { RemoteSession(id: $0, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: store.liveBySession[$0]?.status, waitingFor: store.liveBySession[$0]?.waitingFor, waitingSince: store.liveBySession[$0].flatMap { $0.status == "waiting" ? $0.statusUpdatedAt : nil }, isOpen: true, isLocked: false) }
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.map(remote)) }
@@ -161,30 +206,50 @@ final class RemoteServer {
     }
 
     private func streamTranscripts() {
-        for (id, client) in clients {
-            guard let sessionID = client.sessionID else { continue }
-            guard let url = store.index.url(ofSession: sessionID) else {
-                if client.end == nil { send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: [], isContinuation: false)), to: client.connection) }
-                clients[id]?.end = 0
-                continue
-            }
-            let after = url == client.transcript ? client.end : nil
-            guard let chunk = TranscriptTail.read(url, after: after) else { continue }
+        for id in clients.keys { Task { await streamTranscript(to: id) } }
+    }
 
+    private func streamTranscript(to id: ObjectIdentifier) async {
+        guard let client = clients[id], let sessionID = client.sessionID else { return }
+        guard !client.isReading else {
+            clients[id]?.needsRead = true
+            return
+        }
+        guard let url = store.index.url(ofSession: sessionID) else {
+            if client.end == nil { send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: [], isContinuation: false)), to: client.connection) }
+            clients[id]?.end = 0
+            return
+        }
+
+        let after = url == client.transcript ? client.end : nil
+        clients[id]?.isReading = true
+        clients[id]?.needsRead = false
+        let chunk = await Task.detached { TranscriptTail.read(url, after: after) }.value
+        guard let current = clients[id] else { return }
+
+        clients[id]?.isReading = false
+        if let chunk, current.sessionID == sessionID, current.transcript == client.transcript, current.end == client.end {
             clients[id]?.transcript = url
             clients[id]?.end = chunk.end
-            guard !chunk.isContinuation || !chunk.entries.isEmpty else { continue }
-            send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: chunk.entries, isContinuation: chunk.isContinuation)), to: client.connection)
+            if !chunk.isContinuation || !chunk.entries.isEmpty {
+                send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: chunk.entries, isContinuation: chunk.isContinuation)), to: current.connection)
+            }
         }
+        if current.needsRead { await streamTranscript(to: id) }
     }
 
     private func submit(_ text: String, in sessionID: String, from connection: NWConnection) async {
         guard store.sessionsByID[sessionID] != nil || store.tab(forSession: sessionID) != nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown session")), to: connection) }
+        store.refreshLive()
+        guard store.liveBySession[sessionID]?.status != "waiting" else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude is waiting for an answer, so the message wasn’t sent")), to: connection) }
+        guard !resuming.contains(sessionID) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "This session is still starting, so the message wasn’t sent")), to: connection) }
 
         if store.tab(forSession: sessionID) == nil || store.liveBySession[sessionID] == nil {
             if let live = store.liveBySession[sessionID], live.attachID == nil, store.tab(forSession: sessionID) == nil {
                 return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "This session is running in another terminal, so it is read-only here")), to: connection)
             }
+            resuming.insert(sessionID)
+            defer { resuming.remove(sessionID) }
             store.activate(.session(sessionID))
             let deadline = Date.now + 30
             while Date.now < deadline, store.tab(forSession: sessionID) == nil || store.liveBySession[sessionID] == nil {
@@ -194,14 +259,19 @@ final class RemoteServer {
             try? await Task.sleep(for: .seconds(2))
         }
 
-        guard let terminal = store.tab(forSession: sessionID)?.terminal, store.liveBySession[sessionID] != nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude didn’t start for this session")), to: connection) }
+        store.refreshLive()
+        guard let terminal = store.tab(forSession: sessionID)?.terminal, let live = store.liveBySession[sessionID] else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude didn’t start for this session")), to: connection) }
+        guard live.status != "waiting" else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude is waiting for an answer, so the message wasn’t sent")), to: connection) }
+
         store.lastKeyInput = .now
         terminal.paste(text: text)
         terminal.sendKey(.enter)
     }
 
-    private func press(_ key: RemoteKey, in sessionID: String, from connection: NWConnection) {
-        guard let terminal = store.tab(forSession: sessionID)?.terminal, store.liveBySession[sessionID] != nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude isn’t running in a Berth tab for this session")), to: connection) }
+    private func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, since waitingSince: Double?, from connection: NWConnection) {
+        store.refreshLive()
+        guard let live = store.liveBySession[sessionID], live.status == "waiting", live.waitingFor == waitingFor, live.statusUpdatedAt == waitingSince else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude’s question changed, so the key wasn’t sent")), to: connection) }
+        guard let terminal = store.tab(forSession: sessionID)?.terminal else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude isn’t running in a Berth tab for this session")), to: connection) }
 
         store.lastKeyInput = .now
         let press = switch key {

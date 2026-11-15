@@ -44,19 +44,19 @@ public enum TranscriptTail {
                   let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                   let type = object["type"] as? String, type == "user" || type == "assistant",
                   object["isSidechain"] as? Bool != true, object["isMeta"] as? Bool != true,
-                  let uuid = object["uuid"] as? String,
+                  let uuid = (object["uuid"] as? String)?.prefix(maxText),
                   let message = object["message"] as? [String: Any]
             else { return [] }
 
             if type == "user", let prompt = (try? decoder.decode(Record.self, from: Data(line)))?.typedPrompt {
-                return [RemoteEntry(id: uuid, kind: .prompt, text: prompt)]
+                return [RemoteEntry(id: String(uuid), kind: .prompt, text: String(prompt.prefix(maxText)))]
             }
 
             let blocks = message["content"] as? [[String: Any]] ?? []
             return blocks.enumerated().compactMap { index, block in
                 let id = "\(uuid)-\(index)"
                 if type == "assistant", block["type"] as? String == "text", let text = block["text"] as? String {
-                    return RemoteEntry(id: id, kind: .reply, text: text)
+                    return RemoteEntry(id: id, kind: .reply, text: String(text.prefix(maxText)))
                 }
                 if type == "assistant", block["type"] as? String == "tool_use", let name = block["name"] as? String {
                     let input = block["input"] as? [String: Any] ?? [:]
@@ -65,17 +65,17 @@ public enum TranscriptTail {
                         id: id,
                         kind: .toolUse,
                         text: String(raw.prefix(maxText)),
-                        toolID: block["id"] as? String,
-                        name: name,
+                        toolID: (block["id"] as? String).map { String($0.prefix(maxText)) },
+                        name: String(name.prefix(maxText)),
                         command: (input["command"] as? String).map { String($0.prefix(maxText)) },
-                        filePath: input["file_path"] as? String,
+                        filePath: (input["file_path"] as? String).map { String($0.prefix(maxText)) },
                         oldText: (input["old_string"] as? String).map { String($0.prefix(maxText)) },
                         newText: (input["new_string"] as? String ?? input["content"] as? String).map { String($0.prefix(maxText)) }
                     )
                 }
                 guard type == "user", block["type"] as? String == "tool_result" else { return nil }
                 let content = block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
-                return RemoteEntry(id: id, kind: .toolResult, text: String(content.prefix(maxText)), toolID: block["tool_use_id"] as? String, isError: block["is_error"] as? Bool ?? false)
+                return RemoteEntry(id: id, kind: .toolResult, text: String(content.prefix(maxText)), toolID: (block["tool_use_id"] as? String).map { String($0.prefix(maxText)) }, isError: block["is_error"] as? Bool ?? false)
             }
         }
         return (entries, consumed)
