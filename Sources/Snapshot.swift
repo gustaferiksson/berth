@@ -425,29 +425,31 @@ enum Snapshot {
             _ = shell.terminal.paste(text: "printf 'alpha\\nbeta\\nalpha\\n'")
             _ = shell.terminal.sendKey(.enter)
             try? await Task.sleep(for: .seconds(1))
-            let press = { (characters: String, keyCode: UInt16) in
-                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { return }
+            let press = { (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) in
+                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { return }
                 window.sendEvent(event)
             }
             let responder = { store.focusedTerminal?.attachedPlatformView === window.firstResponder ? "terminal surface" : window.firstResponder.map { "\(type(of: $0))" } ?? "nil" }
             AppAction.findInTerminal.perform(on: store)
             try? await Task.sleep(for: .milliseconds(500))
             print("find opened: bar \(store.terminalSearch != nil), first responder \(responder())")
-            for character in needle { press(String(character), 0) }
+            for character in needle { press(String(character), 0, []) }
             try? await Task.sleep(for: .seconds(1))
             print("typed \(needle.debugDescription): needle \(store.terminalSearch?.needle.debugDescription ?? "-"), total \(store.terminalSearch?.total.map(String.init) ?? "nil"), selected \(store.terminalSearch?.selected.map(String.init) ?? "nil")")
-            press("\r", 36)
-            try? await Task.sleep(for: .milliseconds(500))
-            print("after return: total \(store.terminalSearch?.total.map(String.init) ?? "nil"), selected \(store.terminalSearch?.selected.map(String.init) ?? "nil"), bar \(store.terminalSearch != nil), first responder \(responder())")
+            for (label, flags) in [("return", NSEvent.ModifierFlags()), ("return", []), ("shift-return", .shift)] {
+                press("\r", 36, flags)
+                try? await Task.sleep(for: .milliseconds(500))
+                print("after \(label): total \(store.terminalSearch?.total.map(String.init) ?? "nil"), selected \(store.terminalSearch?.selected.map(String.init) ?? "nil"), bar \(store.terminalSearch != nil), first responder \(responder())")
+            }
             if let image = image(of: window) { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + ".find.png")) }
             AppAction.findInTerminal.perform(on: store)
             try? await Task.sleep(for: .milliseconds(500))
             print("find again: field selection \((window.firstResponder as? NSTextView).map { NSStringFromRange($0.selectedRange()) } ?? "-") of \(store.terminalSearch?.needle.count ?? 0) characters")
-            press("\u{7F}", 51)
+            press("\u{7F}", 51, [])
             try? await Task.sleep(for: .milliseconds(500))
             print("cleared: needle \(store.terminalSearch?.needle.debugDescription ?? "-"), total \(store.terminalSearch?.total.map(String.init) ?? "nil"), selected \(store.terminalSearch?.selected.map(String.init) ?? "nil")")
             if let image = image(of: window) { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + ".cleared.png")) }
-            press("\u{1B}", 53)
+            press("\u{1B}", 53, [])
             try? await Task.sleep(for: .milliseconds(500))
             print("after esc: bar \(store.terminalSearch == nil ? "closed" : "open"), first responder \(responder())")
         }
