@@ -123,7 +123,7 @@ final class Store {
     }
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
-    private(set) var pullRequestStates = Snapshot.fixturePullRequestStates
+    private(set) var pullRequests = Snapshot.fixturePullRequests
     private(set) var searchIndexVersion = 0
     private(set) var searchIndexing: (done: Int, total: Int)?
     @ObservationIgnored private(set) var searchIndex = TranscriptSearchIndex()
@@ -141,6 +141,7 @@ final class Store {
     @ObservationIgnored private var summaries: [SessionSummary] = []
     @ObservationIgnored private var groupOrder: [String] = []
     @ObservationIgnored private var repositoryRoots: [String: String] = [:]
+    @ObservationIgnored private var repositories = Snapshot.fixtureRepositories
     @ObservationIgnored private var archivedAt = UserDefaults.standard.dictionary(forKey: "archivedSessions") as? [String: Date] ?? [:] {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
     }
@@ -232,14 +233,38 @@ final class Store {
     }
 
     func refreshPullRequests() {
-        let links = Set((pinnedSessions + groups.flatMap(\.sessions)).compactMap(\.pullRequest))
-        guard !links.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
+        let branches = Set((pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches))
+        guard !branches.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
         pullRequestsFetchedAt = .now
         Task {
-            let states = await Task.detached { await PullRequestStatus.fetch(links) }.value
-            let merged = pullRequestStates.merging(states) { $1 }
-            if merged != pullRequestStates { pullRequestStates = merged }
+            let fetched = await Task.detached { await PullRequestStatus.fetch(branches) }.value
+            let merged = pullRequests.merging(fetched) { $1 }
+            if merged != pullRequests { pullRequests = merged }
         }
+    }
+
+    private func resolvePullRequests() {
+        let unresolved = Set(summaries.filter { !$0.branches.isEmpty }.compactMap { repositoryRoots[$0.cwd] }).filter { repositories[$0] == nil }
+        Task {
+            if !unresolved.isEmpty { repositories.merge(await Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
+            if (pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) { refreshPullRequests() }
+        }
+    }
+
+    func pullRequest(for session: SessionSummary) -> PullRequest? {
+        pullRequestBranches(of: session).lazy.compactMap { self.pullRequests[$0] ?? nil }.first
+    }
+
+    func pullRequest(in folder: String, branch: String) -> PullRequest? {
+        guard let repository = repositoryRoots[folder].flatMap({ repositories[$0] ?? nil }) else { return nil }
+        return pullRequests[PullRequestBranch(repository: repository, branch: branch)] ?? nil
+    }
+
+    private func pullRequestBranches(of session: SessionSummary) -> [PullRequestBranch] {
+        guard let repository = repositoryRoots[session.cwd].flatMap({ repositories[$0] ?? nil }) else { return [] }
+        let branches = session.branches.map { PullRequestBranch(repository: repository, branch: $0) }
+        guard let found = branches.firstIndex(where: { (pullRequests[$0] ?? nil) != nil }) else { return branches }
+        return Array(branches[...found])
     }
 
     private func reloadTheme() {
@@ -255,14 +280,15 @@ final class Store {
     func refresh() {
         refreshTask = Task { [previous = refreshTask, index] in
             await previous?.value
-            let (updated, summaries, roots) = await Task.detached { [roots = repositoryRoots] in
+            let (updated, summaries, roots) = await Task.detached { [roots = repositoryRoots, fixtures = Snapshot.fixtureSessions] in
                 var index = index
-                let summaries = index.refresh()
+                let refreshed = index.refresh()
+                let summaries = fixtures ?? refreshed
                 let unresolved = Set(summaries.map(\.cwd)).filter { roots[$0] == nil }
                 return (index, summaries, roots.merging(unresolved.map { ($0, RepositoryRoot.resolve($0)) }) { $1 })
             }.value
             self.index = updated
-            self.summaries = Snapshot.fixtureSessions ?? summaries
+            self.summaries = summaries
             repositoryRoots = roots
             for index in tabs.indices {
                 guard let cwd = summaries.first(where: { $0.id == tabs[index].sessionID })?.cwd, cwd != tabs[index].cwd else { continue }
@@ -272,8 +298,7 @@ final class Store {
             applyGroups()
             refreshLive()
             if searchIndexTask != nil { updateSearchIndex() }
-            let unknown = self.summaries.contains { $0.pullRequest.map { pullRequestStates[$0.url] == nil } ?? false }
-            if unknown { refreshPullRequests() }
+            resolvePullRequests()
         }
     }
 

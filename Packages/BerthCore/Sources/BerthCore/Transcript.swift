@@ -1,17 +1,5 @@
 import Foundation
 
-public struct PullRequestLink: Sendable, Hashable {
-    public let number: Int
-    public let url: URL
-    public let repository: String
-
-    public init(number: Int, url: URL, repository: String) {
-        self.number = number
-        self.url = url
-        self.repository = repository
-    }
-}
-
 public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let id: String
     public let cwd: String
@@ -19,16 +7,16 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let lastActivity: Date
     public let lastPrompt: Date
     public let branch: String?
-    public let pullRequest: PullRequestLink?
+    public let branches: [String]
 
-    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, pullRequest: PullRequestLink? = nil) {
+    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil) {
         self.id = id
         self.cwd = cwd
         self.title = title
         self.lastActivity = lastActivity
         self.lastPrompt = lastPrompt ?? lastActivity
         self.branch = branch
-        self.pullRequest = pullRequest
+        self.branches = branches ?? branch.map { [$0] } ?? []
     }
 }
 
@@ -39,7 +27,7 @@ public enum Transcript {
     static let promptScanBytes = 1024 * 1024
     static let maxTitleLength = 120
 
-    public static func summary(of url: URL, after known: (size: Int, lastPrompt: Date)? = nil) -> SessionSummary? {
+    public static func summary(of url: URL, after known: (size: Int, lastPrompt: Date, branches: [String])? = nil) -> SessionSummary? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = (attributes[.size] as? NSNumber)?.intValue, size > 0,
               let modified = attributes[.modificationDate] as? Date,
@@ -60,11 +48,12 @@ public enum Transcript {
             modified: modified,
             head: records(in: head, dropFirst: false, dropLast: size > head.count),
             tail: tailRecords,
-            earlierPrompt: earlierPrompt
+            earlierPrompt: earlierPrompt,
+            earlierBranches: known?.branches ?? []
         )
     }
 
-    static func summary(id: String, folder: String, modified: Date, head: [Record], tail: [Record], earlierPrompt: Date? = nil) -> SessionSummary? {
+    static func summary(id: String, folder: String, modified: Date, head: [Record], tail: [Record], earlierPrompt: Date? = nil, earlierBranches: [String] = []) -> SessionSummary? {
         let relocated = tail.last { $0.relocatedCwd != nil }?.relocatedCwd
         let inFolder = (tail.reversed() + head.reversed()).lazy.compactMap(\.cwd).first { cwd in
             let slug = cwd.utf16.map { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) ? $0 : 45 }
@@ -76,7 +65,7 @@ public enum Transcript {
         guard let title = recordedTitle ?? head.lazy.compactMap(\.promptText).first else { return nil }
         let oneLine = title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         let branch = tail.last { $0.gitBranch != nil }?.gitBranch
-        let link = tail.last { $0.type == "pr-link" && $0.prNumber != nil }
+        let recordedBranches = tail.reversed().compactMap(\.gitBranch) + earlierBranches + head.reversed().compactMap(\.gitBranch)
         return SessionSummary(
             id: id,
             cwd: cwd,
@@ -84,9 +73,8 @@ public enum Transcript {
             lastActivity: lastConversation(in: tail) ?? lastConversation(in: head) ?? modified,
             lastPrompt: lastPrompt(in: tail) ?? earlierPrompt ?? lastPrompt(in: head) ?? head.lazy.compactMap(\.date).first ?? modified,
             branch: branch == "HEAD" || branch?.isEmpty == true ? nil : branch,
-            pullRequest: link.flatMap { link in
-                guard let number = link.prNumber, let url = link.prUrl.flatMap(URL.init(string:)), let repository = link.prRepository else { return nil }
-                return PullRequestLink(number: number, url: url, repository: repository)
+            branches: recordedBranches.reduce(into: []) { branches, branch in
+                if branch != "HEAD", !branch.isEmpty, !branches.contains(branch) { branches.append(branch) }
             }
         )
     }
@@ -196,9 +184,6 @@ struct Record: Decodable {
     let relocatedCwd: String?
     let gitBranch: String?
     let timestamp: String?
-    let prNumber: Int?
-    let prUrl: String?
-    let prRepository: String?
     let customTitle: String?
     let aiTitle: String?
     let agentName: String?

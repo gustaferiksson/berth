@@ -217,14 +217,46 @@ struct ReviewView: View {
     }
 
     private func header(_ snapshot: ReviewSnapshot, _ style: ReviewStyle) -> some View {
-        HStack(spacing: 8) {
-            Text("\(snapshot.branch) → \(snapshot.base)")
-                .foregroundStyle(Color(nsColor: style.color(forCapture: "function")))
-                .lineLimit(1)
-            Text(model.selectedPath ?? "")
-                .foregroundStyle(Color(nsColor: style.secondary))
-                .lineLimit(1)
-                .truncationMode(.middle)
+        let pullRequest = store.pullRequest(in: model.folder, branch: snapshot.branch)
+        return HStack(spacing: 8) {
+            if let pullRequest {
+                let stateColor = pullRequest.state.color(in: theme)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(pullRequest.title)
+                            .fontWeight(.semibold)
+                            .lineLimit(1)
+                        Text(verbatim: "#\(pullRequest.number)")
+                            .foregroundStyle(Color(nsColor: style.secondary))
+                            .fixedSize()
+                        Label(pullRequest.state.rawValue, systemImage: [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][pullRequest.state] ?? "arrow.triangle.pull")
+                            .labelStyle(CompactLabel())
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(stateColor)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(stateColor.opacity(0.16), in: .capsule)
+                            .fixedSize()
+                    }
+                    HStack(spacing: 0) {
+                        Text("\(snapshot.base) ← ")
+                            .foregroundStyle(Color(nsColor: style.secondary))
+                        Text(snapshot.branch)
+                            .foregroundStyle(theme.branch)
+                    }
+                    .font(.caption.monospaced())
+                    .lineLimit(1)
+                }
+                .layoutPriority(1)
+            } else {
+                Text("\(snapshot.branch) → \(snapshot.base)")
+                    .foregroundStyle(Color(nsColor: style.color(forCapture: "function")))
+                    .lineLimit(1)
+                Text(model.selectedPath ?? "")
+                    .foregroundStyle(Color(nsColor: style.secondary))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
             Spacer(minLength: 8)
             if let fetchError = snapshot.fetchError {
                 Image(systemName: "exclamationmark.triangle")
@@ -235,12 +267,20 @@ struct ReviewView: View {
                 Button("Save") { model.save(draft, to: path) }
                     .keyboardShortcut("s")
             }
+            if let pullRequest {
+                Link(destination: pullRequest.url) {
+                    Label("Open on GitHub", systemImage: "arrow.up.right.square")
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .help("Open on GitHub")
+            }
             refreshButton
                 .buttonStyle(.borderless)
         }
         .font(.callout)
         .padding(.horizontal, 12)
-        .frame(height: 36)
+        .frame(height: pullRequest == nil ? 36 : 48)
     }
 
     @ViewBuilder

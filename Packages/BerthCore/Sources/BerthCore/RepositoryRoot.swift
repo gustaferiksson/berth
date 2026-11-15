@@ -16,6 +16,23 @@ public enum RepositoryRoot {
         }
     }
 
+    public static func gitHubRepositories(of roots: Set<String>) async -> [String: String?] {
+        await withTaskGroup(of: (String, String?).self) { group in
+            for root in roots {
+                group.addTask {
+                    let remote = try? await ReviewGit.git(["remote", "get-url", "origin"], in: root)
+                    return (root, remote.flatMap { gitHubRepository(remoteURL: String(decoding: $0, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) })
+                }
+            }
+            return await group.reduce(into: [:]) { $0[$1.0] = .some($1.1) }
+        }
+    }
+
+    static func gitHubRepository(remoteURL: String) -> String? {
+        let match = remoteURL.wholeMatch(of: /(?:https:\/\/(?:[^@\/]+@)?github\.com\/|(?:ssh:\/\/)?git@github\.com[:\/])([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?/)
+        return match.map { "\($0.1)/\($0.2)" }
+    }
+
     private static func worktreeRoot(dotGit: URL) -> String? {
         guard let contents = try? String(contentsOf: dotGit, encoding: .utf8),
               let line = contents.split(separator: "\n").first(where: { $0.hasPrefix("gitdir:") })

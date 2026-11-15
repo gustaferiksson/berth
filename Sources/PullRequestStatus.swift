@@ -1,11 +1,22 @@
-import BerthCore
 import Foundation
 
-nonisolated enum PullRequestState: Sendable {
-    case open
-    case draft
-    case merged
-    case closed
+nonisolated enum PullRequestState: String, Sendable {
+    case open = "Open"
+    case draft = "Draft"
+    case merged = "Merged"
+    case closed = "Closed"
+}
+
+nonisolated struct PullRequest: Sendable, Hashable {
+    let number: Int
+    let url: URL
+    let title: String
+    let state: PullRequestState
+}
+
+nonisolated struct PullRequestBranch: Sendable, Hashable {
+    let repository: String
+    let branch: String
 }
 
 nonisolated enum PullRequestStatus {
@@ -13,40 +24,70 @@ nonisolated enum PullRequestStatus {
 
     private struct Response: Decodable {
         struct Payload: Decodable {
-            let repository: [String: Node?]?
+            let info: Info?
+            let branches: [String: Connection?]?
+        }
+
+        struct Info: Decodable {
+            struct Ref: Decodable {
+                let name: String
+            }
+
+            let nameWithOwner: String
+            let defaultBranchRef: Ref?
+        }
+
+        struct Connection: Decodable {
+            let nodes: [Node]
         }
 
         struct Node: Decodable {
+            struct Repository: Decodable {
+                let nameWithOwner: String
+            }
+
+            let number: Int
+            let url: URL
+            let title: String
             let state: String
             let isDraft: Bool
+            let headRepository: Repository?
         }
 
         let data: Payload?
     }
 
-    static func fetch(_ links: Set<PullRequestLink>) async -> [URL: PullRequestState] {
+    static func fetch(_ branches: Set<PullRequestBranch>) async -> [PullRequestBranch: PullRequest?] {
         guard let gh else { return [:] }
-        return await withTaskGroup(of: [URL: PullRequestState].self) { group in
-            for (repository, links) in Dictionary(grouping: links, by: \.repository) {
-                group.addTask { fetch(links, in: repository, gh: gh) }
+        return await withTaskGroup(of: [PullRequestBranch: PullRequest?].self) { group in
+            for (repository, branches) in Dictionary(grouping: branches, by: \.repository) {
+                group.addTask { fetch(branches.map(\.branch), in: repository, gh: gh) }
             }
             return await group.reduce(into: [:]) { $0.merge($1) { $1 } }
         }
     }
 
-    private static func fetch(_ links: [PullRequestLink], in repository: String, gh: String) -> [URL: PullRequestState] {
+    private static func fetch(_ branches: [String], in repository: String, gh: String) -> [PullRequestBranch: PullRequest?] {
         let parts = repository.split(separator: "/").map(String.init)
         guard parts.count == 2, parts.allSatisfy({ $0.wholeMatch(of: /[A-Za-z0-9_.-]+/) != nil }) else { return [:] }
-        let fields = links.map { "pr\($0.number): pullRequest(number: \($0.number)) { state isDraft }" }.joined(separator: " ")
-        let query = "query { repository(owner: \"\(parts[0])\", name: \"\(parts[1])\") { \(fields) } }"
-        guard let output = run(gh, arguments: ["api", "graphql", "-f", "query=\(query)"]),
-              let nodes = (try? JSONDecoder().decode(Response.self, from: output))?.data?.repository
+        let target = "repository(owner: \"\(parts[0])\", name: \"\(parts[1])\")"
+        let variables = branches.indices.map { "$b\($0): String!" }.joined(separator: ", ")
+        let fields = branches.indices.map { "b\($0): pullRequests(headRefName: $b\($0), first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number url title state isDraft headRepository { nameWithOwner } } }" }.joined(separator: " ")
+        let query = "query(\(variables)) { info: \(target) { nameWithOwner defaultBranchRef { name } } branches: \(target) { \(fields) } }"
+        let arguments = ["api", "graphql", "-f", "query=\(query)"] + branches.enumerated().flatMap { ["-f", "b\($0.offset)=\($0.element)"] }
+        guard let output = run(gh, arguments: arguments),
+              let payload = (try? JSONDecoder().decode(Response.self, from: output))?.data,
+              let info = payload.info, let connections = payload.branches
         else { return [:] }
-        return links.reduce(into: [:]) { states, link in
-            guard let node = nodes["pr\(link.number)"] ?? nil else { return }
-            if node.state == "MERGED" { states[link.url] = .merged }
-            else if node.state == "CLOSED" { states[link.url] = .closed }
-            else { states[link.url] = node.isDraft ? .draft : .open }
+
+        return branches.enumerated().reduce(into: [:]) { results, item in
+            guard let connection = connections["b\(item.offset)"] ?? nil else { return }
+            let own = connection.nodes.filter { $0.headRepository?.nameWithOwner == info.nameWithOwner }
+            let node = item.element == info.defaultBranchRef?.name ? nil : own.first { $0.state == "OPEN" } ?? own.first
+            results[PullRequestBranch(repository: repository, branch: item.element)] = .some(node.map { node in
+                let state: PullRequestState = node.state == "MERGED" ? .merged : node.state == "CLOSED" ? .closed : node.isDraft ? .draft : .open
+                return PullRequest(number: node.number, url: node.url, title: node.title, state: state)
+            })
         }
     }
 
