@@ -37,7 +37,10 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent("Address", value: address)
+                    LabeledContent("Address") {
+                        Text(address)
+                            .monospaced()
+                    }
                     LabeledContent("Status", value: client.state == .connected ? "Connected" : client.state == .reconnecting ? "Reconnecting…" : "Not connected")
                     Button("Disconnect", role: .destructive, action: disconnect)
                 } header: {

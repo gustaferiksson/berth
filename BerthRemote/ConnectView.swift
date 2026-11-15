@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ConnectView: View {
     @Environment(RemoteClient.self) private var client
+    @Environment(UpdateCheck.self) private var updates
     @AppStorage("remoteURL") private var address = ""
     @State private var token = ""
 
@@ -14,6 +15,7 @@ struct ConnectView: View {
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .monospaced()
                     SecureField("Token", text: $token)
                 } footer: {
                     Text("Turn on Remote in Berth’s General settings, expose it with tailscale serve and enter its wss:// address.")
@@ -26,6 +28,13 @@ struct ConnectView: View {
                     Section {
                         Text(error)
                             .foregroundStyle(.red)
+                    }
+                }
+                if let version = updates.available {
+                    Section {
+                        Link(destination: UpdateCheck.installURL) {
+                            Label("Install Berth Remote \(version)", systemImage: "arrow.down.circle")
+                        }
                     }
                 }
             }

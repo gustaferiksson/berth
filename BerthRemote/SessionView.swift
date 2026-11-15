@@ -94,9 +94,14 @@ struct SessionView: View {
             }
         }
         .navigationTitle(session?.title ?? "Session")
-        .navigationSubtitle([session.map { URL(filePath: $0.folder).lastPathComponent }, session?.branch].compactMap(\.self).joined(separator: " · "))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .subtitle) {
+                Text([session.map { URL(filePath: $0.folder).lastPathComponent }, session?.branch].compactMap(\.self).joined(separator: " · "))
+                    .font(.footnote)
+                    .monospaced()
+                    .foregroundStyle(.secondary)
+            }
             if activity?.context != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Context", systemImage: "chart.pie") { isShowingContext = true }
