@@ -38,6 +38,7 @@ enum SidebarItem: Hashable {
 
 @Observable
 final class Store {
+    static let shared = Store()
     static let claudeDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude")
 
     let updater = AppUpdater()
@@ -50,7 +51,10 @@ final class Store {
         didSet {
             if let oldValue { tabTouches[oldValue] = .now }
             if let oldValue, let sessionID = tabs.first(where: { $0.id == oldValue })?.sessionID { seenAt[sessionID] = .now }
-            if selectedTabID != oldValue { reviewSessionID = nil }
+            if selectedTabID != oldValue {
+                reviewSessionID = nil
+                endTerminalSearch()
+            }
             saveOpenTabs()
         }
     }
@@ -62,24 +66,34 @@ final class Store {
     var isSettingsRequested = false
     var isHarborShown = false {
         didSet {
-            if isHarborShown { reviewSessionID = nil }
+            if isHarborShown {
+                reviewSessionID = nil
+                endTerminalSearch()
+            }
             guard oldValue, !isHarborShown, reviewSessionID == nil, let terminal = focusedTerminal else { return }
             DispatchQueue.main.async { terminal.requestFocus() }
         }
     }
     var reviewSessionID: String? {
         didSet {
+            if reviewSessionID != nil { endTerminalSearch() }
             guard oldValue != nil, reviewSessionID == nil, !isHarborShown, let terminal = focusedTerminal else { return }
             DispatchQueue.main.async { terminal.requestFocus() }
         }
     }
     var reviewModels: [String: ReviewModel] = [:]
+    var terminalSearch: TerminalSearch? {
+        didSet {
+            guard let terminalSearch, terminalSearch.needle != oldValue?.needle else { return }
+            terminalSearch.terminal.performBindingAction("search:\(terminalSearch.needle)")
+        }
+    }
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
         didSet {
             guard oldValue != nil, launcherMode == nil else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self, !isHarborShown, reviewSessionID == nil else { return }
+                guard let self, !isHarborShown, reviewSessionID == nil, terminalSearch == nil else { return }
                 focusedTerminal?.requestFocus()
             }
         }
@@ -456,6 +470,18 @@ final class Store {
         if let tab, let sessionID = tab.sessionID, reviewModels[sessionID] == nil { reviewModels[sessionID] = ReviewModel(folder: tab.cwd) }
         reviewSessionID = tab?.sessionID
         isHarborShown = false
+    }
+
+    func startTerminalSearch(in terminal: TerminalViewState, needle: String?) {
+        guard focusedTerminal === terminal else { return }
+        if terminalSearch?.terminal !== terminal { terminalSearch = TerminalSearch(terminal: terminal) }
+        if let needle { terminalSearch?.needle = needle }
+        terminalSearch?.focusRequests += 1
+    }
+
+    func endTerminalSearch() {
+        terminalSearch?.terminal.performBindingAction("end_search")
+        terminalSearch = nil
     }
 
     func switchTerminal() {

@@ -417,6 +417,43 @@ enum Snapshot {
                 print("\(step) after activate: first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil"), is the activated surface \(window.firstResponder === target.terminal.attachedPlatformView)")
             }
         }
+        if let needle = UserDefaults.standard.string(forKey: "snapshotTerminalSearch"), let shell = store.terminals.first {
+            let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
+            let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
+            method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
+            method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
+            store.activate(.tab(shell.id))
+            _ = shell.terminal.paste(text: "printf 'alpha\\nbeta\\nalpha\\n'")
+            _ = shell.terminal.sendKey(.enter)
+            try? await Task.sleep(for: .seconds(1))
+            let press = { (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) in
+                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { return }
+                window.sendEvent(event)
+            }
+            let responder = { store.focusedTerminal?.attachedPlatformView === window.firstResponder ? "terminal surface" : window.firstResponder.map { "\(type(of: $0))" } ?? "nil" }
+            AppAction.findInTerminal.perform(on: store)
+            try? await Task.sleep(for: .milliseconds(500))
+            print("find opened: bar \(store.terminalSearch != nil), first responder \(responder())")
+            for character in needle { press(String(character), 0, []) }
+            try? await Task.sleep(for: .seconds(1))
+            print("typed \(needle.debugDescription): needle \(store.terminalSearch?.needle.debugDescription ?? "-"), total \(store.terminalSearch?.total.map(String.init) ?? "nil"), selected \(store.terminalSearch?.selected.map(String.init) ?? "nil")")
+            for (label, flags) in [("return", NSEvent.ModifierFlags()), ("return", []), ("shift-return", .shift)] {
+                press("\r", 36, flags)
+                try? await Task.sleep(for: .milliseconds(500))
+                print("after \(label): total \(store.terminalSearch?.total.map(String.init) ?? "nil"), selected \(store.terminalSearch?.selected.map(String.init) ?? "nil"), bar \(store.terminalSearch != nil), first responder \(responder())")
+            }
+            if let image = image(of: window) { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + ".find.png")) }
+            AppAction.findInTerminal.perform(on: store)
+            try? await Task.sleep(for: .milliseconds(500))
+            print("find again: field selection \((window.firstResponder as? NSTextView).map { NSStringFromRange($0.selectedRange()) } ?? "-") of \(store.terminalSearch?.needle.count ?? 0) characters")
+            press("\u{7F}", 51, [])
+            try? await Task.sleep(for: .milliseconds(500))
+            print("cleared: needle \(store.terminalSearch?.needle.debugDescription ?? "-"), total \(store.terminalSearch?.total.map(String.init) ?? "nil"), selected \(store.terminalSearch?.selected.map(String.init) ?? "nil")")
+            if let image = image(of: window) { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + ".cleared.png")) }
+            press("\u{1B}", 53, [])
+            try? await Task.sleep(for: .milliseconds(500))
+            print("after esc: bar \(store.terminalSearch == nil ? "closed" : "open"), first responder \(responder())")
+        }
         if let keys = UserDefaults.standard.string(forKey: "snapshotKeys") {
             SettingsSnapshot.keepWindowsOffScreen()
             window.identifier = NSUserInterfaceItemIdentifier("main-snapshot")
@@ -427,14 +464,14 @@ enum Snapshot {
             if store.reviewSessionID == nil { window.makeFirstResponder(store.focusedTerminal?.attachedPlatformView ?? window.contentView) }
             let state = {
                 let focused = store.tabs.firstIndex { $0.terminal.attachedPlatformView === window.firstResponder }.map { "#\($0)" } ?? window.firstResponder.map { "\(type(of: $0))" } ?? "nil"
-                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), review \(store.reviewSessionID != nil), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits })" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
+                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), review \(store.reviewSessionID != nil), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
             }
             print("start: \(state())")
             print("key window is snapshot: \(NSApp.keyWindow === window), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             let observer = NotificationCenter.default.addObserver(forName: NSMenu.willSendActionNotification, object: nil, queue: nil) { note in
                 print("  menu action: \((note.userInfo?["MenuItem"] as? NSMenuItem)?.title ?? "?")")
             }
-            let keyCodes: [String: UInt16] = ["r": 15, "x": 7, "z": 6, "a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "3": 20, "9": 25, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27]
+            let keyCodes: [String: UInt16] = ["r": 15, "x": 7, "z": 6, "a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "3": 20, "9": 25, "g": 5, "esc": 53, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27]
             let flagNames: [String: NSEvent.ModifierFlags] = ["cmd": .command, "shift": .shift, "alt": .option, "ctrl": .control]
             let gap = UserDefaults.standard.string(forKey: "snapshotKeysGap").flatMap(Int.init) ?? 400
             for spec in keys.split(separator: " ").map(String.init) {
@@ -460,7 +497,7 @@ enum Snapshot {
                 let parts = spec.split(separator: "+").map(String.init)
                 guard let key = parts.last, let keyCode = keyCodes[key] else { continue }
                 let flags = NSEvent.ModifierFlags(parts.dropLast().compactMap { flagNames[$0] })
-                let characters = ["enter": "\r", "tab": "\t"][key] ?? key
+                let characters = ["enter": "\r", "tab": "\t", "esc": "\u{1B}"][key] ?? key
                 print("\(spec):")
                 // Only a synthesized plain key sent to the window types; only a CGEvent-backed chord (51 is its private window number field) matches ⇧⌘Z.
                 if flags.isEmpty, let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) {

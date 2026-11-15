@@ -34,6 +34,7 @@ struct BerthApp: App {
                 ForEach([AppAction.newSession, .searchSessions, .newTerminal, .newGroup], id: \.self) { $0.menuButton(appDelegate.store) }
             }
             CommandGroup(after: .pasteboard) {
+                AppAction.findInTerminal.menuButton(appDelegate.store)
                 AppAction.clearTerminal.menuButton(appDelegate.store)
             }
             CommandGroup(before: .windowList) {
@@ -81,7 +82,7 @@ struct BerthApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let store = Store()
+    let store = Store.shared
 
     private var keyMonitor: Any?
 
@@ -111,8 +112,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && $0.shortcut.map { String($0.key.character) } == event.charactersIgnoringModifiers?.lowercased() }), action != .reviewChanges || action.isAvailable(in: store) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && $0.shortcut.map { String($0.key.character) } == event.charactersIgnoringModifiers?.lowercased() }), ![.reviewChanges, .findInTerminal].contains(action) || action.isAvailable(in: store) {
                 action.perform(on: store)
+                return nil
+            }
+            if store.terminalSearch != nil, event.keyCode == 5, flags == .command || flags == [.command, .shift] {
+                store.focusedTerminal?.performBindingAction(flags.contains(.shift) ? "navigate_search:previous" : "navigate_search:next")
                 return nil
             }
             guard flags == .command else { return event }

@@ -2,11 +2,11 @@ import BerthCore
 import SwiftUI
 
 enum AppAction: Hashable {
-    case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
+    case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
     case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, reviewChanges, settings, checkForUpdates
 
-    static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
+    static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
         + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .reviewChanges, .settings, .checkForUpdates]
     static let routedPastTerminal = ([.commandPalette] + palette).filter { $0.shortcut != nil }
@@ -18,6 +18,7 @@ enum AppAction: Hashable {
         case .searchSessions: "Search Sessions…"
         case .newTerminal: "New Terminal"
         case .switchTerminal: "Switch Terminal / Claude"
+        case .findInTerminal: "Find…"
         case .clearTerminal: "Clear Terminal"
         case .archiveCurrentSession: "Archive Current Session"
         case .flagCurrentSession: "Flag Current Session"
@@ -40,6 +41,7 @@ enum AppAction: Hashable {
         case .searchSessions: "find transcripts"
         case .newTerminal: "shell tab"
         case .switchTerminal: "shell toggle jump"
+        case .findInTerminal: "search terminal scrollback text"
         case .clearTerminal: "screen scrollback"
         case .flagCurrentSession, .unflagCurrentSession: "follow up mark"
         case .groupBy: "sidebar"
@@ -59,6 +61,7 @@ enum AppAction: Hashable {
         case .searchSessions: "magnifyingglass"
         case .newTerminal: "plus.rectangle"
         case .switchTerminal: "apple.terminal"
+        case .findInTerminal: "text.magnifyingglass"
         case .clearTerminal: "eraser"
         case .archiveCurrentSession: "archivebox"
         case .flagCurrentSession: "flag"
@@ -82,6 +85,7 @@ enum AppAction: Hashable {
         case .searchSessions: KeyboardShortcut("f", modifiers: [.command, .shift])
         case .newTerminal: KeyboardShortcut("t")
         case .switchTerminal: KeyboardShortcut("j")
+        case .findInTerminal: KeyboardShortcut("f")
         case .clearTerminal: KeyboardShortcut("k", modifiers: [.command, .option])
         case let .groupBy(mode): KeyboardShortcut(KeyEquivalent(Character("\((GroupingMode.allCases.firstIndex(of: mode) ?? 0) + 1)")), modifiers: [.control, .command])
         case .showStats: KeyboardShortcut("s", modifiers: [.command, .shift])
@@ -93,6 +97,7 @@ enum AppAction: Hashable {
 
     func isAvailable(in store: Store) -> Bool {
         switch self {
+        case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown && store.reviewSessionID == nil
         case .clearTerminal: store.focusedTerminal != nil
         case .archiveCurrentSession: if case .session = store.selection { true } else { false }
         case .flagCurrentSession: if case let .session(id) = store.selection { !store.flaggedIDs.contains(id) } else { false }
@@ -110,6 +115,7 @@ enum AppAction: Hashable {
         case .searchSessions: store.launcherMode = .search
         case .newTerminal: store.newTerminal()
         case .switchTerminal: store.switchTerminal()
+        case .findInTerminal: if isAvailable(in: store) { store.focusedTerminal?.performBindingAction("start_search") }
         case .clearTerminal: store.focusedTerminal?.performBindingAction("clear_screen")
         case .archiveCurrentSession: if case let .session(id) = store.selection { store.archive(id) }
         case .flagCurrentSession: if case let .session(id) = store.selection { store.flag(id) }
