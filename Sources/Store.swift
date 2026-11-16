@@ -303,10 +303,20 @@ final class Store {
                 return (index, summaries, roots.merging(unresolved.map { ($0, RepositoryRoot.resolve($0)) }) { $1 })
             }.value
             self.index = updated
-            self.summaries = summaries
+            let listed = Set(summaries.map(\.id))
+            let continued = Dictionary(summaries.compactMap { summary in summary.continuedIn.flatMap { listed.contains($0) ? (summary.id, $0) : nil } }) { first, _ in first }
+            self.summaries = summaries.filter { continued[$0.id] == nil }
+            for index in tabs.indices {
+                guard let target = tabs[index].sessionID.flatMap({ continued[$0] }) else { continue }
+                tabs[index].sessionID = target
+            }
+            let pins = pinnedIDs.map { continued[$0] ?? $0 }
+            if pins != pinnedIDs { pinnedIDs = pins }
+            let flags = Set(flaggedIDs.map { continued[$0] ?? $0 })
+            if flags != flaggedIDs { flaggedIDs = flags }
             repositoryRoots = roots
             for index in tabs.indices {
-                guard let cwd = summaries.first(where: { $0.id == tabs[index].sessionID })?.cwd, cwd != tabs[index].cwd else { continue }
+                guard let cwd = self.summaries.first(where: { $0.id == tabs[index].sessionID })?.cwd, cwd != tabs[index].cwd else { continue }
                 tabs[index].cwd = cwd
             }
             if !hasScanned { hasScanned = true }

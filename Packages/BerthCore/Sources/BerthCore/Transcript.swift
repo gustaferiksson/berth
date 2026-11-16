@@ -8,8 +8,9 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let lastPrompt: Date
     public let branch: String?
     public let branches: [String]
+    public let continuedIn: String?
 
-    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil) {
+    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, continuedIn: String? = nil) {
         self.id = id
         self.cwd = cwd
         self.title = title
@@ -17,6 +18,7 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
         self.lastPrompt = lastPrompt ?? lastActivity
         self.branch = branch
         self.branches = branches ?? branch.map { [$0] } ?? []
+        self.continuedIn = continuedIn
     }
 }
 
@@ -64,6 +66,8 @@ public enum Transcript {
         guard let title = recordedTitle ?? head.lazy.compactMap(\.promptText).first else { return nil }
         let oneLine = title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         let branch = tail.last { $0.gitBranch != nil }?.gitBranch
+        let continuedAt = tail.lastIndex { $0.continuedInSessionId != nil }
+        let continuedIn = continuedAt.flatMap { index in tail[index...].contains(where: \.isConversation) ? nil : tail[index].continuedInSessionId }
         let recordedBranches = tail.reversed().compactMap(\.gitBranch) + earlierBranches + head.reversed().compactMap(\.gitBranch)
         return SessionSummary(
             id: id,
@@ -74,7 +78,8 @@ public enum Transcript {
             branch: branch == "HEAD" || branch?.isEmpty == true ? nil : branch,
             branches: recordedBranches.reduce(into: []) { branches, branch in
                 if branch != "HEAD", !branch.isEmpty, !branches.contains(branch) { branches.append(branch) }
-            }
+            },
+            continuedIn: continuedIn
         )
     }
 
@@ -182,6 +187,7 @@ struct Record: Decodable {
     let type: String?
     let cwd: String?
     let relocatedCwd: String?
+    let continuedInSessionId: String?
     let gitBranch: String?
     let timestamp: String?
     let customTitle: String?
