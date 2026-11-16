@@ -49,7 +49,9 @@ struct TerminalFindBar: View {
                     return .handled
                 }
                 .onExitCommand(perform: close)
-            Text(count)
+            Text("9999 of 9999")
+                .hidden()
+                .overlay(alignment: .trailing) { Text(count) }
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
