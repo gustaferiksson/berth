@@ -106,6 +106,18 @@ struct TranscriptTests {
         #expect(repliedActivity == (try Date("2026-10-28T09:01:00.000Z", strategy: .iso8601)))
     }
 
+    @Test func backgroundedSessionNamesItsContinuationUntilResumed() {
+        let records = Transcript.records(in: Data("""
+        {"type":"user","cwd":"/x","timestamp":"2026-10-01T10:00:00.000Z","message":{"content":"fix the parser"}}
+        {"type":"system","subtype":"informational","content":"Backgrounding after the current tool finishes…"}
+        {"type":"bridge-session","bridgeSessionId":"session_1"}
+        {"type":"continued-in","timestamp":"2026-10-01T10:01:00.000Z","continuedInSessionId":"b"}
+        """.utf8), dropFirst: false, dropLast: false)
+        let resumed = records + Transcript.records(in: Data(#"{"type":"user","timestamp":"2026-10-02T09:00:00.000Z","message":{"content":"and the tests"}}"#.utf8), dropFirst: false, dropLast: false)
+        #expect(Transcript.summary(id: "a", folder: "-x", modified: .now, head: records, tail: records)?.continuedIn == "b")
+        #expect(Transcript.summary(id: "a", folder: "-x", modified: .now, head: records, tail: resumed)?.continuedIn == nil)
+    }
+
     func records(_ lines: String) -> [Record] {
         Transcript.records(in: Data(lines.utf8), dropFirst: false, dropLast: false)
     }
