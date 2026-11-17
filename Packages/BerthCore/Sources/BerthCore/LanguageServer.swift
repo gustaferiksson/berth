@@ -302,7 +302,7 @@ public actor LanguageServer {
             return
         }
 
-        if ["client/registerCapability", "client/unregisterCapability", "window/workDoneProgress/create"].contains(method) {
+        if method.hasSuffix("/refresh") || ["client/registerCapability", "client/unregisterCapability", "window/workDoneProgress/create"].contains(method) {
             try? send(["jsonrpc": "2.0", "id": id, "result": NSNull()])
             return
         }
