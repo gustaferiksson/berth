@@ -530,9 +530,10 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
             }
         }
         .font(.system(size: 11))
+        .padding(.top, 4)
         .padding(.leading, -6)
         .padding(.trailing, 6)
-        .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 4, drop: drop))
+        .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 0, drop: drop))
         .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
