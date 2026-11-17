@@ -118,7 +118,7 @@ public struct SessionGrouping: Sendable {
     }
 
     public func groups(_ sessions: [SessionSummary]) -> [SessionGroup] {
-        let byKind = Dictionary(grouping: sessions) { kind(forFolder: $0.cwd, lastPrompt: $0.lastPrompt) }
+        let byKind = Dictionary(grouping: sessions) { kind(forFolder: $0.checkout, lastPrompt: $0.lastPrompt) }
             .mapValues { $0.sorted { $0.lastPrompt > $1.lastPrompt } }
         let custom = customGroups.map { SessionGroup(kind: .custom($0), sessions: byKind[.custom($0)] ?? []) }
         let automatic = byKind.filter { if case .custom = $0.key { false } else { true } }

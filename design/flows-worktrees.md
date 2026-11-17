@@ -66,29 +66,39 @@ subagents; remove one once its branch is pushed.":
   default). On, picking a folder inside a git repo starts `claude --session-id
   "$BERTH_SESSION_ID" -w`; Claude names the worktree and branch itself, as with `claude -w`
   in a terminal. Off, or outside a git repo, today's plain launch.
-- With the setting on, ⌥↩ in the launcher starts in the main checkout instead.
+- With the setting on, ⌥↩ in the launcher starts in the main checkout instead (footer hint
+  shown only then). Every other new-session entry (group +, New Session menus, drop,
+  remote) follows the setting.
 - Berth never creates worktrees itself; every one goes through Claude and the `wt` hook.
 - ⌘T from a worktree session opens a terminal in the worktree (today's `currentCwd`).
 
 ## Folder, grouping, launcher list
 
-- Session folder: `relocatedCwd`, else the last `worktree-state` (non-null:
-  `worktreePath`; null: the newest `cwd` after it), else today's rule. Fixes ⌘T, Review and
-  Folder Not Found for resumed and `EnterWorktree` sessions.
-- `SessionSummary.checkout`: the main checkout, from `originalCwd`, else
-  `RepositoryRoot` of the folder (plus the folder's path below the worktree root). Known
-  even after the worktree is gone.
+- Session folder: `relocatedCwd`, else the tail's last `worktree-state` (non-null:
+  `worktreePath`; null: the first `cwd` after it, where the resume landed, else the last
+  non-null state's `originalCwd`, since Claude writes the null state before any record),
+  else today's rule. Fixes ⌘T, Review and Folder Not Found for resumed and `EnterWorktree`
+  sessions. A `worktree-state` older than the tail window falls back to today's rule.
+  `SessionSummary.originalCwd` comes from the tail's last non-null `worktree-state`.
+- `SessionSummary.checkout` (set in `Store.refresh`'s scan, cached per existing folder):
+  while the folder exists, `RepositoryRoot.checkout(folder)` (a linked worktree maps to the
+  main checkout plus the folder's path below the worktree root, anything else to itself);
+  once it is gone, `originalCwd`, else the folder. Repository roots (PRs, Repository mode)
+  resolve from the checkout, so a removed worktree still finds its repo.
 - Custom group rules and Project mode match the checkout, not the worktree (a rule for
   `…/plug-hub` never matches `plug-hub.worktrees/x`). Project mode groups by checkout, so a repo is one group however many
   sessions it runs. Repository mode is unchanged (it already merges worktrees). Line 2
   shows the branch from the transcript's `gitBranch`, so a renamed branch shows its new
   name; the folder keeps Claude's generated name.
-- ⌘N's known folders are checkouts; worktree paths never appear there.
+- ⌘N's known folders are checkouts, and the promoted current folder is mapped through
+  `RepositoryRoot.checkout`; worktree paths never appear there. The remote's folders and
+  project names (line 2, palette, search, notifications, Stats) use the checkout too.
 
 ## Resume
 
-- One rule for every worktree session (row click, notification, relaunch restore): plain
-  `--resume <id>` launched from its checkout. Claude re-enters the worktree while it
+- One rule for every session (row click, notification, relaunch restore): plain
+  `--resume <id>` launched from `originalCwd`, else the folder if it exists, else the
+  checkout. Claude re-enters the worktree while it
   exists and continues in the checkout once it was removed (both verified), so a removed
   worktree never shows Folder Not Found and relaunch restore doesn't skip it. No `-w` on
   resume: after a branch rename, `-w <generated name>` would ask `wt` for a branch that no

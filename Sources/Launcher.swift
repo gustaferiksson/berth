@@ -28,6 +28,7 @@ struct Launcher: View {
 
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
+    @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
     @State private var query = ""
     @State private var highlighted = 0
     @State private var folders: [Folder] = []
@@ -55,6 +56,12 @@ struct Launcher: View {
                     .focused($isQueryFocused)
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
+                    .onKeyPress(.return, phases: .down) { press in
+                        let matches = self.matches
+                        guard mode == .newSession, press.modifiers.contains(.option), matches.indices.contains(highlighted) else { return .ignored }
+                        start(in: matches[highlighted].path, checkout: .main)
+                        return .handled
+                    }
                     .onSubmit(submit)
                     .onChange(of: query) { highlighted = 0 }
                 if mode == .newSession {
@@ -82,6 +89,7 @@ struct Launcher: View {
             HStack(spacing: 16) {
                 if mode == .newSession {
                     hint("↩", target.map { "Start in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start")
+                    if startsInWorktree { hint("⌥↩", "Main Checkout") }
                     hint("↑↓", "Folder")
                 } else if mode == .palette {
                     hint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
@@ -113,7 +121,7 @@ struct Launcher: View {
             if mode == .search { store.updateSearchIndex() }
             guard mode == .newSession else { return }
             let known = store.knownFolders
-            let current = store.currentCwd
+            let current = RepositoryRoot.checkout(store.currentCwd)
             let promoted = current == FileManager.default.homeDirectoryForCurrentUser.path ? [] : [known.first { $0.path == current } ?? (path: current, sessions: 0, lastActivity: .distantPast)]
             folders = (promoted + known.filter { $0.path != promoted.first?.path })
                 .filter { FileManager.default.fileExists(atPath: $0.path) }
@@ -230,7 +238,7 @@ struct Launcher: View {
                 item: PaletteItem(id: tab.id.uuidString, section: .openTab, title: tab.title(terminalTitle: tab.terminal.title, sessionTitle: store.sessionTitle(of: tab)), detail: tab.folder),
                 target: .item(.tab(tab.id)),
                 symbol: tab.id == store.selectedTabID ? "checkmark" : "terminal",
-                trailing: URL(filePath: tab.folder).lastPathComponent
+                trailing: URL(filePath: tab.sessionID.flatMap { store.sessionsByID[$0]?.checkout } ?? tab.folder).lastPathComponent
             )
         }
         let actions = AppAction.palette.filter { $0.isAvailable(in: store) }.map { action in
@@ -249,7 +257,7 @@ struct Launcher: View {
                 item: PaletteItem(id: session.id, section: .recentSession, title: session.title, detail: session.cwd),
                 target: .item(.session(session.id)),
                 symbol: "clock.arrow.circlepath",
-                trailing: "\(URL(filePath: session.cwd).lastPathComponent) · \(age(since: session.lastActivity))"
+                trailing: "\(URL(filePath: session.checkout).lastPathComponent) · \(age(since: session.lastActivity))"
             )
         }
         let all = openTabs + actions + recents
@@ -287,7 +295,7 @@ struct Launcher: View {
                 Text(hit.session.title)
                     .fontWeight(.medium)
                 Spacer(minLength: 8)
-                Text("\(URL(filePath: hit.session.cwd).lastPathComponent) · \(age(since: hit.session.lastActivity))")
+                Text("\(URL(filePath: hit.session.checkout).lastPathComponent) · \(age(since: hit.session.lastActivity))")
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -377,8 +385,8 @@ struct Launcher: View {
         store.launcherMode = nil
     }
 
-    private func start(in path: String) {
-        store.openClaude(cwd: path)
+    private func start(in path: String, checkout: NewSessionCheckout = .preferred) {
+        store.openClaude(cwd: path, checkout: checkout)
         store.launcherMode = nil
     }
 }

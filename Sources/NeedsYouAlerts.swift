@@ -14,9 +14,10 @@ enum NeedsYouAlerts {
         guard UserDefaults.standard.object(forKey: notifiesKey) == nil || UserDefaults.standard.bool(forKey: notifiesKey) else { return }
         let selectedSession = store.tabs.first { $0.id == store.selectedTabID }?.sessionID
         for session in entered where !(NSApp.isActive && session.sessionId == selectedSession) {
-            let project = URL(filePath: session.cwd).lastPathComponent
+            let summary = store.sessionsByID[session.sessionId]
+            let project = URL(filePath: summary?.checkout ?? session.cwd).lastPathComponent
             let content = UNMutableNotificationContent()
-            content.title = (store.activeSessions + store.archivedSessions).first { $0.id == session.sessionId }?.title ?? project
+            content.title = summary?.title ?? project
             content.body = ([project] + [session.waitingFor.map { String($0.prefix(60)) }].compactMap(\.self)).joined(separator: " · ")
             content.userInfo = ["sessionID": session.sessionId]
             if logsInsteadOfPosting {

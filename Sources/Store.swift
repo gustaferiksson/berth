@@ -36,6 +36,10 @@ enum SidebarItem: Hashable {
     case session(String)
 }
 
+enum NewSessionCheckout {
+    case preferred, main
+}
+
 @Observable
 final class Store {
     static let shared = Store()
@@ -146,7 +150,7 @@ final class Store {
     @ObservationIgnored var persistsTabs = true
     @ObservationIgnored var lastKeyInput = Date.distantPast
     #if DEBUG
-    @ObservationIgnored var probeOpenedClaude: [String] = []
+    @ObservationIgnored var probeOpenedClaude: [(cwd: String, start: ClaudeLaunch.Start)] = []
     #endif
     @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -156,6 +160,7 @@ final class Store {
     @ObservationIgnored private var summaries: [SessionSummary] = []
     @ObservationIgnored private var groupOrder: [String] = []
     @ObservationIgnored private var repositoryRoots: [String: String] = [:]
+    @ObservationIgnored private var checkouts: [String: String] = [:]
     @ObservationIgnored private var repositories = Snapshot.fixtureRepositories
     @ObservationIgnored private var archivedAt = UserDefaults.standard.dictionary(forKey: "archivedSessions") as? [String: Date] ?? [:] {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
@@ -242,7 +247,7 @@ final class Store {
     }
 
     var knownFolders: [(path: String, sessions: Int, lastActivity: Date)] {
-        Dictionary(grouping: activeSessions + archivedSessions, by: \.cwd)
+        Dictionary(grouping: activeSessions + archivedSessions, by: \.checkout)
             .map { (path: $0.key, sessions: $0.value.count, lastActivity: $0.value.map(\.lastActivity).max() ?? .distantPast) }
             .sorted { $0.lastActivity > $1.lastActivity }
     }
@@ -259,7 +264,7 @@ final class Store {
     }
 
     private func resolvePullRequests() {
-        let unresolved = Set(summaries.filter { !$0.branches.isEmpty }.compactMap { repositoryRoots[$0.cwd] }).filter { repositories[$0] == nil }
+        let unresolved = Set(summaries.filter { !$0.branches.isEmpty }.compactMap { repositoryRoots[$0.checkout] }).filter { repositories[$0] == nil }
         Task {
             if !unresolved.isEmpty { repositories.merge(await Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
             if (pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) { refreshPullRequests() }
@@ -276,7 +281,7 @@ final class Store {
     }
 
     private func pullRequestBranches(of session: SessionSummary) -> [PullRequestBranch] {
-        guard let repository = repositoryRoots[session.cwd].flatMap({ repositories[$0] ?? nil }) else { return [] }
+        guard let repository = repositoryRoots[session.checkout].flatMap({ repositories[$0] ?? nil }) else { return [] }
         let branches = session.branches.map { PullRequestBranch(repository: repository, branch: $0) }
         guard let found = branches.firstIndex(where: { (pullRequests[$0] ?? nil) != nil }) else { return branches }
         return Array(branches[...found])
@@ -295,14 +300,21 @@ final class Store {
     func refresh() {
         refreshTask = Task { [previous = refreshTask, index] in
             await previous?.value
-            let (updated, summaries, roots) = await Task.detached { [roots = repositoryRoots, fixtures = Snapshot.fixtureSessions] in
+            let (updated, summaries, roots, checkouts) = await Task.detached { [roots = repositoryRoots, checkouts = checkouts, fixtures = Snapshot.fixtureSessions] in
                 var index = index
                 let refreshed = index.refresh()
-                let summaries = fixtures ?? refreshed
-                let unresolved = Set(summaries.map(\.cwd)).filter { roots[$0] == nil }
-                return (index, summaries, roots.merging(unresolved.map { ($0, RepositoryRoot.resolve($0)) }) { $1 })
+                let unchecked = Set((fixtures ?? refreshed).map(\.cwd)).filter { checkouts[$0] == nil && FileManager.default.fileExists(atPath: $0) }
+                let checkouts = checkouts.merging(unchecked.map { ($0, RepositoryRoot.checkout($0)) }) { $1 }
+                let summaries = (fixtures ?? refreshed).map { summary in
+                    var summary = summary
+                    summary.checkout = checkouts[summary.cwd] ?? summary.originalCwd ?? summary.cwd
+                    return summary
+                }
+                let unresolved = Set(summaries.map(\.checkout)).filter { roots[$0] == nil }
+                return (index, summaries, roots.merging(unresolved.map { ($0, RepositoryRoot.resolve($0)) }) { $1 }, checkouts)
             }.value
             self.index = updated
+            self.checkouts = checkouts
             let listed = Set(summaries.map(\.id))
             let continued = Dictionary(summaries.compactMap { summary in summary.continuedIn.flatMap { listed.contains($0) ? (summary.id, $0) : nil } }) { first, _ in first }
             self.summaries = summaries.filter { continued[$0.id] == nil }
@@ -447,7 +459,7 @@ final class Store {
             lockedSessionID = session.id
             return nil
         }
-        openClaude(cwd: session.cwd, resuming: session.id)
+        openClaude(cwd: session.originalCwd ?? (FileManager.default.fileExists(atPath: session.cwd) ? session.cwd : session.checkout), resuming: session.id)
         return tabs.first { $0.id == selectedTabID }
     }
 
@@ -535,19 +547,28 @@ final class Store {
         activate(.tab(candidates[(current + offset + candidates.count) % candidates.count].id))
     }
 
-    func openClaude(cwd: String, resuming sessionID: String? = nil) {
+    func openClaude(cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred) {
+        let session = sessionID ?? UUID().uuidString.lowercased()
+        let attachID = liveBySession[session]?.attachID
+        let start: ClaudeLaunch.Start = if attachID != nil {
+            .attach
+        } else if sessionID != nil {
+            .resume
+        } else if checkout == .preferred, UserDefaults.standard.bool(forKey: GeneralSettings.worktreeKey), FileManager.default.fileExists(atPath: URL(filePath: RepositoryRoot.resolve(cwd)).appending(path: ".git").path) {
+            .newInWorktree
+        } else {
+            .new
+        }
         #if DEBUG
-        if Snapshot.launcherKeys != nil { return probeOpenedClaude.append(cwd) }
+        if Snapshot.launcherKeys != nil { return probeOpenedClaude.append((cwd, start)) }
         #endif
         guard FileManager.default.fileExists(atPath: cwd) else {
             missingFolder = cwd
             return
         }
         let id = UUID()
-        let session = sessionID ?? UUID().uuidString.lowercased()
-        let attachID = liveBySession[session]?.attachID
         let environment = [ClaudeLaunch.sessionVariable: attachID ?? session]
-        let command = ClaudeLaunch.command(attachID != nil ? .attach : sessionID == nil ? .new : .resume)
+        let command = ClaudeLaunch.command(start)
         tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }))
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
@@ -690,8 +711,10 @@ final class Store {
             if tab.kind == .shell {
                 openShell(cwd: tab.cwd)
             } else {
-                guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id].map({ $0.attachID != nil }) ?? true, FileManager.default.fileExists(atPath: session.cwd) else { continue }
-                openClaude(cwd: session.cwd, resuming: session.id)
+                guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id].map({ $0.attachID != nil }) ?? true else { continue }
+                let folder = session.originalCwd ?? (FileManager.default.fileExists(atPath: session.cwd) ? session.cwd : session.checkout)
+                guard FileManager.default.fileExists(atPath: folder) else { continue }
+                openClaude(cwd: folder, resuming: session.id)
             }
             if tab.isSelected == true { selected = selectedTabID }
         }

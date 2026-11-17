@@ -219,7 +219,7 @@ struct ReviewView: View {
     }
 
     private func header(_ snapshot: ReviewSnapshot, _ style: ReviewStyle) -> some View {
-        let pullRequest = store.pullRequest(in: model.folder, branch: snapshot.branch)
+        let pullRequest = store.pullRequest(in: store.sessionsByID[sessionID]?.checkout ?? model.folder, branch: snapshot.branch)
         return HStack(spacing: 8) {
             if let pullRequest {
                 let stateColor = pullRequest.state.color(in: theme)

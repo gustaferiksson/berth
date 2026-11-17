@@ -2,16 +2,25 @@ import Foundation
 
 public enum RepositoryRoot {
     public static func resolve(_ folder: String) -> String {
+        guard let repository = enclosingRepository(folder) else { return folder }
+        return repository.mainCheckout ?? repository.root.path
+    }
+
+    public static func checkout(_ folder: String) -> String {
+        guard let repository = enclosingRepository(folder), let main = repository.mainCheckout else { return folder }
+        return main + URL(filePath: folder, directoryHint: .isDirectory).standardizedFileURL.path.dropFirst(repository.root.path.count)
+    }
+
+    private static func enclosingRepository(_ folder: String) -> (root: URL, mainCheckout: String?)? {
         var directory = URL(filePath: folder, directoryHint: .isDirectory).standardizedFileURL
         while true {
             let dotGit = directory.appending(path: ".git")
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: dotGit.path, isDirectory: &isDirectory) {
-                guard !isDirectory.boolValue else { return directory.path }
-                return worktreeRoot(dotGit: dotGit) ?? directory.path
+                return (directory, isDirectory.boolValue ? nil : worktreeRoot(dotGit: dotGit))
             }
             let parent = directory.deletingLastPathComponent()
-            guard parent.path != directory.path else { return folder }
+            guard parent.path != directory.path else { return nil }
             directory = parent
         }
     }

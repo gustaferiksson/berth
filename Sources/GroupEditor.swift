@@ -62,7 +62,7 @@ struct GroupEditor: View {
     private var folders: some View {
         VStack(spacing: 0) {
             ForEach($group.rules, id: \.path) { $rule in
-                let count = store.activeSessions.count { rule.matches($0.cwd) }
+                let count = store.activeSessions.count { rule.matches($0.checkout) }
                 HStack(spacing: 8) {
                     Text((rule.path as NSString).abbreviatingWithTildeInPath)
                         .font(.body.monospaced())
@@ -110,8 +110,8 @@ struct GroupEditor: View {
     private var matches: some View {
         let index = store.customGroups.firstIndex { $0.id == group.id } ?? store.customGroups.count
         let earlier = store.customGroups.prefix(index)
-        let sessions = store.activeSessions.filter { session in group.matches(session.cwd) && !earlier.contains { $0.matches(session.cwd) } }
-        let projects = Dictionary(grouping: sessions, by: \.cwd).sorted { $0.value.count > $1.value.count }
+        let sessions = store.activeSessions.filter { session in group.matches(session.checkout) && !earlier.contains { $0.matches(session.checkout) } }
+        let projects = Dictionary(grouping: sessions, by: \.checkout).sorted { $0.value.count > $1.value.count }
         return VStack(alignment: .leading, spacing: 8) {
             (sessions.isEmpty ? Text("No sessions yet") : Text("^[\(sessions.count) session](inflect: true) in ^[\(projects.count) project](inflect: true)"))
                 .fontWeight(.medium)
