@@ -34,6 +34,44 @@ public struct ReviewSnapshot: Sendable {
     public let fetchError: String?
 }
 
+public enum ReviewCompare: Sendable, Hashable {
+    case uncommitted
+    case committed
+}
+
+public struct ReviewChanges: Sendable {
+    public let root: String
+    public let branch: String
+    public let isDefaultBranch: Bool
+    public let base: String?
+    public let head: String
+    public let mergeBase: String
+    public let uncommitted: [ReviewFile]
+    public let committed: [ReviewFile]
+    public let fetchedAt: Date?
+    public let fetchError: String?
+}
+
+public struct ReviewCommit: Sendable, Hashable {
+    public let sha: String
+    public let subject: String
+    public let date: Date
+    public let isPushed: Bool
+}
+
+public struct ReviewUpstream: Sendable, Hashable {
+    public let name: String
+    public let ahead: Int
+    public let behind: Int
+}
+
+public struct ReviewBranchStatus: Sendable, Hashable {
+    public let ahead: Int
+    public let behind: Int
+    public let upstream: ReviewUpstream?
+    public let commits: [ReviewCommit]
+}
+
 public enum ReviewText: Sendable, Equatable {
     case text(String)
     case binary
@@ -72,6 +110,56 @@ public enum ReviewGit {
         return ReviewSnapshot(root: root, branch: branch, base: base, mergeBase: mergeBase, files: files, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
     }
 
+    public static func changes(in folder: String) async throws -> ReviewChanges {
+        let root = try await line(["rev-parse", "--show-toplevel"], in: folder)
+        let branch = (try? await line(["rev-parse", "--abbrev-ref", "HEAD"], in: root)) ?? "HEAD"
+        let base = await base(in: root)
+        let isDefaultBranch = base == branch || base == "origin/\(branch)"
+        let baseRefspecs = base.map { $0.hasPrefix("origin/") ? ["+refs/heads/\($0.dropFirst("origin/".count)):refs/remotes/\($0)"] : [] } ?? []
+
+        let fetch = await (baseRefspecs.isEmpty ? nil : fetches.fetch(baseRefspecs, in: root))
+        let head = try await line(["rev-parse", "HEAD"], in: root)
+        let comparedBase = isDefaultBranch ? nil : base
+        let mergeBase = if let comparedBase { try await line(["merge-base", comparedBase, head], in: root) } else { head }
+
+        let committed = changes(try await git(["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", "--no-color", mergeBase, head], in: root)).sorted { $0.path < $1.path }
+        let uncommitted = try await workingTreeChanges(from: head, in: root)
+        return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, base: base, head: head, mergeBase: mergeBase, uncommitted: uncommitted, committed: committed, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
+    }
+
+    public static func branchStatus(of changes: ReviewChanges) async throws -> ReviewBranchStatus {
+        let root = changes.root
+        let head = changes.head
+        let baseCounts = try await line(["rev-list", "--left-right", "--count", "\(changes.base ?? head)...\(head)"], in: root).split(separator: "\t").compactMap { Int($0) }
+
+        let upstream = try? await line(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: root)
+        let merge = try? await line(["config", "--get", "branch.\(changes.branch).merge"], in: root)
+        let ownUpstream = merge == "refs/heads/\(changes.branch)" ? upstream : nil
+        let upstreamSides = if let ownUpstream { try await line(["rev-list", "--left-right", "\(ownUpstream)...\(head)"], in: root).split(separator: "\n") } else { [Substring]() }
+        let unpushed = Set(upstreamSides.filter { $0.hasPrefix(">") }.map { $0.dropFirst() })
+
+        let range = changes.isDefaultBranch || changes.base == nil ? ["-n", "2", head] : ["\(changes.mergeBase)..\(head)"]
+        let log = try await git(["log", "-z", "--format=%H%x1f%h%x1f%at%x1f%s"] + range, in: root)
+        let commits = log.split(separator: 0).compactMap { record -> ReviewCommit? in
+            let fields = record.split(separator: 0x1F, maxSplits: 3, omittingEmptySubsequences: false).map { String(decoding: $0, as: UTF8.self) }
+            guard fields.count == 4, let time = TimeInterval(fields[2]) else { return nil }
+            return ReviewCommit(sha: fields[1], subject: fields[3], date: Date(timeIntervalSince1970: time), isPushed: ownUpstream != nil && !unpushed.contains(Substring(fields[0])))
+        }
+
+        return ReviewBranchStatus(
+            ahead: baseCounts.last ?? 0,
+            behind: baseCounts.first ?? 0,
+            upstream: ownUpstream.map { ReviewUpstream(name: $0, ahead: unpushed.count, behind: upstreamSides.count - unpushed.count) },
+            commits: commits
+        )
+    }
+
+    public static func files(in root: String) async throws -> [String] {
+        let listed = try await git(["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z"], in: root)
+        let deleted = Set(try await git(["ls-files", "--deleted", "-z"], in: root).split(separator: 0))
+        return listed.split(separator: 0).filter { !deleted.contains($0) && $0.last != UInt8(ascii: "/") }.map { String(decoding: $0, as: UTF8.self) }.sorted()
+    }
+
     public static func base(in root: String) async -> String? {
         let branch = (try? await line(["rev-parse", "--abbrev-ref", "HEAD"], in: root)) ?? "HEAD"
         let configured = try? await line(["config", "--get", "branch.\(branch).gh-merge-base"], in: root)
@@ -92,6 +180,14 @@ public enum ReviewGit {
 
         if file.status == .deleted { return ReviewContents(original: original, modified: nil) }
         return ReviewContents(original: original, modified: try workingTreeText(file.path, in: snapshot.root))
+    }
+
+    public static func contents(of file: ReviewFile, compare: ReviewCompare, in changes: ReviewChanges) async throws -> ReviewContents {
+        let original = try await (file.status == .added ? nil : blob(compare == .committed ? changes.mergeBase : changes.head, path: file.oldPath ?? file.path, in: changes.root))
+
+        if file.status == .deleted { return ReviewContents(original: original, modified: nil) }
+        if compare == .committed { return ReviewContents(original: original, modified: try await blob(changes.head, path: file.path, in: changes.root)) }
+        return ReviewContents(original: original, modified: try workingTreeText(file.path, in: changes.root))
     }
 
     public static func workingTreeText(_ path: String, in root: String) throws -> ReviewText {
