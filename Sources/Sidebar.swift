@@ -530,7 +530,6 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
             }
         }
         .font(.system(size: 11))
-        .padding(.top, 16)
         .padding(.leading, -6)
         .padding(.trailing, 6)
         .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 4, drop: drop))
@@ -730,21 +729,25 @@ private struct SessionRow: View {
             detail: {
                 if pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 4) {
                             if let projectName {
                                 HStack(spacing: 4) {
-                                    ZStack(alignment: .leading) {
-                                        Text(verbatim: projectName.count > 4 ? "\(projectName.prefix(4))…" : projectName)
-                                            .fixedSize()
-                                            .hidden()
+                                    ViewThatFits(in: .horizontal) {
                                         Text(projectName)
-                                            .foregroundStyle(theme.secondary)
-                                            .truncationMode(.tail)
+                                        ZStack(alignment: .leading) {
+                                            Text(verbatim: projectName.count > 4 ? "\(projectName.prefix(4))…" : projectName)
+                                                .fixedSize()
+                                                .hidden()
+                                            Text(projectName)
+                                                .truncationMode(.tail)
+                                        }
                                     }
+                                    .foregroundStyle(theme.secondary)
                                     if session.branch != nil {
                                         Text(verbatim: "·")
                                             .foregroundStyle(theme.secondary.opacity(0.6))
                                             .fixedSize()
+                                            .offset(y: -1)
                                     }
                                 }
                                 .font(.caption)
@@ -820,6 +823,7 @@ private struct CardRow<Detail: View>: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
+        let hasActivityDot = hasBackgroundShell || isLoaded && lastActivity != nil
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
@@ -835,6 +839,7 @@ private struct CardRow<Detail: View>: View {
                         .frame(width: 16, height: 16)
                         .contentShape(.rect)
                         .help("Close terminal")
+                        .padding(.trailing, 21)
                 }
                 if isFlagged {
                     Image(systemName: "flag.fill")
@@ -842,34 +847,38 @@ private struct CardRow<Detail: View>: View {
                         .foregroundStyle(theme.closed)
                         .help("Flagged")
                         .accessibilityLabel("Flagged")
+                        .padding(.trailing, hasActivityDot ? 0 : 10)
                 }
                 if let modified {
-                    Text(age(since: modified))
-                        .font(.caption)
-                        .monospacedDigit()
-                        .fixedSize()
-                        .foregroundStyle(theme.secondary)
-                        .padding(.leading, hasBackgroundShell || isLoaded && lastActivity != nil ? 10 : 0)
-                        .overlay(alignment: .leading) {
-                            if hasBackgroundShell {
+                    ZStack(alignment: .trailing) {
+                        Text(verbatim: "00m").hidden()
+                        Text(age(since: modified))
+                    }
+                    .font(.caption)
+                    .monospacedDigit()
+                    .fixedSize()
+                    .foregroundStyle(theme.secondary)
+                    .padding(.leading, hasActivityDot ? 10 : 0)
+                    .overlay(alignment: .leading) {
+                        if hasBackgroundShell {
+                            Circle()
+                                .fill(theme.shellAttached)
+                                .frame(width: 6, height: 6)
+                                .help("Background shell running")
+                                .accessibilityLabel("Background shell running")
+                        } else if isLoaded, let lastActivity {
+                            let inactiveFrom = lastActivity.addingTimeInterval(15 * 60)
+                            TimelineView(.explicit([inactiveFrom])) { _ in
+                                let isActive = state == .working || Date.now < inactiveFrom
                                 Circle()
-                                    .fill(theme.shellAttached)
+                                    .strokeBorder(theme.working, lineWidth: 1.25)
+                                    .background(Circle().fill(isActive ? theme.working : .clear))
                                     .frame(width: 6, height: 6)
-                                    .help("Background shell running")
-                                    .accessibilityLabel("Background shell running")
-                            } else if isLoaded, let lastActivity {
-                                let inactiveFrom = lastActivity.addingTimeInterval(15 * 60)
-                                TimelineView(.explicit([inactiveFrom])) { _ in
-                                    let isActive = state == .working || Date.now < inactiveFrom
-                                    Circle()
-                                        .strokeBorder(theme.working, lineWidth: 1.25)
-                                        .background(Circle().fill(isActive ? theme.working : .clear))
-                                        .frame(width: 6, height: 6)
-                                        .help(isActive ? "Active" : "Inactive for 15 minutes")
-                                        .accessibilityLabel(isActive ? "Active" : "Inactive")
-                                }
+                                    .help(isActive ? "Active" : "Inactive for 15 minutes")
+                                    .accessibilityLabel(isActive ? "Active" : "Inactive")
                             }
                         }
+                    }
                 }
             }
             ZStack(alignment: .leading) {
@@ -998,11 +1007,16 @@ struct CompactLabel: LabelStyle {
 }
 
 struct OverlayScroller: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context: Context) -> NSView { OverlayScrollerView() }
 
-    func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async {
-            var candidates = view.window?.contentView.map { [$0] } ?? []
+    func updateNSView(_ view: NSView, context: Context) {}
+}
+
+private final class OverlayScrollerView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        DispatchQueue.main.async { [weak self] in
+            var candidates = self?.window?.contentView.map { [$0] } ?? []
             while let next = candidates.popLast() {
                 if let scrollView = next as? NSScrollView {
                     scrollView.scrollerStyle = .overlay
