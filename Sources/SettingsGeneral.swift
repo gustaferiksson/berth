@@ -4,12 +4,14 @@ struct GeneralSettings: View {
     static let unloadIdleKey = "unloadIdleSessionsAfter"
     static let reviewKey = "reviewEnabled"
     static let worktreeKey = "startsInWorktree"
+    static let languageServersKey = "languageServersEnabled"
 
     @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
     @AppStorage(worktreeKey) private var startsInWorktree = false
     @AppStorage(reviewKey) private var isReviewEnabled = false
+    @AppStorage(languageServersKey) private var areLanguageServersEnabled = false
     @AppStorage(RemoteServer.enabledKey) private var isRemoteEnabled = false
     @AppStorage(RemoteServer.tokenKey) private var remoteToken = ""
     @State private var isTokenShown = false
@@ -48,10 +50,16 @@ struct GeneralSettings: View {
             }
             Section {
                 Toggle("Review changes in Berth", isOn: $isReviewEnabled)
+                if isReviewEnabled {
+                    Toggle("Enable language servers", isOn: $areLanguageServersEnabled)
+                }
             } header: {
                 Text("Review")
             } footer: {
                 Text("Experimental. Adds Review Changes (⇧⌘R) to Claude sessions: a diff of the session’s branch and uncommitted work, with line comments sent back to Claude.")
+                if isReviewEnabled {
+                    Text("Language servers add go to definition (⌘-click), hover and diagnostics. They and the build scripts they run execute the repository’s code.")
+                }
             }
             Section {
                 Toggle("Allow remote control", isOn: $isRemoteEnabled)

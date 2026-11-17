@@ -8,6 +8,10 @@ struct ReviewDiffPane: View {
     @Binding var draft: String?
     @Binding var comments: [ReviewComment]
     let style: ReviewStyle
+    let language: ReviewLanguage?
+    let reveal: LanguageServerRange?
+    let onRevealed: () -> Void
+    let onDefinition: (LanguageServerLocation) -> Void
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
     @State private var analysis: ReviewDiffAnalysis?
 
@@ -34,6 +38,11 @@ struct ReviewDiffPane: View {
                 style: style,
                 showsMinimap: showsMinimap,
                 comments: $comments,
+                language: contents.modified == nil ? nil : language,
+                diagnostics: contents.modified == nil ? [] : language.map { $0.diagnostics[URL(filePath: $0.root).appending(path: path).resolvingSymlinksInPath().path] ?? [] } ?? [],
+                reveal: reveal,
+                onRevealed: onRevealed,
+                onDefinition: onDefinition,
                 onEdit: { draft = $0 == loaded ? nil : $0 }
             )
             .task(id: [original, modified]) {
@@ -43,6 +52,10 @@ struct ReviewDiffPane: View {
                 let computed = await Task.detached { ReviewDiffAnalysis(original: original, modified: modified, path: path) }.value
                 guard !Task.isCancelled else { return }
                 analysis = computed
+                if contents.modified != nil { await language?.sync(path, text: modified) }
+            }
+            .onChange(of: language == nil) {
+                Task { if contents.modified != nil { await language?.sync(path, text: modified) } }
             }
         }
     }
@@ -91,6 +104,11 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let style: ReviewStyle
     let showsMinimap: Bool
     @Binding var comments: [ReviewComment]
+    let language: ReviewLanguage?
+    let diagnostics: [LanguageServerDiagnostic]
+    let reveal: LanguageServerRange?
+    let onRevealed: () -> Void
+    let onDefinition: (LanguageServerLocation) -> Void
     let onEdit: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -122,6 +140,9 @@ private struct ReviewDiffViews: NSViewRepresentable {
         coordinator.right.subviews.filter { $0 is ReviewInlineComment }.forEach { $0.removeFromSuperview() }
         coordinator.right.selectedLines = nil
         coordinator.right.reserved = [:]
+        coordinator.right.dismissHover()
+        coordinator.right.onHover = nil
+        coordinator.right.onDefinition = nil
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -231,6 +252,30 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 reload()
             }
             layoutInline()
+
+            right.diagnostics = view.diagnostics
+            right.onHover = view.language == nil ? nil : { [weak self] offset in await self?.hover(at: offset) }
+            right.onDefinition = view.language == nil ? nil : { [weak self] offset in self?.definition(at: offset) }
+            if let reveal = view.reveal, applied?.modified == loadedModified {
+                right.reveal(NSRange(location: right.offset(of: reveal.start), length: max(right.offset(of: reveal.end) - right.offset(of: reveal.start), 0)))
+                Task { view.onRevealed() }
+            }
+        }
+
+        private func hover(at offset: Int) async -> String? {
+            guard let parent, let language = parent.language else { return nil }
+            return await language.hover(parent.path, text: right.string, at: right.position(ofOffset: offset))
+        }
+
+        private func definition(at offset: Int) {
+            guard let parent, let language = parent.language else { return }
+
+            let text = right.string
+            let position = right.position(ofOffset: offset)
+            Task {
+                guard let location = await language.definition(parent.path, text: text, at: position) else { return }
+                parent.onDefinition(location)
+            }
         }
 
         func textDidChange(_ notification: Notification) {
@@ -248,6 +293,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         @objc private func clipViewDidScroll(_ notification: Notification) {
+            right.dismissHover()
             left.gutter?.needsDisplay = true
             right.gutter?.needsDisplay = true
             minimap.needsDisplay = true

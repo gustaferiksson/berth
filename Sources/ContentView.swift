@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
     @AppStorage("showsTrailingSidebar") private var showsTrailingSidebar = true
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
+    @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
     @State private var splitWidth = 0.0
@@ -134,6 +135,10 @@ struct ContentView: View {
         }
         .onChange(of: isReviewEnabled) {
             if isReviewEnabled { store.prepareReviewModel() } else { store.reviewModels = [:] }
+        }
+        .onChange(of: areLanguageServersEnabled) {
+            guard !areLanguageServersEnabled else { return }
+            for model in store.reviewModels.values { model.language?.stop() }
         }
         .onChange(of: store.isStatsRequested) {
             guard store.isStatsRequested else { return }
