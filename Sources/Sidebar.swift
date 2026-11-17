@@ -522,8 +522,8 @@ struct MultiSelectionMenu: View {
         let terminals = tabs.filter { $0.kind == .shell }
         let sessions = store.multiSelectedSessions
         let active = sessions.filter { session in store.activeSessions.contains { $0.id == session.id } }
-        let pinned = active.filter { session in store.pinnedSessions.contains { $0.id == session.id } }
-        let unpinned = active.filter { session in !pinned.contains { $0.id == session.id } }
+        let pinned = store.pinnedSessions.filter { session in active.contains { $0.id == session.id } }
+        let unpinned = store.groups.flatMap(\.sessions).filter { session in active.contains { $0.id == session.id } }
         let unread = active.filter(store.isUnread)
         let read = active.filter { !store.isUnread($0) && store.selection != .session($0.id) }
         let flagged = sessions.filter { store.flaggedIDs.contains($0.id) }

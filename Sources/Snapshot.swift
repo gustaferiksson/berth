@@ -385,8 +385,10 @@ enum Snapshot {
             report("selected \(spec)")
             try? await Task.sleep(for: .seconds(2))
             if let image = image(of: window) { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + ".selected.png")) }
-            MultiSelectionMenu.actions(in: store).first { $0.title.hasPrefix("Unload") }?.perform()
-            report("after menu Unload")
+            for prefix in ["Unload", "Pin"] {
+                MultiSelectionMenu.actions(in: store).first { $0.title.hasPrefix(prefix) }?.perform()
+                report("after menu \(prefix)")
+            }
             AppAction.flagCurrentSession.perform(on: store)
             report("after palette Flag")
         }

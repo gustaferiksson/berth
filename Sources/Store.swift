@@ -660,7 +660,7 @@ final class Store {
     func archive(_ sessionID: String) {
         archivedAt[sessionID] = .now
         pinnedIDs.removeAll { $0 == sessionID }
-        multiSelection.removeAll { $0 == .session(sessionID) }
+        if multiSelection.contains(.session(sessionID)) { multiSelection.removeAll { $0 == .session(sessionID) } }
         applyGroups()
         if let tab = tab(forSession: sessionID) { close(tab.id) }
     }
@@ -724,7 +724,7 @@ final class Store {
         if let sessionID { reviewModels[sessionID] = nil }
         tabs.removeAll { $0.id == id }
         recentTabIDs.removeAll { $0 == id }
-        multiSelection.removeAll { $0 == .tab(id) }
+        if multiSelection.contains(.tab(id)) { multiSelection.removeAll { $0 == .tab(id) } }
         guard selectedTabID == id else { return }
         selectedTabID = recentTabIDs.first ?? tabs.last?.id
         guard !isHarborShown else { return }
