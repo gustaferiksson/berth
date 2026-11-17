@@ -61,7 +61,7 @@ struct BerthApp: App {
                 AppAction.showStats.menuButton(appDelegate.store)
                 Toggle(AppAction.harbor.title, isOn: Bindable(appDelegate.store).isHarborShown)
                 if isReviewEnabled {
-                    AppAction.reviewChanges.menuButton(appDelegate.store)
+                    ChangesMenuItem(store: appDelegate.store)
                 }
             }
         }
@@ -78,6 +78,14 @@ struct BerthApp: App {
             SettingsView()
                 .environment(appDelegate.store)
         }
+    }
+}
+
+private struct ChangesMenuItem: View {
+    let store: Store
+
+    var body: some View {
+        (AppAction.hideChanges.isAvailable(in: store) ? AppAction.hideChanges : .showChanges).menuButton(store)
     }
 }
 
@@ -117,8 +125,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.cycleTab(by: flags.contains(.shift) ? -1 : 1)
                 return nil
             }
+            let responder = event.window?.firstResponder as? NSView
+            if flags == .command, event.charactersIgnoringModifiers == "f", let textView = responder as? ReviewTextView {
+                let showFindInterface = NSMenuItem()
+                showFindInterface.tag = NSTextFinder.Action.showFindInterface.rawValue
+                textView.performTextFinderAction(showFindInterface)
+                return nil
+            }
+            if flags == .command, event.charactersIgnoringModifiers == "w", let responder, sequence(first: responder, next: \.superview).contains(where: { $0 is ReviewTextView }) {
+                store.closeDiff()
+                return nil
+            }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && $0.shortcut.map { String($0.key.character) } == event.charactersIgnoringModifiers?.lowercased() }), ![.reviewChanges, .findInTerminal].contains(action) || action.isAvailable(in: store) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && $0.shortcut.map { String($0.key.character) } == event.charactersIgnoringModifiers?.lowercased() && (![.showChanges, .hideChanges, .findInTerminal].contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil
             }
@@ -127,16 +146,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             guard flags == .command else { return event }
-            if event.charactersIgnoringModifiers == "w", store.reviewSessionID != nil {
-                store.reviewSessionID = nil
-                return nil
-            }
-            if event.charactersIgnoringModifiers == "f", let textView = event.window?.firstResponder as? ReviewTextView {
-                let showFindInterface = NSMenuItem()
-                showFindInterface.tag = NSTextFinder.Action.showFindInterface.rawValue
-                textView.performTextFinderAction(showFindInterface)
-                return nil
-            }
             if let number = event.charactersIgnoringModifiers.flatMap(Int.init), (1...9).contains(number) {
                 store.selectTab(number: number)
                 return nil

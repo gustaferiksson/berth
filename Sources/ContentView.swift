@@ -21,10 +21,16 @@ struct ContentView: View {
         @Bindable var store = store
         let selected = store.tabs.first { $0.id == store.selectedTabID }
         let isTrailing = sidebarPosition == .right
-        NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? .detailOnly : columnVisibility }, set: { if !isTrailing { columnVisibility = $0 } })) {
+        let showsPanel = isReviewEnabled && store.showsReviewPanel && !store.isHarborShown
+        let setPanel = { (shown: Bool) in if isReviewEnabled && !store.isHarborShown { store.showsReviewPanel = shown } }
+        NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanel ? .all : .detailOnly) : columnVisibility }, set: { if isTrailing { setPanel($0 != .detailOnly) } else { columnVisibility = $0 } })) {
             if isTrailing {
-                Color.clear
+                ReviewPanel()
+                    .scrollContentBackground(.hidden)
+                    .background(store.theme.background ?? .clear)
+                    .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
                     .toolbar(removing: .sidebarToggle)
+                    .navigationSplitViewColumnWidth(min: 220, ideal: 272, max: 440)
             } else {
                 Sidebar()
                     .scrollContentBackground(.hidden)
@@ -33,13 +39,7 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
-            sessions
-                .overlay(alignment: .topTrailing) {
-                    if store.terminalSearch != nil {
-                        TerminalFindBar()
-                            .padding(12)
-                    }
-                }
+            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel || store.reviewModel?.selectedPath == nil)
                 .overlay {
                     if let mode = store.launcherMode {
                         ZStack(alignment: .top) {
@@ -59,15 +59,24 @@ struct ContentView: View {
                     }
                 }
                 .animation(.default, value: store.updater.pendingRestart?.deadline)
-            .inspector(isPresented: Binding(get: { isTrailing && showsTrailingSidebar }, set: { if isTrailing { showsTrailingSidebar = $0 } })) {
-                Sidebar()
-                    .listStyle(.sidebar)
-                    .scrollContentBackground(.hidden)
-                    .background(store.theme.background ?? .clear)
-                    .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
-                    .background(ScrollPocketSeparatorRemover())
-                    .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs && $0 >= 220 { trailingSidebarWidth = $0 } }
-                    .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
+            .inspector(isPresented: Binding(get: { isTrailing ? showsTrailingSidebar : showsPanel }, set: { if isTrailing { showsTrailingSidebar = $0 } else { setPanel($0) } })) {
+                if isTrailing {
+                    Sidebar()
+                        .listStyle(.sidebar)
+                        .scrollContentBackground(.hidden)
+                        .background(store.theme.background ?? .clear)
+                        .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
+                        .background(ScrollPocketSeparatorRemover())
+                        .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs && $0 >= 220 { trailingSidebarWidth = $0 } }
+                        .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
+                } else {
+                    ReviewPanel()
+                        .scrollContentBackground(.hidden)
+                        .background(store.theme.background ?? .clear)
+                        .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
+                        .background(ScrollPocketSeparatorRemover())
+                        .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
+                }
             }
             .background(store.theme.background ?? .clear)
             .background {
@@ -78,18 +87,17 @@ struct ContentView: View {
                 }
             }
             .toolbar {
+                if isReviewEnabled, isTrailing {
+                    ToolbarItem(placement: .navigation) { panelToggle(symbol: "sidebar.left") }
+                }
                 ToolbarItem(placement: isTrailing ? .navigation : .automatic) {
                     Button(AppAction.switchTerminal.title, systemImage: AppAction.switchTerminal.symbol) {
                         AppAction.switchTerminal.perform(on: store)
                     }
                     .help("Switch between terminal and Claude (⌘J)")
                 }
-                if isReviewEnabled, AppAction.reviewChanges.isAvailable(in: store) {
-                    ToolbarItem {
-                        Toggle(AppAction.reviewChanges.title, systemImage: AppAction.reviewChanges.symbol, isOn: Binding(get: { store.reviewSessionID != nil }, set: { _ in AppAction.reviewChanges.perform(on: store) }))
-                            .toggleStyle(.button)
-                            .help("Review Changes (⇧⌘R)")
-                    }
+                if isReviewEnabled, !isTrailing {
+                    ToolbarItem { panelToggle(symbol: "sidebar.right") }
                 }
                 if isTrailing {
                     ToolbarItem {
@@ -111,9 +119,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
         .onChange(of: isReviewEnabled) {
-            guard !isReviewEnabled else { return }
-            store.reviewSessionID = nil
-            store.reviewModels = [:]
+            if isReviewEnabled { store.prepareReviewModel() } else { store.reviewModels = [:] }
         }
         .onChange(of: store.isStatsRequested) {
             guard store.isStatsRequested else { return }
@@ -140,11 +146,59 @@ struct ContentView: View {
 
 
 extension ContentView {
-    private var sessions: some View {
-        let reviewed = isReviewEnabled ? store.tabs.first { $0.id == store.selectedTabID && $0.sessionID != nil && $0.sessionID == store.reviewSessionID } : nil
-        return ZStack {
+    private func panelToggle(symbol: String) -> some View {
+        let action = AppAction.hideChanges.isAvailable(in: store) ? AppAction.hideChanges : .showChanges
+        return Button(action.title, systemImage: symbol) { action.perform(on: store) }
+            .help("\(action.title) (⇧⌘R)")
+    }
+}
+
+private struct TerminalSplit: NSViewControllerRepresentable {
+    let store: Store
+    let isDiffLeading: Bool
+    let isDiffCollapsed: Bool
+
+    func makeNSViewController(context: Context) -> NSSplitViewController {
+        let split = NSSplitViewController()
+        split.splitView.identifier = NSUserInterfaceItemIdentifier("terminalSplit")
+        let terminal = NSHostingController(rootView: TerminalArea(store: store))
+        let diff = NSHostingController(rootView: ReviewDiffColumn(store: store))
+        terminal.sizingOptions = []
+        diff.sizingOptions = []
+        diff.view.frame.size.width = 760
+        let terminalItem = NSSplitViewItem(viewController: terminal)
+        terminalItem.minimumThickness = 360
+        let diffItem = NSSplitViewItem(viewController: diff)
+        diffItem.minimumThickness = 440
+        diffItem.holdingPriority = .defaultLow + 1
+        diffItem.canCollapse = true
+        diffItem.isCollapsed = isDiffCollapsed
+        split.splitViewItems = isDiffLeading ? [diffItem, terminalItem] : [terminalItem, diffItem]
+        return split
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsViewController: NSSplitViewController, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func updateNSViewController(_ split: NSSplitViewController, context: Context) {
+        guard let diff = split.splitViewItems.first(where: { $0.viewController is NSHostingController<ReviewDiffColumn> }) else { return }
+
+        if (split.splitViewItems.first === diff) != isDiffLeading {
+            split.removeSplitViewItem(diff)
+            split.insertSplitViewItem(diff, at: isDiffLeading ? 0 : 1)
+        }
+        if diff.isCollapsed != isDiffCollapsed { diff.isCollapsed = isDiffCollapsed }
+    }
+}
+
+private struct TerminalArea: View {
+    let store: Store
+
+    var body: some View {
+        ZStack {
             ForEach(store.tabs) { tab in
-                let isSelected = tab.id == store.selectedTabID && !store.isHarborShown && reviewed == nil
+                let isSelected = tab.id == store.selectedTabID && !store.isHarborShown
                 TerminalSurfaceView(context: tab.terminal)
                     .opacity(isSelected ? 1 : 0)
                     .allowsHitTesting(isSelected)
@@ -152,14 +206,19 @@ extension ContentView {
             }
             if store.isHarborShown {
                 Harbor()
-            } else if let sessionID = reviewed?.sessionID, let model = store.reviewModels[sessionID] {
-                ReviewView(sessionID: sessionID, model: model)
-                    .id(sessionID)
             } else if store.tabs.isEmpty {
                 ContentUnavailableView("No Open Session", systemImage: "terminal", description: Text("Pick a session in the sidebar, or start one with ⌘N."))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topTrailing) {
+            if store.terminalSearch != nil {
+                TerminalFindBar()
+                    .padding(12)
+            }
+        }
+        .environment(store)
+        .environment(\.ghosttyTheme, store.theme)
     }
 }
 
