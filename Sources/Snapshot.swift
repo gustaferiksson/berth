@@ -50,7 +50,7 @@ enum Snapshot {
 
     private static let hubFolders: [SessionSummary] = {
         let code = NSTemporaryDirectory() + "berth-launcher-keys"
-        for name in ["x-hub-ui", "x-hub"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) }
+        for name in ["x-hub-ui/.git", "x-hub"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) }
         return [
             SessionSummary(id: "fixture-hub-ui", cwd: "\(code)/x-hub-ui", title: "Fixture UI", lastActivity: .now - 420),
             SessionSummary(id: "fixture-hub", cwd: "\(code)/x-hub", title: "Fixture API", lastActivity: .now - 72_000),
@@ -195,7 +195,7 @@ enum Snapshot {
             store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")]
         }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
-            store.openClaude(cwd: cwd)
+            store.openClaude(cwd: cwd, checkout: .main)
         }
         if let version = UserDefaults.standard.string(forKey: "snapshotRestartBanner") {
             store.updater.showPendingRestart(version: version, deadline: .now + 18)
@@ -525,19 +525,19 @@ enum Snapshot {
             store.launcherMode = .newSession
             try? await Task.sleep(for: .seconds(1))
             print("launcher first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
-            let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r")]
+            let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r")]
             let letters: [Character: UInt16] = ["h": 4, "u": 32, "b": 11, "x": 7, "i": 34, "-": 27]
             for spec in keys.split(separator: " ").map(String.init) {
                 let strokes = special[spec].map { [$0] } ?? spec.compactMap { character in letters[character].map { (keyCode: $0, characters: String(character)) } }
                 for stroke in strokes {
-                    let flags: NSEvent.ModifierFlags = special[spec] != nil && spec != "enter" ? [.function, .numericPad] : []
+                    let flags: NSEvent.ModifierFlags = spec == "alt-enter" ? .option : special[spec] != nil && spec != "enter" ? [.function, .numericPad] : []
                     guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: stroke.characters, charactersIgnoringModifiers: stroke.characters, isARepeat: false, keyCode: stroke.keyCode) else { continue }
                     window.sendEvent(event)
                     try? await Task.sleep(for: .milliseconds(300))
                 }
                 print("\(spec): launcher \(String(describing: store.launcherMode))")
             }
-            print("openClaude calls: \(store.probeOpenedClaude.count) \(store.probeOpenedClaude.map { URL(filePath: $0).lastPathComponent })")
+            print("openClaude calls: \(store.probeOpenedClaude.count) \(store.probeOpenedClaude.map { "\(URL(filePath: $0.cwd).lastPathComponent) \($0.start)" })")
         }
         let tab = store.tabs.first { $0.id == store.selectedTabID }
         window.title = showsStats ? "Stats" : store.isHarborShown ? "Harbor" : tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"

@@ -9,16 +9,20 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let branch: String?
     public let branches: [String]
     public let continuedIn: String?
+    public let originalCwd: String?
+    public var checkout: String
 
-    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, continuedIn: String? = nil) {
+    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, continuedIn: String? = nil, originalCwd: String? = nil) {
         self.id = id
         self.cwd = cwd
+        checkout = cwd
         self.title = title
         self.lastActivity = lastActivity
         self.lastPrompt = lastPrompt ?? lastActivity
         self.branch = branch
         self.branches = branches ?? branch.map { [$0] } ?? []
         self.continuedIn = continuedIn
+        self.originalCwd = originalCwd
     }
 }
 
@@ -56,11 +60,14 @@ public enum Transcript {
 
     static func summary(id: String, folder: String, modified: Date, head: [Record], tail: [Record], earlierPrompt: Date? = nil, earlierBranches: [String] = []) -> SessionSummary? {
         let relocated = tail.last { $0.relocatedCwd != nil }?.relocatedCwd
+        let worktreeState = tail.lastIndex { $0.type == "worktree-state" }
+        let entered = tail.last { $0.worktreeSession != nil }?.worktreeSession
+        let worktree = worktreeState.flatMap { index in tail[index].worktreeSession?.worktreePath ?? tail[(index + 1)...].first { $0.cwd != nil }?.cwd ?? entered?.originalCwd }
         let inFolder = (tail.reversed() + head.reversed()).lazy.compactMap(\.cwd).first { cwd in
             let slug = cwd.utf16.map { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) ? $0 : 45 }
             return String(decoding: slug, as: UTF16.self) == folder
         }
-        guard let cwd = relocated ?? inFolder ?? head.first(where: { $0.cwd != nil })?.cwd ?? tail.first(where: { $0.cwd != nil })?.cwd else { return nil }
+        guard let cwd = relocated ?? worktree ?? inFolder ?? head.first(where: { $0.cwd != nil })?.cwd ?? tail.first(where: { $0.cwd != nil })?.cwd else { return nil }
         let titleKeys: [KeyPath<Record, String?>] = [\.customTitle, \.aiTitle, \.summary, \.agentName]
         let recordedTitle = titleKeys.lazy.compactMap { key in tail.last { $0[keyPath: key] != nil }?[keyPath: key] }.first
         guard let title = recordedTitle ?? head.lazy.compactMap(\.promptText).first else { return nil }
@@ -79,7 +86,8 @@ public enum Transcript {
             branches: recordedBranches.reduce(into: []) { branches, branch in
                 if branch != "HEAD", !branch.isEmpty, !branches.contains(branch) { branches.append(branch) }
             },
-            continuedIn: continuedIn
+            continuedIn: continuedIn,
+            originalCwd: entered?.originalCwd
         )
     }
 
@@ -187,6 +195,7 @@ struct Record: Decodable {
     let type: String?
     let cwd: String?
     let relocatedCwd: String?
+    let worktreeSession: WorktreeSession?
     let continuedInSessionId: String?
     let gitBranch: String?
     let timestamp: String?
@@ -205,6 +214,11 @@ struct Record: Decodable {
 
     struct Origin: Decodable {
         let kind: String?
+    }
+
+    struct WorktreeSession: Decodable {
+        let originalCwd: String?
+        let worktreePath: String?
     }
 
     struct Attachment: Decodable {

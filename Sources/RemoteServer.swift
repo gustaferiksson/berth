@@ -238,7 +238,7 @@ final class RemoteServer {
             return RemoteSession(
                 id: session.id,
                 title: session.title,
-                folder: session.cwd,
+                folder: session.checkout,
                 branch: session.branch,
                 lastActivity: session.lastActivity,
                 status: live?.status,

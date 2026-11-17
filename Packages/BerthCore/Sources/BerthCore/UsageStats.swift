@@ -87,7 +87,7 @@ public struct UsageStats: Sendable {
         let window = start..<end
         let recent = sessions.map { session in
             (summary: session.summary,
-             project: URL(filePath: session.summary.cwd).lastPathComponent,
+             project: URL(filePath: session.summary.checkout).lastPathComponent,
              prompts: session.activity.prompts.filter(window.contains),
              replies: session.activity.replies.filter { window.contains($0.date) })
         }.filter { !$0.prompts.isEmpty || !$0.replies.isEmpty }

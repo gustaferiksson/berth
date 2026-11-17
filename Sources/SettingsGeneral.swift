@@ -3,10 +3,12 @@ import SwiftUI
 struct GeneralSettings: View {
     static let unloadIdleKey = "unloadIdleSessionsAfter"
     static let reviewKey = "reviewEnabled"
+    static let worktreeKey = "startsInWorktree"
 
     @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
+    @AppStorage(worktreeKey) private var startsInWorktree = false
     @AppStorage(reviewKey) private var isReviewEnabled = false
     @AppStorage(RemoteServer.enabledKey) private var isRemoteEnabled = false
     @AppStorage(RemoteServer.tokenKey) private var remoteToken = ""
@@ -23,6 +25,7 @@ struct GeneralSettings: View {
                 Text("The Dock icon always shows how many sessions need you.")
             }
             Section {
+                Toggle("Start new sessions in a worktree", isOn: $startsInWorktree)
                 Picker("Unload idle sessions after", selection: $unloadIdleAfter) {
                     Text("Never").tag(0.0)
                     Text("1 hour").tag(3_600.0)

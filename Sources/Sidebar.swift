@@ -61,7 +61,7 @@ struct Sidebar: View, Equatable {
                     source: SessionGroup(kind: group.kind, sessions: []),
                     tabIDs: tabs.map(\.id),
                     sessionIDs: group.sessions.map(\.id),
-                    folders: group.folder.map { Array(Set(group.sessions.map(\.cwd)).union([$0])).sorted() } ?? []
+                    folders: group.folder.map { Array(Set(group.sessions.map(\.checkout)).union([$0])).sorted() } ?? []
                 )
             },
             archivedIDs: store.archivedSessions.map(\.id),
@@ -422,7 +422,7 @@ private struct SessionItem: View {
             if let session {
                 SessionRow(
                     session: session,
-                    projectName: place == .archived || place == .group(folder: session.cwd) ? nil : URL(filePath: session.cwd).lastPathComponent,
+                    projectName: place == .archived || place == .group(folder: session.checkout) ? nil : URL(filePath: session.checkout).lastPathComponent,
                     live: live,
                     isOpen: tab != nil,
                     hasBackgroundShell: store.backgroundShellIDs.contains(id),

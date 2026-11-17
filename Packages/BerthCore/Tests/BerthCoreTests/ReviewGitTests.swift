@@ -59,6 +59,19 @@ final class ReviewGitTests {
         return repo
     }
 
+    @Test func checkoutMapsALinkedWorktreeOntoTheMainCheckout() async throws {
+        let repo = try await repo("acme")
+        try FileManager.default.createDirectory(at: repo.appending(path: "packages/core"), withIntermediateDirectories: true)
+        let worktree = root.appending(path: "acme.worktrees/brave-otter")
+        try await git(repo, "worktree", "add", "--quiet", "-b", "brave-otter", worktree.path)
+        try FileManager.default.createDirectory(at: worktree.appending(path: "packages/core"), withIntermediateDirectories: true)
+        #expect(RepositoryRoot.checkout(worktree.path) == repo.path)
+        #expect(RepositoryRoot.checkout(worktree.appending(path: "packages/core").path) == repo.appending(path: "packages/core").path)
+        #expect(RepositoryRoot.checkout(repo.appending(path: "packages/core").path) == repo.appending(path: "packages/core").path)
+        #expect(RepositoryRoot.checkout(root.path) == root.path)
+        #expect(RepositoryRoot.resolve(worktree.appending(path: "packages/core").path) == repo.path)
+    }
+
     @Test func baseResolutionFollowsTheChain() async throws {
         let repo = try await repo("chain")
         try await git(repo, "branch", "develop")

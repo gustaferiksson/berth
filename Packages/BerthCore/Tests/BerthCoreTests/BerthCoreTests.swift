@@ -43,6 +43,42 @@ struct TranscriptTests {
         #expect(unknownSlug?.cwd == "/Users/example/Repos/alpha")
     }
 
+    @Test func worktreeSessionLivesInItsWorktreeUntilItIsRemoved() throws {
+        let head = records(#"{"type":"user","cwd":"/r/acme.worktrees/brave-otter","message":{"content":"hi"}}"#)
+        let started = records("""
+        {"type":"worktree-state","worktreeSession":{"originalCwd":"/r/acme","preEnterOriginalCwd":"/r/acme","worktreePath":"/r/acme.worktrees/brave-otter","worktreeName":"brave-otter","sessionId":"a","hookBased":true},"sessionId":"a"}
+        {"type":"assistant","cwd":"/r/acme.worktrees/brave-otter/docs"}
+        """)
+        let removed = started + records("""
+        {"type":"worktree-state","worktreeSession":null,"sessionId":"a"}
+        {"type":"user","cwd":"/r/acme","message":{"content":"carry on"}}
+        {"type":"assistant","cwd":"/r/acme/docs"}
+        """)
+        let justRemoved = started + records(#"{"type":"worktree-state","worktreeSession":null,"sessionId":"a"}"#)
+        let inWorktree = try #require(Transcript.summary(id: "a", folder: "-r-acme-worktrees-brave-otter", modified: .now, head: head, tail: started))
+        let resumed = try #require(Transcript.summary(id: "a", folder: "-r-acme-worktrees-brave-otter", modified: .now, head: head, tail: removed))
+        let unresumed = try #require(Transcript.summary(id: "a", folder: "-r-acme-worktrees-brave-otter", modified: .now, head: head, tail: justRemoved))
+        #expect(inWorktree.cwd == "/r/acme.worktrees/brave-otter")
+        #expect(inWorktree.originalCwd == "/r/acme")
+        #expect(resumed.cwd == "/r/acme")
+        #expect(resumed.originalCwd == "/r/acme")
+        #expect(unresumed.cwd == "/r/acme")
+        #expect(unresumed.originalCwd == "/r/acme")
+    }
+
+    @Test func sessionThatEnteredAWorktreeLivesThereThoughItsTranscriptStaysInTheCheckout() throws {
+        let head = records(#"{"type":"user","cwd":"/r/acme","message":{"content":"hi"}}"#)
+        let tail = records("""
+        {"type":"assistant","cwd":"/r/acme"}
+        {"type":"worktree-state","worktreeSession":{"originalCwd":"/r/acme","worktreePath":"/r/acme/.claude/worktrees/fix","worktreeName":"fix","sessionId":"a"},"sessionId":"a"}
+        {"type":"assistant","cwd":"/r/acme/.claude/worktrees/fix"}
+        """)
+        let summary = try #require(Transcript.summary(id: "a", folder: "-r-acme", modified: .now, head: head, tail: tail))
+        #expect(summary.cwd == "/r/acme/.claude/worktrees/fix")
+        #expect(summary.originalCwd == "/r/acme")
+        #expect(summary.checkout == summary.cwd)
+    }
+
     @Test func transcriptWithoutCwdIsSkipped() {
         #expect(summary("no-cwd") == nil)
     }
@@ -552,6 +588,10 @@ struct ClaudeLaunchTests {
 
     @Test func resumeTakesTheSessionID() {
         #expect(ClaudeLaunch.command(.resume) == #"/bin/zsh -ilc 'claude --resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
+    }
+
+    @Test func worktreeStartLetsClaudeNameTheWorktree() {
+        #expect(ClaudeLaunch.command(.newInWorktree) == #"/bin/zsh -ilc 'claude --session-id "$BERTH_SESSION_ID" -w || exec /bin/zsh -il'"#)
     }
 }
 
