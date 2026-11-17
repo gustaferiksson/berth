@@ -39,7 +39,7 @@ struct ReviewDiffPane: View {
                 showsMinimap: showsMinimap,
                 comments: $comments,
                 language: contents.modified == nil ? nil : language,
-                diagnostics: contents.modified == nil ? [] : language?.diagnostics(for: path) ?? [],
+                diagnostics: contents.modified == nil ? [] : language.map { $0.diagnostics[URL(filePath: $0.root).appending(path: path).resolvingSymlinksInPath().path] ?? [] } ?? [],
                 reveal: reveal,
                 onRevealed: onRevealed,
                 onDefinition: onDefinition,

@@ -34,7 +34,7 @@ final class ReviewModel {
                 language = ReviewLanguage(root: snapshot.root)
             }
             contents = [:]
-            if !snapshot.files.contains(where: { $0.path == selectedPath }) { selectedPath = nil }
+            if let path = selectedPath, !snapshot.files.contains(where: { $0.path == path }), !FileManager.default.fileExists(atPath: URL(filePath: snapshot.root).appending(path: path).path) { selectedPath = nil }
         } catch {
             snapshot = nil
             self.error = Self.describe(error)

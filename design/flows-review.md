@@ -126,7 +126,8 @@ This is the slim first version; the rest is listed under Later.
 - ⌘-click: while ⌘ is held the identifier under the pointer gets a link underline and the
   pointing hand. A click goes to the definition: in the same file it scrolls there (both sides
   follow) and selects it; a changed file is selected in the panel, then scrolled and selected once
-  loaded; any other file in the repository opens as an unchanged file (identical sides, editable);
+  loaded; any other file in the repository opens as an unchanged file (identical sides, editable,
+  kept open by Refresh);
   outside the repository (SDK headers) nothing happens.
 - A content-modified error or an empty answer just after start is retried once after 500 ms. A
   crashed server never takes Review down; the next file shown starts it again.

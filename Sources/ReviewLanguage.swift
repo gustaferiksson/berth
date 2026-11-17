@@ -23,14 +23,6 @@ final class ReviewLanguage {
         self.root = root
     }
 
-    func url(for path: String) -> URL {
-        URL(filePath: root).appending(path: path)
-    }
-
-    func diagnostics(for path: String) -> [LanguageServerDiagnostic] {
-        diagnostics[url(for: path).resolvingSymlinksInPath().path] ?? []
-    }
-
     func sync(_ path: String, text: String) async {
         guard UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let key = key(for: path) else { return }
 
@@ -39,12 +31,12 @@ final class ReviewLanguage {
     }
 
     func hover(_ path: String, text: String, at position: LanguageServerPosition) async -> String? {
-        let url = url(for: path)
+        let url = URL(filePath: root).appending(path: path)
         return await ask(path, text: text) { try await $0.hover(in: url, at: position)?.markdown }
     }
 
     func definition(_ path: String, text: String, at position: LanguageServerPosition) async -> LanguageServerLocation? {
-        let url = url(for: path)
+        let url = URL(filePath: root).appending(path: path)
         return await ask(path, text: text) { try await $0.definition(in: url, at: position).first }
     }
 
@@ -98,7 +90,7 @@ final class ReviewLanguage {
 
         if sent[path] != text {
             sent[path] = text
-            try? await running.server.open(url(for: path), languageID: key.languageID, text: text)
+            try? await running.server.open(URL(filePath: root).appending(path: path), languageID: key.languageID, text: text)
         }
         return running
     }

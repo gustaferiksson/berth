@@ -283,14 +283,29 @@ enum Snapshot {
                         crop(".diagnostic.png", gutter, NSRect(x: 0, y: mark.y - 40, width: gutter.bounds.width + 520, height: 80))
                     }
                 }
-                if UserDefaults.standard.bool(forKey: "snapshotReviewCrash"), let other = model.snapshot?.files.first(where: { $0.path != file })?.path {
-                    let servers = {
-                        ProcessAncestry.descendants().map(\.pid).filter { pid in
-                            var name = [CChar](repeating: 0, count: 256)
-                            proc_name(pid, &name, 256)
-                            return String(decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) == "sourcekit-lsp"
-                        }.sorted()
+                let servers = {
+                    ProcessAncestry.descendants().map(\.pid).filter { pid in
+                        var name = [CChar](repeating: 0, count: 256)
+                        proc_name(pid, &name, 256)
+                        return String(decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) == "sourcekit-lsp"
+                    }.sorted()
+                }
+                if UserDefaults.standard.bool(forKey: "snapshotReviewToggleServers") {
+                    let setEnabled = { (isEnabled: Bool) in
+                        var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                        arguments[GeneralSettings.languageServersKey] = isEnabled
+                        UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
                     }
+                    let before = servers()
+                    setEnabled(false)
+                    try? await Task.sleep(for: .seconds(3))
+                    print("toggle: servers \(before) → off \(servers()), diagnostics \(right()?.diagnostics.count ?? -1)")
+                    setEnabled(true)
+                    let clock = ContinuousClock.now
+                    while ContinuousClock.now - clock < .seconds(30), right()?.diagnostics.isEmpty != false { try? await Task.sleep(for: .milliseconds(250)) }
+                    print("toggle: on again \(servers()), diagnostics \(right()?.diagnostics.count ?? -1) after \(ContinuousClock.now - clock)")
+                }
+                if UserDefaults.standard.bool(forKey: "snapshotReviewCrash"), let other = model.snapshot?.files.first(where: { $0.path != file })?.path {
                     let killed = servers()
                     killed.forEach { kill($0, SIGKILL) }
                     try? await Task.sleep(for: .seconds(1.5))
@@ -342,6 +357,10 @@ enum Snapshot {
                     let position = landed.position(ofOffset: selection.location)
                     print("definition \(spec): landed in \(model.selectedPath ?? "-") (\(model.snapshot?.files.contains { $0.path == model.selectedPath } == true ? "changed" : "unchanged"), list selection kept \(model.selectedPath != nil)) at \(position.line + 1):\(position.character + 1) selecting \((landed.string as NSString).substring(with: selection).debugDescription), clip y left/right \(descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }), first responder is right \(window.firstResponder === landed), layoutManager requests \(requests) → \(landed.layoutManagerRequests), TextKit 2 \(landed.textLayoutManager != nil)")
                     save(".definition-\(spec.replacingOccurrences(of: ":", with: "-")).png")
+                    let landedPath = model.selectedPath
+                    await model.load()
+                    try? await Task.sleep(for: .seconds(1))
+                    print("definition \(spec): after Refresh still showing \(landedPath ?? "-") \(model.selectedPath == landedPath && landedPath.flatMap { model.contents[$0] } != nil)")
                 }
             }
             if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last {
