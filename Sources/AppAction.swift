@@ -100,9 +100,7 @@ enum AppAction: Hashable {
         switch self {
         case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown
         case .clearTerminal: store.focusedTerminal != nil
-        case .archiveCurrentSession: if case .session = store.selection { true } else { false }
-        case .flagCurrentSession: if case let .session(id) = store.selection { !store.flaggedIDs.contains(id) } else { false }
-        case .unflagCurrentSession: if case let .session(id) = store.selection { store.flaggedIDs.contains(id) } else { false }
+        case .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession: !sessionIDs(in: store).isEmpty
         case let .groupBy(mode): store.groupingMode != mode
         case .showChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && (!store.showsReviewPanel || store.isHarborShown)
         case .hideChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.showsReviewPanel && !store.isHarborShown
@@ -119,9 +117,9 @@ enum AppAction: Hashable {
         case .switchTerminal: store.switchTerminal()
         case .findInTerminal: if isAvailable(in: store) { store.focusedTerminal?.performBindingAction("start_search") }
         case .clearTerminal: store.focusedTerminal?.performBindingAction("clear_screen")
-        case .archiveCurrentSession: if case let .session(id) = store.selection { store.archive(id) }
-        case .flagCurrentSession: if case let .session(id) = store.selection { store.flag(id) }
-        case .unflagCurrentSession: if case let .session(id) = store.selection { store.unflag(id) }
+        case .archiveCurrentSession: for id in sessionIDs(in: store) { store.archive(id) }
+        case .flagCurrentSession: for id in sessionIDs(in: store) { store.flag(id) }
+        case .unflagCurrentSession: for id in sessionIDs(in: store) { store.unflag(id) }
         case let .groupBy(mode): store.groupingMode = mode
         case .newGroup: store.editingGroup = CustomGroup(name: "", rules: [])
         case .collapseAllGroups: store.setGroupsExpanded(false)
@@ -135,6 +133,19 @@ enum AppAction: Hashable {
         case .settings: store.isSettingsRequested = true
         case .checkForUpdates: store.updater.check(.manual)
         }
+    }
+
+    func title(in store: Store) -> String {
+        guard !store.multiSelection.isEmpty, [.archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession].contains(self) else { return title }
+        return title.replacing("Current Session", with: String(AttributedString(localized: "^[\(sessionIDs(in: store).count) Session](inflect: true)").characters))
+    }
+
+    private func sessionIDs(in store: Store) -> [String] {
+        let ids = store.multiSelection.isEmpty ? [store.selection].compactMap { if case let .session(id) = $0 { id } else { nil } } : store.multiSelectedSessions.map(\.id)
+        if self == .archiveCurrentSession { return ids.filter { id in store.activeSessions.contains { $0.id == id } } }
+        if self == .flagCurrentSession { return ids.filter { !store.flaggedIDs.contains($0) } }
+        if self == .unflagCurrentSession { return ids.filter(store.flaggedIDs.contains) }
+        return []
     }
 
     func menuButton(_ store: Store) -> some View {

@@ -150,11 +150,16 @@ private struct SidebarList: View, Equatable {
         .focusable()
         .focused($isFocused)
         .focusEffectDisabled()
-        .onKeyPress(.downArrow) { move(by: 1, in: items) }
-        .onKeyPress(.upArrow) { move(by: -1, in: items) }
+        .onKeyPress(.downArrow, phases: [.down, .repeat]) { $0.modifiers.contains(.shift) ? extend(by: 1, in: items) : move(by: 1, in: items) }
+        .onKeyPress(.upArrow, phases: [.down, .repeat]) { $0.modifiers.contains(.shift) ? extend(by: -1, in: items) : move(by: -1, in: items) }
         .onKeyPress(.return) {
             guard let item = store.sidebarCursor ?? store.selection else { return .ignored }
             store.activate(item)
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            guard !store.multiSelection.isEmpty else { return .ignored }
+            store.multiSelection = []
             return .handled
         }
         .onKeyPress(.leftArrow) { setExpanded(false, in: groups) }
@@ -177,6 +182,8 @@ private struct SidebarList: View, Equatable {
     private func move(by offset: Int, in items: [SidebarItem]) -> KeyPress.Result {
         guard !items.isEmpty else { return .ignored }
 
+        if !store.multiSelection.isEmpty { store.multiSelection = [] }
+
         let current = (store.sidebarCursor ?? store.selection).flatMap(items.firstIndex(of:))
         let next = items[min(max((current ?? (offset > 0 ? -1 : items.count)) + offset, 0), items.count - 1)]
         let tab: Tab? = switch next {
@@ -190,6 +197,13 @@ private struct SidebarList: View, Equatable {
 
         store.selectedTabID = tab.id
         store.isHarborShown = false
+        return .handled
+    }
+
+    private func extend(by offset: Int, in items: [SidebarItem]) -> KeyPress.Result {
+        guard let lead = store.multiSelection.last ?? store.sidebarCursor ?? store.selection, let index = items.firstIndex(of: lead) else { return .ignored }
+
+        store.extendMultiSelection(to: items[min(max(index + offset, 0), items.count - 1)], in: items)
         return .handled
     }
 
@@ -212,6 +226,18 @@ private struct SidebarList: View, Equatable {
     }
 
     private func select(_ item: SidebarItem) {
+        let modifiers = NSEvent.modifierFlags
+        if modifiers.contains(.shift) {
+            store.extendMultiSelection(to: item, in: items)
+            isFocused = true
+            return
+        }
+        if modifiers.contains(.command) {
+            store.toggleMultiSelection(item)
+            isFocused = true
+            return
+        }
+
         store.activate(item)
         if store.selection != item { isFocused = true }
     }
@@ -391,7 +417,9 @@ private struct TabItem: View {
         }
         .modifier(RowChrome(item: .tab(id), hoverID: id.uuidString, isLocked: false) { select(.tab(id)) })
         .contextMenu {
-            if tab?.kind == .shell {
+            if store.multiSelection.contains(.tab(id)) {
+                MultiSelectionMenu()
+            } else if tab?.kind == .shell {
                 Button("Close Terminal") { store.close(id) }
             } else {
                 Button("Unload Session") { store.close(id) }
@@ -437,7 +465,9 @@ private struct SessionItem: View {
             select(.session(id))
         })
         .contextMenu {
-            if place == .archived {
+            if store.multiSelection.contains(.session(id)) {
+                MultiSelectionMenu()
+            } else if place == .archived {
                 Button("Unarchive") { store.unarchive(id) }
                 flagButton
                 Divider()
@@ -474,6 +504,42 @@ private struct SessionItem: View {
         } else {
             Button("Flag") { store.flag(id) }
         }
+    }
+}
+
+struct MultiSelectionMenu: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        ForEach(Array(Self.actions(in: store).enumerated()), id: \.offset) { _, action in
+            Button(action.title, action: action.perform)
+        }
+    }
+
+    static func actions(in store: Store) -> [(title: String, perform: () -> Void)] {
+        let tabs = store.multiSelectedTabs
+        let claudeTabs = tabs.filter { $0.kind == .claude }
+        let terminals = tabs.filter { $0.kind == .shell }
+        let sessions = store.multiSelectedSessions
+        let active = sessions.filter { session in store.activeSessions.contains { $0.id == session.id } }
+        let pinned = store.pinnedSessions.filter { session in active.contains { $0.id == session.id } }
+        let unpinned = store.groups.flatMap(\.sessions).filter { session in active.contains { $0.id == session.id } }
+        let unread = active.filter(store.isUnread)
+        let read = active.filter { !store.isUnread($0) && store.selection != .session($0.id) }
+        let flagged = sessions.filter { store.flaggedIDs.contains($0.id) }
+        let unflagged = sessions.filter { !store.flaggedIDs.contains($0.id) }
+        let actions: [(title: String.LocalizationValue, count: Int, perform: () -> Void)] = [
+            ("Unload ^[\(claudeTabs.count) Session](inflect: true)", claudeTabs.count, { for tab in claudeTabs { store.close(tab.id) } }),
+            ("Close ^[\(terminals.count) Terminal](inflect: true)", terminals.count, { for tab in terminals { store.close(tab.id) } }),
+            ("Pin ^[\(unpinned.count) Session](inflect: true)", unpinned.count, { for session in unpinned { store.pin(session.id) } }),
+            ("Unpin ^[\(pinned.count) Session](inflect: true)", pinned.count, { for session in pinned { store.unpin(session.id) } }),
+            ("Mark ^[\(unread.count) Session](inflect: true) as Read", unread.count, { for session in unread { store.markRead(session.id) } }),
+            ("Mark ^[\(read.count) Session](inflect: true) as Unread", read.count, { for session in read { store.markUnread(session.id) } }),
+            ("Flag ^[\(unflagged.count) Session](inflect: true)", unflagged.count, { for session in unflagged { store.flag(session.id) } }),
+            ("Unflag ^[\(flagged.count) Session](inflect: true)", flagged.count, { for session in flagged { store.unflag(session.id) } }),
+            ("Archive ^[\(active.count) Session](inflect: true)", active.count, { for session in active { store.archive(session.id) } }),
+        ]
+        return actions.filter { $0.count > 0 }.map { (String(AttributedString(localized: $0.title).characters), $0.perform) }
     }
 }
 
@@ -530,10 +596,10 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
             }
         }
         .font(.system(size: 11))
-        .padding(.top, 16)
+        .padding(.top, 4)
         .padding(.leading, -6)
         .padding(.trailing, 6)
-        .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 4, drop: drop))
+        .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 0, drop: drop))
         .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
@@ -664,6 +730,7 @@ private struct RowChrome: ViewModifier {
     @Environment(\.ghosttyTheme) private var theme
 
     private var isSelected: Bool {
+        if !store.multiSelection.isEmpty { return store.multiSelection.contains(item) }
         if let cursor = store.sidebarCursor { return cursor == item }
         if case let .session(id) = item { return store.tabs.first { $0.id == store.selectedTabID }?.sessionID == id }
         return item == store.selectedTabID.map(SidebarItem.tab)
@@ -730,21 +797,25 @@ private struct SessionRow: View {
             detail: {
                 if pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 4) {
                             if let projectName {
                                 HStack(spacing: 4) {
-                                    ZStack(alignment: .leading) {
-                                        Text(verbatim: projectName.count > 4 ? "\(projectName.prefix(4))…" : projectName)
-                                            .fixedSize()
-                                            .hidden()
+                                    ViewThatFits(in: .horizontal) {
                                         Text(projectName)
-                                            .foregroundStyle(theme.secondary)
-                                            .truncationMode(.tail)
+                                        ZStack(alignment: .leading) {
+                                            Text(verbatim: projectName.count > 4 ? "\(projectName.prefix(4))…" : projectName)
+                                                .fixedSize()
+                                                .hidden()
+                                            Text(projectName)
+                                                .truncationMode(.tail)
+                                        }
                                     }
+                                    .foregroundStyle(theme.secondary)
                                     if session.branch != nil {
                                         Text(verbatim: "·")
                                             .foregroundStyle(theme.secondary.opacity(0.6))
                                             .fixedSize()
+                                            .offset(y: -1)
                                     }
                                 }
                                 .font(.caption)
@@ -820,6 +891,7 @@ private struct CardRow<Detail: View>: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
+        let hasActivityDot = hasBackgroundShell || isLoaded && lastActivity != nil
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
@@ -835,6 +907,7 @@ private struct CardRow<Detail: View>: View {
                         .frame(width: 16, height: 16)
                         .contentShape(.rect)
                         .help("Close terminal")
+                        .padding(.trailing, 21)
                 }
                 if isFlagged {
                     Image(systemName: "flag.fill")
@@ -842,34 +915,38 @@ private struct CardRow<Detail: View>: View {
                         .foregroundStyle(theme.closed)
                         .help("Flagged")
                         .accessibilityLabel("Flagged")
+                        .padding(.trailing, hasActivityDot ? 0 : 10)
                 }
                 if let modified {
-                    Text(age(since: modified))
-                        .font(.caption)
-                        .monospacedDigit()
-                        .fixedSize()
-                        .foregroundStyle(theme.secondary)
-                        .padding(.leading, hasBackgroundShell || isLoaded && lastActivity != nil ? 10 : 0)
-                        .overlay(alignment: .leading) {
-                            if hasBackgroundShell {
+                    ZStack(alignment: .trailing) {
+                        Text(verbatim: "00m").hidden()
+                        Text(age(since: modified))
+                    }
+                    .font(.caption)
+                    .monospacedDigit()
+                    .fixedSize()
+                    .foregroundStyle(theme.secondary)
+                    .padding(.leading, hasActivityDot ? 10 : 0)
+                    .overlay(alignment: .leading) {
+                        if hasBackgroundShell {
+                            Circle()
+                                .fill(theme.shellAttached)
+                                .frame(width: 6, height: 6)
+                                .help("Background shell running")
+                                .accessibilityLabel("Background shell running")
+                        } else if isLoaded, let lastActivity {
+                            let inactiveFrom = lastActivity.addingTimeInterval(15 * 60)
+                            TimelineView(.explicit([inactiveFrom])) { _ in
+                                let isActive = state == .working || Date.now < inactiveFrom
                                 Circle()
-                                    .fill(theme.shellAttached)
+                                    .strokeBorder(theme.working, lineWidth: 1.25)
+                                    .background(Circle().fill(isActive ? theme.working : .clear))
                                     .frame(width: 6, height: 6)
-                                    .help("Background shell running")
-                                    .accessibilityLabel("Background shell running")
-                            } else if isLoaded, let lastActivity {
-                                let inactiveFrom = lastActivity.addingTimeInterval(15 * 60)
-                                TimelineView(.explicit([inactiveFrom])) { _ in
-                                    let isActive = state == .working || Date.now < inactiveFrom
-                                    Circle()
-                                        .strokeBorder(theme.working, lineWidth: 1.25)
-                                        .background(Circle().fill(isActive ? theme.working : .clear))
-                                        .frame(width: 6, height: 6)
-                                        .help(isActive ? "Active" : "Inactive for 15 minutes")
-                                        .accessibilityLabel(isActive ? "Active" : "Inactive")
-                                }
+                                    .help(isActive ? "Active" : "Inactive for 15 minutes")
+                                    .accessibilityLabel(isActive ? "Active" : "Inactive")
                             }
                         }
+                    }
                 }
             }
             ZStack(alignment: .leading) {
@@ -998,11 +1075,16 @@ struct CompactLabel: LabelStyle {
 }
 
 struct OverlayScroller: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context: Context) -> NSView { OverlayScrollerView() }
 
-    func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async {
-            var candidates = view.window?.contentView.map { [$0] } ?? []
+    func updateNSView(_ view: NSView, context: Context) {}
+}
+
+private final class OverlayScrollerView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        DispatchQueue.main.async { [weak self] in
+            var candidates = self?.window?.contentView.map { [$0] } ?? []
             while let next = candidates.popLast() {
                 if let scrollView = next as? NSScrollView {
                     scrollView.scrollerStyle = .overlay
