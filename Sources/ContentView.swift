@@ -165,12 +165,8 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         let diff = NSHostingController(rootView: ReviewDiffColumn(store: store))
         terminal.sizingOptions = []
         diff.sizingOptions = []
-        diff.view.frame.size.width = 760
         let terminalItem = NSSplitViewItem(viewController: terminal)
-        terminalItem.minimumThickness = 360
         let diffItem = NSSplitViewItem(viewController: diff)
-        diffItem.minimumThickness = 440
-        diffItem.holdingPriority = .defaultLow + 1
         diffItem.canCollapse = true
         diffItem.isCollapsed = isDiffCollapsed
         split.splitViewItems = isDiffLeading ? [diffItem, terminalItem] : [terminalItem, diffItem]
@@ -188,7 +184,17 @@ private struct TerminalSplit: NSViewControllerRepresentable {
             split.removeSplitViewItem(diff)
             split.insertSplitViewItem(diff, at: isDiffLeading ? 0 : 1)
         }
-        if diff.isCollapsed != isDiffCollapsed { diff.isCollapsed = isDiffCollapsed }
+        guard diff.isCollapsed != isDiffCollapsed else { return }
+
+        diff.isCollapsed = isDiffCollapsed
+        guard !isDiffCollapsed else { return }
+
+        // Width minimums as constraints (minimumThickness too) loop AppKit's constraint pass until it throws once the window can't fit them.
+        DispatchQueue.main.async { [isDiffLeading] in
+            let total = split.splitView.bounds.width
+            let width = min(760, max(440, total - 361))
+            split.splitView.setPosition(isDiffLeading ? width : total - width - split.splitView.dividerThickness, ofDividerAt: 0)
+        }
     }
 }
 

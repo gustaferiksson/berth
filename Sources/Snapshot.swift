@@ -212,7 +212,7 @@ enum Snapshot {
         hosting.sceneBridgingOptions = .all
         let window = UnconstrainedWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.setContentSize(editedGroup != nil ? hosting.view.fittingSize : showsStats ? NSSize(width: 960, height: 800) : reviewFolder != nil ? NSSize(width: 1600, height: 900) : NSSize(width: 1200, height: 760))
+        window.setContentSize(editedGroup != nil ? hosting.view.fittingSize : showsStats ? NSSize(width: 960, height: 800) : reviewFolder != nil ? NSSize(width: UserDefaults.standard.object(forKey: "snapshotReviewWidth") == nil ? 1600 : UserDefaults.standard.double(forKey: "snapshotReviewWidth"), height: 900) : NSSize(width: 1200, height: 760))
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderFrontRegardless()
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {

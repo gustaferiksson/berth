@@ -126,13 +126,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             let responder = event.window?.firstResponder as? NSView
-            if flags == .command, event.charactersIgnoringModifiers == "f", let textView = responder as? ReviewTextView {
+            let ancestors = responder.map { Array(sequence(first: $0, next: \.superview)) } ?? []
+            if flags == .command, event.charactersIgnoringModifiers == "f", ancestors.contains(where: { $0 is NSHostingView<ReviewDiffColumn> }) {
                 let showFindInterface = NSMenuItem()
                 showFindInterface.tag = NSTextFinder.Action.showFindInterface.rawValue
-                textView.performTextFinderAction(showFindInterface)
+                ancestors.lazy.compactMap { $0 as? ReviewTextView }.first?.performTextFinderAction(showFindInterface)
                 return nil
             }
-            if flags == .command, event.charactersIgnoringModifiers == "w", let responder, sequence(first: responder, next: \.superview).contains(where: { $0 is ReviewTextView }) {
+            if flags == .command, event.charactersIgnoringModifiers == "w", store.reviewModel?.selectedPath != nil, !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
                 store.closeDiff()
                 return nil
             }

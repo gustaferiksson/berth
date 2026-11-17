@@ -41,9 +41,11 @@ This is the slim first version; the rest is listed under Later.
   three lines: a state pill (Open, Draft, Merged, Closed in the sidebar tag's colours) and
   `#number`, the PR title, then `base ← head` with the head in the branch colour (base is
   still the guessed one). Open on GitHub sits before Refresh. No CI checks.
-- Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal,
-  440 pt minimum, the terminal 360): collapsed until a file row is clicked; nothing opens by
-  itself. Its header is the file path, Save while there is a draft, and Close Diff (×).
+- Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal):
+  collapsed until a file row is clicked; nothing opens by itself. It opens 760 pt wide, less
+  to leave the terminal 360, never under 440 (so at the 1200 pt default window with both
+  sidebars the terminal yields); the panes then resize proportionally. Minimums are not
+  enforced while dragging (constraint minimums the window can't fit crash AppKit). Its header is the file path, Save while there is a draft, and Close Diff (×).
 - Diff: `ReviewDiffPane` gets the file's `ReviewContents`, a draft binding and `onComment`.
   Base on the left (read only), working tree on the right (editable unless deleted), in the
   Review style (Settings > Appearance > Review: colour scheme, One Dark by default, or Match
@@ -83,7 +85,7 @@ This is the slim first version; the rest is listed under Later.
 | Key | From | Result |
 |---|---|---|
 | ⇧⌘R, View ▸ Show / Hide Changes, palette, toolbar button | anywhere | Shows or hides the panel (showing leaves Harbor) |
-| ⌘W, Close Diff | the diff | Closes the diff (collapses its column) and focuses the terminal |
+| ⌘W, Close Diff | a diff is open, focus outside a terminal | Closes the diff (collapses its column) and focuses the terminal |
 | ⌘S, Save in the header | Review, the file has a draft | Saves it through `ReviewGit.save` |
 | ⌘F | the diff | The focused side's find bar |
 | Send N Comments | the panel | See Comments |
