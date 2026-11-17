@@ -92,6 +92,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Rows draw their own grey selection and hover; AppKit's blue context-menu ring has no public switch.
+        if let method = class_getInstanceMethod(NSTableView.self, NSSelectorFromString("drawContextMenuHighlightForRow:")) {
+            let noHighlight: @convention(block) (NSTableView, Int) -> Void = { _, _ in }
+            method_setImplementation(method, imp_implementationWithBlock(noHighlight))
+        }
+
         #if DEBUG
         if let output = SettingsSnapshot.output {
             Task { await SettingsSnapshot.capture(to: output) }
