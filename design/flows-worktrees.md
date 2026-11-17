@@ -42,7 +42,8 @@ Code reaches `wt` through the `worktrunk@worktrunk` plugin's `WorktreeCreate` an
 - Keep `worktree.bgIsolation: "none"` until tested: a hook-made worktree starts from the
   default branch, so a session backgrounded from its own worktree could continue without
   its commits. Switch to `"worktree"` only if that test shows it keeps them.
-- Keep `cleanupPeriodDays: 1095`: it also deletes transcripts. Berth owns worktree cleanup.
+- Keep `cleanupPeriodDays: 1095`: it also deletes transcripts. Worktrees are removed by hand
+  (`wt remove`).
 - Leave `worktree.baseRef` and `worktree.symlinkDirectories` unset: the hook ignores the
   first, and the reflink copy beats symlinked `node_modules` (no shared mutable state).
 
@@ -55,8 +56,9 @@ subagents; remove one once its branch is pushed.":
 > Sessions start in their own worktree (Berth launches them with `-w`); never `cd` to the
 > main checkout to edit. Subagents that edit code in parallel get `isolation: worktree`
 > only for work that starts from the default branch (their worktree never has this
-> branch's commits); otherwise they edit in this worktree, one at a time. Never run
-> `git worktree add` or `wt remove` yourself; Berth cleans up.
+> branch's commits); otherwise they edit in this worktree, one at a time. Once the task is
+> clear, rename a generated branch to a descriptive one (`git branch -m`). Never run
+> `git worktree add` or `wt remove` yourself.
 
 ## Launch (⌘N)
 
@@ -79,35 +81,23 @@ subagents; remove one once its branch is pushed.":
 - Custom group rules and Project mode match the checkout, not the worktree (a rule for
   `…/plug-hub` never matches `plug-hub.worktrees/x`). Project mode groups by checkout, so a repo is one group however many
   sessions it runs. Repository mode is unchanged (it already merges worktrees). Line 2
-  always shows the branch, which names the worktree.
+  shows the branch from the transcript's `gitBranch`, so a renamed branch shows its new
+  name; the folder keeps Claude's generated name.
 - ⌘N's known folders are checkouts; worktree paths never appear there.
 
 ## Resume
 
-- One rule for every worktree session (row click, notification, relaunch restore): from
-  its checkout, `--resume <id> -w <worktreeName>`. It re-enters a live worktree and
-  recreates a removed one, instead of continuing on `main` or showing Folder Not Found.
-  Relaunch restore uses it instead of skipping missing folders.
-
-## Cleanup (Berth's job; Claude's own rarely fires)
-
-- Archiving a worktree session runs `wt remove <branch> -y` in the background, once no
-  unarchived session, open tab or live session uses that worktree. No force flags: `wt`
-  keeps dirty worktrees and unmerged branches, and the refusal shows as a one-line notice.
-- Palette action "Clean Up Worktrees": per known checkout, `wt list --format json`, then
-  `wt remove` for every clean worktree older than a day whose branch has no unarchived
-  session and is integrated into the default branch or has a merged PR (Berth's PR
-  cache). `agent-*` worktrees are skipped while any session in that checkout is live (a
-  running subagent's worktree is clean and "integrated" until it commits). Lists what it
-  kept and why.
-- The 106 existing worktrees: one manual `wt step prune --dry-run` per repo first.
+- One rule for every worktree session (row click, notification, relaunch restore): plain
+  `--resume <id>` launched from its checkout. Claude re-enters the worktree while it
+  exists and continues in the checkout once it was removed (both verified), so a removed
+  worktree never shows Folder Not Found and relaunch restore doesn't skip it. No `-w` on
+  resume: after a branch rename, `-w <generated name>` would ask `wt` for a branch that no
+  longer exists while the folder still does.
+- Berth never removes worktrees.
 
 ## Unverified
 
 - `EnterWorktree` and `ExitWorktree` writing `worktree-state` like `-w` does.
 - Background sessions (`bgIsolation: "worktree"`) through `wt`, and `claude attach` to them.
-- `wt` treating a squash-merged branch as integrated (its docs say it does).
-- `sessions/<pid>.json` reporting `<id>` under `--resume <id> -w` (that run wrote one
-  `worktree-state` with another `sessionId`); tab matching depends on it.
 - What tab close, idle unload and quit (SIGHUP/SIGTERM) do to a worktree (Claude's
   remove-on-exit; `/exit` prompts for named ones).
