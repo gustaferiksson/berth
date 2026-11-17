@@ -147,7 +147,9 @@ struct ReviewView: View {
                 fileRow(file, style)
             }
             .listStyle(.sidebar)
+            .environment(\.sidebarRowSize, .small)
             .scrollContentBackground(.hidden)
+            .background(OverlayScroller())
             .focused($isFileListFocused)
             .onAppear { isFileListFocused = true }
 

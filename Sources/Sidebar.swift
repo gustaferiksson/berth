@@ -997,7 +997,7 @@ struct CompactLabel: LabelStyle {
     }
 }
 
-private struct OverlayScroller: NSViewRepresentable {
+struct OverlayScroller: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { NSView() }
 
     func updateNSView(_ view: NSView, context: Context) {

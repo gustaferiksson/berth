@@ -142,7 +142,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         func makeSide(_ textView: ReviewTextView) -> [NSView] {
-            let scrollView = NSScrollView()
+            let scrollView = OverlayScrollView()
             let gutter = ReviewGutter()
             textView.kind = textView === left ? .original : .modified
             textView.delegate = self
@@ -168,7 +168,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             textView.textContainer?.containerSize = textView.maxSize
 
             scrollView.documentView = textView
-            scrollView.hasVerticalScroller = true
+            scrollView.scrollerStyle = .overlay
             scrollView.hasHorizontalScroller = true
             scrollView.autohidesScrollers = true
             scrollView.findBarPosition = .belowContent
@@ -366,5 +366,12 @@ private struct ReviewDiffViews: NSViewRepresentable {
             }
             layoutInline()
         }
+    }
+}
+
+private final class OverlayScrollView: NSScrollView {
+    override var scrollerStyle: NSScroller.Style {
+        get { super.scrollerStyle }
+        set { super.scrollerStyle = .overlay }
     }
 }
