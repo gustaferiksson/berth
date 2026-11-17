@@ -359,6 +359,37 @@ enum Snapshot {
                 }
             }
         }
+        if let spec = UserDefaults.standard.string(forKey: "snapshotMultiSelect") {
+            let order = topSessions.map { SidebarItem.session($0.id) }
+            let rows = spec.split(separator: "|").map(String.init)
+            let row = { (token: String) in Int(token.trimmingPrefix(/shift|term/)).map { $0 - 1 } ?? -1 }
+            for session in rows.filter({ !$0.hasPrefix("term") }).map(row).filter(topSessions.indices.contains).map({ topSessions[$0] }) {
+                store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path)
+                store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: session.cwd, sessionID: session.id, terminal: $0.terminal) : $0 }
+            }
+            for token in rows {
+                let index = row(token)
+                if token.hasPrefix("term"), store.terminals.indices.contains(index) { store.toggleMultiSelection(.tab(store.terminals[index].id)) }
+                guard !token.hasPrefix("term"), order.indices.contains(index) else { continue }
+                if token == rows.first { store.activate(order[index]) } else if token.hasPrefix("shift") { store.extendMultiSelection(to: order[index], in: order) } else { store.toggleMultiSelection(order[index]) }
+            }
+            let name = { (item: SidebarItem?) in
+                guard let item else { return "none" }
+                if case let .tab(id) = item { return store.terminals.firstIndex { $0.id == id }.map { "term\($0 + 1)" } ?? "tab" }
+                return order.firstIndex(of: item).map { "row\($0 + 1)" } ?? "other"
+            }
+            let report = { (label: String) in
+                print("\(label): multi-selection \(store.multiSelection.map(name)), selected \(name(store.selection)), tabs \(store.tabs.map { $0.kind == .shell ? name(.tab($0.id)) : $0.sessionID.map { name(.session($0)) } ?? "tab" }), flagged \(order.filter { if case let .session(id) = $0 { store.flaggedIDs.contains(id) } else { false } }.map(name)), pinned \(store.pinnedSessions.map { name(.session($0.id)) })")
+                print("  menu \(MultiSelectionMenu.actions(in: store).map(\.title)), palette \([AppAction.archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession].filter { $0.isAvailable(in: store) }.map { $0.title(in: store) })")
+            }
+            report("selected \(spec)")
+            try? await Task.sleep(for: .seconds(2))
+            if let image = image(of: window) { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + ".selected.png")) }
+            MultiSelectionMenu.actions(in: store).first { $0.title.hasPrefix("Unload") }?.perform()
+            report("after menu Unload")
+            AppAction.flagCurrentSession.perform(on: store)
+            report("after palette Flag")
+        }
         if showsStats {
             let start = ContinuousClock.now
             let before = footprint()
