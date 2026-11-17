@@ -243,7 +243,7 @@ struct Launcher: View {
         }
         let actions = AppAction.palette.filter { $0.isAvailable(in: store) }.map { action in
             PaletteRow(
-                item: PaletteItem(id: action.title, section: .action, title: action.title, detail: action.keywords),
+                item: PaletteItem(id: action.title, section: .action, title: action.title(in: store), detail: action.keywords),
                 target: .action(action),
                 symbol: action.symbol,
                 trailing: action.shortcut.map { shortcut in

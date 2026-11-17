@@ -64,6 +64,8 @@ final class Store {
     }
     var lockedSessionID: String?
     var sidebarCursor: SidebarItem?
+    var multiSelection: [SidebarItem] = []
+    @ObservationIgnored private var multiSelectionAnchor: SidebarItem?
     var missingFolder: String?
     var editingGroup: CustomGroup?
     var isStatsRequested = false
@@ -224,6 +226,8 @@ final class Store {
         if split.active != activeSessions { activeSessions = split.active }
         let byID = Dictionary((split.active + split.archived).map { ($0.id, $0) }) { first, _ in first }
         if byID != sessionsByID { sessionsByID = byID }
+        let selected = multiSelection.filter { item in if case let .session(id) = item { byID[id] != nil } else { true } }
+        if selected != multiSelection { multiSelection = selected }
         let pins = SessionPins.split(split.active, pinned: pinnedIDs)
         if hasScanned, pins.kept != pinnedIDs { pinnedIDs = pins.kept }
         if pins.pinned != pinnedSessions { pinnedSessions = pins.pinned }
@@ -436,6 +440,8 @@ final class Store {
     }
 
     func activate(_ item: SidebarItem?) {
+        if !multiSelection.isEmpty { multiSelection = [] }
+
         guard let tab = tab(activating: item) else { return }
         selectedTabID = tab.id
         recentTabIDs = [tab.id] + recentTabIDs.filter { $0 != tab.id }
@@ -461,6 +467,40 @@ final class Store {
         }
         openClaude(cwd: session.originalCwd ?? (FileManager.default.fileExists(atPath: session.cwd) ? session.cwd : session.checkout), resuming: session.id)
         return tabs.first { $0.id == selectedTabID }
+    }
+
+    func toggleMultiSelection(_ item: SidebarItem) {
+        if multiSelection.isEmpty, let current = sidebarCursor ?? selection { multiSelection = [current] }
+        if multiSelection.contains(item) { multiSelection.removeAll { $0 == item } } else { multiSelection.append(item) }
+        multiSelectionAnchor = item
+    }
+
+    func extendMultiSelection(to item: SidebarItem, in order: [SidebarItem]) {
+        let anchor = multiSelection.isEmpty ? sidebarCursor ?? selection : multiSelectionAnchor
+        guard let start = anchor.flatMap(order.firstIndex(of:)), let end = order.firstIndex(of: item) else { return toggleMultiSelection(item) }
+
+        multiSelection = start <= end ? Array(order[start...end]) : order[end...start].reversed()
+        multiSelectionAnchor = anchor
+    }
+
+    var multiSelectedTabs: [Tab] {
+        selectedLast.compactMap { item in
+            if case let .tab(id) = item { return tabs.first { $0.id == id } }
+            guard case let .session(id) = item else { return nil }
+            return tab(forSession: id)
+        }
+    }
+
+    var multiSelectedSessions: [SessionSummary] {
+        selectedLast.compactMap { item in
+            guard case let .session(id) = item else { return nil }
+            return sessionsByID[id]
+        }
+    }
+
+    private var selectedLast: [SidebarItem] {
+        let current = selection
+        return multiSelection.filter { $0 != current } + multiSelection.filter { $0 == current }
     }
 
     var currentCwd: String {
@@ -620,6 +660,7 @@ final class Store {
     func archive(_ sessionID: String) {
         archivedAt[sessionID] = .now
         pinnedIDs.removeAll { $0 == sessionID }
+        if multiSelection.contains(.session(sessionID)) { multiSelection.removeAll { $0 == .session(sessionID) } }
         applyGroups()
         if let tab = tab(forSession: sessionID) { close(tab.id) }
     }
@@ -683,6 +724,7 @@ final class Store {
         if let sessionID { reviewModels[sessionID] = nil }
         tabs.removeAll { $0.id == id }
         recentTabIDs.removeAll { $0 == id }
+        if multiSelection.contains(.tab(id)) { multiSelection.removeAll { $0 == .tab(id) } }
         guard selectedTabID == id else { return }
         selectedTabID = recentTabIDs.first ?? tabs.last?.id
         guard !isHarborShown else { return }
