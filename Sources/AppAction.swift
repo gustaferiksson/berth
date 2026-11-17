@@ -4,11 +4,11 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, reviewChanges, settings, checkForUpdates
+    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, settings, checkForUpdates
 
     static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
-        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .reviewChanges, .settings, .checkForUpdates]
+        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .settings, .checkForUpdates]
     static let routedPastTerminal = ([.commandPalette] + palette).filter { $0.shortcut != nil }
 
     var title: String {
@@ -29,7 +29,8 @@ enum AppAction: Hashable {
         case .expandAllGroups: "Expand All Groups"
         case .showStats: "Show Stats"
         case .harbor: "Harbor"
-        case .reviewChanges: "Review Changes"
+        case .showChanges: "Show Changes"
+        case .hideChanges: "Hide Changes"
         case .settings: "Settings…"
         case .checkForUpdates: "Check for Updates…"
         }
@@ -47,7 +48,7 @@ enum AppAction: Hashable {
         case .groupBy: "sidebar"
         case .showStats: "usage tokens charts activity"
         case .harbor: "ambient boats piers overview"
-        case .reviewChanges: "diff branch changes comments"
+        case .showChanges, .hideChanges: "review diff branch changes comments panel"
         case .settings: "preferences"
         case .checkForUpdates: "update version release"
         default: ""
@@ -72,7 +73,7 @@ enum AppAction: Hashable {
         case .expandAllGroups: "rectangle.expand.vertical"
         case .showStats: "chart.bar.xaxis"
         case .harbor: "sailboat"
-        case .reviewChanges: "plus.forwardslash.minus"
+        case .showChanges, .hideChanges: "plus.forwardslash.minus"
         case .settings: "gear"
         case .checkForUpdates: "arrow.down.circle"
         }
@@ -89,7 +90,7 @@ enum AppAction: Hashable {
         case .clearTerminal: KeyboardShortcut("k", modifiers: [.command, .option])
         case let .groupBy(mode): KeyboardShortcut(KeyEquivalent(Character("\((GroupingMode.allCases.firstIndex(of: mode) ?? 0) + 1)")), modifiers: [.control, .command])
         case .showStats: KeyboardShortcut("s", modifiers: [.command, .shift])
-        case .reviewChanges: KeyboardShortcut("r", modifiers: [.command, .shift])
+        case .showChanges, .hideChanges: KeyboardShortcut("r", modifiers: [.command, .shift])
         case .settings: KeyboardShortcut(",")
         default: nil
         }
@@ -97,11 +98,12 @@ enum AppAction: Hashable {
 
     func isAvailable(in store: Store) -> Bool {
         switch self {
-        case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown && store.reviewSessionID == nil
+        case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown
         case .clearTerminal: store.focusedTerminal != nil
         case .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession: !sessionIDs(in: store).isEmpty
         case let .groupBy(mode): store.groupingMode != mode
-        case .reviewChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.tabs.first { $0.id == store.selectedTabID }.map { $0.kind == .claude && $0.sessionID != nil } == true
+        case .showChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && (!store.showsReviewPanel || store.isHarborShown)
+        case .hideChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.showsReviewPanel && !store.isHarborShown
         default: true
         }
     }
@@ -124,7 +126,10 @@ enum AppAction: Hashable {
         case .expandAllGroups: store.setGroupsExpanded(true)
         case .showStats: store.isStatsRequested = true
         case .harbor: store.isHarborShown.toggle()
-        case .reviewChanges: store.toggleReview()
+        case .showChanges:
+            store.showsReviewPanel = true
+            store.isHarborShown = false
+        case .hideChanges: store.showsReviewPanel = false
         case .settings: store.isSettingsRequested = true
         case .checkForUpdates: store.updater.check(.manual)
         }

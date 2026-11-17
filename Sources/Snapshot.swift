@@ -190,7 +190,7 @@ enum Snapshot {
         if let reviewFolder {
             store.openShell(cwd: reviewFolder)
             store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: reviewFolder, sessionID: "snapshot-review", terminal: $0.terminal) : $0 }
-            if AppAction.reviewChanges.isAvailable(in: store) { AppAction.reviewChanges.perform(on: store) }
+            if AppAction.showChanges.isAvailable(in: store) { AppAction.showChanges.perform(on: store) }
             store.reviewModels["snapshot-review"]?.selectedPath = UserDefaults.standard.string(forKey: "snapshotReviewFile")
             store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")]
         }
@@ -212,12 +212,15 @@ enum Snapshot {
         hosting.sceneBridgingOptions = .all
         let window = UnconstrainedWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.setContentSize(editedGroup != nil ? hosting.view.fittingSize : showsStats ? NSSize(width: 960, height: 800) : NSSize(width: 1200, height: 760))
+        window.setContentSize(editedGroup != nil ? hosting.view.fittingSize : showsStats ? NSSize(width: 960, height: 800) : reviewFolder != nil ? NSSize(width: UserDefaults.standard.object(forKey: "snapshotReviewWidth") == nil ? 1600 : UserDefaults.standard.double(forKey: "snapshotReviewWidth"), height: 900) : NSSize(width: 1200, height: 760))
         window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
         window.orderFrontRegardless()
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30
-            while Date.now < deadline, model.error == nil, model.snapshot?.files.isEmpty != true, model.selectedPath.flatMap({ model.contents[$0] }) == nil { try? await Task.sleep(for: .milliseconds(100)) }
+            while Date.now < deadline, model.error == nil, model.snapshot?.files.isEmpty != true, model.selectedPath.flatMap({ model.contents[$0] }) == nil {
+                if model.selectedPath == nil { model.selectedPath = model.snapshot?.files.first?.path }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
             try? await Task.sleep(for: .seconds(1))
             print("review \(model.snapshot.map { "\($0.branch) → \($0.base), fetch error \($0.fetchError ?? "-")" } ?? "error \(model.error ?? "timed out")")")
             for file in model.snapshot?.files ?? [] { print("  \(file.status.rawValue) \(file.path) +\(file.additions.map(String.init) ?? "?") -\(file.deletions.map(String.init) ?? "?")") }
@@ -358,6 +361,53 @@ enum Snapshot {
                     print("model append then list delete: cards \(added) → \(cards()), reserved \(sides[1].reserved)")
                 }
             }
+            if UserDefaults.standard.bool(forKey: "snapshotReviewSurfaces"), let split = descendantViews(window.contentView ?? NSView()).first(where: { $0.identifier?.rawValue == "terminalSplit" }) as? NSSplitView, let claude = store.tabs.first(where: { $0.id == store.selectedTabID }) {
+                let file = model.selectedPath
+                let mounted = { store.tabs.map { tab in tab.terminal.attachedPlatformView.map { [ObjectIdentifier($0), $0.superview.map(ObjectIdentifier.init)] } ?? [] } }
+                let windows = { store.tabs.map { $0.terminal.attachedPlatformView?.window === window } }
+                let starts = { (try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0 }
+                let processes = ProcessAncestry.descendants()
+                let views = mounted()
+                let ptyCount = ptys()
+                let shellStarts = starts()
+                print("surfaces before: window \(Int(window.frame.width)), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), \(split.arrangedSubviews.map { Int($0.frame.width) }), \(store.tabs.count) tabs, descendants \(processes.map(\.pid).sorted()), ptys \(ptyCount), shell starts \(shellStarts)")
+                let flipSidebar = {
+                    var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                    arguments["sidebarPosition"] = UserDefaults.standard.string(forKey: "sidebarPosition") == "right" ? "left" : "right"
+                    UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                }
+                let steps: [(String, () -> Void)] = [
+                    ("close diff", store.closeDiff),
+                    ("open diff", { model.selectedPath = file }),
+                    ("hide changes", { AppAction.hideChanges.perform(on: store) }),
+                    ("show changes", { AppAction.showChanges.perform(on: store) }),
+                    ("select terminal", { store.activate(store.terminals.first.map { SidebarItem.tab($0.id) }) }),
+                    ("select claude", { store.activate(.tab(claude.id)) }),
+                    ("harbor", { store.isHarborShown = true }),
+                    ("leave harbor", { store.isHarborShown = false }),
+                    ("flip sidebar", flipSidebar),
+                    ("flip back", flipSidebar),
+                    ("scroll right side to x 40", { descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last.map { $0.scroll(NSPoint(x: 40, y: $0.visibleRect.minY)) } }),
+                    ("live resize after scroll", {
+                        window.setContentSize(NSSize(width: window.contentLayoutRect.width - 80, height: window.contentLayoutRect.height))
+                        for side in descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewTextView }) {
+                            side.viewWillStartLiveResize()
+                            side.viewDidEndLiveResize()
+                        }
+                    }),
+                    ("narrow to 1200", { window.setContentSize(NSSize(width: 1200, height: window.contentLayoutRect.height)) }),
+                    ("close diff again", store.closeDiff),
+                    ("reopen diff", { model.selectedPath = file }),
+                    ("close diff once more", store.closeDiff),
+                ]
+                for (label, step) in steps {
+                    step()
+                    try? await Task.sleep(for: .seconds(1.5))
+                    let now = ProcessAncestry.descendants()
+                    print("\(label): sidebar \(UserDefaults.standard.string(forKey: "sidebarPosition") ?? "left"), text clip x \(descendantViews(window.contentView ?? NSView()).compactMap { ($0 as? ReviewTextView)?.enclosingScrollView?.contentView.bounds.minX }), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), panel \(store.showsReviewPanel ? "shown" : "hidden"), harbor \(store.isHarborShown), diff \(store.reviewModel?.selectedPath ?? "closed"), split \(split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" }), same views \(mounted() == views), in window \(windows()), lost \(processes.subtracting(now).count), new \(now.subtracting(processes).count), ptys \(ptys()), shell starts \(starts())")
+                    save(".\(label.replacingOccurrences(of: " ", with: "-")).png")
+                }
+            }
         }
         if let spec = UserDefaults.standard.string(forKey: "snapshotMultiSelect") {
             let order = topSessions.map { SidebarItem.session($0.id) }
@@ -494,10 +544,10 @@ enum Snapshot {
             let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
-            if store.reviewSessionID == nil { window.makeFirstResponder(store.focusedTerminal?.attachedPlatformView ?? window.contentView) }
+            if store.reviewModel?.selectedPath == nil { window.makeFirstResponder(store.focusedTerminal?.attachedPlatformView ?? window.contentView) }
             let state = {
                 let focused = store.tabs.firstIndex { $0.terminal.attachedPlatformView === window.firstResponder }.map { "#\($0)" } ?? window.firstResponder.map { "\(type(of: $0))" } ?? "nil"
-                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), review \(store.reviewSessionID != nil), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
+                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel?.selectedPath ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
             }
             print("start: \(state())")
             print("key window is snapshot: \(NSApp.keyWindow === window), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
@@ -520,7 +570,7 @@ enum Snapshot {
                     print("exit (typed into the selected terminal):\n  \(state())")
                     continue
                 }
-                if let model = store.reviewSessionID.flatMap({ store.reviewModels[$0] }), spec == "refresh" || spec.hasPrefix("file") {
+                if let model = store.reviewModel, spec == "refresh" || spec.hasPrefix("file") {
                     if spec == "refresh" { await model.load() } else { model.selectedPath = model.snapshot?.files.dropFirst(Int(spec.dropFirst(4)) ?? 0).first?.path ?? model.selectedPath }
                     try? await Task.sleep(for: .seconds(1))
                     if let editor = model.selectedPath.flatMap({ model.editors[$0] }) { window.makeFirstResponder(editor) }
@@ -581,11 +631,12 @@ enum Snapshot {
         let menus = (NSApp.mainMenu?.items ?? []).compactMap(\.submenu) + (window.toolbar?.items ?? []).compactMap { ($0 as? NSMenuToolbarItem)?.menu }
         for menu in menus where menu.items.contains(where: { $0.title.hasPrefix("Group By") || $0.title.hasPrefix("New ") }) {
             print("menu \(menu.title):")
+            menu.delegate?.menuNeedsUpdate?(menu)
             for item in menu.items + menu.items.compactMap(\.submenu).flatMap(\.items) where !item.isSeparatorItem {
                 print("  \(item.state == .on ? "✓" : " ") \(item.title) \(item.keyEquivalentModifierMask.contains(.control) ? "⌃" : "")\(item.keyEquivalent)")
             }
         }
-        print("review \(store.reviewSessionID ?? "off")")
+        print("review panel \(store.showsReviewPanel ? "shown" : "hidden"), diff \(store.reviewModel?.selectedPath ?? "closed")")
         print("shell starts: \((try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0)")
         for tab in store.tabs { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-") pwd=\(tab.terminal.workingDirectory ?? "-") title=\(tab.terminal.title)") }
         guard !NSScreen.screens.contains(where: { $0.frame.intersects(window.frame) }) else { fail("window is on screen") }

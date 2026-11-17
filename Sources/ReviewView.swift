@@ -28,7 +28,7 @@ final class ReviewModel {
             self.snapshot = snapshot
             error = nil
             contents = [:]
-            if !snapshot.files.contains(where: { $0.path == selectedPath }) { selectedPath = snapshot.files.first?.path }
+            if !snapshot.files.contains(where: { $0.path == selectedPath }) { selectedPath = nil }
         } catch {
             snapshot = nil
             self.error = Self.describe(error)
@@ -77,24 +77,29 @@ final class ReviewModel {
     }
 }
 
-struct ReviewView: View {
+struct ReviewPanel: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        if let model = store.reviewModel, let sessionID = store.tabs.first(where: { $0.id == store.selectedTabID })?.sessionID {
+            ReviewFileList(sessionID: sessionID, model: model)
+                .id(sessionID)
+        } else {
+            ContentUnavailableView("Select a Claude Session", systemImage: "plus.forwardslash.minus", description: Text("Its branch’s changes show here."))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+private struct ReviewFileList: View {
     let sessionID: String
     @Bindable var model: ReviewModel
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
-    @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.oneDark
-    @AppStorage(ReviewStyle.fontFamilyKey) private var fontFamily = ""
-    @AppStorage(ReviewStyle.fontSizeKey) private var fontSize = 0.0
-    @AppStorage(ReviewStyle.lineHeightKey) private var lineHeight = 1.3
-    @FocusState private var isFileListFocused: Bool
 
     var body: some View {
-        let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: theme)
-        content(style)
+        content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .foregroundStyle(Color(nsColor: style.foreground))
-            .background(Color(nsColor: style.background), ignoresSafeAreaEdges: [])
-            .environment(\.colorScheme, style.isDark ? .dark : .light)
             .task { await model.load() }
             .task(id: model.selectedPath) { await model.loadSelectedContents() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
@@ -104,16 +109,21 @@ struct ReviewView: View {
     }
 
     @ViewBuilder
-    private func content(_ style: ReviewStyle) -> some View {
+    private var content: some View {
         if let snapshot = model.snapshot, !snapshot.files.isEmpty {
-            HStack(spacing: 0) {
-                fileColumn(snapshot, style)
-                    .frame(width: 260)
-                Divider()
-                VStack(spacing: 0) {
-                    header(snapshot, style)
-                    Divider()
-                    diff(style)
+            VStack(spacing: 0) {
+                header(snapshot)
+                List(snapshot.files, id: \.path, selection: $model.selectedPath) { file in
+                    fileRow(file)
+                }
+                .listStyle(.sidebar)
+                .environment(\.sidebarRowSize, .small)
+                .scrollContentBackground(.hidden)
+                .background(OverlayScroller())
+
+                if !model.comments.isEmpty {
+                    Hairline(axis: .horizontal)
+                    comments
                 }
             }
         } else if let snapshot = model.snapshot {
@@ -141,43 +151,22 @@ struct ReviewView: View {
         }
     }
 
-    private func fileColumn(_ snapshot: ReviewSnapshot, _ style: ReviewStyle) -> some View {
-        VStack(spacing: 0) {
-            List(snapshot.files, id: \.path, selection: $model.selectedPath) { file in
-                fileRow(file, style)
-            }
-            .listStyle(.sidebar)
-            .environment(\.sidebarRowSize, .small)
-            .scrollContentBackground(.hidden)
-            .background(OverlayScroller())
-            .focused($isFileListFocused)
-            .onAppear { isFileListFocused = true }
-
-            if !model.comments.isEmpty {
-                Divider()
-                comments(style)
-            }
-        }
-    }
-
-    private func fileRow(_ file: ReviewFile, _ style: ReviewStyle) -> some View {
-        let added = Color(nsColor: style.addedWord.withAlphaComponent(1))
-        let removed = Color(nsColor: style.removedWord.withAlphaComponent(1))
-        let statusColor = [ReviewFile.Status.added: added, .modified: Color(nsColor: style.color(forCapture: "type")), .deleted: removed, .renamed: Color(nsColor: style.color(forCapture: "function"))][file.status]
+    private func fileRow(_ file: ReviewFile) -> some View {
+        let statusColor = [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status]
         return HStack(spacing: 6) {
             Text(file.status.rawValue)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(statusColor ?? Color(nsColor: style.secondary))
+                .foregroundStyle(statusColor ?? theme.secondary)
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
             HStack(spacing: 6) {
                 if let additions = file.additions, additions > 0 {
-                    Text("+\(additions)").foregroundStyle(added)
+                    Text("+\(additions)").foregroundStyle(theme.working)
                 }
                 if let deletions = file.deletions, deletions > 0 {
-                    Text("−\(deletions)").foregroundStyle(removed)
+                    Text("−\(deletions)").foregroundStyle(theme.closed)
                 }
             }
             .fixedSize()
@@ -187,7 +176,7 @@ struct ReviewView: View {
         .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 
-    private func comments(_ style: ReviewStyle) -> some View {
+    private var comments: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
@@ -196,7 +185,7 @@ struct ReviewView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")")
                                     .font(.caption)
-                                    .foregroundStyle(Color(nsColor: style.secondary))
+                                    .foregroundStyle(theme.secondary)
                                 Text(comment.text)
                                     .lineLimit(3)
                             }
@@ -220,19 +209,13 @@ struct ReviewView: View {
         }
     }
 
-    private func header(_ snapshot: ReviewSnapshot, _ style: ReviewStyle) -> some View {
+    private func header(_ snapshot: ReviewSnapshot) -> some View {
         let pullRequest = store.pullRequest(in: store.sessionsByID[sessionID]?.checkout ?? model.folder, branch: snapshot.branch)
-        return HStack(spacing: 8) {
+        return HStack(alignment: .top, spacing: 8) {
             if let pullRequest {
                 let stateColor = pullRequest.state.color(in: theme)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Text(pullRequest.title)
-                            .fontWeight(.semibold)
-                            .lineLimit(1)
-                        Text(verbatim: "#\(pullRequest.number)")
-                            .foregroundStyle(Color(nsColor: style.secondary))
-                            .fixedSize()
                         Label(pullRequest.state.rawValue, systemImage: [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][pullRequest.state] ?? "arrow.triangle.pull")
                             .labelStyle(CompactLabel())
                             .font(.caption.weight(.medium))
@@ -241,10 +224,16 @@ struct ReviewView: View {
                             .padding(.vertical, 2)
                             .background(stateColor.opacity(0.16), in: .capsule)
                             .fixedSize()
+                        Text(verbatim: "#\(pullRequest.number)")
+                            .foregroundStyle(theme.secondary)
+                            .fixedSize()
                     }
+                    Text(pullRequest.title)
+                        .fontWeight(.semibold)
+                        .lineLimit(2)
                     HStack(spacing: 0) {
                         Text("\(snapshot.base) ← ")
-                            .foregroundStyle(Color(nsColor: style.secondary))
+                            .foregroundStyle(theme.secondary)
                         Text(snapshot.branch)
                             .foregroundStyle(theme.branch)
                     }
@@ -254,22 +243,16 @@ struct ReviewView: View {
                 .layoutPriority(1)
             } else {
                 Text("\(snapshot.branch) → \(snapshot.base)")
-                    .foregroundStyle(Color(nsColor: style.color(forCapture: "function")))
-                    .lineLimit(1)
-                Text(model.selectedPath ?? "")
-                    .foregroundStyle(Color(nsColor: style.secondary))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(theme.branch)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 4)
             if let fetchError = snapshot.fetchError {
                 Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(Color(nsColor: style.color(forCapture: "type")))
+                    .foregroundStyle(theme.needsYou)
                     .help("Couldn’t fetch \(snapshot.base), comparing local refs: \(fetchError)")
-            }
-            if let path = model.selectedPath, let draft = model.drafts[path] {
-                Button("Save") { model.save(draft, to: path) }
-                    .keyboardShortcut("s")
             }
             if let pullRequest {
                 Link(destination: pullRequest.url) {
@@ -283,26 +266,8 @@ struct ReviewView: View {
                 .buttonStyle(.borderless)
         }
         .font(.callout)
-        .padding(.horizontal, 12)
-        .frame(height: pullRequest == nil ? 36 : 48)
-    }
-
-    @ViewBuilder
-    private func diff(_ style: ReviewStyle) -> some View {
-        if let path = model.selectedPath, let contents = model.contents[path], let editor = model.editors[path] {
-            ReviewDiffPane(
-                path: path,
-                contents: contents,
-                editor: editor,
-                draft: $model.drafts[path],
-                comments: $model.comments,
-                style: style
-            )
-            .id(path)
-        } else {
-            ProgressView()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     private var refreshButton: some View {
@@ -322,6 +287,60 @@ struct ReviewView: View {
         }
 
         model.comments = []
-        store.reviewSessionID = nil
+        terminal.requestFocus()
+    }
+}
+
+struct ReviewDiffColumn: View {
+    let store: Store
+    @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.oneDark
+    @AppStorage(ReviewStyle.fontFamilyKey) private var fontFamily = ""
+    @AppStorage(ReviewStyle.fontSizeKey) private var fontSize = 0.0
+    @AppStorage(ReviewStyle.lineHeightKey) private var lineHeight = 1.3
+
+    var body: some View {
+        let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme)
+        if let model = store.reviewModel, let path = model.selectedPath {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    Text(path)
+                        .foregroundStyle(Color(nsColor: style.secondary))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    if let draft = model.drafts[path] {
+                        Button("Save") { model.save(draft, to: path) }
+                            .keyboardShortcut("s")
+                    }
+                    Button("Close Diff", systemImage: "xmark", action: store.closeDiff)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .help("Close Diff (⌘W)")
+                }
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .frame(height: 36)
+                Divider()
+                if let contents = model.contents[path], let editor = model.editors[path] {
+                    ReviewDiffPane(
+                        path: path,
+                        contents: contents,
+                        editor: editor,
+                        draft: Bindable(model).drafts[path],
+                        comments: Bindable(model).comments,
+                        style: style
+                    )
+                    .id(path)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .foregroundStyle(Color(nsColor: style.foreground))
+            .background(Color(nsColor: style.background))
+            .environment(\.colorScheme, style.isDark ? .dark : .light)
+            .environment(store)
+            .environment(\.ghosttyTheme, store.theme)
+        }
     }
 }

@@ -49,17 +49,18 @@ final class Store {
     @ObservationIgnored lazy var remote = RemoteServer(store: self)
 
     var tabs: [Tab] = [] {
-        didSet { saveOpenTabs() }
+        didSet {
+            saveOpenTabs()
+            prepareReviewModel()
+        }
     }
     var selectedTabID: Tab.ID? {
         didSet {
             if let oldValue { tabTouches[oldValue] = .now }
             if let oldValue, let sessionID = tabs.first(where: { $0.id == oldValue })?.sessionID { seenAt[sessionID] = .now }
-            if selectedTabID != oldValue {
-                reviewSessionID = nil
-                endTerminalSearch()
-            }
+            if selectedTabID != oldValue { endTerminalSearch() }
             saveOpenTabs()
+            prepareReviewModel()
         }
     }
     var lockedSessionID: String?
@@ -72,19 +73,15 @@ final class Store {
     var isSettingsRequested = false
     var isHarborShown = false {
         didSet {
-            if isHarborShown {
-                reviewSessionID = nil
-                endTerminalSearch()
-            }
-            guard oldValue, !isHarborShown, reviewSessionID == nil, let terminal = focusedTerminal else { return }
+            if isHarborShown { endTerminalSearch() }
+            guard oldValue, !isHarborShown, let terminal = focusedTerminal else { return }
             DispatchQueue.main.async { terminal.requestFocus() }
         }
     }
-    var reviewSessionID: String? {
+    var showsReviewPanel = UserDefaults.standard.bool(forKey: "showsReviewPanel") {
         didSet {
-            if reviewSessionID != nil { endTerminalSearch() }
-            guard oldValue != nil, reviewSessionID == nil, !isHarborShown, let terminal = focusedTerminal else { return }
-            DispatchQueue.main.async { terminal.requestFocus() }
+            if persistsTabs { UserDefaults.standard.set(showsReviewPanel, forKey: "showsReviewPanel") }
+            prepareReviewModel()
         }
     }
     var reviewModels: [String: ReviewModel] = [:]
@@ -99,7 +96,7 @@ final class Store {
         didSet {
             guard oldValue != nil, launcherMode == nil else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self, !isHarborShown, reviewSessionID == nil, terminalSearch == nil else { return }
+                guard let self, !isHarborShown, terminalSearch == nil else { return }
                 focusedTerminal?.requestFocus()
             }
         }
@@ -446,7 +443,6 @@ final class Store {
         selectedTabID = tab.id
         recentTabIDs = [tab.id] + recentTabIDs.filter { $0 != tab.id }
         isHarborShown = false
-        reviewSessionID = nil
         tab.terminal.requestFocus()
     }
 
@@ -527,12 +523,22 @@ final class Store {
         activate(selectedTabID.map(SidebarItem.tab))
     }
 
-    func toggleReview() {
-        launcherMode = nil
-        let tab = reviewSessionID == nil ? tabs.first { $0.id == selectedTabID } : nil
-        if let tab, let sessionID = tab.sessionID, reviewModels[sessionID] == nil { reviewModels[sessionID] = ReviewModel(folder: tab.cwd) }
-        reviewSessionID = tab?.sessionID
-        isHarborShown = false
+    var reviewModel: ReviewModel? {
+        guard let tab = tabs.first(where: { $0.id == selectedTabID }), tab.kind == .claude, let sessionID = tab.sessionID else { return nil }
+        return reviewModels[sessionID]
+    }
+
+    func prepareReviewModel() {
+        guard showsReviewPanel, UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey),
+              let tab = tabs.first(where: { $0.id == selectedTabID }), tab.kind == .claude,
+              let sessionID = tab.sessionID, reviewModels[sessionID] == nil
+        else { return }
+        reviewModels[sessionID] = ReviewModel(folder: tab.cwd)
+    }
+
+    func closeDiff() {
+        reviewModel?.selectedPath = nil
+        focusedTerminal?.requestFocus()
     }
 
     func startTerminalSearch(in terminal: TerminalViewState, needle: String?) {

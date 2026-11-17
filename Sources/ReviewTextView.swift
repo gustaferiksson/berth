@@ -30,6 +30,13 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         super.setFrameSize(NSSize(width: max(newSize.width, enclosingScrollView?.contentSize.width ?? 0), height: max(newSize.height, minimumHeight)))
     }
 
+    // NSTextView scrolls back to the insertion point when a live resize ends, dropping the reader's horizontal scroll.
+    override func viewDidEndLiveResize() {
+        let origin = enclosingScrollView?.contentView.bounds.origin
+        super.viewDidEndLiveResize()
+        if let origin { scroll(origin) }
+    }
+
     override func didChangeText() {
         isStale = true
         countLines()
