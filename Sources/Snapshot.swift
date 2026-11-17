@@ -370,7 +370,7 @@ enum Snapshot {
                 let views = mounted()
                 let ptyCount = ptys()
                 let shellStarts = starts()
-                print("surfaces before: \(store.tabs.count) tabs, descendants \(processes.map(\.pid).sorted()), ptys \(ptyCount), shell starts \(shellStarts)")
+                print("surfaces before: window \(Int(window.frame.width)), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), \(split.arrangedSubviews.map { Int($0.frame.width) }), \(store.tabs.count) tabs, descendants \(processes.map(\.pid).sorted()), ptys \(ptyCount), shell starts \(shellStarts)")
                 let flipSidebar = {
                     var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
                     arguments["sidebarPosition"] = UserDefaults.standard.string(forKey: "sidebarPosition") == "right" ? "left" : "right"
@@ -387,12 +387,16 @@ enum Snapshot {
                     ("leave harbor", { store.isHarborShown = false }),
                     ("flip sidebar", flipSidebar),
                     ("flip back", flipSidebar),
+                    ("narrow to 1200", { window.setContentSize(NSSize(width: 1200, height: window.contentLayoutRect.height)) }),
+                    ("close diff again", store.closeDiff),
+                    ("reopen diff", { model.selectedPath = file }),
+                    ("close diff once more", store.closeDiff),
                 ]
                 for (label, step) in steps {
                     step()
                     try? await Task.sleep(for: .seconds(1.5))
                     let now = ProcessAncestry.descendants()
-                    print("\(label): sidebar \(UserDefaults.standard.string(forKey: "sidebarPosition") ?? "left"), panel \(store.showsReviewPanel ? "shown" : "hidden"), harbor \(store.isHarborShown), diff \(store.reviewModel?.selectedPath ?? "closed"), split \(split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" }), same views \(mounted() == views), in window \(windows()), lost \(processes.subtracting(now).count), new \(now.subtracting(processes).count), ptys \(ptys()), shell starts \(starts())")
+                    print("\(label): sidebar \(UserDefaults.standard.string(forKey: "sidebarPosition") ?? "left"), text clip x \(descendantViews(window.contentView ?? NSView()).compactMap { ($0 as? ReviewTextView)?.enclosingScrollView?.contentView.bounds.minX }), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), panel \(store.showsReviewPanel ? "shown" : "hidden"), harbor \(store.isHarborShown), diff \(store.reviewModel?.selectedPath ?? "closed"), split \(split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" }), same views \(mounted() == views), in window \(windows()), lost \(processes.subtracting(now).count), new \(now.subtracting(processes).count), ptys \(ptys()), shell starts \(starts())")
                     save(".\(label.replacingOccurrences(of: " ", with: "-")).png")
                 }
             }

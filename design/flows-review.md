@@ -43,9 +43,12 @@ This is the slim first version; the rest is listed under Later.
   still the guessed one). Open on GitHub sits before Refresh. No CI checks.
 - Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal):
   collapsed until a file row is clicked; nothing opens by itself. It opens 760 pt wide, less
-  to leave the terminal 360, never under 440 (so at the 1200 pt default window with both
-  sidebars the terminal yields); the panes then resize proportionally. Minimums are not
-  enforced while dragging (constraint minimums the window can't fit crash AppKit). Its header is the file path, Save while there is a draft, and Close Diff (×).
+  to leave the terminal 360, never under 440, and window or panel resizes keep both within
+  those minimums where they fit (`TerminalSplitController.fitDiff`, after layout: constraint
+  minimums the window can't fit crash AppKit). When the split can't hold 801 pt, opening a diff
+  (or narrowing the window with one open) collapses the session sidebar, and closing the diff
+  brings it back unless the user toggled it meanwhile (`ContentView.sidebarYieldsToDiff`, an
+  overlay on the stored visibility, so nothing persisted changes). Its header is the file path, Save while there is a draft, and Close Diff (×).
 - Diff: `ReviewDiffPane` gets the file's `ReviewContents`, a draft binding and `onComment`.
   Base on the left (read only), working tree on the right (editable unless deleted), in the
   Review style (Settings > Appearance > Review: colour scheme, One Dark by default, or Match

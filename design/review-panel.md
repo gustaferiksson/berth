@@ -7,16 +7,22 @@ nopr=commits`). `flows-review.md` describes what has landed; each layer below up
 
 ## Layout
 
-- The window becomes: review panel | terminal area | diff pane | session sidebar. The panel
-  takes the window edge the session sidebar doesn't use: the left edge when the sidebar is on
-  the right (`sidebarPosition = right`), the right edge when it is on the left.
+- The window becomes: review panel | diff pane | terminal area | session sidebar (mirrored
+  when the session sidebar is on the left). The panel takes the window edge the session
+  sidebar doesn't use: the left edge when the sidebar is on the right (`sidebarPosition =
+  right`), the right edge when it is on the left. The diff pane sits next to the panel.
 - The panel is about 272 pt wide, resizable, and holds, top to bottom: the PR or branch card,
   a header line (branch → base, Refresh), a Changes | Files tab control, and the tab's list.
   The session's comments and Send N Comments stay at the bottom of the panel.
-- The diff pane sits between the terminal and the session sidebar in a native split. The
-  split always exists and the diff pane collapses when it has no tab: a tab's
-  `TerminalSurfaceView` must never be removed or re-parented, or its shell dies. Minimum
-  widths keep the terminal usable (about 360 pt) and the diff readable (about 440 pt).
+- The diff pane sits between the panel and the terminal in a native split. The split always
+  exists and the diff pane collapses when it has no tab: a tab's `TerminalSurfaceView` must
+  never be removed or re-parented, or its shell dies. Minimum widths keep the terminal usable
+  (360 pt) and the diff readable (440 pt).
+- When a diff opens, or the window narrows while one is open, and the window can't fit panel,
+  diff, terminal and session sidebar at those minimums, the session sidebar collapses (its
+  native column visibility or inspector presentation). It comes back when the diff closes,
+  unless the user showed or hid it by hand meanwhile; a sidebar the user reopens stays open
+  for that diff.
 - The diff is side by side when its pane is at least 760 pt wide, unified below that.
 
 ## Toolbar, menu, keys

@@ -14,6 +14,9 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
     @AppStorage("showsTrailingSidebar") private var showsTrailingSidebar = true
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
+    @State private var sidebarYieldsToDiff = false
+    @State private var keepsSidebarForDiff = false
+    @State private var splitWidth = 0.0
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -21,9 +24,8 @@ struct ContentView: View {
         @Bindable var store = store
         let selected = store.tabs.first { $0.id == store.selectedTabID }
         let isTrailing = sidebarPosition == .right
-        let showsPanel = isReviewEnabled && store.showsReviewPanel && !store.isHarborShown
-        let setPanel = { (shown: Bool) in if isReviewEnabled && !store.isHarborShown { store.showsReviewPanel = shown } }
-        NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanel ? .all : .detailOnly) : columnVisibility }, set: { if isTrailing { setPanel($0 != .detailOnly) } else { columnVisibility = $0 } })) {
+        let isDiffOpen = showsPanel && store.reviewModel?.selectedPath != nil
+        NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanel ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
                 ReviewPanel()
                     .scrollContentBackground(.hidden)
@@ -39,7 +41,11 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
-            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel || store.reviewModel?.selectedPath == nil)
+            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !isDiffOpen)
+                .onGeometryChange(for: Double.self) { $0.size.width } action: { old, new in
+                    splitWidth = new
+                    if isDiffOpen, new < old { yieldSidebarIfCramped() }
+                }
                 .overlay {
                     if let mode = store.launcherMode {
                         ZStack(alignment: .top) {
@@ -59,7 +65,7 @@ struct ContentView: View {
                     }
                 }
                 .animation(.default, value: store.updater.pendingRestart?.deadline)
-            .inspector(isPresented: Binding(get: { isTrailing ? showsTrailingSidebar : showsPanel }, set: { if isTrailing { showsTrailingSidebar = $0 } else { setPanel($0) } })) {
+            .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsPanel }, set: setInspector)) {
                 if isTrailing {
                     Sidebar()
                         .listStyle(.sidebar)
@@ -101,10 +107,10 @@ struct ContentView: View {
                 }
                 if isTrailing {
                     ToolbarItem {
-                        Button(showsTrailingSidebar ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right") {
-                            showsTrailingSidebar.toggle()
+                        Button(showsSessions ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right") {
+                            setSessions(showsSessions ? .detailOnly : .all)
                         }
-                        .help(showsTrailingSidebar ? "Hide Sidebar" : "Show Sidebar")
+                        .help(showsSessions ? "Hide Sidebar" : "Show Sidebar")
                     }
                 }
             }
@@ -118,6 +124,14 @@ struct ContentView: View {
             store.refreshPullRequests()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
+        .onChange(of: isDiffOpen) {
+            if isDiffOpen {
+                yieldSidebarIfCramped()
+            } else {
+                sidebarYieldsToDiff = false
+                keepsSidebarForDiff = false
+            }
+        }
         .onChange(of: isReviewEnabled) {
             if isReviewEnabled { store.prepareReviewModel() } else { store.reviewModels = [:] }
         }
@@ -146,6 +160,50 @@ struct ContentView: View {
 
 
 extension ContentView {
+    private var showsPanel: Bool {
+        isReviewEnabled && store.showsReviewPanel && !store.isHarborShown
+    }
+
+    // The column and inspector echo programmatic changes and keep calling setters built for the other sidebar position, so these read live state and drop no-ops.
+    private func setLeadingColumn(_ visibility: NavigationSplitViewVisibility) {
+        if sidebarPosition == .left {
+            if visibility != leadingSessions { setSessions(visibility) }
+        } else if (visibility != .detailOnly) != showsPanel, isReviewEnabled, !store.isHarborShown {
+            store.showsReviewPanel = visibility != .detailOnly
+        }
+    }
+
+    private func setInspector(_ isPresented: Bool) {
+        if sidebarPosition == .right {
+            if isPresented != showsSessions { setSessions(isPresented ? .all : .detailOnly) }
+        } else if isPresented != showsPanel, isReviewEnabled, !store.isHarborShown {
+            store.showsReviewPanel = isPresented
+        }
+    }
+
+    private var leadingSessions: NavigationSplitViewVisibility {
+        sidebarYieldsToDiff ? .detailOnly : columnVisibility
+    }
+
+    private var showsSessions: Bool {
+        !sidebarYieldsToDiff && (sidebarPosition == .right ? showsTrailingSidebar : columnVisibility != .detailOnly)
+    }
+
+    private func setSessions(_ visibility: NavigationSplitViewVisibility) {
+        if sidebarYieldsToDiff {
+            sidebarYieldsToDiff = false
+            keepsSidebarForDiff = true
+        }
+        if sidebarPosition == .right { showsTrailingSidebar = visibility != .detailOnly } else { columnVisibility = visibility }
+    }
+
+    private func yieldSidebarIfCramped() {
+        guard showsSessions, !keepsSidebarForDiff, splitWidth > 0, splitWidth < TerminalSplit.diffMinimum + TerminalSplit.terminalMinimum + 1 else { return }
+
+        if columnVisibility == .automatic { columnVisibility = .all }
+        sidebarYieldsToDiff = true
+    }
+
     private func panelToggle(symbol: String) -> some View {
         let action = AppAction.hideChanges.isAvailable(in: store) ? AppAction.hideChanges : .showChanges
         return Button(action.title, systemImage: symbol) { action.perform(on: store) }
@@ -154,12 +212,15 @@ extension ContentView {
 }
 
 private struct TerminalSplit: NSViewControllerRepresentable {
+    static let diffMinimum = 440.0
+    static let terminalMinimum = 360.0
+
     let store: Store
     let isDiffLeading: Bool
     let isDiffCollapsed: Bool
 
-    func makeNSViewController(context: Context) -> NSSplitViewController {
-        let split = NSSplitViewController()
+    func makeNSViewController(context: Context) -> TerminalSplitController {
+        let split = TerminalSplitController()
         split.splitView.identifier = NSUserInterfaceItemIdentifier("terminalSplit")
         let terminal = NSHostingController(rootView: TerminalArea(store: store))
         let diff = NSHostingController(rootView: ReviewDiffColumn(store: store))
@@ -173,12 +234,12 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         return split
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsViewController: NSSplitViewController, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsViewController: TerminalSplitController, context: Context) -> CGSize? {
         proposal.replacingUnspecifiedDimensions()
     }
 
-    func updateNSViewController(_ split: NSSplitViewController, context: Context) {
-        guard let diff = split.splitViewItems.first(where: { $0.viewController is NSHostingController<ReviewDiffColumn> }) else { return }
+    func updateNSViewController(_ split: TerminalSplitController, context: Context) {
+        guard let diff = split.diff else { return }
 
         if (split.splitViewItems.first === diff) != isDiffLeading {
             split.removeSplitViewItem(diff)
@@ -189,12 +250,36 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         diff.isCollapsed = isDiffCollapsed
         guard !isDiffCollapsed else { return }
 
-        // Width minimums as constraints (minimumThickness too) loop AppKit's constraint pass until it throws once the window can't fit them.
-        DispatchQueue.main.async { [isDiffLeading] in
-            let total = split.splitView.bounds.width
-            let width = min(760, max(440, total - 361))
-            split.splitView.setPosition(isDiffLeading ? width : total - width - split.splitView.dividerThickness, ofDividerAt: 0)
-        }
+        split.splitView.layoutSubtreeIfNeeded()
+        split.fitDiff(preferring: 760)
+    }
+}
+
+// Width minimums as constraints (minimumThickness too) loop AppKit's constraint pass until it throws once the window can't fit them, so the divider is moved after layout instead.
+private final class TerminalSplitController: NSSplitViewController {
+    var diff: NSSplitViewItem? {
+        splitViewItems.first { $0.viewController is NSHostingController<ReviewDiffColumn> }
+    }
+
+    private var laidOutWidth = 0.0
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        guard splitView.bounds.width != laidOutWidth else { return }
+
+        laidOutWidth = splitView.bounds.width
+        DispatchQueue.main.async { [weak self] in self?.fitDiff(preferring: nil) }
+    }
+
+    func fitDiff(preferring preferred: CGFloat?) {
+        guard let diff, !diff.isCollapsed else { return }
+
+        let total = splitView.bounds.width
+        let current = diff.viewController.view.frame.width
+        let width = min(max(preferred ?? current, TerminalSplit.diffMinimum), max(TerminalSplit.diffMinimum, total - TerminalSplit.terminalMinimum - splitView.dividerThickness))
+        guard abs(width - current) >= 1 else { return }
+
+        splitView.setPosition(splitViewItems.first === diff ? width : total - width - splitView.dividerThickness, ofDividerAt: 0)
     }
 }
 
