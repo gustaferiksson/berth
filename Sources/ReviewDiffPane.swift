@@ -166,6 +166,8 @@ private struct ReviewDiffViews: NSViewRepresentable {
             textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
             textView.textContainer?.widthTracksTextView = false
             textView.textContainer?.containerSize = textView.maxSize
+            // TextKit 2 puts the container origin at -lineFragmentPadding, and NSTextView's end-of-live-resize re-anchor then scrolls x by the padding.
+            textView.textContainer?.lineFragmentPadding = 0
 
             scrollView.documentView = textView
             scrollView.scrollerStyle = .overlay

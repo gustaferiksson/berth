@@ -387,6 +387,14 @@ enum Snapshot {
                     ("leave harbor", { store.isHarborShown = false }),
                     ("flip sidebar", flipSidebar),
                     ("flip back", flipSidebar),
+                    ("scroll right side to x 40", { descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last.map { $0.scroll(NSPoint(x: 40, y: $0.visibleRect.minY)) } }),
+                    ("live resize after scroll", {
+                        window.setContentSize(NSSize(width: window.contentLayoutRect.width - 80, height: window.contentLayoutRect.height))
+                        for side in descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewTextView }) {
+                            side.viewWillStartLiveResize()
+                            side.viewDidEndLiveResize()
+                        }
+                    }),
                     ("narrow to 1200", { window.setContentSize(NSSize(width: 1200, height: window.contentLayoutRect.height)) }),
                     ("close diff again", store.closeDiff),
                     ("reopen diff", { model.selectedPath = file }),
