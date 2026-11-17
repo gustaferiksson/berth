@@ -140,9 +140,9 @@ public actor LanguageServer {
         DispatchQueue.global(qos: .utility).async {
             while !errorHandle.availableData.isEmpty {}
         }
-        Task {
-            for await message in messages.stream { receive(message) }
-            exited()
+        Task { [weak self] in
+            for await message in messages.stream { await self?.receive(message) }
+            await self?.exited()
         }
 
         let capabilities: [String: Any] = [
@@ -216,7 +216,7 @@ public actor LanguageServer {
             guard let object = piece as? [String: Any], let value = object["value"] as? String else { return nil }
             guard let language = object["language"] as? String else { return value }
             return "```\(language)\n\(value)\n```"
-        }.filter { !$0.isEmpty }.joined(separator: "\n\n")
+        }.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !markdown.isEmpty else { return nil }
         return LanguageServerHover(markdown: markdown, range: LanguageServerRange(json: hover["range"]))
     }
@@ -224,17 +224,18 @@ public actor LanguageServer {
     public func stop() async {
         guard !hasExited, process.isRunning else { return }
 
+        let deadline = ContinuousClock.now + Self.shutdownTimeout
         let shutdown = Task { _ = try? await request("shutdown", nil) }
         let timeout = Task {
-            try await Task.sleep(for: Self.shutdownTimeout)
+            try await Task.sleep(until: deadline)
             shutdown.cancel()
         }
         await shutdown.value
         timeout.cancel()
 
         try? send(["jsonrpc": "2.0", "method": "exit"])
-        let deadline = ContinuousClock.now + Self.shutdownTimeout
-        while process.isRunning, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+        let exitDeadline = max(deadline, ContinuousClock.now + .milliseconds(500))
+        while process.isRunning, ContinuousClock.now < exitDeadline { try? await Task.sleep(for: .milliseconds(50)) }
         if process.isRunning { process.terminate() }
         try? input.fileHandleForWriting.close()
         exited()
