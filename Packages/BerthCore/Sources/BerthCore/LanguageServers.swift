@@ -22,6 +22,16 @@ public enum LanguageServers {
         languageIDs[URL(filePath: path).pathExtension.lowercased()]
     }
 
+    public static func root(forFile path: String, languageID: String, repositoryRoot: String) -> String? {
+        guard languageID == "swift" else { return repositoryRoot }
+
+        let repository = URL(filePath: repositoryRoot, directoryHint: .isDirectory).standardizedFileURL.path
+        let folders = sequence(first: URL(filePath: repositoryRoot).appending(path: path).deletingLastPathComponent().standardizedFileURL) { folder in
+            folder.path.count > repository.count ? folder.deletingLastPathComponent() : nil
+        }
+        return folders.first { FileManager.default.fileExists(atPath: $0.appending(path: "Package.swift").path) }?.path
+    }
+
     public static func command(forLanguage languageID: String, root: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> LanguageServerCommand? {
         let home = environment["HOME"] ?? NSHomeDirectory()
         let path = (environment["PATH"] ?? "").split(separator: ":").map(String.init)

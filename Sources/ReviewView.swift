@@ -8,7 +8,9 @@ final class ReviewModel {
     private(set) var error: String?
     private(set) var isLoading = false
     private(set) var contents: [String: ReviewContents] = [:]
+    private(set) var language: ReviewLanguage?
     var selectedPath: String?
+    var reveal: (path: String, range: LanguageServerRange)?
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
     var notice: String?
@@ -27,6 +29,10 @@ final class ReviewModel {
             let snapshot = try await ReviewGit.snapshot(in: folder)
             self.snapshot = snapshot
             error = nil
+            if language?.root != snapshot.root {
+                language?.stop()
+                language = ReviewLanguage(root: snapshot.root)
+            }
             contents = [:]
             if !snapshot.files.contains(where: { $0.path == selectedPath }) { selectedPath = nil }
         } catch {
@@ -38,20 +44,31 @@ final class ReviewModel {
     }
 
     func loadSelectedContents() async {
-        guard let snapshot, let file = snapshot.files.first(where: { $0.path == selectedPath }), contents[file.path] == nil else { return }
+        guard let snapshot, let path = selectedPath, contents[path] == nil else { return }
 
         do {
-            let loaded = try await ReviewGit.contents(of: file, in: snapshot)
-            if drafts[file.path] == nil { loadedTexts[file.path] = if case let .text(text)? = loaded.modified { text } else { nil } }
-            editors[file.path] = editors[file.path] ?? ReviewTextView(usingTextLayoutManager: true)
-            contents[file.path] = loaded
+            let file = snapshot.files.first { $0.path == path }
+            let unchanged = file == nil ? try ReviewGit.workingTreeText(path, in: snapshot.root) : nil
+            let loaded = if let file { try await ReviewGit.contents(of: file, in: snapshot) } else { ReviewContents(original: unchanged, modified: unchanged) }
+            if drafts[path] == nil { loadedTexts[path] = if case let .text(text)? = loaded.modified { text } else { nil } }
+            editors[path] = editors[path] ?? ReviewTextView(usingTextLayoutManager: true)
+            contents[path] = loaded
         } catch {
-            notice = "Couldn’t read \(file.path): \(Self.describe(error))"
+            notice = "Couldn’t read \(path): \(Self.describe(error))"
         }
     }
 
+    func goToDefinition(_ location: LanguageServerLocation) {
+        let target = location.url.resolvingSymlinksInPath().path
+        guard let root = snapshot.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root) else { return }
+
+        let path = String(target.dropFirst(root.count))
+        reveal = (path, location.range)
+        selectedPath = path
+    }
+
     func save(_ text: String, to path: String) {
-        guard let snapshot, snapshot.files.contains(where: { $0.path == path && $0.status != .deleted }) else {
+        guard let snapshot, snapshot.files.first(where: { $0.path == path })?.status != .deleted else {
             notice = "\(path) is read only here"
             return
         }
@@ -297,6 +314,7 @@ struct ReviewDiffColumn: View {
     @AppStorage(ReviewStyle.fontFamilyKey) private var fontFamily = ""
     @AppStorage(ReviewStyle.fontSizeKey) private var fontSize = 0.0
     @AppStorage(ReviewStyle.lineHeightKey) private var lineHeight = 1.3
+    @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
 
     var body: some View {
         let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme)
@@ -328,7 +346,11 @@ struct ReviewDiffColumn: View {
                         editor: editor,
                         draft: Bindable(model).drafts[path],
                         comments: Bindable(model).comments,
-                        style: style
+                        style: style,
+                        language: areLanguageServersEnabled ? model.language : nil,
+                        reveal: model.reveal.flatMap { $0.path == path ? $0.range : nil },
+                        onRevealed: { model.reveal = nil },
+                        onDefinition: model.goToDefinition
                     )
                     .id(path)
                 } else {

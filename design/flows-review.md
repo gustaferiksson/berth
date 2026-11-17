@@ -91,6 +91,7 @@ This is the slim first version; the rest is listed under Later.
 | ⌘W, Close Diff | a diff is open, focus outside a terminal | Closes the diff (collapses its column) and focuses the terminal |
 | ⌘S, Save in the header | Review, the file has a draft | Saves it through `ReviewGit.save` |
 | ⌘F | the diff | The focused side's find bar |
+| ⌘-click | an identifier on the right side, language servers on | Goes to its definition |
 | Send N Comments | the panel | See Comments |
 
 ⌘J keeps its meaning (Switch Terminal / Claude).
@@ -104,6 +105,32 @@ This is the slim first version; the rest is listed under Later.
   focuses the terminal (the panel stays). Sent comments are cleared. If Claude isn't running in the tab,
   nothing is pasted and the comments are kept.
 
+## Language servers
+
+- Opt-in: Settings > General "Enable language servers", shown while Review is on, off by
+  default (`languageServersEnabled`). Language servers and the build scripts they run execute the
+  repository's code. Off means no server process ever starts, and turning it off stops them.
+- One server per root and language, owned by the session's `ReviewModel`: started when a file of
+  that language is shown, stopped when the model is dropped. The root is the repository root;
+  Swift roots at the nearest folder with a `Package.swift` above the file, and a Swift file with
+  none gets no server. Servers: sourcekit-lsp, rust-analyzer, typescript-language-server
+  (`LanguageServers`).
+- Only the right side (working tree) talks to the server: its text is opened when shown and sent
+  again 300 ms after the last edit, with the diff recompute. The left side is another revision.
+- Diagnostics: a squiggle under the range (errors in the closed colour, warnings in the needs-you
+  colour, others dimmed) and a dot in the right gutter; hovering either shows the message and
+  source as a tooltip. Diagnostics for other files are kept and show when that file opens.
+- Hover: resting the pointer on an identifier for 500 ms shows the server's hover in a small card
+  below it (code fences monospaced, the rest plain); moving off it, scrolling, typing or clicking
+  dismisses it.
+- ⌘-click: while ⌘ is held the identifier under the pointer gets a link underline and the
+  pointing hand. A click goes to the definition: in the same file it scrolls there (both sides
+  follow) and selects it; a changed file is selected in the panel, then scrolled and selected once
+  loaded; any other file in the repository opens as an unchanged file (identical sides, editable);
+  outside the repository (SDK headers) nothing happens.
+- A content-modified error or an empty answer just after start is retried once after 500 ms. A
+  crashed server never takes Review down; the next file shown starts it again.
+
 ## Trust boundary
 
 Saves go through `ReviewGit.save`: the path is resolved and must stay inside the
@@ -112,5 +139,5 @@ also refused when the file on disk changed since it was loaded.
 
 ## Later
 
-Uncommitted and PR compares; a folder tree and whole-project files; go to definition;
-per-prompt snapshots; posting comments to GitHub.
+Uncommitted and PR compares; a folder tree and whole-project files; preview tabs for
+definitions (#71); per-prompt snapshots; posting comments to GitHub.

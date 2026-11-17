@@ -250,6 +250,100 @@ enum Snapshot {
                 print("\(label) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.filter { $0.1 != $0.2 }.count), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
             }
             report("review")
+            if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedPath {
+                let right = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last }
+                let point = { (textView: ReviewTextView, spec: String) -> NSPoint? in
+                    let numbers = spec.split(separator: ":").compactMap { Int($0) }
+                    guard numbers.count == 2 else { return nil }
+                    let offset = textView.offset(of: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1))
+                    return textView.segments(of: NSRange(location: offset, length: 1)).first.map { NSPoint(x: $0.rect.midX, y: $0.rect.midY) }
+                }
+                let mouse = { (textView: ReviewTextView, type: NSEvent.EventType, location: NSPoint, flags: NSEvent.ModifierFlags) in
+                    guard let event = NSEvent.mouseEvent(with: type, location: textView.convert(location, to: nil), modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .mouseMoved ? 0 : 1) else { return }
+                    if type == .mouseMoved { textView.mouseMoved(with: event) } else { textView.mouseDown(with: event) }
+                }
+                let crop = { (suffix: String, view: NSView, rect: NSRect) in
+                    guard let image = image(of: window) else { return }
+                    let scale = CGFloat(image.width) / window.frame.width
+                    let inWindow = view.convert(rect, to: nil)
+                    let pixels = CGRect(x: inWindow.minX * scale, y: (window.frame.height - inWindow.maxY) * scale, width: inWindow.width * scale, height: inWindow.height * scale)
+                    guard let cropped = image.cropping(to: pixels.integral) else { return }
+                    try? NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
+                }
+                let clock = ContinuousClock.now
+                while ContinuousClock.now - clock < .seconds(120), right()?.diagnostics.isEmpty != false { try? await Task.sleep(for: .milliseconds(250)) }
+                let waited = ContinuousClock.now - clock
+                try? await Task.sleep(for: .milliseconds(500))
+                if let textView = right(), let gutter = textView.gutter {
+                    print("diagnostics shown after \(waited): " + textView.diagnostics.map { "\($0.range.start.line + 1):\($0.range.start.character + 1)-\($0.range.end.line + 1):\($0.range.end.character + 1) \($0.severity.map { "\($0)" } ?? "-") \($0.message.debugDescription) (\($0.source ?? "-"))" }.joined(separator: "; "))
+                    if let first = textView.diagnostics.first, let segment = textView.segments(of: NSRange(location: textView.offset(of: first.range.start), length: 1)).first {
+                        let middle = NSPoint(x: segment.rect.midX, y: segment.rect.midY)
+                        let mark = gutter.convert(middle, from: textView)
+                        print("diagnostic tooltips: text \(textView.view(textView, stringForToolTip: 0, point: middle, userData: nil).debugDescription), gutter \(gutter.view(gutter, stringForToolTip: 0, point: NSPoint(x: 7, y: mark.y), userData: nil).debugDescription)")
+                        crop(".diagnostic.png", gutter, NSRect(x: 0, y: mark.y - 40, width: gutter.bounds.width + 520, height: 80))
+                    }
+                }
+                if UserDefaults.standard.bool(forKey: "snapshotReviewCrash"), let other = model.snapshot?.files.first(where: { $0.path != file })?.path {
+                    let servers = {
+                        ProcessAncestry.descendants().map(\.pid).filter { pid in
+                            var name = [CChar](repeating: 0, count: 256)
+                            proc_name(pid, &name, 256)
+                            return String(decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) == "sourcekit-lsp"
+                        }.sorted()
+                    }
+                    let killed = servers()
+                    killed.forEach { kill($0, SIGKILL) }
+                    try? await Task.sleep(for: .seconds(1.5))
+                    print("crash: killed \(killed), servers now \(servers()), still showing \(model.selectedPath ?? "-") with \(right()?.diagnostics.count ?? -1) diagnostics")
+                    model.selectedPath = other
+                    try? await Task.sleep(for: .seconds(2))
+                    model.selectedPath = file
+                    let clock = ContinuousClock.now
+                    while ContinuousClock.now - clock < .seconds(30), servers().isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
+                    try? await Task.sleep(for: .seconds(3))
+                    print("crash: after showing \(other) and \(file) again, servers \(servers()), diagnostics \(right()?.diagnostics.map(\.message) ?? [])")
+                }
+                if let spec = UserDefaults.standard.string(forKey: "snapshotReviewHover"), let textView = right(), let target = point(textView, spec) {
+                    let requests = textView.layoutManagerRequests
+                    let card = { textView.subviews.first { $0.subviews.first is NSTextField } }
+                    let started = ContinuousClock.now
+                    while ContinuousClock.now - started < .seconds(60), card() == nil {
+                        mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
+                        mouse(textView, .mouseMoved, target, [])
+                        try? await Task.sleep(for: .seconds(2))
+                    }
+                    print("hover \(spec) after \(ContinuousClock.now - started): \((card()?.subviews.first as? NSTextField)?.stringValue.debugDescription ?? "no card"), card \(card().map { "\($0.frame), label \($0.subviews.first?.frame ?? .zero)" } ?? "-"), visible width \(textView.visibleRect.width), layoutManager requests \(requests) → \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)")
+                    if let shown = card() { crop(".hover.png", textView, shown.frame.union(NSRect(x: target.x - 60, y: target.y - 20, width: 120, height: 20)).insetBy(dx: -16, dy: -16)) }
+                    mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
+                    print("hover after moving away: card \(card() == nil ? "dismissed" : "shown")")
+                }
+                for spec in (UserDefaults.standard.string(forKey: "snapshotReviewDefinition") ?? "").split(separator: "|").map(String.init) {
+                    if model.selectedPath != file {
+                        model.selectedPath = file
+                        try? await Task.sleep(for: .seconds(2))
+                    }
+                    guard let textView = right(), let target = point(textView, spec) else { continue }
+                    let requests = textView.layoutManagerRequests
+                    let before = textView.selectedRange()
+                    mouse(textView, .mouseMoved, target, .command)
+                    try? await Task.sleep(for: .milliseconds(300))
+                    crop(".link-\(spec.replacingOccurrences(of: ":", with: "-")).png", textView, NSRect(x: target.x - 120, y: target.y - 20, width: 240, height: 40))
+                    mouse(textView, .leftMouseDown, target, .command)
+                    let started = ContinuousClock.now
+                    while ContinuousClock.now - started < .seconds(20), model.reveal != nil || (model.selectedPath == file && right()?.selectedRange() == before) {
+                        try? await Task.sleep(for: .milliseconds(100))
+                    }
+                    try? await Task.sleep(for: .seconds(1))
+                    guard model.selectedPath != file || right()?.selectedRange() != before, let landed = right() else {
+                        print("definition \(spec): no landing after \(ContinuousClock.now - started) (outside the repository or no answer), selected \(model.selectedPath ?? "-")")
+                        continue
+                    }
+                    let selection = landed.selectedRange()
+                    let position = landed.position(ofOffset: selection.location)
+                    print("definition \(spec): landed in \(model.selectedPath ?? "-") (\(model.snapshot?.files.contains { $0.path == model.selectedPath } == true ? "changed" : "unchanged"), list selection kept \(model.selectedPath != nil)) at \(position.line + 1):\(position.character + 1) selecting \((landed.string as NSString).substring(with: selection).debugDescription), clip y left/right \(descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }), first responder is right \(window.firstResponder === landed), layoutManager requests \(requests) → \(landed.layoutManagerRequests), TextKit 2 \(landed.textLayoutManager != nil)")
+                    save(".definition-\(spec.replacingOccurrences(of: ":", with: "-")).png")
+                }
+            }
             if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last {
                 window.makeFirstResponder(right)
                 right.setSelectedRange(NSRange(location: 0, length: 0))

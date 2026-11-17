@@ -84,7 +84,11 @@ final class Store {
             prepareReviewModel()
         }
     }
-    var reviewModels: [String: ReviewModel] = [:]
+    var reviewModels: [String: ReviewModel] = [:] {
+        didSet {
+            for (id, model) in oldValue where reviewModels[id] !== model { model.language?.stop() }
+        }
+    }
     var terminalSearch: TerminalSearch? {
         didSet {
             guard let terminalSearch, terminalSearch.needle != oldValue?.needle else { return }
