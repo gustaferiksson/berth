@@ -20,6 +20,8 @@ Code reaches `wt` through the `worktrunk@worktrunk` plugin's `WorktreeCreate` an
   After `wt remove`, it continues in the main checkout on `main`. `--resume <id> -w <name>`
   from the main checkout re-enters the worktree, or recreates it when it is gone (reusing
   a surviving branch per the plugin README, not run).
+- `-w` with no name works through the hook: Claude picks a name (`clever-hatching-russell`)
+  used for both folder and branch.
 - No trust prompt in a worktree of a trusted repo, even though `~/.claude.json` has no
   entry for the worktree path (`-snapshotClaude` on `plug-hub.worktrees/one-agent`).
 - A subagent with `isolation: worktree` goes through `wt`: `<repo>.worktrees/agent-<id>`,
@@ -58,12 +60,11 @@ subagents; remove one once its branch is pushed.":
 
 ## Launch (⌘N)
 
-- Picking a folder inside a git repo starts `claude --session-id "$BERTH_SESSION_ID" -w
-  "$BERTH_WORKTREE"` in the main checkout, the name passed through the env like the
-  session id. Outside a git repo, today's plain launch.
-- Open decision: where `BERTH_WORKTREE` comes from (a name typed in the launcher, or one
-  Berth generates).
-- ⌥↩ in the launcher starts in the main checkout instead (reviewing, quick questions).
+- Settings > General "Start new sessions in a worktree" (`startsInWorktree`, off by
+  default). On, picking a folder inside a git repo starts `claude --session-id
+  "$BERTH_SESSION_ID" -w`; Claude names the worktree and branch itself, as with `claude -w`
+  in a terminal. Off, or outside a git repo, today's plain launch.
+- With the setting on, ⌥↩ in the launcher starts in the main checkout instead.
 - Berth never creates worktrees itself; every one goes through Claude and the `wt` hook.
 - ⌘T from a worktree session opens a terminal in the worktree (today's `currentCwd`).
 
@@ -103,7 +104,6 @@ subagents; remove one once its branch is pushed.":
 
 ## Unverified
 
-- `claude -w` with no name through the hook, and what name it picks.
 - `EnterWorktree` and `ExitWorktree` writing `worktree-state` like `-w` does.
 - Background sessions (`bgIsolation: "worktree"`) through `wt`, and `claude attach` to them.
 - `wt` treating a squash-merged branch as integrated (its docs say it does).
