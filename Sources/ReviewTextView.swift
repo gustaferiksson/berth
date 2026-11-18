@@ -2,6 +2,8 @@ import AppKit
 import BerthCore
 
 final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewToolTipOwner {
+    private typealias PointerTarget = (textView: ReviewTextView, range: NSRange, segments: [(rect: NSRect, baseline: CGFloat)])
+
     var style = ReviewStyle(scheme: .oneDark, fontFamily: "", fontSize: 0, lineHeightMultiple: 1.3, ghostty: GhosttyTheme(values: [:]))
     var kind = ReviewComment.Side.modified
     var isAbsent = false
@@ -19,6 +21,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     }
     var onHover: ((Int) async -> String?)?
     var onDefinition: ((Int) -> Void)?
+    var onReferences: ((Int) -> Void)?
     var focusesInWindow = false {
         didSet { if focusesInWindow, window != nil { focusInWindow() } }
     }
@@ -31,8 +34,8 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     private var paragraphStyle = NSParagraphStyle()
     private var isStale = false
     private var diagnosticSegments: [(rect: NSRect, baseline: CGFloat, diagnostic: LanguageServerDiagnostic)] = []
-    private var linkRange: NSRange?
-    private var hoverRange: NSRange?
+    private var link: PointerTarget?
+    private var hoverTarget: PointerTarget?
     private var hoverTask: Task<Void, Never>?
     private var hoverCard: NSView?
     private var flagsMonitor: Any?
@@ -58,6 +61,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         isStale = true
         countLines()
         dismissHover()
+        link = nil
         gutter?.needsDisplay = true
         super.didChangeText()
         placeDiagnostics()
@@ -97,16 +101,44 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         flagsMonitor.map(NSEvent.removeMonitor)
         flagsMonitor = nil
         dismissHover()
-        if linkRange != nil {
-            linkRange = nil
+        if link != nil {
+            link = nil
             needsDisplay = true
         }
     }
 
     override func mouseDown(with event: NSEvent) {
         dismissHover()
-        guard event.modifierFlags.contains(.command), let onDefinition, let identifier = identifier(at: convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
-        onDefinition(identifier.location)
+        guard event.modifierFlags.contains(.command), onDefinition != nil, let target = pointerTarget(at: convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
+        link = nil
+        needsDisplay = true
+        target.textView.onDefinition?(target.range.location)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard event.keyCode == 111, event.modifierFlags.intersection([.shift, .command, .option, .control]) == .shift, onReferences != nil else { return super.keyDown(with: event) }
+        findReferences(nil)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event)
+        guard onReferences != nil, let target = pointerTarget(at: convert(event.locationInWindow, from: nil)), let onReferences = target.textView.onReferences else { return menu }
+
+        let item = NSMenuItem(title: "Find References", action: #selector(findReferences), keyEquivalent: "\u{F70F}")
+        item.keyEquivalentModifierMask = .shift
+        item.target = self
+        item.representedObject = { onReferences(target.range.location) }
+        menu?.insertItem(item, at: 0)
+        menu?.insertItem(.separator(), at: 1)
+        return menu
+    }
+
+    @objc func findReferences(_ sender: Any?) {
+        if let find = (sender as? NSMenuItem)?.representedObject as? () -> Void { return find() }
+
+        let caret = selectedRange().location
+        guard let onReferences, let identifier = identifierRange(at: caret) ?? identifierRange(at: caret - 1) else { return }
+        onReferences(identifier.location)
     }
 
     // NSTextView maps Esc to word completion (complete:).
@@ -142,33 +174,62 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     func dismissHover() {
         hoverTask?.cancel()
         hoverTask = nil
-        hoverRange = nil
+        hoverTarget = nil
         hoverCard?.removeFromSuperview()
         hoverCard = nil
     }
 
     private func pointerMoved(to point: NSPoint, modifiers: NSEvent.ModifierFlags) {
-        let identifier = onHover == nil ? nil : identifier(at: point)
-        let link = modifiers.contains(.command) && onDefinition != nil ? identifier : nil
-        if link != nil || linkRange != nil { (link == nil ? NSCursor.iBeam : .pointingHand).set() }
-        if link != linkRange {
-            linkRange = link
+        let target = onHover == nil ? nil : pointerTarget(at: point)
+        let newLink = modifiers.contains(.command) && onDefinition != nil ? target : nil
+        if newLink != nil || link != nil { (newLink == nil ? NSCursor.iBeam : .pointingHand).set() }
+        if newLink?.textView !== link?.textView || newLink?.range != link?.range {
+            link = newLink
             needsDisplay = true
         }
-        guard identifier != hoverRange else { return }
+        guard target?.textView !== hoverTarget?.textView || target?.range != hoverTarget?.range else { return }
 
         dismissHover()
-        hoverRange = identifier
-        guard let identifier, let onHover else { return }
+        hoverTarget = target
+        guard let target, let onHover = target.textView.onHover, let anchor = target.segments.first?.rect else { return }
         hoverTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled, let markdown = await onHover(identifier.location), !Task.isCancelled else { return }
-            self?.showHover(markdown, below: identifier)
+            guard !Task.isCancelled, let markdown = await onHover(target.range.location), !Task.isCancelled else { return }
+            self?.showHover(markdown, below: anchor)
         }
     }
 
-    private func showHover(_ markdown: String, below range: NSRange) {
-        guard let anchor = segments(of: range).first?.rect else { return }
+    private func pointerTarget(at point: NSPoint) -> PointerTarget? {
+        if let identifier = identifier(at: point) { return (self, identifier, segments(of: identifier)) }
+        guard let original = unifiedOriginal, let side, let originalSide = original.side, side.lineCount == lineStarts.count else { return nil }
+
+        let row = (0..<side.rowCount).partitioningIndex { top(ofRow: $0) > point.y } - 1
+        let line = originalSide.rows.partitioningIndex { $0 >= row }
+        guard originalSide.rows.indices.contains(line), originalSide.rows[line] == row, originalSide.changedLines.contains(line), point.y < top(ofRow: row) + rowHeight,
+              let found = original.identifier(onLine: line, atX: point.x - textContainerOrigin.x)
+        else { return nil }
+        let rect = NSRect(x: found.x.lowerBound + textContainerOrigin.x, y: top(ofRow: row), width: found.x.upperBound - found.x.lowerBound, height: rowHeight - rowPadding)
+        return (original, found.range, [(rect, rect.maxY + style.font.descender)])
+    }
+
+    private func identifier(onLine line: Int, atX x: CGFloat) -> (range: NSRange, x: ClosedRange<CGFloat>)? {
+        guard let storage = textContentStorage, let manager = textLayoutManager, lineStarts.indices.contains(line),
+              let location = storage.location(storage.documentRange.location, offsetBy: lineStarts[line]), let lineRange = NSTextRange(location: location, end: storage.location(location, offsetBy: 1) ?? location)
+        else { return nil }
+
+        manager.ensureLayout(for: lineRange)
+        guard let fragment = manager.textLayoutFragment(for: location), let first = fragment.textLineFragments.first else { return nil }
+        let offset = fragment.layoutFragmentFrame.minX + first.typographicBounds.minX
+        let index = lineStarts[line] + first.characterIndex(for: CGPoint(x: x - offset, y: first.typographicBounds.midY))
+        for range in [identifierRange(at: index), identifierRange(at: index - 1)].compactMap(\.self) {
+            let start = first.locationForCharacter(at: range.location - lineStarts[line]).x + offset
+            let end = first.locationForCharacter(at: NSMaxRange(range) - lineStarts[line]).x + offset
+            if (min(start, end)...max(start, end)).contains(x) { return (range, min(start, end)...max(start, end)) }
+        }
+        return nil
+    }
+
+    private func showHover(_ markdown: String, below anchor: NSRect) {
 
         let text = NSMutableAttributedString()
         var isCode = false
@@ -451,9 +512,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
             style.color(for: segment.diagnostic.severity).setStroke()
             wave.stroke()
         }
-        if let linkRange {
+        if let link {
             style.link.setFill()
-            for segment in segments(of: linkRange) { NSRect(x: segment.rect.minX, y: segment.baseline + 2, width: segment.rect.width, height: 1).fill() }
+            for segment in link.textView === self ? segments(of: link.range) : link.segments { NSRect(x: segment.rect.minX, y: segment.baseline + 2, width: segment.rect.width, height: 1).fill() }
         }
     }
 

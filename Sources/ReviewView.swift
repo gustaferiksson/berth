@@ -181,9 +181,16 @@ final class ReviewModel {
         guard let root = changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root) else { return }
 
         let path = String(target.dropFirst(root.count))
-        let document = selectedDocument.flatMap { $0.path == path ? $0 : nil } ?? workingDocument(path)
+        let isReadOnly = selectedDocument?.compare == .committed && changes?.uncommitted.contains { $0.path == path } != false
+        let document = selectedDocument.flatMap { $0.path == path && !isReadOnly ? $0 : nil } ?? workingDocument(path)
         reveal = (document, location.range)
         open(document)
+    }
+
+    func workingText(_ path: String) -> String? {
+        if let editor = editors[path] { return editor.string }
+        guard let root = changes?.root, case let .text(text)? = try? ReviewGit.workingTreeText(path, in: root) else { return nil }
+        return text
     }
 
     func save(_ text: String, to path: String) {
@@ -839,12 +846,13 @@ struct ReviewDiffColumn: View {
                             }),
                             comments: Bindable(model).comments,
                             style: style,
-                            language: areLanguageServersEnabled && !isReadOnly ? model.language : nil,
+                            language: areLanguageServersEnabled ? model.language : nil,
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
                             isUnified: isUnified || document.compare == nil,
                             takesFocus: model.focusesEditor,
                             onRevealed: { model.reveal = nil },
-                            onDefinition: model.goToDefinition
+                            onDefinition: model.goToDefinition,
+                            workingText: { model.workingText(path) }
                         )
                         .id(document)
                         .id(isReadOnly)
