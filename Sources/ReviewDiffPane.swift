@@ -145,6 +145,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         coordinator.ruler.original = coordinator.left
         coordinator.ruler.modified = coordinator.right
         for view in [coordinator.minimap, coordinator.ruler] {
+            view.clipsToBounds = true
             view.setContentHuggingPriority(.required, for: .horizontal)
             view.setContentCompressionResistancePriority(.required, for: .horizontal)
         }
@@ -232,6 +233,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
             gutter.textView = textView
             gutter.drawsSeparator = textView === right
+            gutter.clipsToBounds = true
             gutter.setContentHuggingPriority(.required, for: .horizontal)
             gutter.setContentCompressionResistancePriority(.required, for: .horizontal)
             textView.gutter = gutter
