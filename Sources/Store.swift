@@ -84,6 +84,7 @@ final class Store {
             prepareReviewModel()
         }
     }
+    var isReviewDiffUnified = false
     var reviewModels: [String: ReviewModel] = [:] {
         didSet {
             for (id, model) in oldValue where reviewModels[id] !== model { model.language?.stop() }

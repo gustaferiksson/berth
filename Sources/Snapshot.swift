@@ -731,8 +731,10 @@ enum Snapshot {
             let state = {
                 let focused = store.tabs.firstIndex { $0.terminal.attachedPlatformView === window.firstResponder }.map { "#\($0)" } ?? window.firstResponder.map { "\(type(of: $0))" } ?? "nil"
                 let split = (descendantViews(window.contentView ?? NSView()).first { $0.identifier?.rawValue == "terminalSplit" } as? NSSplitView).map { split in split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" } } ?? []
-                return "split \(split), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
+                let layout = "layout \(UserDefaults.standard.string(forKey: ReviewDiffLayout.key) ?? "unset"), shown \((descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last?.unifiedOriginal).map { _ in "unified" } ?? "side by side"), offered \([AppAction.showSideBySide, .showInline].filter { $0.isAvailable(in: store) }.map(\.title))"
+                return "split \(split), \(layout), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
             }
+            let savedLayout = UserDefaults.standard.object(forKey: ReviewDiffLayout.key)
             print("start: \(state())")
             print("key window is snapshot: \(NSApp.keyWindow === window), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             let observer = NotificationCenter.default.addObserver(forName: NSMenu.willSendActionNotification, object: nil, queue: nil) { note in
@@ -765,6 +767,18 @@ enum Snapshot {
                     }
                     try? await Task.sleep(for: .seconds(1))
                     print("\(spec) (sends a real \(spec.hasPrefix("dbl") ? "double-click" : "click") at that point, top-left origin):\n  \(state())")
+                    continue
+                }
+                if spec.hasPrefix("layout:") {
+                    UserDefaults.standard.set(spec == "layout:auto" ? nil : String(spec.dropFirst(7)), forKey: ReviewDiffLayout.key)
+                    try? await Task.sleep(for: .seconds(1))
+                    print("\(spec) (writes reviewDiffLayout, restored after the run):\n  \(state())")
+                    continue
+                }
+                if spec.hasPrefix("width:"), let width = Double(spec.dropFirst(6)) {
+                    window.setContentSize(NSSize(width: width, height: window.contentLayoutRect.height))
+                    try? await Task.sleep(for: .seconds(1))
+                    print("\(spec) (sets the window width):\n  \(state())")
                     continue
                 }
                 if spec.hasPrefix("shot:") {
@@ -815,6 +829,7 @@ enum Snapshot {
                 try? await Task.sleep(for: .milliseconds(100))
             }
             NotificationCenter.default.removeObserver(observer)
+            UserDefaults.standard.set(savedLayout, forKey: ReviewDiffLayout.key)
         }
         if let keys = launcherKeys {
             let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }

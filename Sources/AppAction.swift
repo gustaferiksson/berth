@@ -4,11 +4,11 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, settings, checkForUpdates
+    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showSideBySide, showInline, settings, checkForUpdates
 
     static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
-        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .settings, .checkForUpdates]
+        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showSideBySide, .showInline, .settings, .checkForUpdates]
     static let routedPastTerminal = ([.commandPalette] + palette).filter { $0.shortcut != nil }
 
     var title: String {
@@ -31,6 +31,8 @@ enum AppAction: Hashable {
         case .harbor: "Harbor"
         case .showChanges: "Show Changes"
         case .hideChanges: "Hide Changes"
+        case .showSideBySide: "Show Side by Side"
+        case .showInline: "Show Inline"
         case .settings: "Settings…"
         case .checkForUpdates: "Check for Updates…"
         }
@@ -49,6 +51,7 @@ enum AppAction: Hashable {
         case .showStats: "usage tokens charts activity"
         case .harbor: "ambient boats piers overview"
         case .showChanges, .hideChanges: "review diff branch changes comments panel"
+        case .showSideBySide, .showInline: "review diff layout split unified inline toggle"
         case .settings: "preferences"
         case .checkForUpdates: "update version release"
         default: ""
@@ -74,6 +77,8 @@ enum AppAction: Hashable {
         case .showStats: "chart.bar.xaxis"
         case .harbor: "sailboat"
         case .showChanges, .hideChanges: "plus.forwardslash.minus"
+        case .showSideBySide: "rectangle.split.2x1"
+        case .showInline: "rectangle"
         case .settings: "gear"
         case .checkForUpdates: "arrow.down.circle"
         }
@@ -104,6 +109,8 @@ enum AppAction: Hashable {
         case let .groupBy(mode): store.groupingMode != mode
         case .showChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && (!store.showsReviewPanel || store.isHarborShown)
         case .hideChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.showsReviewPanel && !store.isHarborShown
+        case .showSideBySide, .showInline:
+            AppAction.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocument?.compare != nil && store.isReviewDiffUnified == (self == .showSideBySide)
         default: true
         }
     }
@@ -130,6 +137,8 @@ enum AppAction: Hashable {
             store.showsReviewPanel = true
             store.isHarborShown = false
         case .hideChanges: store.showsReviewPanel = false
+        case .showSideBySide: UserDefaults.standard.set(ReviewDiffLayout.sideBySide.rawValue, forKey: ReviewDiffLayout.key)
+        case .showInline: UserDefaults.standard.set(ReviewDiffLayout.inline.rawValue, forKey: ReviewDiffLayout.key)
         case .settings: store.isSettingsRequested = true
         case .checkForUpdates: store.updater.check(.manual)
         }

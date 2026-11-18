@@ -15,6 +15,14 @@ struct ReviewTab: Identifiable {
     var document: ReviewDocument { history[index] }
 }
 
+enum ReviewDiffLayout: String {
+    case auto
+    case sideBySide
+    case inline
+
+    static let key = "reviewDiffLayout"
+}
+
 enum ReviewList: Hashable {
     case changes
     case files
@@ -613,7 +621,10 @@ struct ReviewDiffColumn: View {
     @AppStorage(ReviewStyle.fontSizeKey) private var fontSize = 0.0
     @AppStorage(ReviewStyle.lineHeightKey) private var lineHeight = 1.3
     @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
-    @State private var isUnified = false
+    @AppStorage(ReviewDiffLayout.key) private var diffLayout = ReviewDiffLayout.auto
+    @State private var isNarrow = false
+
+    private var isUnified: Bool { diffLayout == .inline || diffLayout == .auto && isNarrow }
 
     var body: some View {
         let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme)
@@ -649,6 +660,10 @@ struct ReviewDiffColumn: View {
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 1)
                                 .background(Color(nsColor: style.foreground).opacity(0.08), in: .rect(cornerRadius: 4))
+                            Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
+                                diffLayout = isUnified ? .sideBySide : .inline
+                            }
+                            .help(isUnified ? "Show Side by Side" : "Show Inline")
                         }
                         Spacer(minLength: 8)
                         if !isCommitted, let draft = model.drafts[path] {
@@ -697,7 +712,8 @@ struct ReviewDiffColumn: View {
         .foregroundStyle(Color(nsColor: style.foreground))
         .background(Color(nsColor: style.background))
         .environment(\.colorScheme, style.isDark ? .dark : .light)
-        .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { isUnified = $0 }
+        .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { isNarrow = $0 }
+        .onChange(of: isUnified, initial: true) { store.isReviewDiffUnified = isUnified }
         .environment(store)
         .environment(\.ghosttyTheme, store.theme)
     }
