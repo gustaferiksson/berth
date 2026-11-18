@@ -1,5 +1,6 @@
 import AppKit
 import BerthCore
+import SwiftUI
 
 struct ReviewReference {
     let path: String
@@ -8,7 +9,7 @@ struct ReviewReference {
     let isBase: Bool
 }
 
-final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextViewDelegate {
+final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextViewDelegate, NSSplitViewDelegate {
     private final class Group {
         let title: String
         let rows: [Row]
@@ -48,9 +49,11 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
     let list = ReviewReferencesList()
     private let header = NSTextField(labelWithString: "")
     private let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close") ?? NSImage(), target: nil, action: nil)
-    private let preview = NSTextView(usingTextLayoutManager: true)
+    private let preview = ReviewReferencesPreview(usingTextLayoutManager: true)
     private let previewScroll = NSScrollView()
     private let listScroll = NSScrollView()
+    let split = ReviewSplitView()
+    @AppStorage("reviewReferencesSplitRatio") private var listRatio = 0.38
     private let groups: [Group]
     private let style: ReviewStyle
     private let onOpen: (ReviewReference) -> Void
@@ -125,7 +128,18 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
         listScroll.autohidesScrollers = true
         listScroll.drawsBackground = false
 
-        for view in [header, close, previewScroll, listScroll] { addSubview(view) }
+        split.isVertical = true
+        split.dividerStyle = .thin
+        split.delegate = self
+        split.resetRatio = 1 - 0.38
+        split.onDrag = { [weak self] ratio in
+            guard let self else { return }
+            listRatio = 1 - ratio
+            split.resizeSubviews(withOldSize: split.frame.size)
+        }
+        split.addSubview(previewScroll)
+        split.addSubview(listScroll)
+        for view in [header, close, split] { addSubview(view) }
         list.reloadData()
         list.expandItem(nil, expandChildren: true)
         let start = groups.first?.rows.first
@@ -151,19 +165,48 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
     override func layout() {
         super.layout()
         let headerHeight: CGFloat = 26
-        let listWidth = (bounds.width < 480 ? bounds.width / 2 : max(bounds.width * 0.38, 240)).rounded()
         header.frame = NSRect(x: 10, y: (headerHeight - 16) / 2, width: bounds.width - 44, height: 16)
         close.frame = NSRect(x: bounds.width - 26, y: (headerHeight - 16) / 2, width: 16, height: 16)
-        previewScroll.frame = NSRect(x: 1, y: headerHeight, width: bounds.width - listWidth - 1, height: bounds.height - headerHeight - 1)
-        listScroll.frame = NSRect(x: bounds.width - listWidth, y: headerHeight, width: listWidth - 1, height: bounds.height - headerHeight - 1)
-        list.tableColumns.first?.width = listWidth - 24
+        split.frame = NSRect(x: 1, y: headerHeight, width: bounds.width - 2, height: bounds.height - headerHeight - 1)
         scrollPreview()
+    }
+
+    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        let available = splitView.bounds.width - splitView.dividerThickness
+        guard available > 0 else { return splitView.adjustSubviews() }
+
+        let minimum = min(100, (available / 2).rounded(.down))
+        let position = min(max((1 - listRatio) * available, minimum), available - minimum).rounded()
+        let height = splitView.bounds.height
+        previewScroll.frame = NSRect(x: 0, y: 0, width: position, height: height)
+        listScroll.frame = NSRect(x: position + splitView.dividerThickness, y: 0, width: available - position, height: height)
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        max(proposedMinimumPosition, min(100, ((splitView.bounds.width - splitView.dividerThickness) / 2).rounded(.down)))
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        let available = splitView.bounds.width - splitView.dividerThickness
+        return min(proposedMaximumPosition, available - min(100, (available / 2).rounded(.down)))
+    }
+
+    func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
+        drawnRect.insetBy(dx: -3, dy: 0)
+    }
+
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        list.tableColumns.first?.width = listScroll.frame.width - 23
+        window?.invalidateCursorRects(for: self)
     }
 
     override func mouseDown(with event: NSEvent) {}
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .arrow)
+        let divider = convert(NSRect(x: previewScroll.frame.maxX, y: 0, width: split.dividerThickness, height: split.bounds.height), from: split).insetBy(dx: -3, dy: 0)
+        addCursorRect(NSRect(x: 0, y: 0, width: bounds.width, height: divider.minY), cursor: .arrow)
+        addCursorRect(NSRect(x: 0, y: divider.minY, width: divider.minX, height: bounds.height - divider.minY), cursor: .arrow)
+        addCursorRect(NSRect(x: divider.maxX, y: divider.minY, width: bounds.width - divider.maxX, height: bounds.height - divider.minY), cursor: .arrow)
     }
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -178,6 +221,10 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
 
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
         item is Group
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+        ReviewReferencesRowView()
     }
 
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -269,5 +316,20 @@ final class ReviewReferencesList: NSOutlineView {
         } else {
             super.keyDown(with: event)
         }
+    }
+}
+
+private final class ReviewReferencesRowView: NSTableRowView {
+    override var isEmphasized: Bool {
+        get { false }
+        set {}
+    }
+}
+
+private final class ReviewReferencesPreview: NSTextView {
+    override func viewDidEndLiveResize() {
+        let origin = enclosingScrollView?.contentView.bounds.origin
+        super.viewDidEndLiveResize()
+        if let origin { scroll(origin) }
     }
 }
