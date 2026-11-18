@@ -19,6 +19,14 @@ enum SettingsSnapshot {
             exit(1)
         }
         try? await Task.sleep(for: .seconds(1.5))
+        if let offset = UserDefaults.standard.object(forKey: "settingsScroll") as? String, let y = Double(offset) {
+            func scrollViews(_ view: NSView) -> [NSScrollView] { (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews) }
+            for scrollView in scrollViews(window.contentView ?? NSView()) {
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+            try? await Task.sleep(for: .seconds(0.5))
+        }
         guard let image = image(of: window) else { exit(1) }
         try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: output)
         exit(0)

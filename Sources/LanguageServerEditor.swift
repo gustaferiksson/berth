@@ -31,12 +31,11 @@ struct LanguageServerEditor: View {
                 .font(.headline)
             Form {
                 TextField("Name", text: $server.name, prompt: Text("Biome"))
-                TextField("Command", text: $server.command, prompt: Text("biome"))
-                TextField("Arguments", text: $arguments, prompt: Text("lsp-proxy"))
+                TextField("Command", text: $server.command, prompt: Text("biome or /path/to/server"))
+                TextField("Arguments", text: $arguments, prompt: Text("None"))
                 TextField("Languages", text: $languages, prompt: Text("ts, tsx, json"))
-                TextField("Root markers", text: $rootMarkers, prompt: Text("biome.json, biome.jsonc"))
-                TextField("Settings", text: $settings, prompt: Text("JSON object"), axis: .vertical)
-                    .font(.body.monospaced())
+                TextField("Root markers", text: $rootMarkers, prompt: Text("None, starts in the repository root"))
+                TextField("Settings", text: $settings, prompt: Text("None, or a JSON object"), axis: .vertical)
                     .lineLimit(2...6)
                 Picker("Provides", selection: $server.isDiagnosticsOnly) {
                     Text("Diagnostics, definition and hover").tag(false)
@@ -44,8 +43,9 @@ struct LanguageServerEditor: View {
                 }
             }
             .formStyle(.columns)
-            Text("Languages are file extensions or language ids. Without root markers the server starts in the repository root. Settings answer the server’s configuration requests.")
+            Text("Languages are file extensions or language ids. Settings answer the server’s configuration requests.")
                 .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
                 .foregroundStyle(.secondary)
             HStack {
                 if let builtIn = LanguageServerEntry.defaults.first(where: { $0.id == server.id }) {
