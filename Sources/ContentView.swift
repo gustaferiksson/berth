@@ -288,8 +288,10 @@ private final class TerminalSplitController: NSSplitViewController {
 
 private struct TerminalArea: View {
     let store: Store
+    @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
 
     var body: some View {
+        let selected = store.tabs.first { $0.id == store.selectedTabID }
         ZStack {
             ForEach(store.tabs) { tab in
                 let isSelected = tab.id == store.selectedTabID && !store.isHarborShown
@@ -305,6 +307,18 @@ private struct TerminalArea: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if isReviewEnabled, store.showsReviewPanel, !store.isHarborShown {
+                VStack(spacing: 0) {
+                    if let selected {
+                        TerminalHeader(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
+                    }
+                    Spacer(minLength: 0)
+                    Divider()
+                }
+                .frame(height: 33)
+            }
+        }
         .overlay(alignment: .topTrailing) {
             if store.terminalSearch != nil {
                 TerminalFindBar()
@@ -313,6 +327,23 @@ private struct TerminalArea: View {
         }
         .environment(store)
         .environment(\.ghosttyTheme, store.theme)
+    }
+}
+
+private struct TerminalHeader: View {
+    let tab: Tab
+    @ObservedObject var terminal: TerminalViewState
+    let sessionTitle: String?
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        Label(tab.title(terminalTitle: terminal.title, sessionTitle: sessionTitle), systemImage: tab.kind == .claude ? "sparkle" : "apple.terminal")
+            .font(.callout)
+            .foregroundStyle(theme.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
 

@@ -746,8 +746,15 @@ struct ReviewDiffColumn: View {
                     }
                 }
             } else {
-                ContentUnavailableView("No File Open", systemImage: "doc", description: Text("Click a file in the panel to open it."))
-                    .foregroundStyle(Color(nsColor: style.secondary))
+                VStack(spacing: 0) {
+                    Spacer()
+                        .frame(height: 32)
+                    Divider()
+                    Text("No File Open")
+                        .font(.title2)
+                        .foregroundStyle(Color(nsColor: style.secondary))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
