@@ -733,15 +733,16 @@ enum Snapshot {
                 let split = (descendantViews(window.contentView ?? NSView()).first { $0.identifier?.rawValue == "terminalSplit" } as? NSSplitView).map { split in split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" } } ?? []
                 let layout = "layout \(UserDefaults.standard.string(forKey: ReviewDiffLayout.key) ?? "unset"), shown \((descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last?.unifiedOriginal).map { _ in "unified" } ?? "side by side"), offered \([AppAction.showSideBySide, .showInline].filter { $0.isAvailable(in: store) }.map(\.title))"
                 let review = store.reviewModel.map { "review \($0.folder) \($0.changes.map { "\($0.branch) uncommitted \($0.uncommitted.map { "\($0.path) +\($0.additions ?? 0) -\($0.deletions ?? 0)" }) committed \($0.committed.map(\.path))" } ?? "not loaded"), loads \($0.loadCount)\($0.error.map { ", error \($0)" } ?? "")\($0.movedFolder.map { ", movedFolder \($0)" } ?? "")" } ?? "no review"
-                return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription) (\($0.string.count) characters), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
+                return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { textView in ", text \(textView.string.prefix(16).debugDescription) (\(textView.string.count) characters), can undo \(textView.undoManager?.canUndo == true), can redo \(textView.undoManager?.canRedo == true), carets \(textView.carets.ranges.map { "\(textView.position(ofOffset: $0.location).line + 1):\(textView.position(ofOffset: $0.location).character + 1)+\($0.length)" }) primary #\(textView.carets.primary), layoutManager requests \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)" } ?? "")
             }
             let savedLayout = UserDefaults.standard.object(forKey: ReviewDiffLayout.key)
+            let savedPasteboard = NSPasteboard.general.string(forType: .string)
             print("start: \(state())")
             print("key window is snapshot: \(NSApp.keyWindow === window), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             let observer = NotificationCenter.default.addObserver(forName: NSMenu.willSendActionNotification, object: nil, queue: nil) { note in
                 print("  menu action: \((note.userInfo?["MenuItem"] as? NSMenuItem)?.title ?? "?")")
             }
-            let keyCodes: [String: UInt16] = ["r": 15, "x": 7, "z": 6, "a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "3": 20, "9": 25, "g": 5, "esc": 53, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27]
+            let keyCodes: [String: UInt16] = ["r": 15, "x": 7, "z": 6, "a": 0, "s": 1, "f": 3, "c": 8, "v": 9, "q": 12, "w": 13, "t": 17, "1": 18, "2": 19, "3": 20, "9": 25, "g": 5, "esc": 53, "]": 30, "[": 33, "enter": 36, "j": 38, "k": 40, ",": 43, "n": 45, "tab": 48, "=": 24, "-": 27, "d": 2, "l": 37, "u": 32, "i": 34, "up": 126, "down": 125, "left": 123, "right": 124, "delete": 51, "f2": 120]
             let flagNames: [String: NSEvent.ModifierFlags] = ["cmd": .command, "shift": .shift, "alt": .option, "ctrl": .control]
             let gap = UserDefaults.standard.string(forKey: "snapshotKeysGap").flatMap(Int.init) ?? 400
             for spec in keys.split(separator: " ").map(String.init) {
@@ -768,6 +769,23 @@ enum Snapshot {
                     }
                     try? await Task.sleep(for: .seconds(1))
                     print("\(spec) (sends a real \(spec.hasPrefix("dbl") ? "double-click" : "click") at that point, top-left origin):\n  \(state())")
+                    continue
+                }
+                if spec.hasPrefix("altclick:") || spec.hasPrefix("altdrag:"), let right = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewTextView }).last {
+                    let points = spec.split(separator: ":", maxSplits: 1).last?.split(separator: "-").compactMap { position -> NSPoint? in
+                        let numbers = position.split(separator: ":").compactMap { Int($0) }
+                        guard numbers.count == 2, let rect = right.segments(of: NSRange(location: right.offset(of: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1)), length: 0)).first?.rect else { return nil }
+                        return right.convert(NSPoint(x: rect.minX + 1, y: rect.midY), to: nil)
+                    } ?? []
+                    let flags: NSEvent.ModifierFlags = spec.hasPrefix("altdrag:") ? [.option, .shift] : .option
+                    let event = { (type: NSEvent.EventType, location: NSPoint) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) }
+                    if let first = points.first, let last = points.last {
+                        event(.leftMouseDown, first).map(right.mouseDown)
+                        if points.count > 1 { event(.leftMouseDragged, last).map(right.mouseDragged) }
+                        event(.leftMouseUp, last).map(right.mouseUp)
+                    }
+                    try? await Task.sleep(for: .milliseconds(gap))
+                    print("\(spec) (sends the right side ⌥ mouse events at that line:column, ⇧⌥ from the first to the second for altdrag):\n  \(state())")
                     continue
                 }
                 if spec.hasPrefix("git:"), let folder = store.reviewModel?.folder {
@@ -832,7 +850,7 @@ enum Snapshot {
                 let parts = spec.split(separator: "+").map(String.init)
                 guard let key = parts.last, let keyCode = keyCodes[key] else { continue }
                 let flags = NSEvent.ModifierFlags(parts.dropLast().compactMap { flagNames[$0] })
-                let characters = ["enter": "\r", "tab": "\t", "esc": "\u{1B}"][key] ?? key
+                let characters = ["enter": "\r", "tab": "\t", "esc": "\u{1B}", "up": "\u{F700}", "down": "\u{F701}", "left": "\u{F702}", "right": "\u{F703}", "delete": "\u{7F}"][key] ?? key
                 print("\(spec):")
                 // Only a synthesized plain key sent to the window types; only a CGEvent-backed chord (51 is its private window number field) matches ⇧⌘Z.
                 if flags.isEmpty, let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) {
@@ -851,6 +869,10 @@ enum Snapshot {
             }
             NotificationCenter.default.removeObserver(observer)
             UserDefaults.standard.set(savedLayout, forKey: ReviewDiffLayout.key)
+            if let savedPasteboard {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(savedPasteboard, forType: .string)
+            }
         }
         if let keys = launcherKeys {
             let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }

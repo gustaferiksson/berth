@@ -5,11 +5,13 @@ enum AppAction: Hashable {
     case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
     case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showSideBySide, showInline, save, settings, checkForUpdates
+    case caret(CaretAction)
 
     static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
         + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showSideBySide, .showInline, .save, .settings, .checkForUpdates]
-    static let routedPastTerminal = ([.commandPalette] + palette).filter { $0.shortcut != nil }
+    static let carets = CaretAction.allCases.map(AppAction.caret)
+    static let routedPastTerminal = ([.commandPalette] + palette + carets).filter { $0.shortcut != nil }
 
     var title: String {
         switch self {
@@ -36,6 +38,7 @@ enum AppAction: Hashable {
         case .save: "Save"
         case .settings: "Settings…"
         case .checkForUpdates: "Check for Updates…"
+        case let .caret(action): action.rawValue
         }
     }
 
@@ -84,6 +87,7 @@ enum AppAction: Hashable {
         case .save: "square.and.arrow.down"
         case .settings: "gear"
         case .checkForUpdates: "arrow.down.circle"
+        case .caret: "character.cursor.ibeam"
         }
     }
 
@@ -101,6 +105,7 @@ enum AppAction: Hashable {
         case .showChanges, .hideChanges: KeyboardShortcut("r", modifiers: [.command, .shift])
         case .save: KeyboardShortcut("s")
         case .settings: KeyboardShortcut(",")
+        case let .caret(action): action.shortcut
         default: nil
         }
     }
@@ -116,6 +121,7 @@ enum AppAction: Hashable {
         case .showSideBySide, .showInline:
             AppAction.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocument?.compare != nil && store.isReviewDiffUnified == (self == .showSideBySide)
         case .save: AppAction.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { model.drafts[$0.path] } } != nil
+        case .caret: store.isReviewTextFocused
         default: true
         }
     }
@@ -148,6 +154,7 @@ enum AppAction: Hashable {
             if isAvailable(in: store), let model = store.reviewModel, let path = model.selectedDocument?.path, let text = model.editors[path]?.string { model.save(text, to: path) }
         case .settings: store.isSettingsRequested = true
         case .checkForUpdates: store.updater.check(.manual)
+        case let .caret(action): (NSApp.keyWindow?.firstResponder as? ReviewTextView)?.performCaretAction(action)
         }
     }
 
@@ -167,5 +174,30 @@ enum AppAction: Hashable {
     func menuButton(_ store: Store) -> some View {
         Button(title) { perform(on: store) }
             .keyboardShortcut(shortcut)
+    }
+}
+
+enum CaretAction: String, CaseIterable {
+    case addCursorAbove = "Add Cursor Above"
+    case addCursorBelow = "Add Cursor Below"
+    case addNextOccurrence = "Add Next Occurrence"
+    case moveLastSelectionToNextOccurrence = "Move Last Selection to Next Occurrence"
+    case selectAllOccurrences = "Select All Occurrences"
+    case changeAllOccurrences = "Change All Occurrences"
+    case addCursorsToLineEnds = "Add Cursors to Line Ends"
+    case undoCursor = "Undo Last Cursor Operation"
+    case collapseCursors = "Collapse to One Cursor"
+
+    var shortcut: KeyboardShortcut? {
+        switch self {
+        case .addCursorAbove: KeyboardShortcut(.upArrow, modifiers: [.command, .option])
+        case .addCursorBelow: KeyboardShortcut(.downArrow, modifiers: [.command, .option])
+        case .addNextOccurrence: KeyboardShortcut("d")
+        case .selectAllOccurrences: KeyboardShortcut("l", modifiers: [.command, .shift])
+        case .changeAllOccurrences: KeyboardShortcut(KeyEquivalent(Character("\u{F705}")))
+        case .addCursorsToLineEnds: KeyboardShortcut("i", modifiers: [.shift, .option])
+        case .undoCursor: KeyboardShortcut("u")
+        case .moveLastSelectionToNextOccurrence, .collapseCursors: nil
+        }
     }
 }

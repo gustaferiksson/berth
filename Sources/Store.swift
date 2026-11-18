@@ -85,6 +85,7 @@ final class Store {
         }
     }
     var isReviewDiffUnified = false
+    var isReviewTextFocused = false
     @ObservationIgnored private var reviewWatcher: FileWatcher?
     @ObservationIgnored private var reviewReload: Task<Void, Never>?
     @ObservationIgnored private var reviewIgnored: [String] = []
