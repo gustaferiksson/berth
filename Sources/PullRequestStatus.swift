@@ -1,3 +1,4 @@
+import BerthCore
 import Foundation
 
 nonisolated enum PullRequestState: String, Sendable {
@@ -89,6 +90,11 @@ nonisolated enum PullRequestStatus {
                 return PullRequest(number: node.number, url: node.url, title: node.title, state: state)
             })
         }
+    }
+
+    static func detail(repository: String, number: Int) -> PullRequestDetail? {
+        guard let gh, let arguments = PullRequestDetail.arguments(repository: repository, number: number), let output = run(gh, arguments: arguments) else { return nil }
+        return PullRequestDetail.parse(output)
     }
 
     private static func run(_ executable: String, arguments: [String]) -> Data? {

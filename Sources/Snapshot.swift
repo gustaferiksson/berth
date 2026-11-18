@@ -41,7 +41,17 @@ enum Snapshot {
     private static let reviewPullRequest: [(session: SessionSummary, pullRequest: PullRequest?)] = {
         guard let folder = UserDefaults.standard.string(forKey: "snapshotReview"), let branch = UserDefaults.standard.string(forKey: "snapshotReviewPullRequest") else { return [] }
         let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch)
-        return [(session, PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries against settlement exports and flag every mismatch", state: .open))]
+        let state = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestState") ?? "Open"
+        return [(session, PullRequestState(rawValue: state.capitalized).map { PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries against settlement exports and flag every mismatch", state: $0) })]
+    }()
+
+    static let fixturePullRequestDetail: PullRequestDetail? = {
+        let counts = (UserDefaults.standard.string(forKey: "snapshotReviewChecks") ?? "").split(separator: ":").compactMap { Int($0) }
+        guard counts.count == 4 else { return nil }
+        let state = counts[1] > 0 ? "FAILURE" : counts[2] > 0 ? "PENDING" : "SUCCESS"
+        let threads = Array(repeating: #"{"isResolved":false}"#, count: counts[3]) + [#"{"isResolved":true}"#]
+        let response = #"{"data":{"repository":{"pullRequest":{"statusCheckRollup":{"state":"\#(state)","contexts":{"checkRunCountsByState":[{"state":"SUCCESS","count":\#(counts[0])},{"state":"FAILURE","count":\#(counts[1])},{"state":"IN_PROGRESS","count":\#(counts[2])}]}},"reviewThreads":{"nodes":[\#(threads.joined(separator: ","))]}}}}}"#
+        return PullRequestDetail.parse(Data(response.utf8))
     }()
 
     private static let pullRequestFixtures = UserDefaults.standard.bool(forKey: "snapshotLongNames") ? longNames : reviewPullRequest
@@ -65,6 +75,7 @@ enum Snapshot {
     static let launcherKeys: String? = nil
     static let fixtureRepositories: [String: String?] = [:]
     static let fixturePullRequests: [PullRequestBranch: PullRequest?] = [:]
+    static let fixturePullRequestDetail: PullRequestDetail? = nil
     #endif
 
     static func forcedSelection(in groups: [SessionGroup]) -> SidebarItem? {
@@ -223,6 +234,7 @@ enum Snapshot {
             }
             try? await Task.sleep(for: .seconds(1))
             print("review \(model.snapshot.map { "\($0.branch) → \($0.base), fetch error \($0.fetchError ?? "-")" } ?? "error \(model.error ?? "timed out")")")
+            print("review card \(model.branch.map { "base \($0.changes.base ?? "-"), default branch \($0.changes.isDefaultBranch), ahead \($0.status.ahead), behind \($0.status.behind), upstream \($0.status.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.status.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" })" } ?? "none"), pull request details \(model.pullRequestDetails)")
             for file in model.snapshot?.files ?? [] { print("  \(file.status.rawValue) \(file.path) +\(file.additions.map(String.init) ?? "?") -\(file.deletions.map(String.init) ?? "?")") }
             print("review selected \(model.selectedPath ?? "-"), contents loaded \(model.selectedPath.flatMap { model.contents[$0] } != nil), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }

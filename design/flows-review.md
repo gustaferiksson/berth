@@ -36,11 +36,25 @@ This is the slim first version; the rest is listed under Later.
   then a flat `List` of changed files (status letter A/M/D/R in the theme's
   working, needs-you, closed and branch colours, file name, dimmed parent folder, +/-
   counts), the session's comments below it with a delete button each, and Send N Comments.
-- Panel header: branch → base, a fetch warning when the fetch failed, Refresh. When the
-  reviewed branch has a PR (the sidebar's data, `Store.pullRequest(in:branch:)`), it becomes
-  three lines: a state pill (Open, Draft, Merged, Closed in the sidebar tag's colours) and
-  `#number`, the PR title, then `base ← head` with the head in the branch colour (base is
-  still the guessed one). Open on GitHub sits before Refresh. No CI checks.
+- Panel header: branch → base, a fetch warning when the fetch failed, Refresh. Below it the
+  PR or branch card (`design/review-panel.md`), from `ReviewGit.changes(in:)` and
+  `branchStatus(of:)`, loaded with the file list; if either fails there is no card. Which card,
+  first match wins:
+  - On the default branch, or with no base: "Uncommitted changes on <branch>", its upstream
+    state ("N not pushed", "N behind <upstream>", "Up to date with <upstream>" or "No
+    upstream") and its last two commits.
+  - With a PR (the sidebar's data, `Store.pullRequest(in:branch:)`): a state pill (Open, Draft,
+    Merged, Closed in the sidebar tag's colours), `#number`, Open on GitHub, the title (two
+    lines), then the checks summary ("Checks passed", "N failed" or "N running", counts in the
+    tooltip) and "N open" unresolved review threads. Checks and threads are one `gh api graphql`
+    call (`PullRequestDetail`) for this PR only, off the main thread, when the panel shows the
+    session, when the PR first appears and on Refresh; kept per PR number, so a failed call
+    keeps the last result. Without `gh` the line is missing.
+  - Otherwise: a "No pull request" pill (only once the sidebar's lookup answered no PR; without
+    `gh` or a GitHub remote there is no pill), "N commits ahead of <base>" ("No commits yet" at
+    0), ↑ahead ↓behind the base, the upstream state ("Not pushed, no upstream" without one),
+    and the branch's commits, at most 5 then "N more": short SHA, subject, age, and a dot,
+    filled when pushed to the upstream, hollow in the needs-you colour when not.
 - Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal):
   collapsed until a file row is clicked; nothing opens by itself. It opens 760 pt wide, less
   to leave the terminal 360, never under 440, and window or panel resizes keep both within

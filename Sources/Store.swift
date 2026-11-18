@@ -280,9 +280,9 @@ final class Store {
         pullRequestBranches(of: session).lazy.compactMap { self.pullRequests[$0] ?? nil }.first
     }
 
-    func pullRequest(in folder: String, branch: String) -> PullRequest? {
-        guard let repository = repositoryRoots[folder].flatMap({ repositories[$0] ?? nil }) else { return nil }
-        return pullRequests[PullRequestBranch(repository: repository, branch: branch)] ?? nil
+    func pullRequest(in folder: String, branch: String) -> (repository: String, pullRequest: PullRequest?)? {
+        guard let repository = repositoryRoots[folder].flatMap({ repositories[$0] ?? nil }), let pullRequest = pullRequests[PullRequestBranch(repository: repository, branch: branch)] else { return nil }
+        return (repository, pullRequest)
     }
 
     private func pullRequestBranches(of session: SessionSummary) -> [PullRequestBranch] {
