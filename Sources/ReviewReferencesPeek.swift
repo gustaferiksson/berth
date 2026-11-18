@@ -49,7 +49,7 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
     let list = ReviewReferencesList()
     private let header = NSTextField(labelWithString: "")
     private let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close") ?? NSImage(), target: nil, action: nil)
-    private let preview = NSTextView(usingTextLayoutManager: true)
+    private let preview = ReviewReferencesPreview(usingTextLayoutManager: true)
     private let previewScroll = NSScrollView()
     private let listScroll = NSScrollView()
     let split = ReviewSplitView()
@@ -136,7 +136,6 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
             guard let self else { return }
             listRatio = 1 - ratio
             split.resizeSubviews(withOldSize: split.frame.size)
-            scrollPreview()
         }
         split.addSubview(previewScroll)
         split.addSubview(listScroll)
@@ -174,7 +173,7 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
 
     private func minimums(_ splitView: NSSplitView) -> (preview: CGFloat, list: CGFloat) {
         let available = splitView.bounds.width - splitView.dividerThickness
-        let list = min(180, available / 2)
+        let list = min(180, (available / 2).rounded(.down))
         return (min(200, available - list), list)
     }
 
@@ -321,5 +320,13 @@ private final class ReviewReferencesRowView: NSTableRowView {
     override var isEmphasized: Bool {
         get { false }
         set {}
+    }
+}
+
+private final class ReviewReferencesPreview: NSTextView {
+    override func viewDidEndLiveResize() {
+        let origin = enclosingScrollView?.contentView.bounds.origin
+        super.viewDidEndLiveResize()
+        if let origin { scroll(origin) }
     }
 }
