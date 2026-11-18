@@ -309,10 +309,6 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         textContainerOrigin.y + CGFloat(row) * rowHeight + reserved.filter { $0.key < row }.values.reduce(0, +)
     }
 
-    func row(atY y: CGFloat) -> Int {
-        (0..<(side?.rowCount ?? 0)).partitioningIndex { top(ofRow: $0) > y } - 1
-    }
-
     func scrollVertically(to y: CGFloat) {
         guard let scrollView = enclosingScrollView else { return }
         let clip = scrollView.contentView
@@ -396,7 +392,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
             }
         }
 
-        if let original = unifiedOriginal, let side = original.side {
+        if let original = unifiedOriginal, let side = original.side, self.side?.lineCount == lineStarts.count {
             let text = original.string as NSString
             for line in side.rows.partitioningIndex(where: { top(ofRow: $0 + 1) > rect.minY })..<min(side.rows.count, original.lineStarts.count) {
                 let row = NSRect(x: rect.minX, y: top(ofRow: side.rows[line]), width: rect.width, height: rowHeight)
@@ -523,7 +519,7 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
             label.draw(at: NSPoint(x: bounds.width - size.width - 8, y: rect.minY + (rect.height - size.height) / 2))
         }
 
-        guard let original = textView.unifiedOriginal, let side = original.side else { return }
+        guard let original = textView.unifiedOriginal, let side = original.side, textView.side?.lineCount == textView.lineStarts.count else { return }
         let removed = style.removedWord.withAlphaComponent(1)
         for line in side.rows.partitioningIndex(where: { textView.top(ofRow: $0 + 1) > textView.visibleRect.minY })..<side.rows.count {
             let rect = convert(NSRect(x: 0, y: textView.top(ofRow: side.rows[line]), width: 1, height: textView.rowHeight), from: textView)
@@ -543,7 +539,8 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
     override func mouseDown(with event: NSEvent) {
         guard let textView else { return }
 
-        let row = textView.row(atY: textView.convert(event.locationInWindow, from: nil).y)
+        let y = textView.convert(event.locationInWindow, from: nil).y
+        let row = (0..<(textView.side?.rowCount ?? 0)).partitioningIndex { textView.top(ofRow: $0) > y } - 1
         let rows = textView.side?.rows ?? []
         let index = rows.partitioningIndex { $0 >= row }
         textView.selectedLines = nil
@@ -581,7 +578,8 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
 
     private func line(at event: NSEvent) -> Int? {
         guard let textView, let rows = target?.side?.rows else { return nil }
-        let row = textView.row(atY: textView.convert(event.locationInWindow, from: nil).y)
+        let y = textView.convert(event.locationInWindow, from: nil).y
+        let row = (0..<(textView.side?.rowCount ?? 0)).partitioningIndex { textView.top(ofRow: $0) > y } - 1
         return max(rows.partitioningIndex { $0 > row } - 1, 0)
     }
 }

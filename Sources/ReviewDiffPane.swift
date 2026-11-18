@@ -333,7 +333,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             left.refresh()
             right.refresh()
             right.minimumWidth = right.unifiedOriginal == nil ? 0 : (left.textLayoutManager?.usageBoundsForTextContainer.width ?? 0) + 2 * left.textContainerInset.width
-            right.setFrameSize(right.frame.size)
+            right.setFrameSize(NSSize(width: (right.textLayoutManager?.usageBoundsForTextContainer.width ?? 0) + 2 * right.textContainerInset.width, height: right.frame.height))
             right.needsDisplay = true
             right.gutter?.needsDisplay = true
             documentsDidResize()
