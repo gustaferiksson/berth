@@ -617,83 +617,89 @@ struct ReviewDiffColumn: View {
 
     var body: some View {
         let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme)
-        if let model = store.reviewModel, let tab = model.selectedTab {
-            let document = tab.document
-            let path = document.path
-            let isCommitted = document.compare == .committed
-            VStack(spacing: 0) {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 2) {
-                        ForEach(model.tabs) { tabButton($0, in: model, style: style) }
+        Group {
+            if let model = store.reviewModel, let tab = model.selectedTab {
+                let document = tab.document
+                let path = document.path
+                let isCommitted = document.compare == .committed
+                VStack(spacing: 0) {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 2) {
+                            ForEach(model.tabs) { tabButton($0, in: model, style: style) }
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
-                }
-                .scrollIndicators(.hidden)
-                .frame(height: 32)
-                Divider()
-                HStack(spacing: 8) {
-                    Button("Back", systemImage: "chevron.backward") { model.go(by: -1) }
-                        .disabled(tab.index == 0)
-                    Button("Forward", systemImage: "chevron.forward") { model.go(by: 1) }
-                        .disabled(tab.index == tab.history.count - 1)
-                    Text(path)
-                        .foregroundStyle(Color(nsColor: style.secondary))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if let compare = document.compare {
-                        Text(compare == .committed ? "Committed" : "Uncommitted")
-                            .font(.caption)
+                    .scrollIndicators(.hidden)
+                    .frame(height: 32)
+                    Divider()
+                    HStack(spacing: 8) {
+                        Button("Back", systemImage: "chevron.backward") { model.go(by: -1) }
+                            .disabled(tab.index == 0)
+                        Button("Forward", systemImage: "chevron.forward") { model.go(by: 1) }
+                            .disabled(tab.index == tab.history.count - 1)
+                        Text(path)
                             .foregroundStyle(Color(nsColor: style.secondary))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(Color(nsColor: style.foreground).opacity(0.08), in: .rect(cornerRadius: 4))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let compare = document.compare {
+                            Text(compare == .committed ? "Committed" : "Uncommitted")
+                                .font(.caption)
+                                .foregroundStyle(Color(nsColor: style.secondary))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(Color(nsColor: style.foreground).opacity(0.08), in: .rect(cornerRadius: 4))
+                        }
+                        Spacer(minLength: 8)
+                        if !isCommitted, let draft = model.drafts[path] {
+                            Button("Save") { model.save(draft, to: path) }
+                                .keyboardShortcut("s")
+                        }
                     }
-                    Spacer(minLength: 8)
-                    if !isCommitted, let draft = model.drafts[path] {
-                        Button("Save") { model.save(draft, to: path) }
-                            .keyboardShortcut("s")
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .font(.callout)
+                    .padding(.horizontal, 8)
+                    .frame(height: 36)
+                    Divider()
+                    if let contents = model.contents[document], isCommitted || model.editors[path] != nil {
+                        ReviewDiffPane(
+                            path: path,
+                            compare: document.compare,
+                            contents: contents,
+                            editor: isCommitted ? nil : model.editors[path],
+                            draft: isCommitted ? .constant(nil) : Binding(get: { model.drafts[path] }, set: { draft in
+                                model.drafts[path] = draft
+                                model.keep(tab.id)
+                            }),
+                            comments: Bindable(model).comments,
+                            style: style,
+                            language: areLanguageServersEnabled && !isCommitted ? model.language : nil,
+                            reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
+                            isUnified: isUnified || document.compare == nil,
+                            takesFocus: model.focusesEditor,
+                            onRevealed: { model.reveal = nil },
+                            onDefinition: model.goToDefinition
+                        )
+                        .id(document)
+                        .task(id: model.focusesEditor) { model.focusesEditor = false }
+                    } else {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .font(.callout)
-                .padding(.horizontal, 8)
-                .frame(height: 36)
-                Divider()
-                if let contents = model.contents[document], isCommitted || model.editors[path] != nil {
-                    ReviewDiffPane(
-                        path: path,
-                        compare: document.compare,
-                        contents: contents,
-                        editor: isCommitted ? nil : model.editors[path],
-                        draft: isCommitted ? .constant(nil) : Binding(get: { model.drafts[path] }, set: { draft in
-                            model.drafts[path] = draft
-                            model.keep(tab.id)
-                        }),
-                        comments: Bindable(model).comments,
-                        style: style,
-                        language: areLanguageServersEnabled && !isCommitted ? model.language : nil,
-                        reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
-                        isUnified: isUnified || document.compare == nil,
-                        takesFocus: model.focusesEditor,
-                        onRevealed: { model.reveal = nil },
-                        onDefinition: model.goToDefinition
-                    )
-                    .id(document)
-                    .task(id: model.focusesEditor) { model.focusesEditor = false }
-                } else {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+            } else {
+                ContentUnavailableView("No File Open", systemImage: "doc", description: Text("Click a file in the panel to open it."))
+                    .foregroundStyle(Color(nsColor: style.secondary))
             }
-            .foregroundStyle(Color(nsColor: style.foreground))
-            .background(Color(nsColor: style.background))
-            .environment(\.colorScheme, style.isDark ? .dark : .light)
-            .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { isUnified = $0 }
-            .environment(store)
-            .environment(\.ghosttyTheme, store.theme)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .foregroundStyle(Color(nsColor: style.foreground))
+        .background(Color(nsColor: style.background))
+        .environment(\.colorScheme, style.isDark ? .dark : .light)
+        .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { isUnified = $0 }
+        .environment(store)
+        .environment(\.ghosttyTheme, store.theme)
     }
 
     private func tabButton(_ tab: ReviewTab, in model: ReviewModel, style: ReviewStyle) -> some View {

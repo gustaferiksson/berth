@@ -25,7 +25,6 @@ struct ContentView: View {
         @Bindable var store = store
         let selected = store.tabs.first { $0.id == store.selectedTabID }
         let isTrailing = sidebarPosition == .right
-        let isDiffOpen = showsPanel && store.reviewModel?.selectedTab != nil
         NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanel ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
                 ReviewPanel()
@@ -42,10 +41,11 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
-            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !isDiffOpen)
-                .onGeometryChange(for: Double.self) { $0.size.width } action: { old, new in
-                    splitWidth = new
-                    if isDiffOpen, new < old { yieldSidebarIfCramped() }
+            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel)
+                .onGeometryChange(for: Double.self) { $0.size.width } action: { splitWidth = $0 }
+                .task(id: showsPanel ? splitWidth : 0) {
+                    guard showsPanel, (try? await Task.sleep(for: .milliseconds(300))) != nil else { return }
+                    yieldSidebarIfCramped()
                 }
                 .overlay {
                     if let mode = store.launcherMode {
@@ -125,13 +125,10 @@ struct ContentView: View {
             store.refreshPullRequests()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
-        .onChange(of: isDiffOpen) {
-            if isDiffOpen {
-                yieldSidebarIfCramped()
-            } else {
-                sidebarYieldsToDiff = false
-                keepsSidebarForDiff = false
-            }
+        .onChange(of: showsPanel) {
+            guard !showsPanel else { return }
+            sidebarYieldsToDiff = false
+            keepsSidebarForDiff = false
         }
         .onChange(of: isReviewEnabled) {
             if isReviewEnabled { store.prepareReviewModel() } else { store.reviewModels = [:] }
@@ -272,8 +269,9 @@ private final class TerminalSplitController: NSSplitViewController {
         super.viewDidLayout()
         guard splitView.bounds.width != laidOutWidth else { return }
 
+        let preferred: CGFloat? = laidOutWidth == 0 ? 760 : nil
         laidOutWidth = splitView.bounds.width
-        DispatchQueue.main.async { [weak self] in self?.fitDiff(preferring: nil) }
+        DispatchQueue.main.async { [weak self] in self?.fitDiff(preferring: preferred) }
     }
 
     func fitDiff(preferring preferred: CGFloat?) {
