@@ -15,6 +15,11 @@ struct BerthApp: App {
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
 
     init() {
+        // Restyling a SwiftUI List's scroll view afterwards re-tiles it inside a SwiftUI update, which crashes outline lists.
+        var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        arguments["AppleShowScrollBars"] = "WhenScrolling"
+        UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+
         guard Snapshot.output != nil, UserDefaults.standard.string(forKey: "snapshotReview") != nil else { return }
         UserDefaults.standard.register(defaults: [GeneralSettings.reviewKey: true])
     }
