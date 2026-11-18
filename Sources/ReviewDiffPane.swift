@@ -56,7 +56,8 @@ struct ReviewDiffPane: View {
                 if analysis != nil { try? await Task.sleep(for: .milliseconds(300)) }
                 guard !Task.isCancelled else { return }
 
-                let computed = await Task.detached { ReviewDiffAnalysis(original: original, modified: modified, path: path) }.value
+                let base = compare == nil ? modified : original
+                let computed = await Task.detached { ReviewDiffAnalysis(original: original, modified: modified, base: base, path: path) }.value
                 guard !Task.isCancelled else { return }
                 analysis = computed
                 if contents.modified != nil { await language?.sync(path, text: modified) }
@@ -76,10 +77,10 @@ nonisolated struct ReviewDiffAnalysis: Sendable {
     let originalRuns: [ReviewHighlighter.Span]
     let modifiedRuns: [ReviewHighlighter.Span]
 
-    init(original: String, modified: String, path: String) {
+    init(original: String, modified: String, base: String, path: String) {
         self.original = original
         self.modified = modified
-        diff = ReviewDiff(original: original, modified: modified)
+        diff = ReviewDiff(original: base, modified: modified)
         originalRuns = Self.runs(ReviewHighlighter.spans(in: original, path: path), length: original.utf16.count)
         modifiedRuns = Self.runs(ReviewHighlighter.spans(in: modified, path: path), length: modified.utf16.count)
     }
@@ -230,7 +231,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         func update(_ view: ReviewDiffViews) {
             parent = view
             minimap.isHidden = !view.showsMinimap
-            right.isEditable = !view.isModifiedAbsent && view.compare != .committed
+            right.isEditable = !view.isModifiedAbsent && view.editor != nil
             left.isAbsent = view.isOriginalAbsent
             right.isAbsent = view.isModifiedAbsent
 

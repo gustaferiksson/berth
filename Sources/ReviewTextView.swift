@@ -109,6 +109,11 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         onDefinition(identifier.location)
     }
 
+    // NSTextView maps Esc to word completion (complete:).
+    override func cancelOperation(_ sender: Any?) {
+        dismissHover()
+    }
+
     func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
         diagnosticSegments.filter { $0.rect.contains(point) }.map { $0.diagnostic.message + ($0.diagnostic.source.map { " (\($0))" } ?? "") }.joined(separator: "\n")
     }
