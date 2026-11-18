@@ -315,6 +315,7 @@ struct ReviewDiffColumn: View {
     @AppStorage(ReviewStyle.fontSizeKey) private var fontSize = 0.0
     @AppStorage(ReviewStyle.lineHeightKey) private var lineHeight = 1.3
     @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
+    @State private var isUnified = false
 
     var body: some View {
         let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme)
@@ -349,6 +350,7 @@ struct ReviewDiffColumn: View {
                         style: style,
                         language: areLanguageServersEnabled ? model.language : nil,
                         reveal: model.reveal.flatMap { $0.path == path ? $0.range : nil },
+                        isUnified: isUnified,
                         onRevealed: { model.reveal = nil },
                         onDefinition: model.goToDefinition
                     )
@@ -361,6 +363,7 @@ struct ReviewDiffColumn: View {
             .foregroundStyle(Color(nsColor: style.foreground))
             .background(Color(nsColor: style.background))
             .environment(\.colorScheme, style.isDark ? .dark : .light)
+            .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { isUnified = $0 }
             .environment(store)
             .environment(\.ghosttyTheme, store.theme)
         }

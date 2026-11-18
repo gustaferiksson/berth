@@ -10,6 +10,7 @@ struct ReviewDiffPane: View {
     let style: ReviewStyle
     let language: ReviewLanguage?
     let reveal: LanguageServerRange?
+    let isUnified: Bool
     let onRevealed: () -> Void
     let onDefinition: (LanguageServerLocation) -> Void
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
@@ -41,6 +42,7 @@ struct ReviewDiffPane: View {
                 language: contents.modified == nil ? nil : language,
                 diagnostics: contents.modified == nil ? [] : language.map { $0.diagnostics[URL(filePath: $0.root).appending(path: path).resolvingSymlinksInPath().path] ?? [] } ?? [],
                 reveal: reveal,
+                isUnified: isUnified,
                 onRevealed: onRevealed,
                 onDefinition: onDefinition,
                 onEdit: { draft = $0 == loaded ? nil : $0 }
@@ -107,6 +109,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let language: ReviewLanguage?
     let diagnostics: [LanguageServerDiagnostic]
     let reveal: LanguageServerRange?
+    let isUnified: Bool
     let onRevealed: () -> Void
     let onDefinition: (LanguageServerLocation) -> Void
     let onEdit: (String) -> Void
@@ -119,7 +122,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         let coordinator = context.coordinator
         let stack = NSStackView(views: coordinator.makeSide(coordinator.left) + coordinator.makeSide(coordinator.right) + [coordinator.minimap, coordinator.ruler])
         stack.spacing = 0
-        stack.views[1].widthAnchor.constraint(equalTo: stack.views[3].widthAnchor).isActive = true
+        coordinator.equalWidths = stack.views[1].widthAnchor.constraint(equalTo: stack.views[3].widthAnchor)
         coordinator.minimap.original = coordinator.left
         coordinator.minimap.modified = coordinator.right
         coordinator.ruler.original = coordinator.left
@@ -133,12 +136,18 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
     func updateNSView(_ stack: NSStackView, context: Context) {
         stack.appearance = NSAppearance(named: style.isDark ? .darkAqua : .aqua)
+        if isUnified { context.coordinator.equalWidths?.isActive = false }
+        stack.views[0].isHidden = isUnified
+        stack.views[1].isHidden = isUnified
+        if !isUnified { context.coordinator.equalWidths?.isActive = true }
         context.coordinator.update(self)
     }
 
     static func dismantleNSView(_ stack: NSStackView, coordinator: Coordinator) {
         coordinator.right.subviews.filter { $0 is ReviewInlineComment }.forEach { $0.removeFromSuperview() }
         coordinator.right.selectedLines = nil
+        coordinator.right.unifiedOriginal = nil
+        coordinator.right.minimumWidth = 0
         coordinator.right.reserved = [:]
         coordinator.right.dismissHover()
         coordinator.right.onHover = nil
@@ -150,12 +159,13 @@ private struct ReviewDiffViews: NSViewRepresentable {
         let right: ReviewTextView
         let minimap = ReviewMinimap()
         let ruler = ReviewOverviewRuler()
+        var equalWidths: NSLayoutConstraint?
         private var parent: ReviewDiffViews?
         private var loadedOriginal: String?
         private var loadedModified: String?
         private var applied: ReviewDiffAnalysis?
         private var cards: [String: ReviewInlineComment] = [:]
-        private var draft: (view: ReviewInlineComment, owner: ReviewTextView, row: Int)?
+        private var draft: (view: ReviewInlineComment, numbered: ReviewTextView, line: Int)?
 
         init(right: ReviewTextView) {
             self.right = right
@@ -204,10 +214,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             gutter.setContentHuggingPriority(.required, for: .horizontal)
             gutter.setContentCompressionResistancePriority(.required, for: .horizontal)
             textView.gutter = gutter
-            gutter.onSelect = { [weak self, weak textView] lines in
-                guard let self, let textView else { return }
-                comment(on: textView, lines: lines)
-            }
+            gutter.onSelect = { [weak self] textView, lines in self?.comment(on: textView, lines: lines) }
             return [gutter, scrollView]
         }
 
@@ -221,11 +228,13 @@ private struct ReviewDiffViews: NSViewRepresentable {
             let isStyleChanged = view.style != left.style
             let isOriginalChanged = view.original != loadedOriginal
             let isModifiedChanged = view.modified != loadedModified
+            let isModeChanged = view.isUnified != (right.unifiedOriginal != nil)
             if isOriginalChanged {
                 loadedOriginal = view.original
                 left.string = view.original
                 left.side = nil
                 left.syntaxRuns = []
+                applied = nil
             }
             if isModifiedChanged {
                 loadedModified = view.modified
@@ -233,25 +242,34 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 right.side = nil
                 right.syntaxRuns = []
                 right.history.removeAllActions()
+                applied = nil
             }
 
+            let clip = right.enclosingScrollView?.contentView.bounds.minY ?? 0
+            let anchor = isModeChanged ? right.line(atY: clip).flatMap { line in right.side.flatMap { $0.rows.indices.contains(line) ? (line: line, offset: clip - right.top(ofRow: $0.rows[line])) : nil } } : nil
+            right.unifiedOriginal = view.isUnified ? left : nil
             let analysis = view.analysis.flatMap { $0.id != applied?.id && $0.original == loadedOriginal && $0.modified == loadedModified ? $0 : nil }
             if let analysis {
                 applied = analysis
-                left.side = analysis.diff.original
                 left.syntaxRuns = analysis.originalRuns
-                right.side = analysis.diff.modified
                 right.syntaxRuns = analysis.modifiedRuns
+            }
+            if let applied, analysis != nil || isModeChanged {
+                left.side = view.isUnified ? applied.diff.unifiedOriginal : applied.diff.original
+                right.side = view.isUnified ? applied.diff.unifiedModified : applied.diff.modified
             }
             if isStyleChanged {
                 left.style = view.style
                 right.style = view.style
                 for inline in Array(cards.values) + [draft?.view].compactMap(\.self) { inline.apply(view.style) }
             }
-            if isStyleChanged || isOriginalChanged || isModifiedChanged || analysis != nil {
+            if isStyleChanged || isOriginalChanged || isModifiedChanged || isModeChanged || analysis != nil {
                 reload()
             }
             layoutInline()
+            if let anchor, let rows = right.side?.rows, rows.indices.contains(anchor.line) {
+                right.scrollVertically(to: right.top(ofRow: rows[anchor.line]) + anchor.offset)
+            }
 
             right.diagnostics = view.diagnostics
             right.onHover = view.language == nil ? nil : { [weak self] offset in await self?.hover(at: offset) }
@@ -314,6 +332,10 @@ private struct ReviewDiffViews: NSViewRepresentable {
         private func reload() {
             left.refresh()
             right.refresh()
+            right.minimumWidth = right.unifiedOriginal == nil ? 0 : (left.textLayoutManager?.usageBoundsForTextContainer.width ?? 0) + 2 * left.textContainerInset.width
+            right.setFrameSize(right.frame.size)
+            right.needsDisplay = true
+            right.gutter?.needsDisplay = true
             documentsDidResize()
         }
 
@@ -334,18 +356,24 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 card.removeFromSuperview()
                 cards[id] = nil
             }
+            let isUnified = right.unifiedOriginal != nil
             var placed: [(view: ReviewInlineComment, owner: ReviewTextView, row: Int)] = []
             for comment in comments {
-                let owner = comment.side == .original ? left : right
+                let numbered = comment.side == .original ? left : right
+                let owner = isUnified ? right : numbered
                 let numbers = comment.endLine > comment.line ? "Lines \(comment.line)–\(comment.endLine)" : "Line \(comment.line)"
                 let card = cards[comment.id] ?? ReviewInlineComment(title: comment.side == .original ? "Removed \(numbers)" : numbers, text: comment.text, kind: .card(onDelete: { [weak self] in self?.parent?.comments.removeAll { $0.id == comment.id } }), style: owner.style)
                 cards[comment.id] = card
-                if card.superview == nil { owner.addSubview(card) }
-                let rows = owner.side?.rows ?? []
+                if card.superview !== owner { owner.addSubview(card) }
+                let rows = numbered.side?.rows ?? []
                 card.isHidden = !rows.indices.contains(comment.endLine - 1)
                 if !card.isHidden { placed.append((card, owner, rows[comment.endLine - 1])) }
             }
-            placed += [draft].compactMap(\.self)
+            if let draft, let rows = draft.numbered.side?.rows, rows.indices.contains(draft.line) {
+                let owner = isUnified ? right : draft.numbered
+                if draft.view.superview !== owner { owner.addSubview(draft.view) }
+                placed.append((draft.view, owner, rows[draft.line]))
+            }
 
             let inset: CGFloat = 6
             let indent = right.textContainerOrigin.x + (right.textContainer?.lineFragmentPadding ?? 0)
@@ -372,10 +400,11 @@ private struct ReviewDiffViews: NSViewRepresentable {
             guard let rows = textView.side?.rows, rows.indices.contains(lines.upperBound) else { return }
 
             let isRemoval = textView === left && lines.contains { left.side?.changedLines.contains($0) == true }
-            let owner = textView === left && !isRemoval ? right : textView
-            let ownerRows = owner.side?.rows ?? []
-            let first = owner === textView ? lines.lowerBound : ownerRows.partitioningIndex { $0 >= rows[lines.lowerBound] }
-            let last = owner === textView ? lines.upperBound : ownerRows.partitioningIndex { $0 >= rows[lines.upperBound] }
+            let numbered = textView === left && !isRemoval ? right : textView
+            let owner = right.unifiedOriginal != nil ? right : numbered
+            let numberedRows = numbered.side?.rows ?? []
+            let first = numbered === textView ? lines.lowerBound : numberedRows.partitioningIndex { $0 >= rows[lines.lowerBound] }
+            let last = numbered === textView ? lines.upperBound : numberedRows.partitioningIndex { $0 >= rows[lines.upperBound] }
             let source = (isRemoval ? loadedOriginal : loadedModified) ?? ""
             let texts = source.split(separator: "\n", omittingEmptySubsequences: false).dropFirst(first).prefix(last - first + 1)
             let snippet = texts.map { isRemoval ? "-\($0)" : String($0) }.joined(separator: "\n")
@@ -394,8 +423,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 onCancel: { [weak self] in self?.closeDraft() },
                 onResize: { [weak self] in self?.layoutInline() }
             ), style: owner.style)
-            owner.addSubview(view)
-            draft = (view, owner, rows[lines.upperBound])
+            draft = (view, numbered, last)
             layoutInline()
             owner.window?.makeFirstResponder(view.field)
             owner.scrollToVisible(NSRect(x: owner.visibleRect.minX, y: view.frame.minY, width: 1, height: view.frame.height))
@@ -404,7 +432,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         private func closeDraft() {
             guard let draft else { return }
 
-            if draft.owner.window?.firstResponder === draft.view.field { draft.owner.window?.makeFirstResponder(draft.owner) }
+            if let window = draft.view.window, window.firstResponder === draft.view.field { window.makeFirstResponder(draft.view.superview) }
             draft.view.removeFromSuperview()
             self.draft = nil
             for textView in [left, right] {

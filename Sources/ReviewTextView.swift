@@ -11,6 +11,8 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         didSet { reloadParagraphs(changedFrom: oldValue) }
     }
     var selectedLines: ClosedRange<Int>?
+    weak var unifiedOriginal: ReviewTextView?
+    var minimumWidth: CGFloat = 0
     var minimumHeight: CGFloat = 0
     var diagnostics: [LanguageServerDiagnostic] = [] {
         didSet { if diagnostics != oldValue { placeDiagnostics() } }
@@ -39,7 +41,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     }
 
     override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(NSSize(width: max(newSize.width, enclosingScrollView?.contentSize.width ?? 0), height: max(newSize.height, minimumHeight)))
+        super.setFrameSize(NSSize(width: max(newSize.width, enclosingScrollView?.contentSize.width ?? 0, minimumWidth), height: max(newSize.height, minimumHeight)))
     }
 
     // NSTextView scrolls back to the insertion point when a live resize ends, dropping the reader's horizontal scroll.
@@ -276,7 +278,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
             scroll(NSPoint(x: visibleRect.minX, y: top - caretTop))
         }
 
-        gutter?.thickness = (CGFloat(String(lineStarts.count).count) * digitWidth + 20).rounded(.up)
+        gutter?.thickness = (CGFloat(String(max(lineStarts.count, unifiedOriginal?.lineStarts.count ?? 0)).count) * digitWidth + 20).rounded(.up)
         placeDiagnostics()
     }
 
@@ -305,6 +307,10 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
 
     func top(ofRow row: Int) -> CGFloat {
         textContainerOrigin.y + CGFloat(row) * rowHeight + reserved.filter { $0.key < row }.values.reduce(0, +)
+    }
+
+    func row(atY y: CGFloat) -> Int {
+        (0..<(side?.rowCount ?? 0)).partitioningIndex { top(ofRow: $0) > y } - 1
     }
 
     func scrollVertically(to y: CGFloat) {
@@ -390,6 +396,37 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
             }
         }
 
+        if let original = unifiedOriginal, let side = original.side {
+            let text = original.string as NSString
+            for line in side.rows.partitioningIndex(where: { top(ofRow: $0 + 1) > rect.minY })..<min(side.rows.count, original.lineStarts.count) {
+                let row = NSRect(x: rect.minX, y: top(ofRow: side.rows[line]), width: rect.width, height: rowHeight)
+                guard row.minY < rect.maxY else { break }
+
+                if side.changedLines.contains(line) {
+                    let start = original.lineStarts[line]
+                    let end = line + 1 < original.lineStarts.count ? original.lineStarts[line + 1] - 1 : text.length
+                    let content = NSMutableAttributedString(string: text.substring(with: NSRange(location: start, length: end - start)), attributes: [.font: style.font, .foregroundColor: style.foreground, .paragraphStyle: paragraphStyle])
+                    for run in original.syntaxRuns[original.syntaxRuns.partitioningIndex { NSMaxRange($0.range) > start }...].prefix(while: { $0.range.location < end }) {
+                        let lower = max(run.range.location, start)
+                        content.addAttributes([.foregroundColor: style.color(forCapture: run.capture), .font: style.font(forCapture: run.capture)], range: NSRange(location: lower - start, length: min(NSMaxRange(run.range), end) - lower))
+                    }
+                    for word in side.changedWordRangesInText[side.changedWordRangesInText.partitioningIndex { NSMaxRange($0) > start }...].prefix(while: { $0.location < end }) {
+                        let lower = max(word.location, start)
+                        content.addAttribute(.backgroundColor, value: style.removedWord, range: NSRange(location: lower - start, length: min(NSMaxRange(word), end) - lower))
+                    }
+                    backgroundColor.setFill()
+                    row.fill()
+                    style.removedLine.setFill()
+                    row.fill(using: .sourceOver)
+                    content.draw(with: NSRect(x: textContainerOrigin.x, y: row.minY, width: .greatestFiniteMagnitude, height: rowHeight), options: [.usesLineFragmentOrigin])
+                }
+                if original.selectedLines?.contains(line) == true {
+                    style.selection.setFill()
+                    row.fill(using: .sourceOver)
+                }
+            }
+        }
+
         backgroundColor.setFill()
         for (row, height) in reserved {
             NSRect(x: rect.minX, y: top(ofRow: row + 1) - height, width: rect.width, height: height).fill()
@@ -441,8 +478,9 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
     var thickness: CGFloat = 40 {
         didSet { invalidateIntrinsicContentSize() }
     }
-    var onSelect: (ClosedRange<Int>) -> Void = { _ in }
+    var onSelect: (ReviewTextView, ClosedRange<Int>) -> Void = { _, _ in }
     private var anchor: Int?
+    private var target: ReviewTextView?
 
     override var isFlipped: Bool { true }
 
@@ -484,9 +522,33 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
             let size = label.size()
             label.draw(at: NSPoint(x: bounds.width - size.width - 8, y: rect.minY + (rect.height - size.height) / 2))
         }
+
+        guard let original = textView.unifiedOriginal, let side = original.side else { return }
+        let removed = style.removedWord.withAlphaComponent(1)
+        for line in side.rows.partitioningIndex(where: { textView.top(ofRow: $0 + 1) > textView.visibleRect.minY })..<side.rows.count {
+            let rect = convert(NSRect(x: 0, y: textView.top(ofRow: side.rows[line]), width: 1, height: textView.rowHeight), from: textView)
+            guard rect.minY < bounds.maxY else { break }
+
+            if original.selectedLines?.contains(line) == true {
+                style.selection.setFill()
+                NSRect(x: 0, y: rect.minY, width: bounds.width, height: rect.height).fill(using: .sourceOver)
+            }
+            guard side.changedLines.contains(line) else { continue }
+            let label = NSAttributedString(string: "\(line + 1)", attributes: [.font: style.font, .foregroundColor: removed])
+            let size = label.size()
+            label.draw(at: NSPoint(x: bounds.width - size.width - 8, y: rect.minY + (rect.height - size.height) / 2))
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard let textView else { return }
+
+        let row = textView.row(atY: textView.convert(event.locationInWindow, from: nil).y)
+        let rows = textView.side?.rows ?? []
+        let index = rows.partitioningIndex { $0 >= row }
+        textView.selectedLines = nil
+        textView.unifiedOriginal?.selectedLines = nil
+        target = textView.unifiedOriginal.flatMap { index < rows.count && rows[index] == row ? nil : $0 } ?? textView
         anchor = line(at: event)
         select(anchor.map { $0...$0 })
     }
@@ -497,9 +559,9 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard anchor != nil, let selection = textView?.selectedLines else { return }
+        guard anchor != nil, let target, let selection = target.selectedLines else { return }
         anchor = nil
-        onSelect(selection)
+        onSelect(target, selection)
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -512,14 +574,15 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
     }
 
     private func select(_ lines: ClosedRange<Int>?) {
-        textView?.selectedLines = lines
+        target?.selectedLines = lines
         textView?.needsDisplay = true
         needsDisplay = true
     }
 
     private func line(at event: NSEvent) -> Int? {
-        guard let textView else { return nil }
-        return textView.line(atY: textView.convert(event.locationInWindow, from: nil).y)
+        guard let textView, let rows = target?.side?.rows else { return nil }
+        let row = textView.row(atY: textView.convert(event.locationInWindow, from: nil).y)
+        return max(rows.partitioningIndex { $0 > row } - 1, 0)
     }
 }
 

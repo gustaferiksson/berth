@@ -39,6 +39,18 @@ struct ReviewDiffTests {
         for hunk in diff.hunks {
             #expect(startRow(hunk.originalLines, diff.original) == startRow(hunk.modifiedLines, diff.modified), sourceLocation: sourceLocation)
         }
+
+        let unified = (diff.unifiedOriginal, diff.unifiedModified)
+        #expect(unified.0.changedLines == diff.original.changedLines && unified.1.changedLines == diff.modified.changedLines, sourceLocation: sourceLocation)
+        #expect(unified.0.rowCount == unified.1.rowCount && unified.0.rowCount == oldLines.count + newLines.count - unchangedOld.count, sourceLocation: sourceLocation)
+        #expect(Set(unified.0.rows + unified.1.rows).count == unified.0.rowCount, sourceLocation: sourceLocation)
+        #expect(unified.0.rows == unified.0.rows.sorted() && unified.1.rows == unified.1.rows.sorted(), sourceLocation: sourceLocation)
+        for (old, new) in zip(unchangedOld, unchangedNew) {
+            #expect(unified.0.rows[old] == unified.1.rows[new], sourceLocation: sourceLocation)
+        }
+        for hunk in diff.hunks where !hunk.originalLines.isEmpty && !hunk.modifiedLines.isEmpty {
+            #expect(unified.0.rows[hunk.originalLines.upperBound - 1] + 1 == unified.1.rows[hunk.modifiedLines.lowerBound], sourceLocation: sourceLocation)
+        }
         return diff
     }
 
@@ -60,6 +72,13 @@ struct ReviewDiffTests {
         #expect(diff.original.rows == [0, 1, 2, 3, 6, 7])
         #expect(diff.modified.rows == Array(0..<8))
         #expect(diff.hunks == [ReviewDiff.Hunk(originalLines: 1..<4, modifiedLines: 1..<6)])
+    }
+
+    @Test func unifiedRowsPutRemovedLinesBeforeTheirReplacements() {
+        let diff = assertAligned("a\nb\nc\nd", "a\nB\nC\nD\nd")
+        #expect(diff.unifiedOriginal.rows == [0, 1, 2, 6])
+        #expect(diff.unifiedModified.rows == [0, 3, 4, 5, 6])
+        #expect(diff.unifiedOriginal.rowCount == 7)
     }
 
     @Test func addedAndRemovedBlocksPadTheOtherSide() {

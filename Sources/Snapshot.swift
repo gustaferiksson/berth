@@ -246,8 +246,8 @@ enum Snapshot {
                 let checks = diff.hunks.compactMap { hunk in rows[0][hunk.originalLines.upperBound].flatMap { left in rows[1][hunk.modifiedLines.upperBound].map { (hunk, left, $0) } } }
                 let unchanged = zip((0..<diff.original.lineCount).filter { !diff.original.changedLines.contains($0) }, (0..<diff.modified.lineCount).filter { !diff.modified.changedLines.contains($0) })
                 let shifted = unchanged.filter { pair in rows[0][pair.0].flatMap { left in rows[1][pair.1].map { left != $0 } } ?? false }.count
-                let arithmetic = unchanged.filter { pair in rows[1][pair.1].map { $0 != sides[1].top(ofRow: diff.modified.rows[pair.1]) } ?? false }.count
-                print("\(label) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.filter { $0.1 != $0.2 }.count), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
+                let arithmetic = unchanged.filter { pair in rows[1][pair.1].map { $0 != sides[1].top(ofRow: (sides[1].side ?? diff.modified).rows[pair.1]) } ?? false }.count
+                print("\(label) \(sides[1].unifiedOriginal == nil ? "side by side" : "unified, width \(sides[1].frame.width) for \(sides[1].minimumWidth), text is the file \(sides[1].string == model.drafts[model.selectedPath ?? ""] ?? model.selectedPath.flatMap { model.contents[$0]?.modified }.flatMap { if case let .text(text) = $0 { text } else { nil } })"), height \(sides[1].frame.height) for top(ofRow: rowCount) \(sides[1].top(ofRow: sides[1].side?.rowCount ?? 0)), pane \(sides[1].enclosingScrollView?.superview?.frame.width ?? -1) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.filter { $0.1 != $0.2 }.count), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
             }
             report("review")
             if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedPath {
@@ -412,13 +412,13 @@ enum Snapshot {
             if let spec = UserDefaults.standard.string(forKey: "snapshotReviewGutter"), sides.count == 2, let separator = spec.firstIndex(of: ":") {
                 let side = spec[..<separator] == "left" ? sides[0] : sides[1]
                 let lines = spec[spec.index(after: separator)...].split(separator: "-").compactMap { Int($0) }
+                let host = sides[1].unifiedOriginal == nil ? side : sides[1]
                 let drag = {
                     let ys = lines.map { line in
-                        var y: CGFloat = 0
-                        side.enumerateRows(in: side.bounds) { index, row, _, startsLine in if startsLine, index == line - 1 { y = row.midY } }
-                        return side.gutter.map { $0.convert(side.convert(NSPoint(x: 0, y: y), to: nil), from: nil).y } ?? 0
+                        let y = side.top(ofRow: side.side?.rows[line - 1] ?? 0) + side.rowHeight / 2
+                        return host.gutter.map { $0.convert(host.convert(NSPoint(x: 0, y: y), to: nil), from: nil).y } ?? 0
                     }
-                    if let gutter = side.gutter { mouse(gutter, ys + [ys.last ?? 0]) }
+                    if let gutter = host.gutter { mouse(gutter, ys + [ys.last ?? 0]) }
                 }
                 let draft = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.first { $0.field.isEditable } }
                 let type = { (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) in
@@ -473,6 +473,13 @@ enum Snapshot {
                     try? await Task.sleep(for: .milliseconds(500))
                     print("model append then list delete: cards \(added) → \(cards()), reserved \(sides[1].reserved)")
                 }
+            }
+            let resize = UserDefaults.standard.double(forKey: "snapshotReviewResize")
+            if resize > 0 {
+                window.setContentSize(NSSize(width: resize, height: 900))
+                try? await Task.sleep(for: .seconds(1))
+                report("resized")
+                save(".resized.png")
             }
             if UserDefaults.standard.bool(forKey: "snapshotReviewSurfaces"), let split = descendantViews(window.contentView ?? NSView()).first(where: { $0.identifier?.rawValue == "terminalSplit" }) as? NSSplitView, let claude = store.tabs.first(where: { $0.id == store.selectedTabID }) {
                 let file = model.selectedPath
