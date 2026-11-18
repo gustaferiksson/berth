@@ -78,6 +78,11 @@ struct GeneralSettings: View {
                         }
                     }
                     Button("Add Server…") { editedServer = LanguageServerEntry(name: "", command: "") }
+                    let unreadable = LanguageServerEntry.stored(configuredServers).unreadable.count
+                    if unreadable > 0 {
+                        Label("^[\(unreadable) entry](inflect: true) in languageServers couldn’t be read and won’t run.", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
                 } header: {
                     Text("Language Servers")
                 } footer: {
@@ -121,7 +126,7 @@ struct GeneralSettings: View {
         Binding {
             LanguageServerEntry.configured(configuredServers)
         } set: {
-            if let data = try? JSONEncoder().encode($0) { configuredServers = String(decoding: data, as: UTF8.self) }
+            configuredServers = LanguageServerEntry.storage($0, keeping: LanguageServerEntry.stored(configuredServers).unreadable)
         }
     }
 }

@@ -40,9 +40,39 @@ public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
         self.isEnabled = isEnabled
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        command = try container.decode(String.self, forKey: .command)
+        arguments = try container.decodeIfPresent([String].self, forKey: .arguments) ?? []
+        languages = try container.decode([String].self, forKey: .languages)
+        rootMarkers = try container.decodeIfPresent([String].self, forKey: .rootMarkers) ?? []
+        settings = try container.decodeIfPresent(String.self, forKey: .settings)
+        isDiagnosticsOnly = try container.decodeIfPresent(Bool.self, forKey: .isDiagnosticsOnly) ?? false
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+    }
+
+    public static func stored(_ json: String?) -> (entries: [LanguageServerEntry], unreadable: [String]) {
+        guard let json, !json.isEmpty else { return ([], []) }
+
+        let fragment = { (value: Any) in (try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys, .withoutEscapingSlashes])).map { String(decoding: $0, as: UTF8.self) } }
+        guard let parsed = try? JSONSerialization.jsonObject(with: Data(json.utf8), options: .fragmentsAllowed) else { return ([], fragment(json).map { [$0] } ?? []) }
+        guard let elements = parsed as? [Any] else { return ([], fragment(parsed).map { [$0] } ?? []) }
+
+        let fragments = elements.compactMap(fragment)
+        let decoded = fragments.map { (fragment: $0, entry: try? JSONDecoder().decode(LanguageServerEntry.self, from: Data($0.utf8))) }
+        return (decoded.compactMap(\.entry), decoded.filter { $0.entry == nil }.map(\.fragment))
+    }
+
     public static func configured(_ json: String?) -> [LanguageServerEntry] {
-        let stored = (json?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([LanguageServerEntry].self, from: $0) } ?? []
+        let stored = stored(json).entries
         return stored + defaults.filter { entry in !stored.contains { $0.id == entry.id } }
+    }
+
+    public static func storage(_ entries: [LanguageServerEntry], keeping unreadable: [String]) -> String {
+        let readable = entries.compactMap { (try? JSONEncoder().encode($0)).map { String(decoding: $0, as: UTF8.self) } }
+        return "[" + (readable + unreadable).joined(separator: ",") + "]"
     }
 
     public func serves(_ path: String) -> Bool {
