@@ -243,6 +243,7 @@ enum Snapshot {
             let deadline = Date.now + 30
             while Date.now < deadline, model.error == nil, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
                 if let changes = model.changes, model.selectedTab == nil {
+                    if UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
                     let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
                     guard let document = requested ?? changes.uncommitted.first.map({ ReviewDocument(path: $0.path, compare: .uncommitted) }) ?? changes.committed.first.map({ ReviewDocument(path: $0.path, compare: .committed) }) else { break }
                     model.open(document)
@@ -726,10 +727,15 @@ enum Snapshot {
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
             if store.reviewModel?.selectedDocument?.path == nil { window.makeFirstResponder(store.focusedTerminal?.attachedPlatformView ?? window.contentView) }
+            func descendantViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendantViews) }
             let state = {
                 let focused = store.tabs.firstIndex { $0.terminal.attachedPlatformView === window.firstResponder }.map { "#\($0)" } ?? window.firstResponder.map { "\(type(of: $0))" } ?? "nil"
-                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
+                let split = (descendantViews(window.contentView ?? NSView()).first { $0.identifier?.rawValue == "terminalSplit" } as? NSSplitView).map { split in split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" } } ?? []
+                let layout = "layout \(UserDefaults.standard.string(forKey: ReviewDiffLayout.key) ?? "unset"), shown \((descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last?.unifiedOriginal).map { _ in "unified" } ?? "side by side"), offered \([AppAction.showSideBySide, .showInline].filter { $0.isAvailable(in: store) }.map(\.title))"
+                let review = store.reviewModel.map { "review \($0.folder) \($0.changes.map { "\($0.branch) uncommitted \($0.uncommitted.map(\.path)) committed \($0.committed.map(\.path))" } ?? "not loaded")\($0.movedFolder.map { ", movedFolder \($0)" } ?? "")" } ?? "no review"
+                return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription) (\($0.string.count) characters), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
             }
+            let savedLayout = UserDefaults.standard.object(forKey: ReviewDiffLayout.key)
             print("start: \(state())")
             print("key window is snapshot: \(NSApp.keyWindow === window), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             let observer = NotificationCenter.default.addObserver(forName: NSMenu.willSendActionNotification, object: nil, queue: nil) { note in
@@ -764,30 +770,56 @@ enum Snapshot {
                     print("\(spec) (sends a real \(spec.hasPrefix("dbl") ? "double-click" : "click") at that point, top-left origin):\n  \(state())")
                     continue
                 }
+                if spec.hasPrefix("git:"), let folder = store.reviewModel?.folder {
+                    let git = Process()
+                    git.executableURL = URL(filePath: "/usr/bin/git")
+                    git.arguments = ["-C", folder] + spec.dropFirst(4).split(separator: ",").map(String.init)
+                    try? git.run()
+                    git.waitUntilExit()
+                    try? await Task.sleep(for: .seconds(2))
+                    print("\(spec) (runs git with those comma-separated arguments in the review folder, waits 2 s):\n  \(state())")
+                    continue
+                }
+                if spec.hasPrefix("relocate:"), let index = store.tabs.firstIndex(where: { $0.id == store.selectedTabID }) {
+                    store.tabs[index].cwd = String(spec.dropFirst(9))
+                    try? await Task.sleep(for: .seconds(2))
+                    print("\(spec) (sets the selected tab's folder like a scan after /cd, waits 2 s):\n  \(state())")
+                    continue
+                }
+                if spec.hasPrefix("layout:") {
+                    UserDefaults.standard.set(spec == "layout:auto" ? nil : String(spec.dropFirst(7)), forKey: ReviewDiffLayout.key)
+                    try? await Task.sleep(for: .seconds(1))
+                    print("\(spec) (writes reviewDiffLayout, restored after the run):\n  \(state())")
+                    continue
+                }
+                if spec.hasPrefix("width:"), let width = Double(spec.dropFirst(6)) {
+                    window.setContentSize(NSSize(width: width, height: window.contentLayoutRect.height))
+                    try? await Task.sleep(for: .seconds(1))
+                    print("\(spec) (sets the window width):\n  \(state())")
+                    continue
+                }
                 if spec.hasPrefix("shot:") {
                     try? await Task.sleep(for: .milliseconds(500))
                     if let image = image(of: window) { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + ".\(spec.dropFirst(5)).png")) }
                     print("\(spec) (saves <out>.\(spec.dropFirst(5)).png):\n  \(state())")
                     continue
                 }
-                if let model = store.reviewModel, ["refresh", "keep", "save", "back", "forward", "files", "changes"].contains(spec) || spec.hasPrefix("file") || spec.hasPrefix("open:") || spec.hasPrefix("dbl:") {
+                if let model = store.reviewModel, ["refresh", "keep", "save", "back", "forward"].contains(spec) || spec.hasPrefix("file") || spec.hasPrefix("open:") || spec.hasPrefix("dbl:") {
                     let target = spec.split(separator: ":", maxSplits: 2).map(String.init)
                     let document = target.count == 3 ? ["u": ReviewDocument(path: target[2], compare: .uncommitted), "c": ReviewDocument(path: target[2], compare: .committed)][target[1]] ?? model.workingDocument(target[2]) : nil
                     if spec == "refresh" { await model.load() }
                     if spec == "keep" { model.selectedTabID.map(model.keep) }
                     if spec == "save", let path = model.selectedDocument?.path, let draft = model.drafts[path] { model.save(draft, to: path) }
                     if spec == "back" || spec == "forward" { model.go(by: spec == "back" ? -1 : 1) }
-                    if spec == "files" || spec == "changes" { model.list = spec == "files" ? .files : .changes }
                     if spec.hasPrefix("file"), let index = Int(spec.dropFirst(4)), let file = model.changes.map({ $0.uncommitted.map { ReviewDocument(path: $0.path, compare: .uncommitted) } + $0.committed.map { ReviewDocument(path: $0.path, compare: .committed) } })?.dropFirst(index).first { model.open(file) }
                     if let document {
-                        model.list = target[1] == "f" ? .files : .changes
                         model.open(document)
                         if target[0] == "dbl" { model.selectedTabID.map(model.keep) }
                     }
                     try? await Task.sleep(for: .seconds(1))
                     func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
                     let right = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last
-                    if let right, spec != "files", spec != "changes" { window.makeFirstResponder(right) }
+                    if let right { window.makeFirstResponder(right) }
                     print("\(spec) (\(target.count == 3 ? "\(target[0] == "dbl" ? "double-clicks" : "clicks") that row" : spec == "keep" ? "double-clicks the current tab" : spec == "refresh" ? "reloads Review" : Int(spec.dropFirst(4)) != nil ? "clicks that Changes row" : spec), then focuses the diff's right side): right side editable \(right?.isEditable == true), left shown \(right?.unifiedOriginal == nil), the path's editor \(right.map { right in model.editors.values.contains { $0 === right } } ?? false), language \(right?.onDefinition != nil)\n  \(state())")
                     continue
                 }
@@ -812,6 +844,7 @@ enum Snapshot {
                 try? await Task.sleep(for: .milliseconds(100))
             }
             NotificationCenter.default.removeObserver(observer)
+            UserDefaults.standard.set(savedLayout, forKey: ReviewDiffLayout.key)
         }
         if let keys = launcherKeys {
             let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }

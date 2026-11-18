@@ -37,16 +37,34 @@ This is the slim first version; the rest is listed under Later.
 - Toolbar: a Show / Hide Changes button, `sidebar.left` next to the traffic lights when the
   panel is on the left, `sidebar.right` at the trailing end when it is on the right.
 - Panel, 272 pt ideal (220–440), on the Ghostty theme like the sessions sidebar: the header,
-  the card, a Changes | Files segmented control (`ReviewModel.list`), its list, the session's
-  comments below it with a delete button each, and Send N Comments.
-- Changes: an Uncommitted section (count, summed +/-) and a Committed section (count, "N
-  commits"), each only when it has files. Rows: status letter A/M/D/R in the theme's working,
-  needs-you, closed and branch colours, file name, +/- counts. Each row opens its own compare.
-  Nothing changed: "No uncommitted changes on <branch>" on the default branch or without a
-  base, else "No changes, <branch> matches <base>".
+  the card, one list of collapsible sections (the sessions sidebar's headers and disclosure),
+  the session's comments below it with a delete button each, and Send N Comments. Collapsed
+  sections persist in `@AppStorage` `collapsedReviewSections` (comma-separated ids
+  `uncommitted`, `committed`, `files`; default `files`).
+- Uncommitted (count, summed +/-) and Committed (count, "N commits") sections, each only when it
+  has files. Rows: status letter A/M/D/R in the theme's working, needs-you, closed and branch
+  colours, file name, +/- counts. Each row opens its own compare. Nothing changed: "No
+  uncommitted changes on <branch>" on the default branch or without a base, else "No changes,
+  <branch> matches <base>".
 - Files: the repository as an outline (`ReviewFileTree`, folders first), changed files in their
   status colour (Uncommitted first). A file row opens its Uncommitted compare when it has one,
-  else the plain file. Folders only expand.
+  else the plain file. Folders only expand. The list highlights the current tab's row: its
+  compare's row, or the Files row for a plain file.
+- Hovering a file row (any section) shows an Open File button (`doc`) before the counts; it opens
+  the working-tree file as the plain file, through the same `ReviewModel.open`. Deleted files
+  have none.
+- Refreshing: the panel reloads its lists on its own when the repository changes on disk. While
+  it shows a model, an FSEvents watcher covers the repository root and its git directories
+  (`git rev-parse --git-dir --git-common-dir`, so a linked worktree's own gitdir and the common
+  dir), ignoring `objects/`, `logs/`, `FETCH_HEAD`, `.lock` files and, for a second, files Review
+  just saved; the reload runs 500 ms after the last event. A reload keeps the current tab's
+  contents until the new ones arrive and reloads them from disk (a draft still wins over the
+  file), and other tabs reload when selected. Refresh does the same at once.
+- Following the session: the model is per session and folder. When the session's folder
+  changes (a scan after `/cd`, or Claude entering a worktree), the next `prepareReviewModel`
+  replaces the model, which stops its language servers and drops its tabs, editors and
+  comments. While it has unsaved drafts it stays, with "This session moved to <folder>. Save or
+  undo your edits to follow it." under the header, and swaps once the drafts are gone.
 - Panel header: branch → base ("<branch>, uncommitted only" on the default branch or without a
   base), a fetch warning when the fetch failed, Refresh. Below it the PR or branch card
   (`design/review-panel.md`), from `ReviewGit.changes(in:)` and `branchStatus(of:)`, loaded with
@@ -68,14 +86,22 @@ This is the slim first version; the rest is listed under Later.
     and the branch's commits, at most 5 then "N more": short SHA, subject, age, and a dot,
     filled when pushed to the upstream, hollow in the needs-you colour when not. With the pill and
     at least 1 commit ahead, a Create Pull Request… button ends the card (see Create Pull Request).
-- Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal):
-  collapsed while it has no tab; nothing opens by itself. It opens 760 pt wide, less
-  to leave the terminal 360, never under 440, and window or panel resizes keep both within
-  those minimums where they fit (`TerminalSplitController.fitDiff`, after layout: constraint
-  minimums the window can't fit crash AppKit). When the split can't hold 801 pt, opening a diff
-  (or narrowing the window with one open) collapses the session sidebar, and closing the diff
-  brings it back unless the user toggled it meanwhile (`ContentView.sidebarYieldsToDiff`, an
-  overlay on the stored visibility, so nothing persisted changes).
+- Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal): open
+  whenever the panel shows, collapsed only while the panel is hidden or Harbor is shown, so the
+  terminal's width doesn't change as files open and close. With no tab (or a terminal tab
+  selected) it shows "No File Open" in secondary text under an empty tab strip row, like Xcode's
+  "No Editor"; nothing opens by itself. It opens 760 pt wide (also on the first layout), less to
+  leave the terminal 360, never under 440, and window or panel resizes keep both within those
+  minimums where they fit (`TerminalSplitController.fitDiff`, after layout: constraint minimums
+  the window can't fit crash AppKit). When the split settles under 801 pt with the panel shown
+  (300 ms after its last width change, so launch's transient widths don't count), the session
+  sidebar collapses, and hiding the panel brings it back unless the user toggled it meanwhile
+  (`ContentView.sidebarYieldsToDiff`, an overlay on the stored visibility, so nothing persisted
+  changes).
+- While the panel shows, the terminal pane has a 32 pt header row (the selected tab's title) as
+  tall as the diff's tab strip, so the hairline under both crosses the diff | terminal divider,
+  as in Xcode's split editor. The divider starts under the toolbar; a full-height one cut
+  through the window title.
 - Tabs (`ReviewModel.tabs`, VS Code preview semantics): a tab strip (file name, a diff or file
   icon, ×), then a header with back and forward, the path, an Uncommitted or Committed chip and
   Save while there is a draft. A click on a row (or a ⌘-clicked definition) opens a preview tab,
@@ -84,7 +110,7 @@ This is the slim first version; the rest is listed under Later.
   open in a tab selects that tab. Double-clicking the row or the tab, or editing the file, keeps
   it (regular title); opening from a kept tab then starts a new preview tab after it. Closing a
   tab selects its neighbour and, when it was the current tab, focuses the neighbour's right side;
-  closing the last collapses the column. Refresh keeps each history
+  closing the last leaves "No File Open" and focuses the terminal. Refresh keeps each history
   entry still listed in its compare, turns one that isn't into the plain file while the file
   exists, else drops it; a tab whose current entry is dropped closes.
 - A document is a path and a compare (`ReviewDocument`, `nil` for the plain file). Uncommitted
@@ -104,8 +130,14 @@ This is the slim first version; the rest is listed under Later.
   Scrolling either side (text, gutter, minimap or ruler) scrolls both, for added and deleted
   files too. Added and deleted files show the missing side as filler; a binary or too large
   side is a `ContentUnavailableView`.
-- Below 760 pt of diff column width the diff is unified, switching live on divider moves and
-  window resizes (the top visible line stays put): only the right side shows, and each hunk's
+- Layout: `@AppStorage` `reviewDiffLayout` is `auto` (default), `sideBySide` or `inline`. A
+  toggle after the compare chip in the diff header (`rectangle.split.2x1` "Show Side by Side"
+  while unified, `rectangle` "Show Inline" while side by side, hidden for a plain file) sets an
+  explicit value; View ▸ Show Side by Side / Show Inline and the palette run the same
+  (`AppAction.showSideBySide` / `.showInline`, only while the panel shows a compare). Nothing in
+  the UI sets `auto` back. In `auto`, below 760 pt of diff column width the diff is unified,
+  switching live on divider moves and window resizes (the top visible line stays put). Unified:
+  only the right side shows, and each hunk's
   removed lines sit above its added lines in rows of their own, drawn from the base with its
   syntax colours, the removed tint and changed words, and numbered with the base's numbers in
   the removed colour. They are not part of the editable text, so they can't be selected, edited
@@ -144,7 +176,8 @@ This is the slim first version; the rest is listed under Later.
 | Key | From | Result |
 |---|---|---|
 | ⇧⌘R, View ▸ Show / Hide Changes, palette, toolbar button | anywhere | Shows or hides the panel (showing leaves Harbor) |
-| ⌘W, a tab's × | a tab is open, focus outside a terminal | Closes the current tab; closing the last collapses the column and focuses the terminal |
+| ⌘W, a tab's × | a tab is open, focus outside a terminal | Closes the current tab; closing the last leaves "No File Open" and focuses the terminal |
+| View ▸ Show Side by Side / Show Inline, palette, the header toggle | a compare is shown | Sets `reviewDiffLayout` |
 | ⌘S, Save in the header | Review, the file has a draft | Saves it through `ReviewGit.save` |
 | ⌘F | the diff | The focused side's find bar |
 | ⌘-click | an identifier on the right side, language servers on | Goes to its definition |

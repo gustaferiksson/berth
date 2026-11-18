@@ -572,10 +572,10 @@ struct GroupingMenuItems: View {
     }
 }
 
-private struct GroupHeader<Menu: View, Accessory: View>: View {
+struct GroupHeader<Menu: View, Accessory: View>: View {
     let title: String
     let help: String
-    let count: Int
+    let count: Int?
     var renaming: Binding<CustomGroup?>?
     var commitRename: (CustomGroup) -> Void = { _ in }
     var dragID: String?
@@ -625,9 +625,11 @@ private struct GroupHeader<Menu: View, Accessory: View>: View {
                     .foregroundStyle(theme.secondary)
                     .lineLimit(1)
                     .help(help)
-                Text(count, format: .number)
-                    .monospacedDigit()
-                    .foregroundStyle(theme.secondary.opacity(0.6))
+                if let count {
+                    Text(count, format: .number)
+                        .monospacedDigit()
+                        .foregroundStyle(theme.secondary.opacity(0.6))
+                }
             }
             Spacer(minLength: 4)
             accessory(isHovering)

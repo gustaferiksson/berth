@@ -84,6 +84,7 @@ final class Store {
             prepareReviewModel()
         }
     }
+    var isReviewDiffUnified = false
     var reviewModels: [String: ReviewModel] = [:] {
         didSet {
             for (id, model) in oldValue where reviewModels[id] !== model { model.language?.stop() }
@@ -537,8 +538,12 @@ final class Store {
     func prepareReviewModel() {
         guard showsReviewPanel, UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey),
               let tab = tabs.first(where: { $0.id == selectedTabID }), tab.kind == .claude,
-              let sessionID = tab.sessionID, reviewModels[sessionID] == nil
+              let sessionID = tab.sessionID, reviewModels[sessionID]?.folder != tab.cwd
         else { return }
+        if let model = reviewModels[sessionID], model.hasUnsavedEdits {
+            model.movedFolder = tab.cwd
+            return
+        }
         reviewModels[sessionID] = ReviewModel(folder: tab.cwd)
     }
 

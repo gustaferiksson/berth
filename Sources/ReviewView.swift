@@ -15,9 +15,12 @@ struct ReviewTab: Identifiable {
     var document: ReviewDocument { history[index] }
 }
 
-enum ReviewList: Hashable {
-    case changes
-    case files
+enum ReviewDiffLayout: String {
+    case auto
+    case sideBySide
+    case inline
+
+    static let key = "reviewDiffLayout"
 }
 
 @Observable
@@ -33,12 +36,15 @@ final class ReviewModel {
     private(set) var language: ReviewLanguage?
     private(set) var tabs: [ReviewTab] = []
     var selectedTabID: UUID?
-    var list = ReviewList.changes
     var reveal: (document: ReviewDocument, range: LanguageServerRange)?
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
     var notice: String?
+    var movedFolder: String?
     var focusesEditor = false
+    @ObservationIgnored var watcher: FileWatcher?
+    @ObservationIgnored private var reload: Task<Void, Never>?
+    @ObservationIgnored private var savedAt: [String: Date] = [:]
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
 
@@ -63,7 +69,7 @@ final class ReviewModel {
                 language?.stop()
                 language = ReviewLanguage(root: changes.root)
             }
-            contents = [:]
+            contents = contents.filter { $0.key == selectedDocument }
 
             let existing = { (document: ReviewDocument) -> ReviewDocument? in
                 if let compare = document.compare, (compare == .committed ? changes.committed : changes.uncommitted).contains(where: { $0.path == document.path }) { return document }
@@ -80,7 +86,21 @@ final class ReviewModel {
             self.error = Self.describe(error)
         }
         isLoading = false
-        await loadSelectedContents()
+        if let selectedDocument { await loadContents(of: selectedDocument) }
+    }
+
+    func watch() async {
+        guard let root = changes?.root, let directories = try? await ReviewGit.gitDirectories(in: root) else { return }
+
+        let ignored = directories.flatMap { [$0 + "/objects/", $0 + "/logs/", $0 + "/FETCH_HEAD"] }
+        watcher = FileWatcher(paths: [root] + directories, latency: 0.5) { [weak self] paths in
+            guard let self, paths.contains(where: { path in !path.hasSuffix(".lock") && !ignored.contains { path.hasPrefix($0) } && savedAt[path].map { $0 < .now - 1 } ?? true }) else { return }
+            reload?.cancel()
+            reload = Task {
+                guard (try? await Task.sleep(for: .milliseconds(500))) != nil else { return }
+                await self.load()
+            }
+        }
     }
 
     func open(_ document: ReviewDocument) {
@@ -126,7 +146,12 @@ final class ReviewModel {
     }
 
     func loadSelectedContents() async {
-        guard let changes, let document = selectedDocument, contents[document] == nil else { return }
+        guard let document = selectedDocument, contents[document] == nil else { return }
+        await loadContents(of: document)
+    }
+
+    private func loadContents(of document: ReviewDocument) async {
+        guard let changes else { return }
 
         do {
             let listed = document.compare.flatMap { compare in (compare == .committed ? changes.committed : changes.uncommitted).first { $0.path == document.path } }
@@ -164,6 +189,7 @@ final class ReviewModel {
         }
 
         do {
+            savedAt[URL(filePath: changes.root).appending(path: path).path] = .now
             try ReviewGit.save(text, to: path, in: changes.root)
         } catch {
             notice = "Couldn’t save \(path): \(Self.describe(error))"
@@ -192,7 +218,7 @@ struct ReviewPanel: View {
     var body: some View {
         if let model = store.reviewModel, let sessionID = store.tabs.first(where: { $0.id == store.selectedTabID })?.sessionID {
             ReviewFileList(sessionID: sessionID, model: model)
-                .id(sessionID)
+                .id(ObjectIdentifier(model))
         } else {
             ContentUnavailableView("Select a Claude Session", systemImage: "plus.forwardslash.minus", description: Text("Its branch’s changes show here."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -205,11 +231,15 @@ private struct ReviewFileList: View {
     @Bindable var model: ReviewModel
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
+    @AppStorage("collapsedReviewSections") private var collapsedSections = "files"
 
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .task { await model.load() }
+            .task(id: model.changes?.root) { await model.watch() }
+            .onDisappear { model.watcher = nil }
+            .onChange(of: model.hasUnsavedEdits) { store.prepareReviewModel() }
             .task(id: model.selectedDocument) { await model.loadSelectedContents() }
             .task(id: pullRequest?.pullRequest?.number) { await loadPullRequestDetail() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
@@ -223,30 +253,24 @@ private struct ReviewFileList: View {
         if let changes = model.changes {
             VStack(spacing: 0) {
                 header(changes)
+                if let movedFolder = model.movedFolder {
+                    Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits to follow it.", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(theme.needsYou)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 6)
+                }
                 if let status = model.status {
                     ReviewBranchCard(changes: changes, status: status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest)
                         .padding(.horizontal, 10)
                         .padding(.bottom, 6)
                 }
-                Picker("List", selection: $model.list) {
-                    Text("Changes").tag(ReviewList.changes)
-                    Text("Files").tag(ReviewList.files)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 10)
-                .padding(.bottom, 4)
-                Group {
-                    if model.list == .files {
-                        filesList(changes)
-                    } else {
-                        changesList(changes)
-                    }
-                }
-                .listStyle(.sidebar)
-                .environment(\.sidebarRowSize, .small)
-                .scrollContentBackground(.hidden)
-                .background(OverlayScroller())
+                list(changes)
+                    .listStyle(.sidebar)
+                    .environment(\.sidebarRowSize, .small)
+                    .scrollContentBackground(.hidden)
+                    .background(OverlayScroller())
 
                 if !model.comments.isEmpty {
                     Hairline(axis: .horizontal)
@@ -270,75 +294,81 @@ private struct ReviewFileList: View {
         }
     }
 
-    private func changesList(_ changes: ReviewChanges) -> some View {
-        List(selection: Binding(get: { model.selectedDocument }, set: { $0.map(model.open) })) {
+    private func list(_ changes: ReviewChanges) -> some View {
+        List(selection: Binding(get: { model.selectedDocument }, set: { $0.map { model.open($0.compare == nil ? model.workingDocument($0.path) : $0) } })) {
             if changes.uncommitted.isEmpty, changes.committed.isEmpty {
                 Text(changes.isDefaultBranch || changes.base == nil ? "No uncommitted changes on \(changes.branch)" : "No changes, \(changes.branch) matches \(changes.base ?? "")")
                     .foregroundStyle(theme.secondary)
             }
             if !changes.uncommitted.isEmpty {
-                Section {
+                Section(isExpanded: expansion(of: "uncommitted")) {
                     ForEach(changes.uncommitted, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .uncommitted)) }
                 } header: {
-                    sectionHeader("Uncommitted", count: changes.uncommitted.count, detail: "+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
+                    GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count, menu: { EmptyView() }) { _ in
+                        Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
+                            .monospacedDigit()
+                            .foregroundStyle(theme.secondary)
+                    }
                 }
             }
             if !changes.committed.isEmpty {
-                Section {
+                Section(isExpanded: expansion(of: "committed")) {
                     ForEach(changes.committed, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .committed)) }
                 } header: {
-                    sectionHeader("Committed", count: changes.committed.count, detail: model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
+                    GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count, menu: { EmptyView() }) { _ in
+                        Text(model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
+                            .foregroundStyle(theme.secondary)
+                    }
                 }
+            }
+            Section(isExpanded: expansion(of: "files")) {
+                OutlineGroup(model.tree, children: \.children) { node in
+                    let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
+                    let row = ReviewRow(path: node.path, open: node.children != nil || status == .deleted ? nil : { model.open(ReviewDocument(path: node.path, compare: nil)) }) {
+                        Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
+                            .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } counts: {
+                        EmptyView()
+                    }
+                    .help(node.path)
+                    if node.children == nil {
+                        row.tag(ReviewDocument(path: node.path, compare: nil))
+                    } else {
+                        row.selectionDisabled()
+                    }
+                }
+            } header: {
+                GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }
             }
         }
         .contextMenu(forSelectionType: ReviewDocument.self) { _ in
         } primaryAction: { documents in
             guard let document = documents.first else { return }
-            model.open(document)
+            model.open(document.compare == nil ? model.workingDocument(document.path) : document)
             model.selectedTabID.map(model.keep)
         }
     }
 
-    private func filesList(_ changes: ReviewChanges) -> some View {
-        List(model.tree, children: \.children, selection: Binding(get: { model.selectedDocument.flatMap { $0.compare == .committed ? nil : $0.path } }, set: { $0.map { model.open(model.workingDocument($0)) } })) { node in
-            let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
-            Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
-                .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(node.path)
-                .selectionDisabled(node.children != nil)
+    private func expansion(of id: String) -> Binding<Bool> {
+        Binding {
+            !collapsedSections.split(separator: ",").contains { $0 == id }
+        } set: { expanded in
+            let others = collapsedSections.split(separator: ",").filter { $0 != id }.map(String.init)
+            collapsedSections = (expanded ? others : others + [id]).joined(separator: ",")
         }
-        .contextMenu(forSelectionType: String.self) { _ in
-        } primaryAction: { paths in
-            guard let path = paths.first else { return }
-            model.open(model.workingDocument(path))
-            model.selectedTabID.map(model.keep)
-        }
-    }
-
-    private func sectionHeader(_ title: String, count: Int, detail: String) -> some View {
-        HStack(spacing: 4) {
-            Text(title)
-            Text("\(count)")
-                .foregroundStyle(theme.secondary)
-            Spacer(minLength: 4)
-            Text(detail)
-                .foregroundStyle(theme.secondary)
-        }
-        .monospacedDigit()
-        .padding(.trailing, 12)
     }
 
     private func fileRow(_ file: ReviewFile) -> some View {
-        HStack(spacing: 6) {
+        ReviewRow(path: file.path, open: file.status == .deleted ? nil : { model.open(ReviewDocument(path: file.path, compare: nil)) }) {
             Text(file.status.rawValue)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: 4)
+        } counts: {
             HStack(spacing: 6) {
                 if let additions = file.additions, additions > 0 {
                     Text("+\(additions)").foregroundStyle(theme.working)
@@ -448,6 +478,29 @@ private struct ReviewFileList: View {
         }
 
         terminal.requestFocus()
+    }
+}
+
+private struct ReviewRow<Content: View, Counts: View>: View {
+    let path: String
+    let open: (() -> Void)?
+    @ViewBuilder let content: Content
+    @ViewBuilder let counts: Counts
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            content
+            Spacer(minLength: 4)
+            if let open, isHovering || Snapshot.forcedHover.contains(path) {
+                Button("Open File", systemImage: "doc", action: open)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("Open File")
+            }
+            counts
+        }
+        .onHover { isHovering = $0 }
     }
 }
 
@@ -613,87 +666,108 @@ struct ReviewDiffColumn: View {
     @AppStorage(ReviewStyle.fontSizeKey) private var fontSize = 0.0
     @AppStorage(ReviewStyle.lineHeightKey) private var lineHeight = 1.3
     @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
-    @State private var isUnified = false
+    @AppStorage(ReviewDiffLayout.key) private var diffLayout = ReviewDiffLayout.auto
+    @State private var isNarrow = false
+
+    private var isUnified: Bool { diffLayout == .inline || diffLayout == .auto && isNarrow }
 
     var body: some View {
         let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme)
-        if let model = store.reviewModel, let tab = model.selectedTab {
-            let document = tab.document
-            let path = document.path
-            let isCommitted = document.compare == .committed
-            VStack(spacing: 0) {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 2) {
-                        ForEach(model.tabs) { tabButton($0, in: model, style: style) }
+        Group {
+            if let model = store.reviewModel, let tab = model.selectedTab {
+                let document = tab.document
+                let path = document.path
+                let isCommitted = document.compare == .committed
+                VStack(spacing: 0) {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 2) {
+                            ForEach(model.tabs) { tabButton($0, in: model, style: style) }
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
-                }
-                .scrollIndicators(.hidden)
-                .frame(height: 32)
-                Divider()
-                HStack(spacing: 8) {
-                    Button("Back", systemImage: "chevron.backward") { model.go(by: -1) }
-                        .disabled(tab.index == 0)
-                    Button("Forward", systemImage: "chevron.forward") { model.go(by: 1) }
-                        .disabled(tab.index == tab.history.count - 1)
-                    Text(path)
-                        .foregroundStyle(Color(nsColor: style.secondary))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if let compare = document.compare {
-                        Text(compare == .committed ? "Committed" : "Uncommitted")
-                            .font(.caption)
+                    .scrollIndicators(.hidden)
+                    .frame(height: 32)
+                    Divider()
+                    HStack(spacing: 8) {
+                        Button("Back", systemImage: "chevron.backward") { model.go(by: -1) }
+                            .disabled(tab.index == 0)
+                        Button("Forward", systemImage: "chevron.forward") { model.go(by: 1) }
+                            .disabled(tab.index == tab.history.count - 1)
+                        Text(path)
                             .foregroundStyle(Color(nsColor: style.secondary))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(Color(nsColor: style.foreground).opacity(0.08), in: .rect(cornerRadius: 4))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        if let compare = document.compare {
+                            Text(compare == .committed ? "Committed" : "Uncommitted")
+                                .font(.caption)
+                                .foregroundStyle(Color(nsColor: style.secondary))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(Color(nsColor: style.foreground).opacity(0.08), in: .rect(cornerRadius: 4))
+                            Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
+                                diffLayout = isUnified ? .sideBySide : .inline
+                            }
+                            .help(isUnified ? "Show Side by Side" : "Show Inline")
+                        }
+                        Spacer(minLength: 8)
+                        if !isCommitted, let draft = model.drafts[path] {
+                            Button("Save") { model.save(draft, to: path) }
+                                .keyboardShortcut("s")
+                        }
                     }
-                    Spacer(minLength: 8)
-                    if !isCommitted, let draft = model.drafts[path] {
-                        Button("Save") { model.save(draft, to: path) }
-                            .keyboardShortcut("s")
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .font(.callout)
+                    .padding(.horizontal, 8)
+                    .frame(height: 36)
+                    Divider()
+                    if let contents = model.contents[document], isCommitted || model.editors[path] != nil {
+                        ReviewDiffPane(
+                            path: path,
+                            compare: document.compare,
+                            contents: contents,
+                            editor: isCommitted ? nil : model.editors[path],
+                            draft: isCommitted ? .constant(nil) : Binding(get: { model.drafts[path] }, set: { draft in
+                                model.drafts[path] = draft
+                                model.keep(tab.id)
+                            }),
+                            comments: Bindable(model).comments,
+                            style: style,
+                            language: areLanguageServersEnabled && !isCommitted ? model.language : nil,
+                            reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
+                            isUnified: isUnified || document.compare == nil,
+                            takesFocus: model.focusesEditor,
+                            onRevealed: { model.reveal = nil },
+                            onDefinition: model.goToDefinition
+                        )
+                        .id(document)
+                        .task(id: model.focusesEditor) { model.focusesEditor = false }
+                    } else {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .font(.callout)
-                .padding(.horizontal, 8)
-                .frame(height: 36)
-                Divider()
-                if let contents = model.contents[document], isCommitted || model.editors[path] != nil {
-                    ReviewDiffPane(
-                        path: path,
-                        compare: document.compare,
-                        contents: contents,
-                        editor: isCommitted ? nil : model.editors[path],
-                        draft: isCommitted ? .constant(nil) : Binding(get: { model.drafts[path] }, set: { draft in
-                            model.drafts[path] = draft
-                            model.keep(tab.id)
-                        }),
-                        comments: Bindable(model).comments,
-                        style: style,
-                        language: areLanguageServersEnabled && !isCommitted ? model.language : nil,
-                        reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
-                        isUnified: isUnified || document.compare == nil,
-                        takesFocus: model.focusesEditor,
-                        onRevealed: { model.reveal = nil },
-                        onDefinition: model.goToDefinition
-                    )
-                    .id(document)
-                    .task(id: model.focusesEditor) { model.focusesEditor = false }
-                } else {
-                    ProgressView()
+            } else {
+                VStack(spacing: 0) {
+                    Spacer()
+                        .frame(height: 32)
+                    Divider()
+                    Text("No File Open")
+                        .font(.title2)
+                        .foregroundStyle(Color(nsColor: style.secondary))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .foregroundStyle(Color(nsColor: style.foreground))
-            .background(Color(nsColor: style.background))
-            .environment(\.colorScheme, style.isDark ? .dark : .light)
-            .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { isUnified = $0 }
-            .environment(store)
-            .environment(\.ghosttyTheme, store.theme)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .foregroundStyle(Color(nsColor: style.foreground))
+        .background(Color(nsColor: style.background))
+        .environment(\.colorScheme, style.isDark ? .dark : .light)
+        .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { isNarrow = $0 }
+        .onChange(of: isUnified, initial: true) { store.isReviewDiffUnified = isUnified }
+        .environment(store)
+        .environment(\.ghosttyTheme, store.theme)
     }
 
     private func tabButton(_ tab: ReviewTab, in model: ReviewModel, style: ReviewStyle) -> some View {
