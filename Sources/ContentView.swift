@@ -328,6 +328,7 @@ private struct TerminalArea: View {
                     Divider()
                 }
                 .frame(height: 33)
+                .overlay(alignment: .top) { Divider() }
             }
         }
         .environment(store)

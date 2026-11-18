@@ -876,6 +876,7 @@ struct ReviewDiffColumn: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(Color(nsColor: style.foreground))
         .background(Color(nsColor: style.background))
+        .overlay(alignment: .top) { Divider() }
         .environment(\.colorScheme, style.isDark ? .dark : .light)
         .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { isNarrow = $0 }
         .onChange(of: isUnified, initial: true) { store.isReviewDiffUnified = isUnified }
