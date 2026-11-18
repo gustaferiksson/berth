@@ -261,11 +261,13 @@ final class Store {
         let branches = Set((pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches))
         guard !branches.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
         pullRequestsFetchedAt = .now
-        Task {
-            let fetched = await Task.detached { await PullRequestStatus.fetch(branches) }.value
-            let merged = pullRequests.merging(fetched) { $1 }
-            if merged != pullRequests { pullRequests = merged }
-        }
+        Task { await fetchPullRequests(branches) }
+    }
+
+    func fetchPullRequests(_ branches: Set<PullRequestBranch>) async {
+        let fetched = await Task.detached { await PullRequestStatus.fetch(branches) }.value
+        let merged = pullRequests.merging(fetched) { $1 }
+        if merged != pullRequests { pullRequests = merged }
     }
 
     private func resolvePullRequests() {

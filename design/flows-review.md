@@ -171,8 +171,9 @@ This is the slim first version; the rest is listed under Later.
   open a pull request for it with gh.") into the session's claude prompt without submitting it and
   focuses the terminal, so the user reads it and presses Return. Claude's own instructions decide
   the PR's wording. It is disabled, with a tooltip saying so, while Claude isn't running in the tab.
-- The new PR shows up through the sidebar's lookup (app activation or the 5 min poll), which then
-  swaps in the PR card.
+- The new PR shows up through the sidebar's lookup (app activation or the 5 min poll, at most once a
+  minute), or at once on the panel's Refresh, which looks up the panel's branch in its repository
+  (`Store.fetchPullRequests`, unthrottled) whenever the card knows its PR state.
 
 ## Language servers
 

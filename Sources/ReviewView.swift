@@ -421,6 +421,7 @@ private struct ReviewFileList: View {
         Button("Refresh", systemImage: "arrow.clockwise") {
             Task {
                 await model.load()
+                if let repository = pullRequest?.repository, let branch = model.changes?.branch { await store.fetchPullRequests([PullRequestBranch(repository: repository, branch: branch)]) }
                 await loadPullRequestDetail()
             }
         }
