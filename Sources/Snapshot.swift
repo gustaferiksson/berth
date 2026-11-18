@@ -732,7 +732,8 @@ enum Snapshot {
                 let focused = store.tabs.firstIndex { $0.terminal.attachedPlatformView === window.firstResponder }.map { "#\($0)" } ?? window.firstResponder.map { "\(type(of: $0))" } ?? "nil"
                 let split = (descendantViews(window.contentView ?? NSView()).first { $0.identifier?.rawValue == "terminalSplit" } as? NSSplitView).map { split in split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" } } ?? []
                 let layout = "layout \(UserDefaults.standard.string(forKey: ReviewDiffLayout.key) ?? "unset"), shown \((descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last?.unifiedOriginal).map { _ in "unified" } ?? "side by side"), offered \([AppAction.showSideBySide, .showInline].filter { $0.isAvailable(in: store) }.map(\.title))"
-                return "split \(split), \(layout), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
+                let review = store.reviewModel.map { "review \($0.folder) \($0.changes.map { "\($0.branch) uncommitted \($0.uncommitted.map(\.path)) committed \($0.committed.map(\.path))" } ?? "not loaded")\($0.movedFolder.map { ", movedFolder \($0)" } ?? "")" } ?? "no review"
+                return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription) (\($0.string.count) characters), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
             }
             let savedLayout = UserDefaults.standard.object(forKey: ReviewDiffLayout.key)
             print("start: \(state())")
@@ -767,6 +768,22 @@ enum Snapshot {
                     }
                     try? await Task.sleep(for: .seconds(1))
                     print("\(spec) (sends a real \(spec.hasPrefix("dbl") ? "double-click" : "click") at that point, top-left origin):\n  \(state())")
+                    continue
+                }
+                if spec.hasPrefix("git:"), let folder = store.reviewModel?.folder {
+                    let git = Process()
+                    git.executableURL = URL(filePath: "/usr/bin/git")
+                    git.arguments = ["-C", folder] + spec.dropFirst(4).split(separator: ",").map(String.init)
+                    try? git.run()
+                    git.waitUntilExit()
+                    try? await Task.sleep(for: .seconds(2))
+                    print("\(spec) (runs git with those comma-separated arguments in the review folder, waits 2 s):\n  \(state())")
+                    continue
+                }
+                if spec.hasPrefix("relocate:"), let index = store.tabs.firstIndex(where: { $0.id == store.selectedTabID }) {
+                    store.tabs[index].cwd = String(spec.dropFirst(9))
+                    try? await Task.sleep(for: .seconds(2))
+                    print("\(spec) (sets the selected tab's folder like a scan after /cd, waits 2 s):\n  \(state())")
                     continue
                 }
                 if spec.hasPrefix("layout:") {

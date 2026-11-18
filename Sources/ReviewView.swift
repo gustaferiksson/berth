@@ -40,7 +40,11 @@ final class ReviewModel {
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
     var notice: String?
+    var movedFolder: String?
     var focusesEditor = false
+    @ObservationIgnored var watcher: FileWatcher?
+    @ObservationIgnored private var reload: Task<Void, Never>?
+    @ObservationIgnored private var savedAt: [String: Date] = [:]
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
 
@@ -65,7 +69,7 @@ final class ReviewModel {
                 language?.stop()
                 language = ReviewLanguage(root: changes.root)
             }
-            contents = [:]
+            contents = contents.filter { $0.key == selectedDocument }
 
             let existing = { (document: ReviewDocument) -> ReviewDocument? in
                 if let compare = document.compare, (compare == .committed ? changes.committed : changes.uncommitted).contains(where: { $0.path == document.path }) { return document }
@@ -82,7 +86,21 @@ final class ReviewModel {
             self.error = Self.describe(error)
         }
         isLoading = false
-        await loadSelectedContents()
+        if let selectedDocument { await loadContents(of: selectedDocument) }
+    }
+
+    func watch() async {
+        guard let root = changes?.root, let directories = try? await ReviewGit.gitDirectories(in: root) else { return }
+
+        let ignored = directories.flatMap { [$0 + "/objects/", $0 + "/logs/", $0 + "/FETCH_HEAD"] }
+        watcher = FileWatcher(paths: [root] + directories, latency: 0.5) { [weak self] paths in
+            guard let self, paths.contains(where: { path in !path.hasSuffix(".lock") && !ignored.contains { path.hasPrefix($0) } && savedAt[path].map { $0 < .now - 1 } ?? true }) else { return }
+            reload?.cancel()
+            reload = Task {
+                guard (try? await Task.sleep(for: .milliseconds(500))) != nil else { return }
+                await self.load()
+            }
+        }
     }
 
     func open(_ document: ReviewDocument) {
@@ -128,7 +146,12 @@ final class ReviewModel {
     }
 
     func loadSelectedContents() async {
-        guard let changes, let document = selectedDocument, contents[document] == nil else { return }
+        guard let document = selectedDocument, contents[document] == nil else { return }
+        await loadContents(of: document)
+    }
+
+    private func loadContents(of document: ReviewDocument) async {
+        guard let changes else { return }
 
         do {
             let listed = document.compare.flatMap { compare in (compare == .committed ? changes.committed : changes.uncommitted).first { $0.path == document.path } }
@@ -166,6 +189,7 @@ final class ReviewModel {
         }
 
         do {
+            savedAt[URL(filePath: changes.root).appending(path: path).path] = .now
             try ReviewGit.save(text, to: path, in: changes.root)
         } catch {
             notice = "Couldn’t save \(path): \(Self.describe(error))"
@@ -194,7 +218,7 @@ struct ReviewPanel: View {
     var body: some View {
         if let model = store.reviewModel, let sessionID = store.tabs.first(where: { $0.id == store.selectedTabID })?.sessionID {
             ReviewFileList(sessionID: sessionID, model: model)
-                .id(sessionID)
+                .id(ObjectIdentifier(model))
         } else {
             ContentUnavailableView("Select a Claude Session", systemImage: "plus.forwardslash.minus", description: Text("Its branch’s changes show here."))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -213,6 +237,9 @@ private struct ReviewFileList: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .task { await model.load() }
+            .task(id: model.changes?.root) { await model.watch() }
+            .onDisappear { model.watcher = nil }
+            .onChange(of: model.hasUnsavedEdits) { store.prepareReviewModel() }
             .task(id: model.selectedDocument) { await model.loadSelectedContents() }
             .task(id: pullRequest?.pullRequest?.number) { await loadPullRequestDetail() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
@@ -226,16 +253,24 @@ private struct ReviewFileList: View {
         if let changes = model.changes {
             VStack(spacing: 0) {
                 header(changes)
+                if let movedFolder = model.movedFolder {
+                    Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits to follow it.", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(theme.needsYou)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 6)
+                }
                 if let status = model.status {
                     ReviewBranchCard(changes: changes, status: status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest)
                         .padding(.horizontal, 10)
                         .padding(.bottom, 6)
                 }
                 list(changes)
-                .listStyle(.sidebar)
-                .environment(\.sidebarRowSize, .small)
-                .scrollContentBackground(.hidden)
-                .background(OverlayScroller())
+                    .listStyle(.sidebar)
+                    .environment(\.sidebarRowSize, .small)
+                    .scrollContentBackground(.hidden)
+                    .background(OverlayScroller())
 
                 if !model.comments.isEmpty {
                     Hairline(axis: .horizontal)

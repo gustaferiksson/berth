@@ -132,6 +132,10 @@ public enum ReviewGit {
         )
     }
 
+    public static func gitDirectories(in root: String) async throws -> [String] {
+        Array(Set(try await line(["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], in: root).split(separator: "\n").map(String.init)))
+    }
+
     public static func files(in root: String) async throws -> [String] {
         let listed = try await git(["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z"], in: root)
         let deleted = Set(try await git(["ls-files", "--deleted", "-z"], in: root).split(separator: 0))
