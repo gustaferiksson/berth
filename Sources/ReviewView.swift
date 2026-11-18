@@ -559,9 +559,11 @@ private struct ReviewFileNode: View {
                 Button(action: toggle) {
                     label
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 5)
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                .listRowInsets(.vertical, 0)
                 .selectionDisabled()
             }
         } else {
@@ -576,6 +578,7 @@ private struct ReviewFileNode: View {
                 .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .fontWeight(.regular)
         } icon: {
             Image(systemName: node.children == nil ? "doc" : "folder")
                 .foregroundStyle(theme.secondary)
