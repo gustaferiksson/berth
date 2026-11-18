@@ -5,6 +5,8 @@ import SwiftUI
 final class ReviewModel {
     let folder: String
     private(set) var snapshot: ReviewSnapshot?
+    private(set) var branch: (changes: ReviewChanges, status: ReviewBranchStatus)?
+    private(set) var pullRequestDetails: [Int: PullRequestDetail] = [:]
     private(set) var error: String?
     private(set) var isLoading = false
     private(set) var contents: [String: ReviewContents] = [:]
@@ -35,12 +37,20 @@ final class ReviewModel {
             }
             contents = [:]
             if let path = selectedPath, !snapshot.files.contains(where: { $0.path == path }), !FileManager.default.fileExists(atPath: URL(filePath: snapshot.root).appending(path: path).path) { selectedPath = nil }
+
+            let changes = try? await ReviewGit.changes(in: folder)
+            branch = if let changes, let status = try? await ReviewGit.branchStatus(of: changes) { (changes, status) } else { nil }
         } catch {
             snapshot = nil
             self.error = Self.describe(error)
         }
         isLoading = false
         await loadSelectedContents()
+    }
+
+    func loadPullRequestDetail(repository: String, number: Int) async {
+        let detail = Snapshot.output != nil ? Snapshot.fixturePullRequestDetail : await Task.detached { PullRequestStatus.detail(repository: repository, number: number) }.value
+        if let detail { pullRequestDetails[number] = detail }
     }
 
     func loadSelectedContents() async {
@@ -119,6 +129,7 @@ private struct ReviewFileList: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .task { await model.load() }
             .task(id: model.selectedPath) { await model.loadSelectedContents() }
+            .task(id: pullRequest?.pullRequest?.number) { await loadPullRequestDetail() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
             } message: { notice in
                 Text(notice)
@@ -130,6 +141,11 @@ private struct ReviewFileList: View {
         if let snapshot = model.snapshot, !snapshot.files.isEmpty {
             VStack(spacing: 0) {
                 header(snapshot)
+                if let branch = model.branch {
+                    ReviewBranchCard(changes: branch.changes, status: branch.status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] })
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 6)
+                }
                 List(snapshot.files, id: \.path, selection: $model.selectedPath) { file in
                     fileRow(file)
                 }
@@ -226,58 +242,27 @@ private struct ReviewFileList: View {
         }
     }
 
+    private var pullRequest: (repository: String, pullRequest: PullRequest?)? {
+        model.snapshot.flatMap { store.pullRequest(in: store.sessionsByID[sessionID]?.checkout ?? model.folder, branch: $0.branch) }
+    }
+
+    private func loadPullRequestDetail() async {
+        guard let pullRequest, let number = pullRequest.pullRequest?.number else { return }
+        await model.loadPullRequestDetail(repository: pullRequest.repository, number: number)
+    }
+
     private func header(_ snapshot: ReviewSnapshot) -> some View {
-        let pullRequest = store.pullRequest(in: store.sessionsByID[sessionID]?.checkout ?? model.folder, branch: snapshot.branch)
-        return HStack(alignment: .top, spacing: 8) {
-            if let pullRequest {
-                let stateColor = pullRequest.state.color(in: theme)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Label(pullRequest.state.rawValue, systemImage: [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][pullRequest.state] ?? "arrow.triangle.pull")
-                            .labelStyle(CompactLabel())
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(stateColor)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(stateColor.opacity(0.16), in: .capsule)
-                            .fixedSize()
-                        Text(verbatim: "#\(pullRequest.number)")
-                            .foregroundStyle(theme.secondary)
-                            .fixedSize()
-                    }
-                    Text(pullRequest.title)
-                        .fontWeight(.semibold)
-                        .lineLimit(2)
-                    HStack(spacing: 0) {
-                        Text("\(snapshot.base) ← ")
-                            .foregroundStyle(theme.secondary)
-                        Text(snapshot.branch)
-                            .foregroundStyle(theme.branch)
-                    }
-                    .font(.caption.monospaced())
-                    .lineLimit(1)
-                }
-                .layoutPriority(1)
-            } else {
-                Text("\(snapshot.branch) → \(snapshot.base)")
-                    .font(.caption.monospaced())
-                    .foregroundStyle(theme.branch)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
+        HStack(spacing: 8) {
+            Text("\(snapshot.branch) → \(snapshot.base)")
+                .font(.caption.monospaced())
+                .foregroundStyle(theme.branch)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer(minLength: 4)
             if let fetchError = snapshot.fetchError {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(theme.needsYou)
                     .help("Couldn’t fetch \(snapshot.base), comparing local refs: \(fetchError)")
-            }
-            if let pullRequest {
-                Link(destination: pullRequest.url) {
-                    Label("Open on GitHub", systemImage: "arrow.up.right.square")
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .help("Open on GitHub")
             }
             refreshButton
                 .buttonStyle(.borderless)
@@ -289,7 +274,10 @@ private struct ReviewFileList: View {
 
     private var refreshButton: some View {
         Button("Refresh", systemImage: "arrow.clockwise") {
-            Task { await model.load() }
+            Task {
+                await model.load()
+                await loadPullRequestDetail()
+            }
         }
         .labelStyle(.iconOnly)
         .disabled(model.isLoading)
@@ -305,6 +293,152 @@ private struct ReviewFileList: View {
 
         model.comments = []
         terminal.requestFocus()
+    }
+}
+
+private struct ReviewBranchCard: View {
+    let changes: ReviewChanges
+    let status: ReviewBranchStatus
+    let pullRequest: PullRequest??
+    let detail: PullRequestDetail?
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if changes.isDefaultBranch || changes.base == nil {
+                Text("Uncommitted changes on \(changes.branch)")
+                    .fontWeight(.semibold)
+                pushState
+                    .font(.subheadline)
+            } else {
+                let found = pullRequest ?? nil
+                if pullRequest != nil {
+                    let color = found?.state.color(in: theme) ?? theme.secondary
+                    HStack(spacing: 6) {
+                        Label(found?.state.rawValue ?? "No pull request", systemImage: found.map { [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][$0.state] ?? "arrow.triangle.pull" } ?? "arrow.triangle.branch")
+                            .labelStyle(CompactLabel())
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(color)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(color.opacity(0.16), in: .capsule)
+                            .fixedSize()
+                        if let found {
+                            Text(verbatim: "#\(found.number)")
+                                .font(.subheadline.monospaced())
+                                .foregroundStyle(theme.secondary)
+                            Spacer(minLength: 4)
+                            Link(destination: found.url) {
+                                Label("Open on GitHub", systemImage: "arrow.up.right.square")
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .help("Open on GitHub")
+                        }
+                    }
+                }
+                if let found {
+                    Text(found.title)
+                        .fontWeight(.semibold)
+                        .lineLimit(2)
+                        .help(found.title)
+                    if let detail {
+                        HStack(spacing: 10) {
+                            if let checks = detail.checks {
+                                let failed = checks.state == .failed
+                                let running = checks.state == .running
+                                Label(failed ? "\(checks.failed) failed" : running ? "\(checks.running) running" : "Checks passed", systemImage: failed ? "xmark" : running ? "clock" : "checkmark")
+                                    .foregroundStyle(failed ? theme.closed : running ? theme.needsYou : theme.working)
+                                    .help("Checks: \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
+                            }
+                            Label("\(detail.unresolvedThreads) open", systemImage: "bubble.left")
+                                .help("Unresolved review threads")
+                        }
+                        .labelStyle(CompactLabel())
+                        .font(.subheadline)
+                        .foregroundStyle(theme.secondary)
+                    }
+                } else {
+                    Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits") ahead of \(changes.base ?? "")")
+                        .fontWeight(.semibold)
+                    HStack(spacing: 10) {
+                        Text("↑\(status.ahead) ↓\(status.behind)")
+                            .monospaced()
+                            .help("\(status.ahead) ahead of \(changes.base ?? ""), \(status.behind) behind")
+                        if status.ahead > 0 {
+                            pushState
+                        }
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(theme.secondary)
+                }
+            }
+            if (pullRequest ?? nil) == nil, !status.commits.isEmpty {
+                commits
+            }
+        }
+        .lineLimit(1)
+        .font(.callout)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.foreground.opacity(0.13)))
+    }
+
+    private var pushState: some View {
+        Group {
+            if let upstream = status.upstream, upstream.ahead > 0 {
+                Label("\(upstream.ahead) not pushed", systemImage: "arrow.up")
+                    .foregroundStyle(theme.needsYou)
+                    .help("\(upstream.ahead) \(upstream.ahead == 1 ? "commit" : "commits") not pushed to \(upstream.name)")
+            } else if let upstream = status.upstream, upstream.behind > 0 {
+                Label("\(upstream.behind) behind \(upstream.name)", systemImage: "arrow.down")
+                    .foregroundStyle(theme.needsYou)
+            } else if let upstream = status.upstream {
+                Label("Up to date with \(upstream.name)", systemImage: "checkmark")
+                    .foregroundStyle(theme.working)
+            } else {
+                Label(changes.isDefaultBranch || changes.base == nil ? "No upstream" : "Not pushed, no upstream", systemImage: "arrow.up")
+                    .foregroundStyle(theme.needsYou)
+                    .help("\(changes.branch) has no upstream branch")
+            }
+        }
+        .labelStyle(CompactLabel())
+    }
+
+    private var commits: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(status.commits.prefix(5), id: \.sha) { commit in
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(commit.isPushed ? theme.secondary : .clear)
+                        .strokeBorder(commit.isPushed ? .clear : theme.needsYou, lineWidth: 1.25)
+                        .frame(width: 7, height: 7)
+                        .help(commit.isPushed ? "Pushed" : "Not pushed")
+                    Text(commit.sha)
+                        .font(.subheadline.monospaced())
+                        .foregroundStyle(theme.secondary)
+                    Text(commit.subject)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 4)
+                    Text(age(since: commit.date))
+                        .font(.subheadline)
+                        .foregroundStyle(theme.secondary)
+                }
+                .frame(height: 22)
+                .help(commit.subject)
+            }
+            if status.commits.count > 5 {
+                Text("\(status.commits.count - 5) more")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.secondary)
+                    .frame(height: 22)
+            }
+        }
+        .padding(.top, 4)
+        .overlay(alignment: .top) { Hairline(axis: .horizontal) }
+        .padding(.top, 2)
     }
 }
 
