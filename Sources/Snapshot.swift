@@ -436,7 +436,7 @@ enum Snapshot {
                 let clipYs = { views().map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }.joined(separator: "/") }
                 let locate = { (spec: String) -> (textView: ReviewTextView, clicked: ReviewTextView, point: NSPoint)? in
                     let isLeft = spec.hasPrefix("left:")
-                    guard let textView = isLeft ? views().first : right(), let clicked = textView.enclosingScrollView?.isHidden == true ? right() : textView, let point = point(textView, isLeft ? String(spec.dropFirst(5)) : spec) else { return nil }
+                    guard let textView = isLeft ? right()?.unifiedOriginal ?? views().first : right(), let clicked = textView.window == nil || textView.enclosingScrollView?.isHidden == true ? right() : textView, let point = point(textView, isLeft ? String(spec.dropFirst(5)) : spec) else { return nil }
                     return (textView, clicked, point)
                 }
                 if let spec = UserDefaults.standard.string(forKey: "snapshotReviewHover"), let (_, textView, target) = locate(spec) {
