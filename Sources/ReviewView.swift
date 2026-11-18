@@ -47,6 +47,7 @@ final class ReviewModel {
     @ObservationIgnored private(set) var loadCount = 0
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
+    @ObservationIgnored private var savedFromCommitted: Set<String> = []
 
     var hasUnsavedEdits: Bool { !drafts.isEmpty }
     var selectedTab: ReviewTab? { tabs.first { $0.id == selectedTabID } }
@@ -94,6 +95,14 @@ final class ReviewModel {
                 guard existing(tab.document) != nil else { return nil }
                 return ReviewTab(id: tab.id, history: tab.history.compactMap(existing), index: tab.history[..<tab.index].compactMap(existing).count, isPreview: tab.isPreview)
             }
+            for index in tabs.indices {
+                let document = tabs[index].document
+                guard document.compare == .committed, savedFromCommitted.contains(document.path), changes.uncommitted.contains(where: { $0.path == document.path }) else { continue }
+
+                if tabs[index].id == selectedTabID, let editor = editors[document.path], editor.window?.firstResponder === editor { focusesEditor = true }
+                tabs[index].history[tabs[index].index] = ReviewDocument(path: document.path, compare: .uncommitted)
+            }
+            savedFromCommitted.subtract(changes.uncommitted.map(\.path))
             if selectedTab == nil { selectedTabID = tabs.last?.id }
         } catch {
             self.error = Self.describe(error)
@@ -195,6 +204,7 @@ final class ReviewModel {
         }
         loadedTexts[path] = text
         drafts[path] = nil
+        if selectedDocument == ReviewDocument(path: path, compare: .committed) { savedFromCommitted.insert(path) }
         setWorkingTreeText(.text(text), of: path)
     }
 
