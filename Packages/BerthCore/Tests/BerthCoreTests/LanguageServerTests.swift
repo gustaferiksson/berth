@@ -77,15 +77,31 @@ final class LanguageServersTests {
         """#
 
         let stored = LanguageServerEntry.stored(json)
-        #expect(stored.unreadable == 2)
+        #expect(stored.unreadable.count == 2)
         #expect(stored.entries == [
             LanguageServerEntry(id: "oxlint", name: "oxlint", command: "oxlint", languages: ["javascript"]),
             LanguageServerEntry(id: "typescript-language-server", name: "TypeScript", command: "tsls", arguments: ["--stdio"], languages: ["typescript"], rootMarkers: ["tsconfig.json"], settings: "{}", isDiagnosticsOnly: true, isEnabled: false),
         ])
         #expect(LanguageServerEntry.configured(json).map(\.id) == ["oxlint", "typescript-language-server", "sourcekit-lsp", "rust-analyzer"])
-        #expect(LanguageServerEntry.stored(nil).unreadable == 0)
-        #expect(LanguageServerEntry.stored("not json").unreadable == 1)
+        #expect(LanguageServerEntry.stored(nil).unreadable.isEmpty)
+        #expect(LanguageServerEntry.stored("not json").unreadable == [#""not json""#])
         #expect(LanguageServerEntry.configured("not json") == LanguageServerEntry.defaults)
+    }
+
+    @Test func writingEntriesBackKeepsUnreadableFragments() throws {
+        let broken = #"{"id":"broken","name":"Broken","command":"x","languages":"js","note":[1,true,null]}"#
+        let json = #"[{"id":"oxlint","name":"oxlint","command":"oxlint","languages":["javascript"]},"# + broken + "]"
+
+        let stored = LanguageServerEntry.stored(json)
+        var edited = stored.entries
+        edited[0].isEnabled = false
+        let written = LanguageServerEntry.storage(edited, keeping: stored.unreadable)
+
+        let reread = LanguageServerEntry.stored(written)
+        #expect(reread.entries == edited)
+        let elements = try #require(JSONSerialization.jsonObject(with: Data(written.utf8)) as? [NSDictionary])
+        #expect(elements.last == (try JSONSerialization.jsonObject(with: Data(broken.utf8)) as? NSDictionary))
+        #expect(LanguageServerEntry.storage(reread.entries, keeping: reread.unreadable) == written)
     }
 
     @Test func serversMatchFilesByExtensionOrLanguageID() {

@@ -54,8 +54,8 @@ holding an array of entries:
 | `isEnabled` | bool | `true` | `false` turns the entry off. |
 
 An entry that can't be read (a required field missing, a wrong type) is skipped and the others
-still run. Settings > General > Language Servers then says how many were skipped; changing servers
-there deletes them.
+still run. Settings > General > Language Servers then says how many were skipped, and keeps them
+(after the readable entries) when it writes the list back.
 
 - **Built-ins.** SourceKit-LSP (`sourcekit-lsp`), rust-analyzer (`rust-analyzer`) and TypeScript
   (`typescript-language-server`) are always there. Stored entries come first, then each built-in

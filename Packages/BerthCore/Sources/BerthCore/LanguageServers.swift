@@ -53,12 +53,16 @@ public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
     }
 
-    public static func stored(_ json: String?) -> (entries: [LanguageServerEntry], unreadable: Int) {
-        guard let json, !json.isEmpty else { return ([], 0) }
-        guard let elements = try? JSONDecoder().decode([StoredElement].self, from: Data(json.utf8)) else { return ([], 1) }
+    public static func stored(_ json: String?) -> (entries: [LanguageServerEntry], unreadable: [String]) {
+        guard let json, !json.isEmpty else { return ([], []) }
 
-        let entries = elements.compactMap(\.entry)
-        return (entries, elements.count - entries.count)
+        let fragment = { (value: Any) in (try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys, .withoutEscapingSlashes])).map { String(decoding: $0, as: UTF8.self) } }
+        guard let parsed = try? JSONSerialization.jsonObject(with: Data(json.utf8), options: .fragmentsAllowed) else { return ([], fragment(json).map { [$0] } ?? []) }
+        guard let elements = parsed as? [Any] else { return ([], fragment(parsed).map { [$0] } ?? []) }
+
+        let fragments = elements.compactMap(fragment)
+        let decoded = fragments.map { (fragment: $0, entry: try? JSONDecoder().decode(LanguageServerEntry.self, from: Data($0.utf8))) }
+        return (decoded.compactMap(\.entry), decoded.filter { $0.entry == nil }.map(\.fragment))
     }
 
     public static func configured(_ json: String?) -> [LanguageServerEntry] {
@@ -66,12 +70,9 @@ public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
         return stored + defaults.filter { entry in !stored.contains { $0.id == entry.id } }
     }
 
-    private struct StoredElement: Decodable {
-        let entry: LanguageServerEntry?
-
-        init(from decoder: Decoder) throws {
-            entry = try? LanguageServerEntry(from: decoder)
-        }
+    public static func storage(_ entries: [LanguageServerEntry], keeping unreadable: [String]) -> String {
+        let readable = entries.compactMap { (try? JSONEncoder().encode($0)).map { String(decoding: $0, as: UTF8.self) } }
+        return "[" + (readable + unreadable).joined(separator: ",") + "]"
     }
 
     public func serves(_ path: String) -> Bool {
