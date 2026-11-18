@@ -828,7 +828,7 @@ private struct SessionRow: View {
                             }
                             if let branch = session.branch {
                                 BranchText(branch: branch)
-                                    .frame(minWidth: 72, alignment: .leading)
+                                    .frame(minWidth: 48, alignment: .leading)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
