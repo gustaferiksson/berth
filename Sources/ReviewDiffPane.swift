@@ -500,7 +500,10 @@ private final class ReviewSplitView: NSSplitView {
     var onDrag: (Double) -> Void = { _ in }
 
     override func mouseDown(with event: NSEvent) {
-        guard event.clickCount < 2 else { onDrag(0.5); return }
+        if event.clickCount == 2, hitTest(superview?.convert(event.locationInWindow, from: nil) ?? .zero) === self {
+            onDrag(0.5)
+            return
+        }
 
         let width = subviews[0].frame.width
         super.mouseDown(with: event)

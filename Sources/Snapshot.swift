@@ -259,7 +259,8 @@ enum Snapshot {
             print("review files tree \(model.tree.map { $0.children == nil ? $0.name : "\($0.name)/ (\($0.children?.count ?? 0))" })")
             print("review selected \(describe(model)), contents loaded \(model.selectedDocument.flatMap { model.contents[$0] } != nil), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
-            let sides = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }
+            let shownSides = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }
+            let sides = shownSides.count == 1 ? [shownSides[0].unifiedOriginal, shownSides[0]].compactMap(\.self) : shownSides
             let clips = { sides.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }.joined(separator: "/") }
             let save = { (suffix: String) in
                 guard let image = image(of: window) else { return }
