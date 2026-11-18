@@ -17,6 +17,7 @@ struct ReviewDiffPane: View {
     let onDefinition: (LanguageServerLocation) -> Void
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
+    @AppStorage("reviewSplitRatio") private var splitRatio = 0.5
     @State private var analysis: ReviewDiffAnalysis?
 
     var body: some View {
@@ -47,10 +48,12 @@ struct ReviewDiffPane: View {
                 diagnostics: contents.modified == nil ? [] : language?.diagnostics(for: path) ?? [],
                 reveal: reveal,
                 isUnified: isUnified,
+                splitRatio: splitRatio,
                 takesFocus: takesFocus,
                 onRevealed: onRevealed,
                 onDefinition: onDefinition,
-                onEdit: { draft = $0 == loaded ? nil : $0 }
+                onEdit: { draft = $0 == loaded ? nil : $0 },
+                onSplit: { splitRatio = $0 }
             )
             .task(id: [original, modified, configuredServers]) {
                 if analysis != nil { try? await Task.sleep(for: .milliseconds(300)) }
@@ -117,10 +120,12 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let diagnostics: [LanguageServerDiagnostic]
     let reveal: LanguageServerRange?
     let isUnified: Bool
+    let splitRatio: Double
     let takesFocus: Bool
     let onRevealed: () -> Void
     let onDefinition: (LanguageServerLocation) -> Void
     let onEdit: (String) -> Void
+    let onSplit: (Double) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(right: editor ?? ReviewTextView(usingTextLayoutManager: true))
@@ -128,14 +133,20 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSStackView {
         let coordinator = context.coordinator
-        let stack = NSStackView(views: coordinator.makeSide(coordinator.left) + coordinator.makeSide(coordinator.right) + [coordinator.minimap, coordinator.ruler])
+        let rightPane = NSStackView(views: coordinator.makeSide(coordinator.right))
+        coordinator.makeSide(coordinator.left).forEach(coordinator.leftPane.addArrangedSubview)
+        for pane in [coordinator.leftPane, rightPane] {
+            pane.spacing = 0
+            coordinator.split.addSubview(pane)
+        }
+        let stack = NSStackView(views: [coordinator.split, coordinator.minimap, coordinator.ruler])
         stack.spacing = 0
-        coordinator.equalWidths = stack.views[1].widthAnchor.constraint(equalTo: stack.views[3].widthAnchor)
         coordinator.minimap.original = coordinator.left
         coordinator.minimap.modified = coordinator.right
         coordinator.ruler.original = coordinator.left
         coordinator.ruler.modified = coordinator.right
         for view in [coordinator.minimap, coordinator.ruler] {
+            view.clipsToBounds = true
             view.setContentHuggingPriority(.required, for: .horizontal)
             view.setContentCompressionResistancePriority(.required, for: .horizontal)
         }
@@ -144,10 +155,6 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
     func updateNSView(_ stack: NSStackView, context: Context) {
         stack.appearance = NSAppearance(named: style.isDark ? .darkAqua : .aqua)
-        if isUnified { context.coordinator.equalWidths?.isActive = false }
-        stack.views[0].isHidden = isUnified
-        stack.views[1].isHidden = isUnified
-        if !isUnified { context.coordinator.equalWidths?.isActive = true }
         context.coordinator.update(self)
     }
 
@@ -164,12 +171,13 @@ private struct ReviewDiffViews: NSViewRepresentable {
         coordinator.right.focusesInWindow = false
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Coordinator: NSObject, NSTextViewDelegate, NSSplitViewDelegate {
         let left = ReviewTextView(usingTextLayoutManager: true)
         let right: ReviewTextView
+        let split = ReviewSplitView()
+        let leftPane = NSStackView()
         let minimap = ReviewMinimap()
         let ruler = ReviewOverviewRuler()
-        var equalWidths: NSLayoutConstraint?
         private var parent: ReviewDiffViews?
         private var loadedOriginal: String?
         private var loadedModified: String?
@@ -180,6 +188,11 @@ private struct ReviewDiffViews: NSViewRepresentable {
         init(right: ReviewTextView) {
             self.right = right
             loadedModified = right.string
+            super.init()
+            split.isVertical = true
+            split.dividerStyle = .thin
+            split.delegate = self
+            split.onDrag = { [weak self] ratio in self?.parent?.onSplit(ratio) }
         }
 
         func makeSide(_ textView: ReviewTextView) -> [NSView] {
@@ -221,6 +234,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
             gutter.textView = textView
             gutter.drawsSeparator = textView === right
+            gutter.clipsToBounds = true
             gutter.setContentHuggingPriority(.required, for: .horizontal)
             gutter.setContentCompressionResistancePriority(.required, for: .horizontal)
             textView.gutter = gutter
@@ -229,7 +243,13 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         func update(_ view: ReviewDiffViews) {
+            let isSplitChanged = view.isUnified != parent?.isUnified || view.splitRatio != parent?.splitRatio
             parent = view
+            if isSplitChanged {
+                if view.isUnified { leftPane.removeFromSuperview() } else if leftPane.superview == nil { split.addSubview(leftPane, positioned: .below, relativeTo: nil) }
+                right.gutter?.drawsSeparator = view.isUnified
+                split.resizeSubviews(withOldSize: split.frame.size)
+            }
             minimap.isHidden = !view.showsMinimap
             right.isEditable = !view.isModifiedAbsent && view.editor != nil
             left.isAbsent = view.isOriginalAbsent
@@ -334,6 +354,26 @@ private struct ReviewDiffViews: NSViewRepresentable {
             target.reflectScrolledClipView(target.contentView)
         }
 
+        func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+            let available = splitView.bounds.width - splitView.dividerThickness
+            guard splitView.subviews.count == 2, available > 0 else { return splitView.adjustSubviews() }
+
+            let minimum = min(200, available / 2)
+            let position = min(max((parent?.splitRatio ?? 0.5) * available, minimum), available - minimum).rounded()
+            let height = splitView.bounds.height
+            splitView.subviews[0].frame = NSRect(x: 0, y: 0, width: position, height: height)
+            splitView.subviews[1].frame = NSRect(x: position + splitView.dividerThickness, y: 0, width: available - position, height: height)
+        }
+
+        func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+            max(proposedMinimumPosition, min(200, (splitView.bounds.width - splitView.dividerThickness) / 2))
+        }
+
+        func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+            let available = splitView.bounds.width - splitView.dividerThickness
+            return min(proposedMaximumPosition, available - min(200, available / 2))
+        }
+
         @objc private func clipViewDidResize(_ notification: Notification) {
             minimap.needsDisplay = true
             ruler.needsDisplay = true
@@ -388,8 +428,8 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
             let inset: CGFloat = 6
             let indent = right.textContainerOrigin.x + (right.textContainer?.lineFragmentPadding ?? 0)
-            let width = max((right.enclosingScrollView?.contentView.bounds.width ?? 0) - indent - 2 * inset, 200)
-            let heights = placed.map { $0.view.fittingHeight(forWidth: width) }
+            let widths = placed.map { max(($0.owner.enclosingScrollView?.contentView.bounds.width ?? 0) - indent - 2 * inset, 120) }
+            let heights = zip(placed, widths).map { $0.view.fittingHeight(forWidth: $1) }
             var reserved: [Int: CGFloat] = [:]
             for (item, height) in zip(placed, heights) { reserved[item.row, default: 0] += height + inset * 2 }
             reserved = reserved.mapValues { $0.rounded(.up) }
@@ -400,7 +440,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             }
 
             var stacked: [Int: CGFloat] = [:]
-            for (item, height) in zip(placed, heights) {
+            for ((item, height), width) in zip(zip(placed, heights), widths) {
                 let top = item.owner.top(ofRow: item.row + 1) - reserved[item.row, default: 0] + stacked[item.row, default: 0] + inset
                 stacked[item.row, default: 0] += height + inset * 2
                 item.view.frame = NSRect(x: item.owner.visibleRect.minX + indent, y: top, width: width, height: height)
@@ -454,6 +494,21 @@ private struct ReviewDiffViews: NSViewRepresentable {
             }
             layoutInline()
         }
+    }
+}
+
+private final class ReviewSplitView: NSSplitView {
+    var onDrag: (Double) -> Void = { _ in }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2, hitTest(superview?.convert(event.locationInWindow, from: nil) ?? .zero) === self {
+            onDrag(0.5)
+            return
+        }
+
+        let width = subviews[0].frame.width
+        super.mouseDown(with: event)
+        if subviews[0].frame.width != width { onDrag(subviews[0].frame.width / (bounds.width - dividerThickness)) }
     }
 }
 
