@@ -34,6 +34,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     private var rowPadding: CGFloat = 0
     private var paragraphStyle = NSParagraphStyle()
     private var isStale = false
+    private var coloredParagraphs = IndexSet()
     private var diagnosticSegments: [(rect: NSRect, baseline: CGFloat, diagnostic: LanguageServerDiagnostic)] = []
     private var link: PointerTarget?
     private var hoverTarget: PointerTarget?
@@ -410,6 +411,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
             }
         }
         isStale = false
+        coloredParagraphs = IndexSet()
         manager.invalidateRenderingAttributes(for: manager.documentRange)
         manager.ensureLayout(for: manager.documentRange)
         if let caretTop, let top = caret.flatMap(fragmentTop) {
@@ -467,6 +469,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         let range = fragment.rangeInElement
         let start = storage.offset(from: storage.documentRange.location, to: range.location)
         let end = storage.offset(from: storage.documentRange.location, to: range.endLocation)
+        guard !coloredParagraphs.contains(start) else { return }
+
+        coloredParagraphs.insert(start)
         let add = { (key: NSAttributedString.Key, value: NSColor, span: NSRange) in
             let lower = max(span.location, start)
             let upper = min(NSMaxRange(span), end)
@@ -591,6 +596,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         storage.performEditingTransaction {
             for line in lines {
                 let end = line + 1 < lineStarts.count ? lineStarts[line + 1] : textStorage.length
+                coloredParagraphs.remove(lineStarts[line])
                 textStorage.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: lineStarts[line], length: end - lineStarts[line]))
             }
         }
