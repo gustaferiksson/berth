@@ -42,6 +42,7 @@ final class ReviewModel {
     var notice: String?
     var movedFolder: String?
     var focusesEditor = false
+    var expandedFolders: Set<String> = []
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private var queuedLoad: Task<Void, Never>?
     @ObservationIgnored private(set) var loadCount = 0
@@ -286,9 +287,16 @@ private struct ReviewFileList: View {
                     changes: list { changeSections(changes) }
                         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
                         .environment(\.ghosttyTheme, theme),
-                    files: list { filesSection(changes) }
-                        .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { filesContentHeight = $1 }
-                        .environment(\.ghosttyTheme, theme),
+                    files: ScrollViewReader { proxy in
+                        list { filesSection(changes) }
+                            .onChange(of: model.selectedDocument?.path, initial: true) { _, path in
+                                guard let path else { return }
+                                model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
+                                Task { proxy.scrollTo(path) }
+                            }
+                    }
+                    .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { filesContentHeight = $1 }
+                    .environment(\.ghosttyTheme, theme),
                     layout: !expansion(of: "files").wrappedValue ? .filesCollapsed(filesContentHeight) : (changes.uncommitted.isEmpty || !expansion(of: "uncommitted").wrappedValue) && (changes.committed.isEmpty || !expansion(of: "committed").wrappedValue) ? .changesCollapsed(changesContentHeight) : .split,
                     filesHeight: $filesPaneHeight,
                     divider: NSColor(theme.foreground.opacity(0.1))
@@ -374,19 +382,7 @@ private struct ReviewFileList: View {
 
     private func filesSection(_ changes: ReviewChanges) -> some View {
         Section(isExpanded: expansion(of: "files")) {
-            OutlineGroup(model.tree, children: \.children) { node in
-                let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
-                let row = Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
-                    .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(node.path)
-                if node.children == nil {
-                    row.tag(ReviewDocument(path: node.path, compare: nil))
-                } else {
-                    row.selectionDisabled()
-                }
-            }
+            ForEach(model.tree) { ReviewFileNode(node: $0, changes: changes, model: model) }
         } header: {
             GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }
         }
@@ -546,6 +542,52 @@ private struct ReviewFileList: View {
         }
 
         terminal.requestFocus()
+    }
+}
+
+private struct ReviewFileNode: View {
+    let node: ReviewFileTree
+    let changes: ReviewChanges
+    let model: ReviewModel
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        if let children = node.children {
+            DisclosureGroup(isExpanded: Binding { model.expandedFolders.contains(node.path) } set: { $0 ? model.expandedFolders.formUnion([node.path]) : model.expandedFolders.subtract([node.path]) }) {
+                ForEach(children) { ReviewFileNode(node: $0, changes: changes, model: model) }
+            } label: {
+                Button(action: toggle) {
+                    label
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 5)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .listRowInsets(.vertical, 0)
+                .selectionDisabled()
+            }
+        } else {
+            label.tag(ReviewDocument(path: node.path, compare: nil))
+        }
+    }
+
+    private var label: some View {
+        let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
+        return Label {
+            Text(node.name)
+                .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .fontWeight(.regular)
+        } icon: {
+            Image(systemName: node.children == nil ? "doc" : "folder")
+                .foregroundStyle(theme.secondary)
+        }
+        .help(node.path)
+    }
+
+    private func toggle() {
+        if model.expandedFolders.remove(node.path) == nil { model.expandedFolders.insert(node.path) }
     }
 }
 
