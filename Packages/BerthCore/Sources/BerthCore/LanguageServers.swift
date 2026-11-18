@@ -71,7 +71,9 @@ public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
     }
 
     public static func storage(_ entries: [LanguageServerEntry], keeping unreadable: [String]) -> String {
-        let readable = entries.compactMap { (try? JSONEncoder().encode($0)).map { String(decoding: $0, as: UTF8.self) } }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let readable = entries.compactMap { (try? encoder.encode($0)).map { String(decoding: $0, as: UTF8.self) } }
         return "[" + (readable + unreadable).joined(separator: ",") + "]"
     }
 
