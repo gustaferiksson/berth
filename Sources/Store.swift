@@ -87,6 +87,7 @@ final class Store {
     var isReviewDiffUnified = false
     var isReviewTextFocused = false
     @ObservationIgnored private var reviewWatcher: FileWatcher?
+    @ObservationIgnored private var repositoryWatcher: FileWatcher?
     @ObservationIgnored private var reviewReload: Task<Void, Never>?
     @ObservationIgnored private var reviewIgnored: [String] = []
     var reviewModels: [String: ReviewModel] = [:] {
@@ -584,6 +585,17 @@ final class Store {
                 reviewIgnored = (try? await ReviewGit.ignoredDirectories(in: root)) ?? reviewIgnored
                 await refreshReview()
             }
+        }
+    }
+
+    func watchForRepository(in folder: String?) {
+        repositoryWatcher = nil
+        guard let folder else { return }
+
+        let dotGit = URL(filePath: folder).resolvingSymlinksInPath().appending(path: ".git").path
+        repositoryWatcher = FileWatcher(paths: [folder], latency: 0.5) { [weak self] paths in
+            guard paths.contains(where: { $0 == dotGit || $0.hasPrefix(dotGit + "/") }) else { return }
+            Task { await self?.refreshReview() }
         }
     }
 

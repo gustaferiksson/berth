@@ -269,6 +269,30 @@ final class ReviewGitTests {
         #expect(status.commits.map(\.subject) == ["Second", "init"])
     }
 
+    @Test func changesClassifyFoldersGitCannotRead() async throws {
+        let plain = root.appending(path: "plain")
+        let broken = root.appending(path: "broken")
+        try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
+        try write(broken, ".git", "not a gitfile\n")
+
+        await #expect(throws: ReviewGitError.notARepository) { try await ReviewGit.changes(in: plain.path) }
+        await #expect(throws: ReviewGitError.folderNotFound) { try await ReviewGit.changes(in: self.root.appending(path: "missing").path) }
+        let error = await #expect(throws: ReviewGitError.self) { try await ReviewGit.changes(in: broken.path) }
+        guard case .git = error else { Issue.record("expected a git error, got \(String(describing: error))"); return }
+    }
+
+    @Test func aRepositoryWithoutCommitsListsItsFilesAsUncommitted() async throws {
+        let repo = root.appending(path: "unborn")
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        try await git(repo, "init", "--quiet", "-b", "main")
+        try write(repo, "notes.txt", "one\n")
+
+        let changes = try await ReviewGit.changes(in: repo.path)
+        #expect(changes.branch == "main" && changes.committed.isEmpty)
+        #expect(changes.uncommitted.map(\.path) == ["notes.txt"])
+    }
+
     @Test func filesListTrackedAndUntrackedButNotIgnoredOrDeleted() async throws {
         let repo = try await repo("files")
         try FileManager.default.createDirectory(at: repo.appending(path: "src/ui"), withIntermediateDirectories: true)
