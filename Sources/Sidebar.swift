@@ -1086,7 +1086,9 @@ private final class OverlayScrollerView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         DispatchQueue.main.async { [weak self] in
-            var candidates = self?.window?.contentView.map { [$0] } ?? []
+            guard let self else { return }
+
+            var candidates = sequence(first: self as NSView, next: \.superview).first { $0.superview is NSSplitView }.map { [$0] } ?? []
             while let next = candidates.popLast() {
                 if let scrollView = next as? NSScrollView {
                     scrollView.scrollerStyle = .overlay
