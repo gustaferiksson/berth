@@ -66,7 +66,8 @@ This is the slim first version; the rest is listed under Later.
     `gh` or a GitHub remote there is no pill), "N commits ahead of <base>" ("No commits yet" at
     0), ↑ahead ↓behind the base, the upstream state ("Not pushed, no upstream" without one),
     and the branch's commits, at most 5 then "N more": short SHA, subject, age, and a dot,
-    filled when pushed to the upstream, hollow in the needs-you colour when not.
+    filled when pushed to the upstream, hollow in the needs-you colour when not. With the pill and
+    at least 1 commit ahead, a Create Pull Request… button ends the card (see Create Pull Request).
 - Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal):
   collapsed while it has no tab; nothing opens by itself. It opens 760 pt wide, less
   to leave the terminal 360, never under 440, and window or panel resizes keep both within
@@ -148,6 +149,7 @@ This is the slim first version; the rest is listed under Later.
 | ⌘F | the diff | The focused side's find bar |
 | ⌘-click | an identifier on the right side, language servers on | Goes to its definition |
 | Send N Comments | the panel | See Comments |
+| Create Pull Request… | the branch card | See Create Pull Request |
 
 ⌘J keeps its meaning (Switch Terminal / Claude).
 
@@ -162,6 +164,15 @@ This is the slim first version; the rest is listed under Later.
   the snippet, the comment) into the session's claude prompt without submitting it, then
   focuses the terminal (the panel stays). Sent comments are cleared. If Claude isn't running in the tab,
   nothing is pasted and the comments are kept.
+
+## Create Pull Request
+
+- The button does nothing outward itself: like Send, it pastes a prompt ("Push this branch and
+  open a pull request for it with gh.") into the session's claude prompt without submitting it and
+  focuses the terminal, so the user reads it and presses Return. Claude's own instructions decide
+  the PR's wording. It is disabled, with a tooltip saying so, while Claude isn't running in the tab.
+- The new PR shows up through the sidebar's lookup (app activation or the 5 min poll), which then
+  swaps in the PR card.
 
 ## Language servers
 
