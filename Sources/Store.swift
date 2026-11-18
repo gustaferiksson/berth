@@ -594,7 +594,7 @@ final class Store {
 
         let dotGit = URL(filePath: folder).resolvingSymlinksInPath().appending(path: ".git").path
         repositoryWatcher = FileWatcher(paths: [folder], latency: 0.5) { [weak self] paths in
-            guard paths.contains(where: { $0 == dotGit || $0.hasPrefix(dotGit + "/") }) else { return }
+            guard paths.contains(where: { $0.hasSuffix("/.git") && URL(filePath: $0).resolvingSymlinksInPath().path == dotGit }) else { return }
             Task { await self?.refreshReview() }
         }
     }
