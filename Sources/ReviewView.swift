@@ -356,7 +356,7 @@ private struct ReviewFileList: View {
         Section(isExpanded: expansion(of: "files")) {
             OutlineGroup(model.tree, children: \.children) { node in
                 let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
-                let row = ReviewRow(path: node.path, open: node.children != nil || status == .deleted ? nil : { model.open(ReviewDocument(path: node.path, compare: nil)) }) {
+                let row = ReviewRow(open: node.children != nil || status == .deleted ? nil : { model.open(ReviewDocument(path: node.path, compare: nil)) }) {
                     Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
                         .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
                         .lineLimit(1)
@@ -386,7 +386,7 @@ private struct ReviewFileList: View {
     }
 
     private func fileRow(_ file: ReviewFile) -> some View {
-        ReviewRow(path: file.path, open: file.status == .deleted ? nil : { model.open(ReviewDocument(path: file.path, compare: nil)) }) {
+        ReviewRow(open: file.status == .deleted ? nil : { model.open(ReviewDocument(path: file.path, compare: nil)) }) {
             Text(file.status.rawValue)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
@@ -604,25 +604,27 @@ private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
 }
 
 private struct ReviewRow<Content: View, Counts: View>: View {
-    let path: String
     let open: (() -> Void)?
     @ViewBuilder let content: Content
     @ViewBuilder let counts: Counts
-    @State private var isHovering = false
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         HStack(spacing: 6) {
             content
             Spacer(minLength: 4)
-            if let open, isHovering || Snapshot.forcedHover.contains(path) {
-                Button("Open File", systemImage: "doc", action: open)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help("Open File")
-            }
             counts
+            ZStack {
+                if let open {
+                    Button("Open File", systemImage: "doc", action: open)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(theme.secondary)
+                        .help("Open File")
+                }
+            }
+            .frame(width: 16, alignment: .trailing)
         }
-        .onHover { isHovering = $0 }
     }
 }
 
