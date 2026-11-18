@@ -337,6 +337,7 @@ private struct ReviewFileList: View {
                     Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
                         .monospacedDigit()
                         .foregroundStyle(theme.secondary)
+                        .padding(.trailing, 6)
                 }
             }
         }
@@ -356,15 +357,11 @@ private struct ReviewFileList: View {
         Section(isExpanded: expansion(of: "files")) {
             OutlineGroup(model.tree, children: \.children) { node in
                 let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
-                let row = ReviewRow(path: node.path, open: node.children != nil || status == .deleted ? nil : { model.open(ReviewDocument(path: node.path, compare: nil)) }) {
-                    Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
-                        .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } counts: {
-                    EmptyView()
-                }
-                .help(node.path)
+                let row = Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
+                    .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(node.path)
                 if node.children == nil {
                     row.tag(ReviewDocument(path: node.path, compare: nil))
                 } else {
@@ -386,14 +383,14 @@ private struct ReviewFileList: View {
     }
 
     private func fileRow(_ file: ReviewFile) -> some View {
-        ReviewRow(path: file.path, open: file.status == .deleted ? nil : { model.open(ReviewDocument(path: file.path, compare: nil)) }) {
+        HStack(spacing: 6) {
             Text(file.status.rawValue)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
-        } counts: {
+            Spacer(minLength: 4)
             HStack(spacing: 6) {
                 if let additions = file.additions, additions > 0 {
                     Text("+\(additions)").foregroundStyle(theme.working)
@@ -403,6 +400,16 @@ private struct ReviewFileList: View {
                 }
             }
             .fixedSize()
+            ZStack {
+                if file.status != .deleted {
+                    Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(theme.secondary)
+                        .help("Open File")
+                }
+            }
+            .frame(width: 16, alignment: .trailing)
         }
         .font(.callout)
         .monospacedDigit()
@@ -600,29 +607,6 @@ private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
 
     func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
         layout == .split ? proposedEffectiveRect.insetBy(dx: 0, dy: -3) : .zero
-    }
-}
-
-private struct ReviewRow<Content: View, Counts: View>: View {
-    let path: String
-    let open: (() -> Void)?
-    @ViewBuilder let content: Content
-    @ViewBuilder let counts: Counts
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            content
-            Spacer(minLength: 4)
-            if let open, isHovering || Snapshot.forcedHover.contains(path) {
-                Button("Open File", systemImage: "doc", action: open)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help("Open File")
-            }
-            counts
-        }
-        .onHover { isHovering = $0 }
     }
 }
 
