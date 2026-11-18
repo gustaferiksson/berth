@@ -520,6 +520,39 @@ enum Snapshot {
                     for group in shown.outline { print("  \(group)") }
                     report("references \(spec)")
                     save(".references-\(name).png")
+                    if let ratio = UserDefaults.standard.string(forKey: "snapshotReviewReferencesSplit").flatMap(Double.init) {
+                        let saved = UserDefaults.standard.object(forKey: "reviewReferencesSplitRatio")
+                        let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
+                        let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
+                        method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
+                        method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
+                        window.makeFirstResponder(nil)
+                        window.makeFirstResponder(shown.list)
+                        window.becomeKey()
+                        try? await Task.sleep(for: .milliseconds(300))
+                        print("references split after faking key: selected row emphasized \(shown.list.rowView(atRow: shown.list.selectedRow, makeIfNecessary: false)?.isEmphasized.description ?? "-")")
+                        let split = shown.split
+                        let drag = { (x: CGFloat?, clickCount: Int) in
+                            let divider = split.subviews[0].frame.maxX + split.dividerThickness / 2
+                            let event = { (type: NSEvent.EventType, x: CGFloat) in NSEvent.mouseEvent(with: type, location: split.convert(NSPoint(x: x, y: split.bounds.midY), to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: type == .leftMouseUp ? 0 : 1) }
+                            event(.leftMouseDragged, x ?? divider).map { NSApp.postEvent($0, atStart: false) }
+                            event(.leftMouseUp, x ?? divider).map { NSApp.postEvent($0, atStart: false) }
+                            event(.leftMouseDown, divider).map(window.sendEvent)
+                        }
+                        let state = { (label: String) in
+                            print("references split \(label): \(peek() === shown ? "same peek" : "peek replaced") at \(shown.frame), preview | list \(split.subviews.map(\.frame.width)), preview clip x \((split.subviews.first as? NSScrollView)?.contentView.bounds.minX ?? -1), column \(shown.list.tableColumns.first?.width ?? -1), stored \(UserDefaults.standard.object(forKey: "reviewReferencesSplitRatio").map { "\($0)" } ?? "unset"), selected row emphasized \(shown.list.rowView(atRow: shown.list.selectedRow, makeIfNecessary: false)?.isEmphasized.description ?? "-"), first responder is the list \(window.firstResponder === shown.list)")
+                        }
+                        state("before drag")
+                        drag((1 - CGFloat(ratio)) * (split.bounds.width - split.dividerThickness), 1)
+                        try? await Task.sleep(for: .seconds(1))
+                        state("dragged to list share \(ratio)")
+                        save(".references-\(name)-split.png")
+                        drag(nil, 1)
+                        drag(nil, 2)
+                        try? await Task.sleep(for: .seconds(1))
+                        state("double-clicked")
+                        UserDefaults.standard.set(saved, forKey: "reviewReferencesSplitRatio")
+                    }
                     key(shown.list, 125, "\u{F701}", [])
                     print("references \(spec) after ↓: \(describePeek(shown))")
                     save(".references-\(name)-down.png")

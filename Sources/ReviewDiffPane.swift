@@ -509,12 +509,13 @@ private struct ReviewDiffViews: NSViewRepresentable {
     }
 }
 
-private final class ReviewSplitView: NSSplitView {
+final class ReviewSplitView: NSSplitView {
     var onDrag: (Double) -> Void = { _ in }
+    var resetRatio = 0.5
 
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2, hitTest(superview?.convert(event.locationInWindow, from: nil) ?? .zero) === self {
-            onDrag(0.5)
+            onDrag(resetRatio)
             return
         }
 
