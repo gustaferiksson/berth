@@ -732,7 +732,7 @@ enum Snapshot {
                 let focused = store.tabs.firstIndex { $0.terminal.attachedPlatformView === window.firstResponder }.map { "#\($0)" } ?? window.firstResponder.map { "\(type(of: $0))" } ?? "nil"
                 let split = (descendantViews(window.contentView ?? NSView()).first { $0.identifier?.rawValue == "terminalSplit" } as? NSSplitView).map { split in split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" } } ?? []
                 let layout = "layout \(UserDefaults.standard.string(forKey: ReviewDiffLayout.key) ?? "unset"), shown \((descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last?.unifiedOriginal).map { _ in "unified" } ?? "side by side"), offered \([AppAction.showSideBySide, .showInline].filter { $0.isAvailable(in: store) }.map(\.title))"
-                let review = store.reviewModel.map { "review \($0.folder) \($0.changes.map { "\($0.branch) uncommitted \($0.uncommitted.map(\.path)) committed \($0.committed.map(\.path))" } ?? "not loaded")\($0.movedFolder.map { ", movedFolder \($0)" } ?? "")" } ?? "no review"
+                let review = store.reviewModel.map { "review \($0.folder) \($0.changes.map { "\($0.branch) uncommitted \($0.uncommitted.map { "\($0.path) +\($0.additions ?? 0) -\($0.deletions ?? 0)" }) committed \($0.committed.map(\.path))" } ?? "not loaded"), loads \($0.loadCount)\($0.error.map { ", error \($0)" } ?? "")\($0.movedFolder.map { ", movedFolder \($0)" } ?? "")" } ?? "no review"
                 return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription) (\($0.string.count) characters), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
             }
             let savedLayout = UserDefaults.standard.object(forKey: ReviewDiffLayout.key)
@@ -786,6 +786,12 @@ enum Snapshot {
                     print("\(spec) (sets the selected tab's folder like a scan after /cd, waits 2 s):\n  \(state())")
                     continue
                 }
+                if spec == "uncomment" {
+                    store.reviewModel?.comments = []
+                    try? await Task.sleep(for: .seconds(2))
+                    print("\(spec) (deletes the review model's comments, waits 2 s):\n  \(state())")
+                    continue
+                }
                 if spec.hasPrefix("layout:") {
                     UserDefaults.standard.set(spec == "layout:auto" ? nil : String(spec.dropFirst(7)), forKey: ReviewDiffLayout.key)
                     try? await Task.sleep(for: .seconds(1))
@@ -807,7 +813,7 @@ enum Snapshot {
                 if let model = store.reviewModel, ["refresh", "keep", "save", "back", "forward"].contains(spec) || spec.hasPrefix("file") || spec.hasPrefix("open:") || spec.hasPrefix("dbl:") {
                     let target = spec.split(separator: ":", maxSplits: 2).map(String.init)
                     let document = target.count == 3 ? ["u": ReviewDocument(path: target[2], compare: .uncommitted), "c": ReviewDocument(path: target[2], compare: .committed)][target[1]] ?? model.workingDocument(target[2]) : nil
-                    if spec == "refresh" { await model.load() }
+                    if spec == "refresh" { await store.refreshReview() }
                     if spec == "keep" { model.selectedTabID.map(model.keep) }
                     if spec == "save", let path = model.selectedDocument?.path, let draft = model.drafts[path] { model.save(draft, to: path) }
                     if spec == "back" || spec == "forward" { model.go(by: spec == "back" ? -1 : 1) }

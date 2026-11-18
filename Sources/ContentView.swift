@@ -25,6 +25,7 @@ struct ContentView: View {
         @Bindable var store = store
         let selected = store.tabs.first { $0.id == store.selectedTabID }
         let isTrailing = sidebarPosition == .right
+        let reviewRoot = showsPanel ? store.reviewModel?.changes?.root : nil
         NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanel ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
                 ReviewPanel()
@@ -125,8 +126,12 @@ struct ContentView: View {
             store.refreshPullRequests()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
+        .task(id: reviewRoot) { await store.watchReview(reviewRoot) }
         .onChange(of: showsPanel) {
-            guard !showsPanel else { return }
+            guard !showsPanel else {
+                Task { await store.reviewModel?.load() }
+                return
+            }
             sidebarYieldsToDiff = false
             keepsSidebarForDiff = false
         }

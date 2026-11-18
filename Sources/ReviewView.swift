@@ -42,9 +42,9 @@ final class ReviewModel {
     var notice: String?
     var movedFolder: String?
     var focusesEditor = false
-    @ObservationIgnored var watcher: FileWatcher?
-    @ObservationIgnored private var reload: Task<Void, Never>?
-    @ObservationIgnored private var savedAt: [String: Date] = [:]
+    @ObservationIgnored private var loading: Task<Void, Never>?
+    @ObservationIgnored private var queuedLoad: Task<Void, Never>?
+    @ObservationIgnored private(set) var loadCount = 0
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
 
@@ -57,7 +57,22 @@ final class ReviewModel {
     }
 
     func load() async {
+        if let queuedLoad { return await queuedLoad.value }
+
+        let load = Task { [previous = loading] in
+            await previous?.value
+            queuedLoad = nil
+            await loadLists()
+            if queuedLoad == nil { isLoading = false }
+        }
+        queuedLoad = load
+        loading = load
         isLoading = true
+        await load.value
+    }
+
+    private func loadLists() async {
+        loadCount += 1
         do {
             let changes = try await ReviewGit.changes(in: folder)
             let files = try await ReviewGit.files(in: changes.root)
@@ -81,26 +96,10 @@ final class ReviewModel {
             }
             if selectedTab == nil { selectedTabID = tabs.last?.id }
         } catch {
-            changes = nil
-            status = nil
             self.error = Self.describe(error)
+            return
         }
-        isLoading = false
         if let selectedDocument { await loadContents(of: selectedDocument) }
-    }
-
-    func watch() async {
-        guard let root = changes?.root, let directories = try? await ReviewGit.gitDirectories(in: root) else { return }
-
-        let ignored = directories.flatMap { [$0 + "/objects/", $0 + "/logs/", $0 + "/FETCH_HEAD"] }
-        watcher = FileWatcher(paths: [root] + directories, latency: 0.5) { [weak self] paths in
-            guard let self, paths.contains(where: { path in !path.hasSuffix(".lock") && !ignored.contains { path.hasPrefix($0) } && savedAt[path].map { $0 < .now - 1 } ?? true }) else { return }
-            reload?.cancel()
-            reload = Task {
-                guard (try? await Task.sleep(for: .milliseconds(500))) != nil else { return }
-                await self.load()
-            }
-        }
     }
 
     func open(_ document: ReviewDocument) {
@@ -189,7 +188,6 @@ final class ReviewModel {
         }
 
         do {
-            savedAt[URL(filePath: changes.root).appending(path: path).path] = .now
             try ReviewGit.save(text, to: path, in: changes.root)
         } catch {
             notice = "Couldn’t save \(path): \(Self.describe(error))"
@@ -237,9 +235,7 @@ private struct ReviewFileList: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .task { await model.load() }
-            .task(id: model.changes?.root) { await model.watch() }
-            .onDisappear { model.watcher = nil }
-            .onChange(of: model.hasUnsavedEdits) { store.prepareReviewModel() }
+            .onChange(of: model.hasUnsavedEdits || !model.comments.isEmpty) { store.prepareReviewModel() }
             .task(id: model.selectedDocument) { await model.loadSelectedContents() }
             .task(id: pullRequest?.pullRequest?.number) { await loadPullRequestDetail() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
@@ -254,7 +250,7 @@ private struct ReviewFileList: View {
             VStack(spacing: 0) {
                 header(changes)
                 if let movedFolder = model.movedFolder {
-                    Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits to follow it.", systemImage: "exclamationmark.triangle")
+                    Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits and send or delete your comments to follow it.", systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(theme.needsYou)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -439,6 +435,11 @@ private struct ReviewFileList: View {
                     .foregroundStyle(theme.needsYou)
                     .help("Couldn’t fetch \(changes.base ?? ""), comparing local refs: \(fetchError)")
             }
+            if let error = model.error {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(theme.needsYou)
+                    .help("Couldn’t refresh, showing the last changes: \(error)")
+            }
             refreshButton
                 .buttonStyle(.borderless)
         }
@@ -450,7 +451,8 @@ private struct ReviewFileList: View {
     private var refreshButton: some View {
         Button("Refresh", systemImage: "arrow.clockwise") {
             Task {
-                await model.load()
+                await store.refreshReview()
+                guard store.reviewModel === model else { return }
                 if let repository = pullRequest?.repository, let branch = model.changes?.branch { await store.fetchPullRequests([PullRequestBranch(repository: repository, branch: branch)]) }
                 await loadPullRequestDetail()
             }

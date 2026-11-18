@@ -54,17 +54,25 @@ This is the slim first version; the rest is listed under Later.
   the working-tree file as the plain file, through the same `ReviewModel.open`. Deleted files
   have none.
 - Refreshing: the panel reloads its lists on its own when the repository changes on disk. While
-  it shows a model, an FSEvents watcher covers the repository root and its git directories
-  (`git rev-parse --git-dir --git-common-dir`, so a linked worktree's own gitdir and the common
-  dir), ignoring `objects/`, `logs/`, `FETCH_HEAD`, `.lock` files and, for a second, files Review
-  just saved; the reload runs 500 ms after the last event. A reload keeps the current tab's
+  the panel shows a model (not while hidden or under Harbor; showing it again reloads), one
+  FSEvents watcher in `Store` covers the repository root and the common git dir (`git rev-parse
+  --git-dir --git-common-dir`). Inside the git dirs only the own git dir's `HEAD` and `index`,
+  `packed-refs` and `refs/` (not `.lock`) count, so other worktrees' entries don't; in the working
+  tree, paths under directories git reports as ignored (`ls-files --others --ignored --directory`,
+  re-read before each reload, so a new `.build` costs one reload) don't. Review's own saves
+  reload too, which updates the counts. The reload runs 500 ms after the last event and goes
+  through `Store.refreshReview`, like Refresh: a transcript scan, `prepareReviewModel` (so a moved
+  session is followed at once), then the shown model's `load()`. Loads are serialized, and
+  requests made while one runs share one follow-up load. A reload keeps the current tab's
   contents until the new ones arrive and reloads them from disk (a draft still wins over the
-  file), and other tabs reload when selected. Refresh does the same at once.
+  file), and other tabs reload when selected. A failed reload keeps the last lists and shows a
+  warning by Refresh.
 - Following the session: the model is per session and folder. When the session's folder
   changes (a scan after `/cd`, or Claude entering a worktree), the next `prepareReviewModel`
-  replaces the model, which stops its language servers and drops its tabs, editors and
-  comments. While it has unsaved drafts it stays, with "This session moved to <folder>. Save or
-  undo your edits to follow it." under the header, and swaps once the drafts are gone.
+  replaces the model, which stops its language servers and drops its tabs and editors. While it
+  has unsaved drafts or comments it stays, with "This session moved to <folder>. Save or undo
+  your edits and send or delete your comments to follow it." under the header, and swaps once
+  both are gone; the notice clears if the session moves back.
 - Panel header: branch → base ("<branch>, uncommitted only" on the default branch or without a
   base), a fetch warning when the fetch failed, Refresh. Below it the PR or branch card
   (`design/review-panel.md`), from `ReviewGit.changes(in:)` and `branchStatus(of:)`, loaded with
