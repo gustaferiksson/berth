@@ -23,6 +23,8 @@ public struct ReviewDiff: Sendable, Equatable {
 
     public let original: Side
     public let modified: Side
+    public let unifiedOriginal: Side
+    public let unifiedModified: Side
     public let hunks: [Hunk]
 
     public init(original originalText: String, modified modifiedText: String) {
@@ -56,9 +58,12 @@ public struct ReviewDiff: Sendable, Equatable {
         var hunks: [Hunk] = []
         var oldWords = IndexSet()
         var newWords = IndexSet()
+        var unifiedOldRows: [Int] = []
+        var unifiedNewRows: [Int] = []
         var i = 0
         var j = 0
         var row = 0
+        var unifiedRow = 0
         while i < oldLines.count || j < newLines.count {
             let oldStart = i
             let newStart = j
@@ -67,9 +72,12 @@ public struct ReviewDiff: Sendable, Equatable {
             guard i > oldStart || j > newStart else {
                 original.rows.append(row)
                 modified.rows.append(row)
+                unifiedOldRows.append(unifiedRow)
+                unifiedNewRows.append(unifiedRow)
                 i += 1
                 j += 1
                 row += 1
+                unifiedRow += 1
                 continue
             }
 
@@ -79,6 +87,9 @@ public struct ReviewDiff: Sendable, Equatable {
             original.rows += (row..<(row + i - oldStart))
             modified.rows += (row..<(row + j - newStart))
             row += max(i - oldStart, j - newStart)
+            unifiedOldRows += unifiedRow..<(unifiedRow + i - oldStart)
+            unifiedNewRows += (unifiedRow + i - oldStart)..<(unifiedRow + i - oldStart + j - newStart)
+            unifiedRow += i - oldStart + j - newStart
 
             guard !isTooDifferent else { continue }
             for pair in 0..<min(i - oldStart, j - newStart) {
@@ -94,6 +105,8 @@ public struct ReviewDiff: Sendable, Equatable {
         modified.changedWordRangesInText = newWords.rangeView.map { NSRange($0) }
         self.original = original
         self.modified = modified
+        unifiedOriginal = Side(lineCount: original.lineCount, changedLines: original.changedLines, rows: unifiedOldRows, rowCount: unifiedRow, changedWordRangesInText: original.changedWordRangesInText)
+        unifiedModified = Side(lineCount: modified.lineCount, changedLines: modified.changedLines, rows: unifiedNewRows, rowCount: unifiedRow, changedWordRangesInText: modified.changedWordRangesInText)
         self.hunks = hunks
     }
 

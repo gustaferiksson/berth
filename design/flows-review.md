@@ -73,6 +73,13 @@ This is the slim first version; the rest is listed under Later.
   Scrolling either side (text, gutter, minimap or ruler) scrolls both, for added and deleted
   files too. Added and deleted files show the missing side as filler; a binary or too large
   side is a `ContentUnavailableView`.
+- Below 760 pt of diff column width the diff is unified, switching live on divider moves and
+  window resizes (the top visible line stays put): only the right side shows, and each hunk's
+  removed lines sit above its added lines in rows of their own, drawn from the base with its
+  syntax colours, the removed tint and changed words, and numbered with the base's numbers in
+  the removed colour. They are not part of the editable text, so they can't be selected, edited
+  or found with ⌘F; editing, undo, save and the language servers see exactly the file. Minimap
+  and ruler follow the unified rows.
 - Right of the right side: a VS Code style minimap (80 pt, Settings > Appearance > Review
   toggle `reviewShowsMinimap`, default on): blocks per non-blank run in syntax colours, full-width
   green bands for added lines and red for removed rows from the aligned left side, the
@@ -87,9 +94,13 @@ This is the slim first version; the rest is listed under Later.
   a newline, Esc cancels. One box at a time; a new selection replaces it. Right side numbers
   are used and unchanged lines on the left map to their right side numbers (the box opens on
   the right); changed lines on the left keep the base's numbers, the box opens on the left and
-  the snippet's lines are prefixed with `-`.
+  the snippet's lines are prefixed with `-`. In the unified diff, a selection that starts on a
+  removed line takes the base's lines like a selection on the left (unchanged lines included);
+  any other selection takes the file's lines. Every box and card opens in the one side, below
+  its last line's row.
 - Added comments stay in the diff as compact cards (line label, text, × on hover) on their
-  side, below their last line. Deleting a card or the comment in the panel removes both.
+  side, below their last line; switching between side by side and unified moves them, and an
+  open box, with the rows. Deleting a card or the comment in the panel removes both.
 - Edits on the right become the file's draft; 300 ms after the last edit the diff and
   highlighting are recomputed off the main thread. Save (⌘S) appears in the header while
   there is a draft. Each file keeps its own undo history while Review's model lives (switching
