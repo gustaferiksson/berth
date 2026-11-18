@@ -40,13 +40,11 @@ final class ReviewMinimap: NSView {
     }
 
     private func drawOccurrences(mapping: (scale: CGFloat, slope: CGFloat, clip: NSRect)) {
-        guard let modified else { return }
+        guard let modified, let context = NSGraphicsContext.current?.cgContext else { return }
 
-        modified.style.foreground.withAlphaComponent(0.3).setFill()
+        context.setFillColor(modified.style.foreground.withAlphaComponent(0.3).cgColor)
         for textView in [original, modified].compactMap(\.self) where !textView.isHiddenOrHasHiddenAncestor {
-            for row in textView.occurrenceRows {
-                NSRect(x: 0, y: textView.top(ofRow: row) * mapping.scale - mapping.clip.minY * (mapping.scale - mapping.slope), width: bounds.width, height: max(textView.rowHeight * mapping.scale, 1)).fill(using: .sourceOver)
-            }
+            context.fill(textView.occurrenceRows.map { NSRect(x: 0, y: textView.top(ofRow: $0) * mapping.scale - mapping.clip.minY * (mapping.scale - mapping.slope), width: bounds.width, height: max(textView.rowHeight * mapping.scale, 1)) })
         }
     }
 
@@ -155,13 +153,11 @@ final class ReviewOverviewRuler: NSView {
     }
 
     private func drawOccurrences(factor: CGFloat) {
-        guard let modified else { return }
+        guard let modified, let context = NSGraphicsContext.current?.cgContext else { return }
 
-        modified.style.foreground.withAlphaComponent(0.55).setFill()
+        context.setFillColor(modified.style.foreground.withAlphaComponent(0.55).cgColor)
         for textView in [original, modified].compactMap(\.self) where !textView.isHiddenOrHasHiddenAncestor {
-            for row in textView.occurrenceRows {
-                NSRect(x: 1.5, y: textView.top(ofRow: row) * factor, width: bounds.width - 2, height: 2).fill(using: .sourceOver)
-            }
+            context.fill(textView.occurrenceRows.map { NSRect(x: 1.5, y: textView.top(ofRow: $0) * factor, width: bounds.width - 2, height: 2) })
         }
     }
 

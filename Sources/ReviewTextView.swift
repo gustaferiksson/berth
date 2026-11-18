@@ -264,7 +264,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         occurrenceSearch?.cancel()
         let selection = selectedRange()
         let needle = selectedRanges.count == 1 && selection.length > 0 ? textStorage?.mutableString.substring(with: selection) ?? "" : ""
-        guard !needle.isEmpty, needle.rangeOfCharacter(from: .newlines) == nil else {
+        guard !needle.trimmingCharacters(in: .whitespaces).isEmpty, needle.rangeOfCharacter(from: .newlines) == nil else {
             occurrences = []
             return redraw()
         }

@@ -805,7 +805,7 @@ enum Snapshot {
                     continue
                 }
                 if spec.hasPrefix("select:"), let right = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewTextView }).last {
-                    let range = (right.string as NSString).range(of: String(spec.dropFirst(7)))
+                    let range = (right.string as NSString).range(of: spec.dropFirst(7).replacingOccurrences(of: "\\n", with: "\n").replacingOccurrences(of: "\\s", with: " "))
                     let before = right.occurrences
                     window.makeFirstResponder(right)
                     right.setSelectedRange(range.location == NSNotFound ? NSRange(location: 0, length: 0) : range)
