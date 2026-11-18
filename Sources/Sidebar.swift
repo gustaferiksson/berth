@@ -166,7 +166,6 @@ private struct SidebarList: View, Equatable {
         .onKeyPress(.rightArrow) { setExpanded(true, in: groups) }
         .onHover { store.isPointerInSidebar = $0 }
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .background(OverlayScroller())
         .fileImporter(isPresented: Binding(get: { browseRoot != nil }, set: { if !$0 { browseRoot = nil } }), allowedContentTypes: [.folder]) { result in
             guard case let .success(url) = result else { return }
             store.openClaude(cwd: url.path)
@@ -1072,31 +1071,6 @@ struct CompactLabel: LabelStyle {
         HStack(spacing: 4) {
             configuration.icon.imageScale(.small)
             configuration.title
-        }
-    }
-}
-
-struct OverlayScroller: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { OverlayScrollerView() }
-
-    func updateNSView(_ view: NSView, context: Context) {}
-}
-
-private final class OverlayScrollerView: NSView {
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-
-            var candidates = sequence(first: self as NSView, next: \.superview).first { $0.superview is NSSplitView }.map { [$0] } ?? []
-            while let next = candidates.popLast() {
-                if let scrollView = next as? NSScrollView {
-                    scrollView.scrollerStyle = .overlay
-                    scrollView.autohidesScrollers = true
-                    scrollView.tile()
-                }
-                candidates.append(contentsOf: next.subviews)
-            }
         }
     }
 }
