@@ -1,6 +1,11 @@
 import AppKit
 import BerthCore
 
+// TextKit 2's viewport layout flushes fragments outside the viewport: they come back at estimated positions (rows off `top(ofRow:)`), and NSTextView's `textContainerOrigin` lays out the whole document again on the next pass.
+nonisolated final class ReviewTextLayoutManager: NSTextLayoutManager {
+    @objc(flushTextLayoutFragmentsFromLocation:direction:) func keepTextLayoutFragments(from location: NSTextLocation, direction: Int) {}
+}
+
 final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewToolTipOwner {
     private typealias PointerTarget = (textView: ReviewTextView, range: NSRange, segments: [(rect: NSRect, baseline: CGFloat)])
 

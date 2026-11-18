@@ -206,6 +206,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             textView.kind = textView === left ? .original : .modified
             textView.delegate = self
             textView.textContentStorage?.delegate = textView
+            if let manager = textView.textLayoutManager, !(manager is ReviewTextLayoutManager) { object_setClass(manager, ReviewTextLayoutManager.self) }
             textView.textLayoutManager?.renderingAttributesValidator = { [weak textView] _, fragment in textView?.colorSyntax(in: fragment) }
             textView.isEditable = false
             textView.isRichText = false
