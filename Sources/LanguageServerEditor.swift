@@ -8,6 +8,7 @@ struct LanguageServerEditor: View {
     @State private var arguments: String
     @State private var languages: String
     @State private var rootMarkers: String
+    @State private var settings: String
 
     init(server: LanguageServerEntry, servers: Binding<[LanguageServerEntry]>) {
         _servers = servers
@@ -15,6 +16,7 @@ struct LanguageServerEditor: View {
         _arguments = State(initialValue: server.arguments.joined(separator: " "))
         _languages = State(initialValue: server.languages.joined(separator: ", "))
         _rootMarkers = State(initialValue: server.rootMarkers.joined(separator: ", "))
+        _settings = State(initialValue: server.settings ?? "")
     }
 
     var body: some View {
@@ -22,6 +24,8 @@ struct LanguageServerEditor: View {
         let name = server.name.trimmingCharacters(in: .whitespaces)
         let command = server.command.trimmingCharacters(in: .whitespaces)
         let languageList = languages.split { $0 == "," || $0.isWhitespace }.map { String($0.drop { $0 == "." }).lowercased() }
+        let trimmedSettings = settings.trimmingCharacters(in: .whitespacesAndNewlines)
+        let areSettingsValid = trimmedSettings.isEmpty || (try? JSONSerialization.jsonObject(with: Data(trimmedSettings.utf8))) is [String: Any]
         VStack(alignment: .leading, spacing: 16) {
             Text(isNew ? "New Language Server" : "Edit Language Server")
                 .font(.headline)
@@ -31,13 +35,16 @@ struct LanguageServerEditor: View {
                 TextField("Arguments", text: $arguments, prompt: Text("lsp-proxy"))
                 TextField("Languages", text: $languages, prompt: Text("ts, tsx, json"))
                 TextField("Root markers", text: $rootMarkers, prompt: Text("biome.json, biome.jsonc"))
+                TextField("Settings", text: $settings, prompt: Text("JSON object"), axis: .vertical)
+                    .font(.body.monospaced())
+                    .lineLimit(2...6)
                 Picker("Provides", selection: $server.isDiagnosticsOnly) {
                     Text("Diagnostics, definition and hover").tag(false)
                     Text("Diagnostics only").tag(true)
                 }
             }
             .formStyle(.columns)
-            Text("Languages are file extensions or language ids. Without root markers the server starts in the repository root.")
+            Text("Languages are file extensions or language ids. Without root markers the server starts in the repository root. Settings answer the server’s configuration requests.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
             HStack {
@@ -61,11 +68,12 @@ struct LanguageServerEditor: View {
                     server.arguments = arguments.split(whereSeparator: \.isWhitespace).map(String.init)
                     server.languages = languageList
                     server.rootMarkers = rootMarkers.split { $0 == "," || $0.isWhitespace }.map(String.init)
+                    server.settings = trimmedSettings.isEmpty ? nil : trimmedSettings
                     servers = isNew ? servers + [server] : servers.map { $0.id == server.id ? server : $0 }
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(name.isEmpty || command.isEmpty || languageList.isEmpty)
+                .disabled(name.isEmpty || command.isEmpty || languageList.isEmpty || !areSettingsValid)
             }
         }
         .padding(20)

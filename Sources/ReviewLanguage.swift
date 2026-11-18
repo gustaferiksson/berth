@@ -75,7 +75,7 @@ final class ReviewLanguage {
         return Task { [weak self] in
             guard let command = LanguageServers.command(for: key.server, root: key.folder) else { return nil }
 
-            let server = LanguageServer(command: command, root: key.folder)
+            let server = LanguageServer(command: command, root: key.folder, settings: key.server.settings)
             let isStarted = (try? await server.start()) != nil
             guard isStarted, let self, self.generation == generation else {
                 await server.stop()

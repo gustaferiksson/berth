@@ -96,19 +96,22 @@ public actor LanguageServer {
     private let diagnosticsContinuation: AsyncStream<LanguageServerDiagnostics>.Continuation
     private let command: LanguageServerCommand
     private let root: URL
+    private let settings: Any?
     private let process = Process()
     private let input = Pipe()
     private var nextID = 0
     private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
     private var versions: [URL: Int] = [:]
     private var hasExited = false
+    private var pullsDiagnostics = false
 
-    public init(command: LanguageServerCommand, root: String) {
+    public init(command: LanguageServerCommand, root: String, settings: String? = nil) {
         let stream = AsyncStream.makeStream(of: LanguageServerDiagnostics.self)
         diagnostics = stream.stream
         diagnosticsContinuation = stream.continuation
         self.command = command
         self.root = URL(filePath: root, directoryHint: .isDirectory)
+        self.settings = settings.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) }
     }
 
     deinit {
@@ -153,15 +156,18 @@ public actor LanguageServer {
                 "hover": ["contentFormat": ["markdown", "plaintext"]],
                 "publishDiagnostics": ["versionSupport": true],
             ],
+            "workspace": ["configuration": settings != nil],
         ]
-        _ = try await request("initialize", [
+        let initialized = try await request("initialize", [
             "processId": ProcessInfo.processInfo.processIdentifier,
             "clientInfo": ["name": "Berth"],
             "rootUri": root.absoluteString,
             "workspaceFolders": [["uri": root.absoluteString, "name": root.lastPathComponent]],
             "capabilities": capabilities,
         ])
+        pullsDiagnostics = ((initialized as? [String: Any])?["capabilities"] as? [String: Any])?["diagnosticProvider"] != nil
         try send(["jsonrpc": "2.0", "method": "initialized", "params": [String: Any]()])
+        if let settings { try send(["jsonrpc": "2.0", "method": "workspace/didChangeConfiguration", "params": ["settings": settings]]) }
     }
 
     public func open(_ url: URL, languageID: String, text: String) throws {
@@ -171,6 +177,7 @@ public actor LanguageServer {
         try send(["jsonrpc": "2.0", "method": "textDocument/didOpen", "params": [
             "textDocument": ["uri": url.absoluteString, "languageId": languageID, "version": 1, "text": text],
         ]])
+        if pullsDiagnostics { Task { await pullDiagnostics(url) } }
     }
 
     public func change(_ url: URL, text: String) throws {
@@ -181,6 +188,7 @@ public actor LanguageServer {
             "textDocument": ["uri": url.absoluteString, "version": version],
             "contentChanges": [["text": text]],
         ]])
+        if pullsDiagnostics { Task { await pullDiagnostics(url) } }
     }
 
     public func close(_ url: URL) throws {
@@ -241,6 +249,14 @@ public actor LanguageServer {
         exited()
     }
 
+    private func pullDiagnostics(_ url: URL) async {
+        let version = versions[url]
+        let report = try? await request("textDocument/diagnostic", ["textDocument": ["uri": url.absoluteString]]) as? [String: Any]
+        guard let items = report?["items"], versions[url] == version else { return }
+
+        publishDiagnostics(["uri": url.absoluteString, "version": version as Any, "diagnostics": items])
+    }
+
     private func request(_ method: String, _ params: Any?) async throws -> Any? {
         guard !hasExited else { throw LanguageServerError.notRunning }
 
@@ -298,8 +314,11 @@ public actor LanguageServer {
 
     private func respond(to method: String, id: Any, params: [String: Any]?) {
         if method == "workspace/configuration" {
-            let items = params?["items"] as? [Any] ?? []
-            try? send(["jsonrpc": "2.0", "id": id, "result": Array(repeating: NSNull(), count: items.count)])
+            let items = params?["items"] as? [[String: Any]] ?? []
+            let sections = items.map { item in
+                (item["section"] as? String ?? "").split(separator: ".").reduce(settings) { ($0 as? [String: Any])?[String($1)] } ?? NSNull()
+            }
+            try? send(["jsonrpc": "2.0", "id": id, "result": sections])
             return
         }
 

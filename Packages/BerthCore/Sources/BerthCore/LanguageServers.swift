@@ -24,16 +24,18 @@ public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
     public var arguments: [String]
     public var languages: [String]
     public var rootMarkers: [String]
+    public var settings: String?
     public var isDiagnosticsOnly: Bool
     public var isEnabled: Bool
 
-    public init(id: String = UUID().uuidString, name: String, command: String, arguments: [String] = [], languages: [String] = [], rootMarkers: [String] = [], isDiagnosticsOnly: Bool = false, isEnabled: Bool = true) {
+    public init(id: String = UUID().uuidString, name: String, command: String, arguments: [String] = [], languages: [String] = [], rootMarkers: [String] = [], settings: String? = nil, isDiagnosticsOnly: Bool = false, isEnabled: Bool = true) {
         self.id = id
         self.name = name
         self.command = command
         self.arguments = arguments
         self.languages = languages
         self.rootMarkers = rootMarkers
+        self.settings = settings
         self.isDiagnosticsOnly = isDiagnosticsOnly
         self.isEnabled = isEnabled
     }

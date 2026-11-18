@@ -112,8 +112,9 @@ This is the slim first version; the rest is listed under Later.
   repository's code. Off means no server process ever starts, and turning it off stops them.
 - Servers are entries in Settings > General > Language Servers (`languageServers`, a JSON string in
   UserDefaults, never read from a repository): name, command, arguments, languages (file extensions
-  or language ids), root markers, and whether the server gives diagnostics only or also definition
-  and hover. Add, Edit… (a sheet; Remove for added entries, Restore Default for built-ins) and an
+  or language ids), root markers, optional settings (a JSON object answering the server's
+  `workspace/configuration` requests by section and sent once as `didChangeConfiguration`), and
+  whether the server gives diagnostics only or also definition and hover. Add, Edit… (a sheet; Remove for added entries, Restore Default for built-ins) and an
   enable switch per row. SourceKit-LSP (root marker `Package.swift`), rust-analyzer and
   typescript-language-server are built-in entries the user can edit or turn off; stored entries
   override them by id (`LanguageServerEntry.configured`).
@@ -126,6 +127,11 @@ This is the slim first version; the rest is listed under Later.
   markers and none found, no server starts; without markers, the repository root.
 - Only the right side (working tree) talks to the server: its text is opened when shown and sent
   again 300 ms after the last edit, with the diff recompute. The left side is another revision.
+- A server that advertises `diagnosticProvider` (ESLint's) is also asked with
+  `textDocument/diagnostic` after each open and change. ESLint's server
+  (`vscode-eslint-language-server --stdio` from vscode-langservers-extracted) needs settings, at
+  least `{"validate": "on", "nodePath": null, "experimental": {}, "problems": {},
+  "rulesCustomizations": []}`; without them it lints nothing.
 - Diagnostics from every server serving a file are merged, each labelled by its `source` (else
   the entry's name). A squiggle under the range (errors in the closed colour, warnings in the needs-you
   colour, others dimmed) and a dot in the right gutter; hovering either shows the message and
