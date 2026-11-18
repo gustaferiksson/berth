@@ -12,8 +12,9 @@ public struct ReviewComment: Sendable, Hashable, Identifiable {
     public let text: String
     public let snippet: String
     public let side: Side
+    public let compare: ReviewCompare?
 
-    public init(id: String, path: String, line: Int, endLine: Int, text: String, snippet: String, side: Side = .modified) {
+    public init(id: String, path: String, line: Int, endLine: Int, text: String, snippet: String, side: Side = .modified, compare: ReviewCompare? = .uncommitted) {
         self.id = id
         self.path = path
         self.line = line
@@ -21,6 +22,7 @@ public struct ReviewComment: Sendable, Hashable, Identifiable {
         self.text = text
         self.snippet = snippet
         self.side = side
+        self.compare = compare
     }
 
     public static func prompt(for comments: [ReviewComment], branch: String, base: String) -> String {
@@ -28,7 +30,7 @@ public struct ReviewComment: Sendable, Hashable, Identifiable {
         let blocks = comments.map { comment in
             let lines = comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)"
             let language = (comment.path as NSString).pathExtension
-            return "\(comment.path):\(lines)\n```\(language)\n\(printable(comment.snippet))\n```\n\(printable(comment.text))"
+            return "\(comment.path):\(lines)\(comment.compare == .committed ? " (as committed)" : "")\n```\(language)\n\(printable(comment.snippet))\n```\n\(printable(comment.text))"
         }
         return (["Review comments on \(branch) (vs \(base)):"] + blocks).joined(separator: "\n\n")
     }

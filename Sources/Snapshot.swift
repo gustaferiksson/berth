@@ -207,7 +207,6 @@ enum Snapshot {
             store.openShell(cwd: reviewFolder)
             store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: reviewFolder, sessionID: "snapshot-review", terminal: $0.terminal) : $0 }
             if AppAction.showChanges.isAvailable(in: store) { AppAction.showChanges.perform(on: store) }
-            store.reviewModels["snapshot-review"]?.selectedPath = UserDefaults.standard.string(forKey: "snapshotReviewFile")
             store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")]
         }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
@@ -236,15 +235,22 @@ enum Snapshot {
         window.orderFrontRegardless()
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30
-            while Date.now < deadline, model.error == nil, model.snapshot?.files.isEmpty != true, model.selectedPath.flatMap({ model.contents[$0] }) == nil {
-                if model.selectedPath == nil { model.selectedPath = model.snapshot?.files.first?.path }
+            while Date.now < deadline, model.error == nil, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
+                if let changes = model.changes, model.selectedTab == nil {
+                    let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
+                    guard let document = requested ?? changes.uncommitted.first.map({ ReviewDocument(path: $0.path, compare: .uncommitted) }) ?? changes.committed.first.map({ ReviewDocument(path: $0.path, compare: .committed) }) else { break }
+                    model.open(document)
+                }
                 try? await Task.sleep(for: .milliseconds(100))
             }
             try? await Task.sleep(for: .seconds(1))
-            print("review \(model.snapshot.map { "\($0.branch) → \($0.base), fetch error \($0.fetchError ?? "-")" } ?? "error \(model.error ?? "timed out")")")
-            print("review card \(model.branch.map { "base \($0.changes.base ?? "-"), default branch \($0.changes.isDefaultBranch), ahead \($0.status.ahead), behind \($0.status.behind), upstream \($0.status.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.status.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" })" } ?? "none"), pull request details \(model.pullRequestDetails)")
-            for file in model.snapshot?.files ?? [] { print("  \(file.status.rawValue) \(file.path) +\(file.additions.map(String.init) ?? "?") -\(file.deletions.map(String.init) ?? "?")") }
-            print("review selected \(model.selectedPath ?? "-"), contents loaded \(model.selectedPath.flatMap { model.contents[$0] } != nil), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+            print("review \(model.changes.map { "\($0.branch) → \($0.base ?? "-"), fetch error \($0.fetchError ?? "-")" } ?? "error \(model.error ?? "timed out")")")
+            print("review card \(model.status.map { "base \(model.changes?.base ?? "-"), default branch \(model.changes?.isDefaultBranch == true), ahead \($0.ahead), behind \($0.behind), upstream \($0.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" })" } ?? "none"), pull request details \(model.pullRequestDetails)")
+            for (section, files) in [("uncommitted", model.changes?.uncommitted ?? []), ("committed", model.changes?.committed ?? [])] {
+                for file in files { print("  \(section) \(file.status.rawValue) \(file.path) +\(file.additions.map(String.init) ?? "?") -\(file.deletions.map(String.init) ?? "?")") }
+            }
+            print("review files tree \(model.tree.map { $0.children == nil ? $0.name : "\($0.name)/ (\($0.children?.count ?? 0))" })")
+            print("review selected \(describe(model)), contents loaded \(model.selectedDocument.flatMap { model.contents[$0] } != nil), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
             let sides = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }
             let clips = { sides.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }.joined(separator: "/") }
@@ -267,10 +273,10 @@ enum Snapshot {
                 let unchanged = zip((0..<diff.original.lineCount).filter { !diff.original.changedLines.contains($0) }, (0..<diff.modified.lineCount).filter { !diff.modified.changedLines.contains($0) })
                 let shifted = unchanged.filter { pair in rows[0][pair.0].flatMap { left in rows[1][pair.1].map { left != $0 } } ?? false }.count
                 let arithmetic = unchanged.filter { pair in rows[1][pair.1].map { $0 != sides[1].top(ofRow: (sides[1].side ?? diff.modified).rows[pair.1]) } ?? false }.count
-                print("\(label) \(sides[1].unifiedOriginal == nil ? "side by side" : "unified, width \(sides[1].frame.width) for \(sides[1].minimumWidth), text is the file \(sides[1].string == model.drafts[model.selectedPath ?? ""] ?? model.selectedPath.flatMap { model.contents[$0]?.modified }.flatMap { if case let .text(text) = $0 { text } else { nil } } ?? "")"), height \(sides[1].frame.height) for top(ofRow: rowCount) \(sides[1].top(ofRow: sides[1].side?.rowCount ?? 0)), pane \(sides[1].enclosingScrollView?.superview?.frame.width ?? -1) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.filter { $0.1 != $0.2 }.count), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
+                print("\(label) \(sides[1].unifiedOriginal == nil ? "side by side" : "unified, width \(sides[1].frame.width) for \(sides[1].minimumWidth), text is the file \(sides[1].string == model.drafts[model.selectedDocument?.path ?? ""] ?? model.selectedDocument.flatMap { model.contents[$0]?.modified }.flatMap { if case let .text(text) = $0 { text } else { nil } } ?? "")"), height \(sides[1].frame.height) for top(ofRow: rowCount) \(sides[1].top(ofRow: sides[1].side?.rowCount ?? 0)), pane \(sides[1].enclosingScrollView?.superview?.frame.width ?? -1) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.filter { $0.1 != $0.2 }.count), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
             }
             report("review")
-            if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedPath {
+            if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument {
                 let right = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last }
                 let point = { (textView: ReviewTextView, spec: String) -> NSPoint? in
                     let numbers = spec.split(separator: ":").compactMap { Int($0) }
@@ -329,14 +335,14 @@ enum Snapshot {
                     while ContinuousClock.now - clock < .seconds(30), right()?.diagnostics.isEmpty != false { try? await Task.sleep(for: .milliseconds(250)) }
                     print("toggle: on again \(servers()), diagnostics \(right()?.diagnostics.count ?? -1) after \(ContinuousClock.now - clock)")
                 }
-                if UserDefaults.standard.bool(forKey: "snapshotReviewCrash"), let other = model.snapshot?.files.first(where: { $0.path != file })?.path {
+                if UserDefaults.standard.bool(forKey: "snapshotReviewCrash"), let other = model.changes?.uncommitted.first(where: { $0.path != file.path })?.path {
                     let killed = servers()
                     killed.forEach { kill($0, SIGKILL) }
                     try? await Task.sleep(for: .seconds(1.5))
-                    print("crash: killed \(killed), servers now \(servers()), still showing \(model.selectedPath ?? "-") with \(right()?.diagnostics.count ?? -1) diagnostics")
-                    model.selectedPath = other
+                    print("crash: killed \(killed), servers now \(servers()), still showing \(model.selectedDocument?.path ?? "-") with \(right()?.diagnostics.count ?? -1) diagnostics")
+                    model.open(model.workingDocument(other))
                     try? await Task.sleep(for: .seconds(2))
-                    model.selectedPath = file
+                    model.open(file)
                     let clock = ContinuousClock.now
                     while ContinuousClock.now - clock < .seconds(30), servers().isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
                     try? await Task.sleep(for: .seconds(3))
@@ -357,8 +363,8 @@ enum Snapshot {
                     print("hover after moving away: card \(card() == nil ? "dismissed" : "shown")")
                 }
                 for spec in (UserDefaults.standard.string(forKey: "snapshotReviewDefinition") ?? "").split(separator: "|").map(String.init) {
-                    if model.selectedPath != file {
-                        model.selectedPath = file
+                    if model.selectedDocument != file {
+                        model.open(file)
                         try? await Task.sleep(for: .seconds(2))
                     }
                     guard let textView = right(), let target = point(textView, spec) else { continue }
@@ -369,22 +375,22 @@ enum Snapshot {
                     crop(".link-\(spec.replacingOccurrences(of: ":", with: "-")).png", textView, NSRect(x: target.x - 120, y: target.y - 20, width: 240, height: 40))
                     mouse(textView, .leftMouseDown, target, .command)
                     let started = ContinuousClock.now
-                    while ContinuousClock.now - started < .seconds(20), model.reveal != nil || (model.selectedPath == file && right()?.selectedRange() == before) {
+                    while ContinuousClock.now - started < .seconds(20), model.reveal != nil || (model.selectedDocument == file && right()?.selectedRange() == before) {
                         try? await Task.sleep(for: .milliseconds(100))
                     }
                     try? await Task.sleep(for: .seconds(1))
-                    guard model.selectedPath != file || right()?.selectedRange() != before, let landed = right() else {
-                        print("definition \(spec): no landing after \(ContinuousClock.now - started) (outside the repository or no answer), selected \(model.selectedPath ?? "-")")
+                    guard model.selectedDocument != file || right()?.selectedRange() != before, let landed = right() else {
+                        print("definition \(spec): no landing after \(ContinuousClock.now - started) (outside the repository or no answer), selected \(model.selectedDocument?.path ?? "-")")
                         continue
                     }
                     let selection = landed.selectedRange()
                     let position = landed.position(ofOffset: selection.location)
-                    print("definition \(spec): landed in \(model.selectedPath ?? "-") (\(model.snapshot?.files.contains { $0.path == model.selectedPath } == true ? "changed" : "unchanged"), list selection kept \(model.selectedPath != nil)) at \(position.line + 1):\(position.character + 1) selecting \((landed.string as NSString).substring(with: selection).debugDescription), clip y left/right \(descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }), first responder is right \(window.firstResponder === landed), layoutManager requests \(requests) → \(landed.layoutManagerRequests), TextKit 2 \(landed.textLayoutManager != nil)")
+                    print("definition \(spec): landed in \(describe(model)) at \(position.line + 1):\(position.character + 1) selecting \((landed.string as NSString).substring(with: selection).debugDescription), clip y left/right \(descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }), first responder is right \(window.firstResponder === landed), layoutManager requests \(requests) → \(landed.layoutManagerRequests), TextKit 2 \(landed.textLayoutManager != nil)")
                     save(".definition-\(spec.replacingOccurrences(of: ":", with: "-")).png")
-                    let landedPath = model.selectedPath
+                    let landedDocument = model.selectedDocument
                     await model.load()
                     try? await Task.sleep(for: .seconds(1))
-                    print("definition \(spec): after Refresh still showing \(landedPath ?? "-") \(model.selectedPath == landedPath && landedPath.flatMap { model.contents[$0] } != nil)")
+                    print("definition \(spec): after Refresh still showing \(landedDocument?.path ?? "-") \(model.selectedDocument == landedDocument && landedDocument.flatMap { model.contents[$0] } != nil), \(describe(model))")
                 }
             }
             if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last {
@@ -392,7 +398,7 @@ enum Snapshot {
                 right.setSelectedRange(NSRange(location: 0, length: 0))
                 right.insertText(edit, replacementRange: right.selectedRange())
                 try? await Task.sleep(for: .seconds(2))
-                print("review after edit: draft \(model.drafts[model.selectedPath ?? ""] != nil), undo \(right.undoManager?.canUndo ?? false), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+                print("review after edit: draft \(model.drafts[model.selectedDocument?.path ?? ""] != nil), \(describe(model)), undo \(right.undoManager?.canUndo ?? false), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
                 report("edited")
             }
             let scrollY = UserDefaults.standard.double(forKey: "snapshotReviewScroll")
@@ -469,7 +475,7 @@ enum Snapshot {
                 report("typed")
                 type("\r", 36, [])
                 try? await Task.sleep(for: .milliseconds(500))
-                print("comments: \(model.comments.map { "\($0.path):\($0.line)-\($0.endLine) \($0.side) \($0.text.debugDescription) snippet \($0.snippet.debugDescription)" }), draft \(draft() == nil ? "closed" : "open")")
+                print("comments: \(model.comments.map { "\($0.path):\($0.line)-\($0.endLine) \($0.side) \($0.compare.map { "\($0)" } ?? "file") \($0.text.debugDescription) snippet \($0.snippet.debugDescription)" }), draft \(draft() == nil ? "closed" : "open")")
                 report("card")
                 save(".card.png")
                 if let spec = UserDefaults.standard.string(forKey: "snapshotReviewRestyle"), let separator = spec.firstIndex(of: ":") {
@@ -490,7 +496,7 @@ enum Snapshot {
                     let cards = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.count }
                     print("after card delete: comments \(model.comments.map(\.id)), cards \(cards())")
                     report("deleted")
-                    model.comments.append(ReviewComment(id: "list", path: model.selectedPath ?? "", line: 1, endLine: 1, text: "From the list", snippet: ""))
+                    model.comments.append(ReviewComment(id: "list", path: model.selectedDocument?.path ?? "", line: 1, endLine: 1, text: "From the list", snippet: "", compare: model.selectedDocument.flatMap(\.compare)))
                     try? await Task.sleep(for: .milliseconds(500))
                     let added = cards()
                     model.comments.removeAll { $0.id == "list" }
@@ -506,7 +512,7 @@ enum Snapshot {
                 save(".resized.png")
             }
             if UserDefaults.standard.bool(forKey: "snapshotReviewSurfaces"), let split = descendantViews(window.contentView ?? NSView()).first(where: { $0.identifier?.rawValue == "terminalSplit" }) as? NSSplitView, let claude = store.tabs.first(where: { $0.id == store.selectedTabID }) {
-                let file = model.selectedPath
+                let file = model.selectedDocument
                 let mounted = { store.tabs.map { tab in tab.terminal.attachedPlatformView.map { [ObjectIdentifier($0), $0.superview.map(ObjectIdentifier.init)] } ?? [] } }
                 let windows = { store.tabs.map { $0.terminal.attachedPlatformView?.window === window } }
                 let starts = { (try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0 }
@@ -521,8 +527,8 @@ enum Snapshot {
                     UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
                 }
                 let steps: [(String, () -> Void)] = [
-                    ("close diff", store.closeDiff),
-                    ("open diff", { model.selectedPath = file }),
+                    ("close diff", { store.closeDiff() }),
+                    ("open diff", { file.map(model.open) }),
                     ("hide changes", { AppAction.hideChanges.perform(on: store) }),
                     ("show changes", { AppAction.showChanges.perform(on: store) }),
                     ("select terminal", { store.activate(store.terminals.first.map { SidebarItem.tab($0.id) }) }),
@@ -540,15 +546,15 @@ enum Snapshot {
                         }
                     }),
                     ("narrow to 1200", { window.setContentSize(NSSize(width: 1200, height: window.contentLayoutRect.height)) }),
-                    ("close diff again", store.closeDiff),
-                    ("reopen diff", { model.selectedPath = file }),
-                    ("close diff once more", store.closeDiff),
+                    ("close diff again", { store.closeDiff() }),
+                    ("reopen diff", { file.map(model.open) }),
+                    ("close diff once more", { store.closeDiff() }),
                 ]
                 for (label, step) in steps {
                     step()
                     try? await Task.sleep(for: .seconds(1.5))
                     let now = ProcessAncestry.descendants()
-                    print("\(label): sidebar \(UserDefaults.standard.string(forKey: "sidebarPosition") ?? "left"), text clip x \(descendantViews(window.contentView ?? NSView()).compactMap { ($0 as? ReviewTextView)?.enclosingScrollView?.contentView.bounds.minX }), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), panel \(store.showsReviewPanel ? "shown" : "hidden"), harbor \(store.isHarborShown), diff \(store.reviewModel?.selectedPath ?? "closed"), split \(split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" }), same views \(mounted() == views), in window \(windows()), lost \(processes.subtracting(now).count), new \(now.subtracting(processes).count), ptys \(ptys()), shell starts \(starts())")
+                    print("\(label): sidebar \(UserDefaults.standard.string(forKey: "sidebarPosition") ?? "left"), text clip x \(descendantViews(window.contentView ?? NSView()).compactMap { ($0 as? ReviewTextView)?.enclosingScrollView?.contentView.bounds.minX }), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), panel \(store.showsReviewPanel ? "shown" : "hidden"), harbor \(store.isHarborShown), diff \(store.reviewModel?.selectedDocument?.path ?? "closed"), split \(split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" }), same views \(mounted() == views), in window \(windows()), lost \(processes.subtracting(now).count), new \(now.subtracting(processes).count), ptys \(ptys()), shell starts \(starts())")
                     save(".\(label.replacingOccurrences(of: " ", with: "-")).png")
                 }
             }
@@ -688,10 +694,10 @@ enum Snapshot {
             let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
-            if store.reviewModel?.selectedPath == nil { window.makeFirstResponder(store.focusedTerminal?.attachedPlatformView ?? window.contentView) }
+            if store.reviewModel?.selectedDocument?.path == nil { window.makeFirstResponder(store.focusedTerminal?.attachedPlatformView ?? window.contentView) }
             let state = {
                 let focused = store.tabs.firstIndex { $0.terminal.attachedPlatformView === window.firstResponder }.map { "#\($0)" } ?? window.firstResponder.map { "\(type(of: $0))" } ?? "nil"
-                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel?.selectedPath ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
+                return "tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
             }
             print("start: \(state())")
             print("key window is snapshot: \(NSApp.keyWindow === window), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
@@ -714,11 +720,44 @@ enum Snapshot {
                     print("exit (typed into the selected terminal):\n  \(state())")
                     continue
                 }
-                if let model = store.reviewModel, spec == "refresh" || spec.hasPrefix("file") {
-                    if spec == "refresh" { await model.load() } else { model.selectedPath = model.snapshot?.files.dropFirst(Int(spec.dropFirst(4)) ?? 0).first?.path ?? model.selectedPath }
+                if spec.hasPrefix("click:") || spec.hasPrefix("dblclick:") {
+                    let numbers = spec.split(separator: ":").last?.split(separator: ",").compactMap { Double($0) } ?? []
+                    let location = NSPoint(x: numbers.first ?? 0, y: (window.contentView?.frame.height ?? 0) - (numbers.last ?? 0))
+                    for count in spec.hasPrefix("dbl") ? [1, 2] : [1] {
+                        let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: type == .leftMouseDown ? 1 : 0) }
+                        // A control's mouse-down tracking loop waits for the mouse-up, so it is queued first.
+                        event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
+                        event(.leftMouseDown).map(window.sendEvent)
+                    }
                     try? await Task.sleep(for: .seconds(1))
-                    if let editor = model.selectedPath.flatMap({ model.editors[$0] }) { window.makeFirstResponder(editor) }
-                    print("\(spec) (\(spec == "refresh" ? "reloads Review" : "selects that Review file") and focuses its right side):\n  \(state())")
+                    print("\(spec) (sends a real \(spec.hasPrefix("dbl") ? "double-click" : "click") at that point, top-left origin):\n  \(state())")
+                    continue
+                }
+                if spec.hasPrefix("shot:") {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    if let image = image(of: window) { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + ".\(spec.dropFirst(5)).png")) }
+                    print("\(spec) (saves <out>.\(spec.dropFirst(5)).png):\n  \(state())")
+                    continue
+                }
+                if let model = store.reviewModel, ["refresh", "keep", "save", "back", "forward", "files", "changes"].contains(spec) || spec.hasPrefix("file") || spec.hasPrefix("open:") || spec.hasPrefix("dbl:") {
+                    let target = spec.split(separator: ":", maxSplits: 2).map(String.init)
+                    let document = target.count == 3 ? ["u": ReviewDocument(path: target[2], compare: .uncommitted), "c": ReviewDocument(path: target[2], compare: .committed)][target[1]] ?? model.workingDocument(target[2]) : nil
+                    if spec == "refresh" { await model.load() }
+                    if spec == "keep" { model.selectedTabID.map(model.keep) }
+                    if spec == "save", let path = model.selectedDocument?.path, let draft = model.drafts[path] { model.save(draft, to: path) }
+                    if spec == "back" || spec == "forward" { model.go(by: spec == "back" ? -1 : 1) }
+                    if spec == "files" || spec == "changes" { model.list = spec == "files" ? .files : .changes }
+                    if spec.hasPrefix("file"), let index = Int(spec.dropFirst(4)), let file = model.changes.map({ $0.uncommitted.map { ReviewDocument(path: $0.path, compare: .uncommitted) } + $0.committed.map { ReviewDocument(path: $0.path, compare: .committed) } })?.dropFirst(index).first { model.open(file) }
+                    if let document {
+                        model.list = target[1] == "f" ? .files : .changes
+                        model.open(document)
+                        if target[0] == "dbl" { model.selectedTabID.map(model.keep) }
+                    }
+                    try? await Task.sleep(for: .seconds(1))
+                    func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+                    let right = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last
+                    if let right, spec != "files", spec != "changes" { window.makeFirstResponder(right) }
+                    print("\(spec) (\(target.count == 3 ? "\(target[0] == "dbl" ? "double-clicks" : "clicks") that row" : spec == "keep" ? "double-clicks the current tab" : spec == "refresh" ? "reloads Review" : Int(spec.dropFirst(4)) != nil ? "clicks that Changes row" : spec), then focuses the diff's right side): right side editable \(right?.isEditable == true), left shown \(right?.unifiedOriginal == nil), the path's editor \(right.map { right in model.editors.values.contains { $0 === right } } ?? false), language \(right?.onDefinition != nil)\n  \(state())")
                     continue
                 }
                 let parts = spec.split(separator: "+").map(String.init)
@@ -780,7 +819,7 @@ enum Snapshot {
                 print("  \(item.state == .on ? "✓" : " ") \(item.title) \(item.keyEquivalentModifierMask.contains(.control) ? "⌃" : "")\(item.keyEquivalent)")
             }
         }
-        print("review panel \(store.showsReviewPanel ? "shown" : "hidden"), diff \(store.reviewModel?.selectedPath ?? "closed")")
+        print("review panel \(store.showsReviewPanel ? "shown" : "hidden"), diff \(store.reviewModel.map(describe) ?? "closed")")
         print("shell starts: \((try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0)")
         for tab in store.tabs { print("tab \(tab.kind) cwd=\(tab.cwd) session=\(tab.sessionID ?? "-") pwd=\(tab.terminal.workingDirectory ?? "-") title=\(tab.terminal.title)") }
         guard !NSScreen.screens.contains(where: { $0.frame.intersects(window.frame) }) else { fail("window is on screen") }
@@ -832,6 +871,13 @@ enum Snapshot {
         for name in names { print("received \(name): \((try? String(contentsOf: folder.appending(path: name), encoding: .utf8)) ?? "-")") }
     }
     #endif
+
+    private static func describe(_ model: ReviewModel) -> String {
+        guard !model.tabs.isEmpty else { return "closed" }
+        return "tabs " + model.tabs.map { tab in
+            "\(tab.id == model.selectedTabID ? "[" : "")\(tab.document.path)\(tab.document.compare.map { " \($0)" } ?? " file") \(tab.isPreview ? "preview" : "kept") \(tab.index + 1)/\(tab.history.count)\(tab.id == model.selectedTabID ? "]" : "")"
+        }.joined(separator: ", ")
+    }
 
     private static func footprint() -> Int {
         var info = task_vm_info_data_t()

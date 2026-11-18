@@ -24,16 +24,6 @@ public struct ReviewFile: Sendable, Hashable {
     }
 }
 
-public struct ReviewSnapshot: Sendable {
-    public let root: String
-    public let branch: String
-    public let base: String
-    public let mergeBase: String
-    public let files: [ReviewFile]
-    public let fetchedAt: Date?
-    public let fetchError: String?
-}
-
 public enum ReviewCompare: Sendable, Hashable {
     case uncommitted
     case committed
@@ -98,18 +88,6 @@ public enum ReviewGit {
     private static let binaryProbeBytes = 8000
     private static let fetches = FetchThrottle()
 
-    public static func snapshot(in folder: String) async throws -> ReviewSnapshot {
-        let root = try await line(["rev-parse", "--show-toplevel"], in: folder)
-        let branch = (try? await line(["rev-parse", "--abbrev-ref", "HEAD"], in: root)) ?? "HEAD"
-        let base = await base(in: root) ?? "HEAD"
-        let baseRefspecs = base.hasPrefix("origin/") ? ["+refs/heads/\(base.dropFirst("origin/".count)):refs/remotes/\(base)"] : []
-
-        let fetch = await (baseRefspecs.isEmpty ? nil : fetches.fetch(baseRefspecs, in: root))
-        let mergeBase = try await line(["merge-base", base, "HEAD"], in: root)
-        let files = try await workingTreeChanges(from: mergeBase, in: root)
-        return ReviewSnapshot(root: root, branch: branch, base: base, mergeBase: mergeBase, files: files, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
-    }
-
     public static func changes(in folder: String) async throws -> ReviewChanges {
         let root = try await line(["rev-parse", "--show-toplevel"], in: folder)
         let branch = (try? await line(["rev-parse", "--abbrev-ref", "HEAD"], in: root)) ?? "HEAD"
@@ -173,13 +151,6 @@ public enum ReviewGit {
             if (try? await git(["rev-parse", "--verify", "--quiet", "\(candidate)^{commit}"], in: root)) != nil { return candidate }
         }
         return nil
-    }
-
-    public static func contents(of file: ReviewFile, in snapshot: ReviewSnapshot) async throws -> ReviewContents {
-        let original = try await (file.status == .added ? nil : blob(snapshot.mergeBase, path: file.oldPath ?? file.path, in: snapshot.root))
-
-        if file.status == .deleted { return ReviewContents(original: original, modified: nil) }
-        return ReviewContents(original: original, modified: try workingTreeText(file.path, in: snapshot.root))
     }
 
     public static func contents(of file: ReviewFile, compare: ReviewCompare, in changes: ReviewChanges) async throws -> ReviewContents {

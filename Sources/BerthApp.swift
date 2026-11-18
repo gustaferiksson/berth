@@ -133,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 ancestors.lazy.compactMap { $0 as? ReviewTextView }.first?.performTextFinderAction(showFindInterface)
                 return nil
             }
-            if flags == .command, event.charactersIgnoringModifiers == "w", store.reviewModel?.selectedPath != nil, !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
+            if flags == .command, event.charactersIgnoringModifiers == "w", store.reviewModel?.selectedTab != nil, !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
                 store.closeDiff()
                 return nil
             }

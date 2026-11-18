@@ -540,9 +540,11 @@ final class Store {
         reviewModels[sessionID] = ReviewModel(folder: tab.cwd)
     }
 
-    func closeDiff() {
-        reviewModel?.selectedPath = nil
-        focusedTerminal?.requestFocus()
+    func closeDiff(tab id: ReviewTab.ID? = nil) {
+        guard let model = reviewModel, let id = id ?? model.selectedTabID else { return }
+        let isSelected = id == model.selectedTabID
+        model.close(id)
+        if model.tabs.isEmpty { focusedTerminal?.requestFocus() } else if isSelected { model.focusesEditor = true }
     }
 
     func startTerminalSearch(in terminal: TerminalViewState, needle: String?) {

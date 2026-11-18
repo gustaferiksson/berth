@@ -1,25 +1,50 @@
 import BerthCore
 import SwiftUI
 
+struct ReviewDocument: Hashable {
+    let path: String
+    let compare: ReviewCompare?
+}
+
+struct ReviewTab: Identifiable {
+    let id: UUID
+    var history: [ReviewDocument]
+    var index: Int
+    var isPreview: Bool
+
+    var document: ReviewDocument { history[index] }
+}
+
+enum ReviewList: Hashable {
+    case changes
+    case files
+}
+
 @Observable
 final class ReviewModel {
     let folder: String
-    private(set) var snapshot: ReviewSnapshot?
-    private(set) var branch: (changes: ReviewChanges, status: ReviewBranchStatus)?
+    private(set) var changes: ReviewChanges?
+    private(set) var status: ReviewBranchStatus?
+    private(set) var tree: [ReviewFileTree] = []
     private(set) var pullRequestDetails: [Int: PullRequestDetail] = [:]
     private(set) var error: String?
     private(set) var isLoading = false
-    private(set) var contents: [String: ReviewContents] = [:]
+    private(set) var contents: [ReviewDocument: ReviewContents] = [:]
     private(set) var language: ReviewLanguage?
-    var selectedPath: String?
-    var reveal: (path: String, range: LanguageServerRange)?
+    private(set) var tabs: [ReviewTab] = []
+    var selectedTabID: UUID?
+    var list = ReviewList.changes
+    var reveal: (document: ReviewDocument, range: LanguageServerRange)?
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
     var notice: String?
+    var focusesEditor = false
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
 
     var hasUnsavedEdits: Bool { !drafts.isEmpty }
+    var selectedTab: ReviewTab? { tabs.first { $0.id == selectedTabID } }
+    var selectedDocument: ReviewDocument? { selectedTab?.document }
 
     init(folder: String) {
         self.folder = folder
@@ -28,24 +53,71 @@ final class ReviewModel {
     func load() async {
         isLoading = true
         do {
-            let snapshot = try await ReviewGit.snapshot(in: folder)
-            self.snapshot = snapshot
+            let changes = try await ReviewGit.changes(in: folder)
+            let files = try await ReviewGit.files(in: changes.root)
+            status = try? await ReviewGit.branchStatus(of: changes)
+            self.changes = changes
+            tree = ReviewFileTree.nodes(files)
             error = nil
-            if language?.root != snapshot.root {
+            if language?.root != changes.root {
                 language?.stop()
-                language = ReviewLanguage(root: snapshot.root)
+                language = ReviewLanguage(root: changes.root)
             }
             contents = [:]
-            if let path = selectedPath, !snapshot.files.contains(where: { $0.path == path }), !FileManager.default.fileExists(atPath: URL(filePath: snapshot.root).appending(path: path).path) { selectedPath = nil }
 
-            let changes = try? await ReviewGit.changes(in: folder)
-            branch = if let changes, let status = try? await ReviewGit.branchStatus(of: changes) { (changes, status) } else { nil }
+            let existing = { (document: ReviewDocument) -> ReviewDocument? in
+                if let compare = document.compare, (compare == .committed ? changes.committed : changes.uncommitted).contains(where: { $0.path == document.path }) { return document }
+                return FileManager.default.fileExists(atPath: URL(filePath: changes.root).appending(path: document.path).path) ? ReviewDocument(path: document.path, compare: nil) : nil
+            }
+            tabs = tabs.compactMap { tab in
+                guard existing(tab.document) != nil else { return nil }
+                return ReviewTab(id: tab.id, history: tab.history.compactMap(existing), index: tab.history[..<tab.index].compactMap(existing).count, isPreview: tab.isPreview)
+            }
+            if selectedTab == nil { selectedTabID = tabs.last?.id }
         } catch {
-            snapshot = nil
+            changes = nil
+            status = nil
             self.error = Self.describe(error)
         }
         isLoading = false
         await loadSelectedContents()
+    }
+
+    func open(_ document: ReviewDocument) {
+        if let shown = tabs.first(where: { $0.document == document }) {
+            selectedTabID = shown.id
+            return
+        }
+        guard let preview = tabs.firstIndex(where: \.isPreview) else {
+            let tab = ReviewTab(id: UUID(), history: [document], index: 0, isPreview: true)
+            tabs.insert(tab, at: tabs.firstIndex { $0.id == selectedTabID }.map { $0 + 1 } ?? tabs.count)
+            selectedTabID = tab.id
+            return
+        }
+
+        tabs[preview].history = Array(tabs[preview].history.prefix(tabs[preview].index + 1)) + [document]
+        tabs[preview].index += 1
+        selectedTabID = tabs[preview].id
+    }
+
+    func keep(_ id: ReviewTab.ID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        tabs[index].isPreview = false
+    }
+
+    func go(by offset: Int) {
+        guard let index = tabs.firstIndex(where: { $0.id == selectedTabID }), tabs[index].history.indices.contains(tabs[index].index + offset) else { return }
+        tabs[index].index += offset
+    }
+
+    func close(_ id: ReviewTab.ID) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        tabs.remove(at: index)
+        if selectedTabID == id { selectedTabID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id }
+    }
+
+    func workingDocument(_ path: String) -> ReviewDocument {
+        ReviewDocument(path: path, compare: changes?.uncommitted.contains { $0.path == path } == true ? .uncommitted : nil)
     }
 
     func loadPullRequestDetail(repository: String, number: Int) async {
@@ -54,48 +126,58 @@ final class ReviewModel {
     }
 
     func loadSelectedContents() async {
-        guard let snapshot, let path = selectedPath, contents[path] == nil else { return }
+        guard let changes, let document = selectedDocument, contents[document] == nil else { return }
 
         do {
-            let file = snapshot.files.first { $0.path == path }
-            let unchanged = file == nil ? try ReviewGit.workingTreeText(path, in: snapshot.root) : nil
-            let loaded = if let file { try await ReviewGit.contents(of: file, in: snapshot) } else { ReviewContents(original: unchanged, modified: unchanged) }
-            if drafts[path] == nil { loadedTexts[path] = if case let .text(text)? = loaded.modified { text } else { nil } }
-            editors[path] = editors[path] ?? ReviewTextView(usingTextLayoutManager: true)
-            contents[path] = loaded
+            let listed = document.compare.flatMap { compare in (compare == .committed ? changes.committed : changes.uncommitted).first { $0.path == document.path } }
+            let text = listed == nil ? try ReviewGit.workingTreeText(document.path, in: changes.root) : nil
+            let loaded = if let listed, let compare = document.compare { try await ReviewGit.contents(of: listed, compare: compare, in: changes) } else { ReviewContents(original: text, modified: text) }
+            contents[document] = loaded
+            guard document.compare != .committed else { return }
+
+            if drafts[document.path] == nil { loadedTexts[document.path] = if case let .text(text)? = loaded.modified { text } else { nil } }
+            editors[document.path] = editors[document.path] ?? ReviewTextView(usingTextLayoutManager: true)
+            setWorkingTreeText(loaded.modified, of: document.path)
         } catch {
-            notice = "Couldn’t read \(path): \(Self.describe(error))"
+            notice = "Couldn’t read \(document.path): \(Self.describe(error))"
         }
     }
 
     func goToDefinition(_ location: LanguageServerLocation) {
         let target = location.url.resolvingSymlinksInPath().path
-        guard let root = snapshot.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root) else { return }
+        guard let root = changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root) else { return }
 
         let path = String(target.dropFirst(root.count))
-        reveal = (path, location.range)
-        selectedPath = path
+        let document = selectedDocument.flatMap { $0.path == path ? $0 : nil } ?? workingDocument(path)
+        reveal = (document, location.range)
+        open(document)
     }
 
     func save(_ text: String, to path: String) {
-        guard let snapshot, snapshot.files.first(where: { $0.path == path })?.status != .deleted else {
+        guard let changes, changes.uncommitted.first(where: { $0.path == path })?.status != .deleted else {
             notice = "\(path) is read only here"
             return
         }
-        guard let expected = loadedTexts[path], (try? ReviewGit.workingTreeText(path, in: snapshot.root)) == .text(expected) else {
+        guard let expected = loadedTexts[path], (try? ReviewGit.workingTreeText(path, in: changes.root)) == .text(expected) else {
             notice = "\(path) changed on disk; reload before saving"
             return
         }
 
         do {
-            try ReviewGit.save(text, to: path, in: snapshot.root)
+            try ReviewGit.save(text, to: path, in: changes.root)
         } catch {
             notice = "Couldn’t save \(path): \(Self.describe(error))"
             return
         }
         loadedTexts[path] = text
         drafts[path] = nil
-        contents[path] = contents[path].map { ReviewContents(original: $0.original, modified: .text(text)) }
+        setWorkingTreeText(.text(text), of: path)
+    }
+
+    private func setWorkingTreeText(_ text: ReviewText?, of path: String) {
+        for document in contents.keys where document.path == path && document.compare != .committed {
+            contents[document] = contents[document].map { ReviewContents(original: document.compare == nil ? text : $0.original, modified: text) }
+        }
     }
 
     private static func describe(_ error: any Error) -> String {
@@ -128,7 +210,7 @@ private struct ReviewFileList: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .task { await model.load() }
-            .task(id: model.selectedPath) { await model.loadSelectedContents() }
+            .task(id: model.selectedDocument) { await model.loadSelectedContents() }
             .task(id: pullRequest?.pullRequest?.number) { await loadPullRequestDetail() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
             } message: { notice in
@@ -138,16 +220,28 @@ private struct ReviewFileList: View {
 
     @ViewBuilder
     private var content: some View {
-        if let snapshot = model.snapshot, !snapshot.files.isEmpty {
+        if let changes = model.changes {
             VStack(spacing: 0) {
-                header(snapshot)
-                if let branch = model.branch {
-                    ReviewBranchCard(changes: branch.changes, status: branch.status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] })
+                header(changes)
+                if let status = model.status {
+                    ReviewBranchCard(changes: changes, status: status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] })
                         .padding(.horizontal, 10)
                         .padding(.bottom, 6)
                 }
-                List(snapshot.files, id: \.path, selection: $model.selectedPath) { file in
-                    fileRow(file)
+                Picker("List", selection: $model.list) {
+                    Text("Changes").tag(ReviewList.changes)
+                    Text("Files").tag(ReviewList.files)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 10)
+                .padding(.bottom, 4)
+                Group {
+                    if model.list == .files {
+                        filesList(changes)
+                    } else {
+                        changesList(changes)
+                    }
                 }
                 .listStyle(.sidebar)
                 .environment(\.sidebarRowSize, .small)
@@ -158,14 +252,6 @@ private struct ReviewFileList: View {
                     Hairline(axis: .horizontal)
                     comments
                 }
-            }
-        } else if let snapshot = model.snapshot {
-            ContentUnavailableView {
-                Label("No Changes", systemImage: "checkmark")
-            } description: {
-                Text("\(snapshot.branch) matches \(snapshot.base).")
-            } actions: {
-                refreshButton
             }
         } else if let error = model.error {
             ContentUnavailableView {
@@ -184,12 +270,71 @@ private struct ReviewFileList: View {
         }
     }
 
+    private func changesList(_ changes: ReviewChanges) -> some View {
+        List(selection: Binding(get: { model.selectedDocument }, set: { $0.map(model.open) })) {
+            if changes.uncommitted.isEmpty, changes.committed.isEmpty {
+                Text(changes.isDefaultBranch || changes.base == nil ? "No uncommitted changes on \(changes.branch)" : "No changes, \(changes.branch) matches \(changes.base ?? "")")
+                    .foregroundStyle(theme.secondary)
+            }
+            if !changes.uncommitted.isEmpty {
+                Section {
+                    ForEach(changes.uncommitted, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .uncommitted)) }
+                } header: {
+                    sectionHeader("Uncommitted", count: changes.uncommitted.count, detail: "+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
+                }
+            }
+            if !changes.committed.isEmpty {
+                Section {
+                    ForEach(changes.committed, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .committed)) }
+                } header: {
+                    sectionHeader("Committed", count: changes.committed.count, detail: model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
+                }
+            }
+        }
+        .contextMenu(forSelectionType: ReviewDocument.self) { _ in
+        } primaryAction: { documents in
+            guard let document = documents.first else { return }
+            model.open(document)
+            model.selectedTabID.map(model.keep)
+        }
+    }
+
+    private func filesList(_ changes: ReviewChanges) -> some View {
+        List(model.tree, children: \.children, selection: Binding(get: { model.selectedDocument.flatMap { $0.compare == .committed ? nil : $0.path } }, set: { $0.map { model.open(model.workingDocument($0)) } })) { node in
+            let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
+            Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
+                .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(node.path)
+                .selectionDisabled(node.children != nil)
+        }
+        .contextMenu(forSelectionType: String.self) { _ in
+        } primaryAction: { paths in
+            guard let path = paths.first else { return }
+            model.open(model.workingDocument(path))
+            model.selectedTabID.map(model.keep)
+        }
+    }
+
+    private func sectionHeader(_ title: String, count: Int, detail: String) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Text("\(count)")
+                .foregroundStyle(theme.secondary)
+            Spacer(minLength: 4)
+            Text(detail)
+                .foregroundStyle(theme.secondary)
+        }
+        .monospacedDigit()
+        .padding(.trailing, 12)
+    }
+
     private func fileRow(_ file: ReviewFile) -> some View {
-        let statusColor = [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status]
-        return HStack(spacing: 6) {
+        HStack(spacing: 6) {
             Text(file.status.rawValue)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(statusColor ?? theme.secondary)
+                .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -216,7 +361,7 @@ private struct ReviewFileList: View {
                     ForEach(model.comments) { comment in
                         HStack(alignment: .firstTextBaseline) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")")
+                                Text("\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")\(comment.compare == .committed ? ", committed" : "")")
                                     .font(.caption)
                                     .foregroundStyle(theme.secondary)
                                 Text(comment.text)
@@ -243,7 +388,7 @@ private struct ReviewFileList: View {
     }
 
     private var pullRequest: (repository: String, pullRequest: PullRequest?)? {
-        model.snapshot.flatMap { store.pullRequest(in: store.sessionsByID[sessionID]?.checkout ?? model.folder, branch: $0.branch) }
+        model.changes.flatMap { store.pullRequest(in: store.sessionsByID[sessionID]?.checkout ?? model.folder, branch: $0.branch) }
     }
 
     private func loadPullRequestDetail() async {
@@ -251,18 +396,18 @@ private struct ReviewFileList: View {
         await model.loadPullRequestDetail(repository: pullRequest.repository, number: number)
     }
 
-    private func header(_ snapshot: ReviewSnapshot) -> some View {
+    private func header(_ changes: ReviewChanges) -> some View {
         HStack(spacing: 8) {
-            Text("\(snapshot.branch) → \(snapshot.base)")
+            Text(changes.isDefaultBranch || changes.base == nil ? "\(changes.branch), uncommitted only" : "\(changes.branch) → \(changes.base ?? "")")
                 .font(.caption.monospaced())
                 .foregroundStyle(theme.branch)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
-            if let fetchError = snapshot.fetchError {
+            if let fetchError = changes.fetchError {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(theme.needsYou)
-                    .help("Couldn’t fetch \(snapshot.base), comparing local refs: \(fetchError)")
+                    .help("Couldn’t fetch \(changes.base ?? ""), comparing local refs: \(fetchError)")
             }
             refreshButton
                 .buttonStyle(.borderless)
@@ -285,7 +430,7 @@ private struct ReviewFileList: View {
     }
 
     private func sendComments() {
-        let prompt = ReviewComment.prompt(for: model.comments, branch: model.snapshot?.branch ?? "HEAD", base: model.snapshot?.base ?? "HEAD")
+        let prompt = ReviewComment.prompt(for: model.comments, branch: model.changes?.branch ?? "HEAD", base: model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base } ?? "HEAD")
         guard store.liveBySession[sessionID] != nil, let terminal = store.tab(forSession: sessionID)?.terminal, terminal.paste(text: prompt) else {
             model.notice = "Claude isn’t running in this tab; comments kept"
             return
@@ -306,7 +451,7 @@ private struct ReviewBranchCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if changes.isDefaultBranch || changes.base == nil {
-                Text("Uncommitted changes on \(changes.branch)")
+                Text(changes.uncommitted.isEmpty ? "No uncommitted changes on \(changes.branch)" : "Uncommitted changes on \(changes.branch)")
                     .fontWeight(.semibold)
                 pushState
                     .font(.subheadline)
@@ -453,42 +598,71 @@ struct ReviewDiffColumn: View {
 
     var body: some View {
         let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme)
-        if let model = store.reviewModel, let path = model.selectedPath {
+        if let model = store.reviewModel, let tab = model.selectedTab {
+            let document = tab.document
+            let path = document.path
+            let isCommitted = document.compare == .committed
             VStack(spacing: 0) {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 2) {
+                        ForEach(model.tabs) { tabButton($0, in: model, style: style) }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                }
+                .scrollIndicators(.hidden)
+                .frame(height: 32)
+                Divider()
                 HStack(spacing: 8) {
+                    Button("Back", systemImage: "chevron.backward") { model.go(by: -1) }
+                        .disabled(tab.index == 0)
+                    Button("Forward", systemImage: "chevron.forward") { model.go(by: 1) }
+                        .disabled(tab.index == tab.history.count - 1)
                     Text(path)
                         .foregroundStyle(Color(nsColor: style.secondary))
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    if let compare = document.compare {
+                        Text(compare == .committed ? "Committed" : "Uncommitted")
+                            .font(.caption)
+                            .foregroundStyle(Color(nsColor: style.secondary))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(Color(nsColor: style.foreground).opacity(0.08), in: .rect(cornerRadius: 4))
+                    }
                     Spacer(minLength: 8)
-                    if let draft = model.drafts[path] {
+                    if !isCommitted, let draft = model.drafts[path] {
                         Button("Save") { model.save(draft, to: path) }
                             .keyboardShortcut("s")
                     }
-                    Button("Close Diff", systemImage: "xmark", action: store.closeDiff)
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .help("Close Diff (⌘W)")
                 }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
                 .font(.callout)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 8)
                 .frame(height: 36)
                 Divider()
-                if let contents = model.contents[path], let editor = model.editors[path] {
+                if let contents = model.contents[document], isCommitted || model.editors[path] != nil {
                     ReviewDiffPane(
                         path: path,
+                        compare: document.compare,
                         contents: contents,
-                        editor: editor,
-                        draft: Bindable(model).drafts[path],
+                        editor: isCommitted ? nil : model.editors[path],
+                        draft: isCommitted ? .constant(nil) : Binding(get: { model.drafts[path] }, set: { draft in
+                            model.drafts[path] = draft
+                            model.keep(tab.id)
+                        }),
                         comments: Bindable(model).comments,
                         style: style,
-                        language: areLanguageServersEnabled ? model.language : nil,
-                        reveal: model.reveal.flatMap { $0.path == path ? $0.range : nil },
-                        isUnified: isUnified,
+                        language: areLanguageServersEnabled && !isCommitted ? model.language : nil,
+                        reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
+                        isUnified: isUnified || document.compare == nil,
+                        takesFocus: model.focusesEditor,
                         onRevealed: { model.reveal = nil },
                         onDefinition: model.goToDefinition
                     )
-                    .id(path)
+                    .id(document)
+                    .task(id: model.focusesEditor) { model.focusesEditor = false }
                 } else {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -501,5 +675,30 @@ struct ReviewDiffColumn: View {
             .environment(store)
             .environment(\.ghosttyTheme, store.theme)
         }
+    }
+
+    private func tabButton(_ tab: ReviewTab, in model: ReviewModel, style: ReviewStyle) -> some View {
+        let document = tab.document
+        let isSelected = tab.id == model.selectedTabID
+        return HStack(spacing: 6) {
+            Image(systemName: document.compare == nil ? "doc" : "plus.forwardslash.minus")
+                .font(.caption)
+            Text((document.path as NSString).lastPathComponent)
+                .italic(tab.isPreview)
+                .lineLimit(1)
+            Button("Close Tab", systemImage: "xmark") { store.closeDiff(tab: tab.id) }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .font(.caption2)
+        }
+        .font(.callout)
+        .foregroundStyle(Color(nsColor: isSelected ? style.foreground : style.secondary))
+        .padding(.horizontal, 10)
+        .frame(maxHeight: .infinity)
+        .background(Color(nsColor: style.foreground).opacity(isSelected ? 0.1 : 0), in: .rect(cornerRadius: 8))
+        .contentShape(.rect)
+        .onTapGesture { model.selectedTabID = tab.id }
+        .simultaneousGesture(TapGesture(count: 2).onEnded { model.keep(tab.id) })
+        .help("\(document.path)\(document.compare == .committed ? ", committed" : document.compare == .uncommitted ? ", uncommitted" : "")\(tab.isPreview ? ", preview: double-click or edit to keep it" : "")")
     }
 }
