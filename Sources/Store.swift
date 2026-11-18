@@ -85,6 +85,9 @@ final class Store {
         }
     }
     var isReviewDiffUnified = false
+    @ObservationIgnored private var reviewWatcher: FileWatcher?
+    @ObservationIgnored private var reviewReload: Task<Void, Never>?
+    @ObservationIgnored private var reviewIgnored: [String] = []
     var reviewModels: [String: ReviewModel] = [:] {
         didSet {
             for (id, model) in oldValue where reviewModels[id] !== model { model.language?.stop() }
@@ -538,13 +541,49 @@ final class Store {
     func prepareReviewModel() {
         guard showsReviewPanel, UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey),
               let tab = tabs.first(where: { $0.id == selectedTabID }), tab.kind == .claude,
-              let sessionID = tab.sessionID, reviewModels[sessionID]?.folder != tab.cwd
+              let sessionID = tab.sessionID
         else { return }
-        if let model = reviewModels[sessionID], model.hasUnsavedEdits {
-            model.movedFolder = tab.cwd
+        if let model = reviewModels[sessionID], model.folder == tab.cwd || model.hasUnsavedEdits || !model.comments.isEmpty {
+            let moved = model.folder == tab.cwd ? nil : tab.cwd
+            if model.movedFolder != moved { model.movedFolder = moved }
             return
         }
         reviewModels[sessionID] = ReviewModel(folder: tab.cwd)
+    }
+
+    func refreshReview() async {
+        refresh()
+        await waitForScan()
+        prepareReviewModel()
+        await reviewModel?.load()
+    }
+
+    func watchReview(_ root: String?) async {
+        reviewWatcher = nil
+        reviewReload?.cancel()
+        guard let root, let git = try? await ReviewGit.gitDirectories(in: root) else { return }
+
+        let ignored = (try? await ReviewGit.ignoredDirectories(in: root)) ?? []
+        guard !Task.isCancelled else { return }
+
+        reviewIgnored = ignored
+        let watched = [git.directory + "/HEAD", git.directory + "/index", git.common + "/packed-refs"]
+        reviewWatcher = FileWatcher(paths: [root, git.common], latency: 0.5) { [weak self] paths in
+            guard let self else { return }
+            let isRelevant = paths.contains { path in
+                path.hasPrefix(git.common + "/") || path.hasPrefix(git.directory + "/")
+                    ? watched.contains(path) || path.hasPrefix(git.common + "/refs/") && !path.hasSuffix(".lock")
+                    : !reviewIgnored.contains(where: (path + "/").hasPrefix)
+            }
+            guard isRelevant else { return }
+
+            reviewReload?.cancel()
+            reviewReload = Task {
+                guard (try? await Task.sleep(for: .milliseconds(500))) != nil else { return }
+                reviewIgnored = (try? await ReviewGit.ignoredDirectories(in: root)) ?? reviewIgnored
+                await refreshReview()
+            }
+        }
     }
 
     func closeDiff(tab id: ReviewTab.ID? = nil) {

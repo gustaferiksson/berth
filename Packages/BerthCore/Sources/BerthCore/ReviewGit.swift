@@ -132,8 +132,17 @@ public enum ReviewGit {
         )
     }
 
-    public static func gitDirectories(in root: String) async throws -> [String] {
-        Array(Set(try await line(["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], in: root).split(separator: "\n").map(String.init)))
+    public static func gitDirectories(in root: String) async throws -> (directory: String, common: String) {
+        let lines = try await line(["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], in: root).split(separator: "\n").map(String.init)
+        guard lines.count == 2 else { throw ReviewGitError.git(arguments: ["rev-parse"], message: "unexpected git directories \(lines)") }
+        return (lines[0], lines[1])
+    }
+
+    public static func ignoredDirectories(in root: String) async throws -> [String] {
+        try await git(["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], in: root)
+            .split(separator: 0)
+            .map { "\(root)/\(String(decoding: $0, as: UTF8.self))" }
+            .filter { $0.hasSuffix("/") }
     }
 
     public static func files(in root: String) async throws -> [String] {
