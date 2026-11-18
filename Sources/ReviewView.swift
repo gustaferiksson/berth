@@ -42,11 +42,12 @@ final class ReviewModel {
     var notice: String?
     var movedFolder: String?
     var focusesEditor = false
-    @ObservationIgnored var watcher: FileWatcher?
-    @ObservationIgnored private var reload: Task<Void, Never>?
-    @ObservationIgnored private var savedAt: [String: Date] = [:]
+    @ObservationIgnored private var loading: Task<Void, Never>?
+    @ObservationIgnored private var queuedLoad: Task<Void, Never>?
+    @ObservationIgnored private(set) var loadCount = 0
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
+    @ObservationIgnored private var savedFromCommitted: Set<String> = []
 
     var hasUnsavedEdits: Bool { !drafts.isEmpty }
     var selectedTab: ReviewTab? { tabs.first { $0.id == selectedTabID } }
@@ -57,7 +58,22 @@ final class ReviewModel {
     }
 
     func load() async {
+        if let queuedLoad { return await queuedLoad.value }
+
+        let load = Task { [previous = loading] in
+            await previous?.value
+            queuedLoad = nil
+            await loadLists()
+            if queuedLoad == nil { isLoading = false }
+        }
+        queuedLoad = load
+        loading = load
         isLoading = true
+        await load.value
+    }
+
+    private func loadLists() async {
+        loadCount += 1
         do {
             let changes = try await ReviewGit.changes(in: folder)
             let files = try await ReviewGit.files(in: changes.root)
@@ -79,28 +95,20 @@ final class ReviewModel {
                 guard existing(tab.document) != nil else { return nil }
                 return ReviewTab(id: tab.id, history: tab.history.compactMap(existing), index: tab.history[..<tab.index].compactMap(existing).count, isPreview: tab.isPreview)
             }
+            for index in tabs.indices {
+                let document = tabs[index].document
+                guard document.compare == .committed, savedFromCommitted.contains(document.path), changes.uncommitted.contains(where: { $0.path == document.path }) else { continue }
+
+                if tabs[index].id == selectedTabID, let editor = editors[document.path], editor.window?.firstResponder === editor { focusesEditor = true }
+                tabs[index].history[tabs[index].index] = ReviewDocument(path: document.path, compare: .uncommitted)
+            }
+            savedFromCommitted.subtract(changes.uncommitted.map(\.path))
             if selectedTab == nil { selectedTabID = tabs.last?.id }
         } catch {
-            changes = nil
-            status = nil
             self.error = Self.describe(error)
+            return
         }
-        isLoading = false
         if let selectedDocument { await loadContents(of: selectedDocument) }
-    }
-
-    func watch() async {
-        guard let root = changes?.root, let directories = try? await ReviewGit.gitDirectories(in: root) else { return }
-
-        let ignored = directories.flatMap { [$0 + "/objects/", $0 + "/logs/", $0 + "/FETCH_HEAD"] }
-        watcher = FileWatcher(paths: [root] + directories, latency: 0.5) { [weak self] paths in
-            guard let self, paths.contains(where: { path in !path.hasSuffix(".lock") && !ignored.contains { path.hasPrefix($0) } && savedAt[path].map { $0 < .now - 1 } ?? true }) else { return }
-            reload?.cancel()
-            reload = Task {
-                guard (try? await Task.sleep(for: .milliseconds(500))) != nil else { return }
-                await self.load()
-            }
-        }
     }
 
     func open(_ document: ReviewDocument) {
@@ -158,7 +166,7 @@ final class ReviewModel {
             let text = listed == nil ? try ReviewGit.workingTreeText(document.path, in: changes.root) : nil
             let loaded = if let listed, let compare = document.compare { try await ReviewGit.contents(of: listed, compare: compare, in: changes) } else { ReviewContents(original: text, modified: text) }
             contents[document] = loaded
-            guard document.compare != .committed else { return }
+            guard document.compare != .committed || !changes.uncommitted.contains(where: { $0.path == document.path }) else { return }
 
             if drafts[document.path] == nil { loadedTexts[document.path] = if case let .text(text)? = loaded.modified { text } else { nil } }
             editors[document.path] = editors[document.path] ?? ReviewTextView(usingTextLayoutManager: true)
@@ -173,9 +181,16 @@ final class ReviewModel {
         guard let root = changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root) else { return }
 
         let path = String(target.dropFirst(root.count))
-        let document = selectedDocument.flatMap { $0.path == path ? $0 : nil } ?? workingDocument(path)
+        let isReadOnly = selectedDocument?.compare == .committed && changes?.uncommitted.contains { $0.path == path } != false
+        let document = selectedDocument.flatMap { $0.path == path && !isReadOnly ? $0 : nil } ?? workingDocument(path)
         reveal = (document, location.range)
         open(document)
+    }
+
+    func workingText(_ path: String) -> String? {
+        if let editor = editors[path] { return editor.string }
+        guard let root = changes?.root, case let .text(text)? = try? ReviewGit.workingTreeText(path, in: root) else { return nil }
+        return text
     }
 
     func save(_ text: String, to path: String) {
@@ -189,7 +204,6 @@ final class ReviewModel {
         }
 
         do {
-            savedAt[URL(filePath: changes.root).appending(path: path).path] = .now
             try ReviewGit.save(text, to: path, in: changes.root)
         } catch {
             notice = "Couldn’t save \(path): \(Self.describe(error))"
@@ -197,11 +211,12 @@ final class ReviewModel {
         }
         loadedTexts[path] = text
         drafts[path] = nil
+        if selectedDocument == ReviewDocument(path: path, compare: .committed) { savedFromCommitted.insert(path) }
         setWorkingTreeText(.text(text), of: path)
     }
 
     private func setWorkingTreeText(_ text: ReviewText?, of path: String) {
-        for document in contents.keys where document.path == path && document.compare != .committed {
+        for document in contents.keys where document.path == path && (document.compare != .committed || changes?.uncommitted.contains { $0.path == path } == false) {
             contents[document] = contents[document].map { ReviewContents(original: document.compare == nil ? text : $0.original, modified: text) }
         }
     }
@@ -232,14 +247,15 @@ private struct ReviewFileList: View {
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedReviewSections") private var collapsedSections = "files"
+    @AppStorage("reviewFilesPaneHeight") private var filesPaneHeight = 0.0
+    @State private var changesContentHeight = 0.0
+    @State private var filesContentHeight = 0.0
 
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .task { await model.load() }
-            .task(id: model.changes?.root) { await model.watch() }
-            .onDisappear { model.watcher = nil }
-            .onChange(of: model.hasUnsavedEdits) { store.prepareReviewModel() }
+            .onChange(of: model.hasUnsavedEdits || !model.comments.isEmpty) { store.prepareReviewModel() }
             .task(id: model.selectedDocument) { await model.loadSelectedContents() }
             .task(id: pullRequest?.pullRequest?.number) { await loadPullRequestDetail() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
@@ -254,7 +270,7 @@ private struct ReviewFileList: View {
             VStack(spacing: 0) {
                 header(changes)
                 if let movedFolder = model.movedFolder {
-                    Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits to follow it.", systemImage: "exclamationmark.triangle")
+                    Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits and send or delete your comments to follow it.", systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(theme.needsYou)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -266,11 +282,17 @@ private struct ReviewFileList: View {
                         .padding(.horizontal, 10)
                         .padding(.bottom, 6)
                 }
-                list(changes)
-                    .listStyle(.sidebar)
-                    .environment(\.sidebarRowSize, .small)
-                    .scrollContentBackground(.hidden)
-                    .background(OverlayScroller())
+                ReviewFilesSplit(
+                    changes: list { changeSections(changes) }
+                        .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
+                        .environment(\.ghosttyTheme, theme),
+                    files: list { filesSection(changes) }
+                        .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { filesContentHeight = $1 }
+                        .environment(\.ghosttyTheme, theme),
+                    layout: !expansion(of: "files").wrappedValue ? .filesCollapsed(filesContentHeight) : (changes.uncommitted.isEmpty || !expansion(of: "uncommitted").wrappedValue) && (changes.committed.isEmpty || !expansion(of: "committed").wrappedValue) ? .changesCollapsed(changesContentHeight) : .split,
+                    filesHeight: $filesPaneHeight,
+                    divider: NSColor(theme.foreground.opacity(0.1))
+                )
 
                 if !model.comments.isEmpty {
                     Hairline(axis: .horizontal)
@@ -294,60 +316,66 @@ private struct ReviewFileList: View {
         }
     }
 
-    private func list(_ changes: ReviewChanges) -> some View {
-        List(selection: Binding(get: { model.selectedDocument }, set: { $0.map { model.open($0.compare == nil ? model.workingDocument($0.path) : $0) } })) {
-            if changes.uncommitted.isEmpty, changes.committed.isEmpty {
-                Text(changes.isDefaultBranch || changes.base == nil ? "No uncommitted changes on \(changes.branch)" : "No changes, \(changes.branch) matches \(changes.base ?? "")")
-                    .foregroundStyle(theme.secondary)
+    private func list(@ViewBuilder _ sections: () -> some View) -> some View {
+        List(selection: Binding(get: { model.selectedDocument }, set: { $0.map { model.open($0.compare == nil ? model.workingDocument($0.path) : $0) } }), content: sections)
+            .contextMenu(forSelectionType: ReviewDocument.self) { _ in
+            } primaryAction: { documents in
+                guard let document = documents.first else { return }
+                model.open(document.compare == nil ? model.workingDocument(document.path) : document)
+                model.selectedTabID.map(model.keep)
             }
-            if !changes.uncommitted.isEmpty {
-                Section(isExpanded: expansion(of: "uncommitted")) {
-                    ForEach(changes.uncommitted, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .uncommitted)) }
-                } header: {
-                    GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count, menu: { EmptyView() }) { _ in
-                        Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
-                            .monospacedDigit()
-                            .foregroundStyle(theme.secondary)
-                    }
-                }
-            }
-            if !changes.committed.isEmpty {
-                Section(isExpanded: expansion(of: "committed")) {
-                    ForEach(changes.committed, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .committed)) }
-                } header: {
-                    GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count, menu: { EmptyView() }) { _ in
-                        Text(model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
-                            .foregroundStyle(theme.secondary)
-                    }
-                }
-            }
-            Section(isExpanded: expansion(of: "files")) {
-                OutlineGroup(model.tree, children: \.children) { node in
-                    let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
-                    let row = ReviewRow(path: node.path, open: node.children != nil || status == .deleted ? nil : { model.open(ReviewDocument(path: node.path, compare: nil)) }) {
-                        Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
-                            .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    } counts: {
-                        EmptyView()
-                    }
-                    .help(node.path)
-                    if node.children == nil {
-                        row.tag(ReviewDocument(path: node.path, compare: nil))
-                    } else {
-                        row.selectionDisabled()
-                    }
-                }
+            .listStyle(.sidebar)
+            .environment(\.sidebarRowSize, .small)
+            .scrollContentBackground(.hidden)
+    }
+
+    @ViewBuilder
+    private func changeSections(_ changes: ReviewChanges) -> some View {
+        if changes.uncommitted.isEmpty, changes.committed.isEmpty {
+            Text(changes.isDefaultBranch || changes.base == nil ? "No uncommitted changes on \(changes.branch)" : "No changes, \(changes.branch) matches \(changes.base ?? "")")
+                .foregroundStyle(theme.secondary)
+        }
+        if !changes.uncommitted.isEmpty {
+            Section(isExpanded: expansion(of: "uncommitted")) {
+                ForEach(changes.uncommitted, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .uncommitted)) }
             } header: {
-                GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }
+                GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count, menu: { EmptyView() }) { _ in
+                    Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
+                        .monospacedDigit()
+                        .foregroundStyle(theme.secondary)
+                        .padding(.trailing, 6)
+                }
             }
         }
-        .contextMenu(forSelectionType: ReviewDocument.self) { _ in
-        } primaryAction: { documents in
-            guard let document = documents.first else { return }
-            model.open(document.compare == nil ? model.workingDocument(document.path) : document)
-            model.selectedTabID.map(model.keep)
+        if !changes.committed.isEmpty {
+            Section(isExpanded: expansion(of: "committed")) {
+                ForEach(changes.committed, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .committed)) }
+            } header: {
+                GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count, menu: { EmptyView() }) { _ in
+                    Text(model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
+                        .foregroundStyle(theme.secondary)
+                }
+            }
+        }
+    }
+
+    private func filesSection(_ changes: ReviewChanges) -> some View {
+        Section(isExpanded: expansion(of: "files")) {
+            OutlineGroup(model.tree, children: \.children) { node in
+                let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
+                let row = Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
+                    .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(node.path)
+                if node.children == nil {
+                    row.tag(ReviewDocument(path: node.path, compare: nil))
+                } else {
+                    row.selectionDisabled()
+                }
+            }
+        } header: {
+            GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }
         }
     }
 
@@ -361,14 +389,14 @@ private struct ReviewFileList: View {
     }
 
     private func fileRow(_ file: ReviewFile) -> some View {
-        ReviewRow(path: file.path, open: file.status == .deleted ? nil : { model.open(ReviewDocument(path: file.path, compare: nil)) }) {
+        HStack(spacing: 6) {
             Text(file.status.rawValue)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
-        } counts: {
+            Spacer(minLength: 4)
             HStack(spacing: 6) {
                 if let additions = file.additions, additions > 0 {
                     Text("+\(additions)").foregroundStyle(theme.working)
@@ -378,6 +406,16 @@ private struct ReviewFileList: View {
                 }
             }
             .fixedSize()
+            ZStack {
+                if file.status != .deleted {
+                    Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(theme.secondary)
+                        .help("Open File")
+                }
+            }
+            .frame(width: 16, alignment: .trailing)
         }
         .font(.callout)
         .monospacedDigit()
@@ -439,6 +477,11 @@ private struct ReviewFileList: View {
                     .foregroundStyle(theme.needsYou)
                     .help("Couldn’t fetch \(changes.base ?? ""), comparing local refs: \(fetchError)")
             }
+            if let error = model.error {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(theme.needsYou)
+                    .help("Couldn’t refresh, showing the last changes: \(error)")
+            }
             refreshButton
                 .buttonStyle(.borderless)
         }
@@ -450,7 +493,8 @@ private struct ReviewFileList: View {
     private var refreshButton: some View {
         Button("Refresh", systemImage: "arrow.clockwise") {
             Task {
-                await model.load()
+                await store.refreshReview()
+                guard store.reviewModel === model else { return }
                 if let repository = pullRequest?.repository, let branch = model.changes?.branch { await store.fetchPullRequests([PullRequestBranch(repository: repository, branch: branch)]) }
                 await loadPullRequestDetail()
             }
@@ -481,26 +525,94 @@ private struct ReviewFileList: View {
     }
 }
 
-private struct ReviewRow<Content: View, Counts: View>: View {
-    let path: String
-    let open: (() -> Void)?
-    @ViewBuilder let content: Content
-    @ViewBuilder let counts: Counts
-    @State private var isHovering = false
+private struct ReviewFilesSplit<Changes: View, Files: View>: NSViewRepresentable {
+    let changes: Changes
+    let files: Files
+    let layout: ReviewFilesSplitView.Layout
+    @Binding var filesHeight: Double
+    let divider: NSColor
 
-    var body: some View {
-        HStack(spacing: 6) {
-            content
-            Spacer(minLength: 4)
-            if let open, isHovering || Snapshot.forcedHover.contains(path) {
-                Button("Open File", systemImage: "doc", action: open)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help("Open File")
-            }
-            counts
+    func makeNSView(context: Context) -> ReviewFilesSplitView {
+        let split = ReviewFilesSplitView()
+        split.isVertical = false
+        split.dividerStyle = .thin
+        split.delegate = split
+        let changesView = NSHostingView(rootView: changes)
+        let filesView = NSHostingView(rootView: files)
+        changesView.sizingOptions = []
+        filesView.sizingOptions = []
+        split.addSubview(changesView)
+        split.addSubview(filesView)
+        return split
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReviewFilesSplitView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func updateNSView(_ split: ReviewFilesSplitView, context: Context) {
+        (split.subviews.first as? NSHostingView<Changes>)?.rootView = changes
+        (split.subviews.last as? NSHostingView<Files>)?.rootView = files
+        split.divider = divider
+        split.dragged = { filesHeight = $0 }
+        guard split.layout != layout || split.filesHeight != filesHeight else { return }
+
+        split.layout = layout
+        split.filesHeight = filesHeight
+        split.resizeSubviews(withOldSize: split.bounds.size)
+    }
+}
+
+private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
+    enum Layout: Equatable {
+        case split
+        case filesCollapsed(CGFloat)
+        case changesCollapsed(CGFloat)
+    }
+
+    static let minimum = 80.0
+
+    var layout = Layout.split
+    var filesHeight = 0.0
+    var divider = NSColor.separatorColor {
+        didSet { needsDisplay = true }
+    }
+    var dragged: (Double) -> Void = { _ in }
+
+    override var dividerColor: NSColor { divider }
+
+    override func mouseDown(with event: NSEvent) {
+        let before = subviews.last?.frame.height
+        super.mouseDown(with: event)
+        guard layout == .split, let after = subviews.last?.frame.height, after != before else { return }
+
+        dragged(after)
+    }
+
+    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        guard let changes = subviews.first, let files = subviews.last else { return }
+
+        let available = max(bounds.height - dividerThickness, 0)
+        let height = switch layout {
+        case .split: min(max(filesHeight > 0 ? filesHeight : available * 0.4, Self.minimum), max(available - Self.minimum, Self.minimum))
+        case let .filesCollapsed(header): header
+        case let .changesCollapsed(headers): available - headers
         }
-        .onHover { isHovering = $0 }
+        let filesHeight = min(max(height, 0), available)
+        changes.frame = NSRect(x: 0, y: 0, width: bounds.width, height: available - filesHeight)
+        files.frame = NSRect(x: 0, y: available - filesHeight + dividerThickness, width: bounds.width, height: filesHeight)
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        Self.minimum
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        bounds.height - dividerThickness - Self.minimum
+    }
+
+    func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
+        layout == .split ? proposedEffectiveRect.insetBy(dx: 0, dy: -3) : .zero
     }
 }
 
@@ -677,7 +789,7 @@ struct ReviewDiffColumn: View {
             if let model = store.reviewModel, let tab = model.selectedTab {
                 let document = tab.document
                 let path = document.path
-                let isCommitted = document.compare == .committed
+                let isReadOnly = document.compare == .committed && model.changes?.uncommitted.contains { $0.path == path } != false
                 VStack(spacing: 0) {
                     ScrollView(.horizontal) {
                         HStack(spacing: 2) {
@@ -711,9 +823,8 @@ struct ReviewDiffColumn: View {
                             .help(isUnified ? "Show Side by Side" : "Show Inline")
                         }
                         Spacer(minLength: 8)
-                        if !isCommitted, let draft = model.drafts[path] {
-                            Button("Save") { model.save(draft, to: path) }
-                                .keyboardShortcut("s")
+                        if AppAction.save.isAvailable(in: store) {
+                            Button("Save") { AppAction.save.perform(on: store) }
                         }
                     }
                     .labelStyle(.iconOnly)
@@ -722,26 +833,28 @@ struct ReviewDiffColumn: View {
                     .padding(.horizontal, 8)
                     .frame(height: 36)
                     Divider()
-                    if let contents = model.contents[document], isCommitted || model.editors[path] != nil {
+                    if let contents = model.contents[document], isReadOnly || model.editors[path] != nil {
                         ReviewDiffPane(
                             path: path,
                             compare: document.compare,
                             contents: contents,
-                            editor: isCommitted ? nil : model.editors[path],
-                            draft: isCommitted ? .constant(nil) : Binding(get: { model.drafts[path] }, set: { draft in
+                            editor: isReadOnly ? nil : model.editors[path],
+                            draft: isReadOnly ? .constant(nil) : Binding(get: { model.drafts[path] }, set: { draft in
                                 model.drafts[path] = draft
                                 model.keep(tab.id)
                             }),
                             comments: Bindable(model).comments,
                             style: style,
-                            language: areLanguageServersEnabled && !isCommitted ? model.language : nil,
+                            language: areLanguageServersEnabled ? model.language : nil,
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
                             isUnified: isUnified || document.compare == nil,
                             takesFocus: model.focusesEditor,
                             onRevealed: { model.reveal = nil },
-                            onDefinition: model.goToDefinition
+                            onDefinition: model.goToDefinition,
+                            workingText: { model.workingText(path) }
                         )
                         .id(document)
+                        .id(isReadOnly)
                         .task(id: model.focusesEditor) { model.focusesEditor = false }
                     } else {
                         ProgressView()

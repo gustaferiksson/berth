@@ -41,6 +41,7 @@ final class ReviewInlineComment: NSView {
         field.drawsBackground = false
         field.isRichText = false
         field.allowsUndo = true
+        field.writingToolsBehavior = .none
         if case .card = kind { field.isEditable = false }
         field.textContainerInset = .zero
         field.textContainer?.lineFragmentPadding = 0

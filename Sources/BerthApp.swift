@@ -15,6 +15,11 @@ struct BerthApp: App {
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
 
     init() {
+        // Restyling a SwiftUI List's scroll view afterwards re-tiles it inside a SwiftUI update, which crashes outline lists.
+        var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        arguments["AppleShowScrollBars"] = "WhenScrolling"
+        UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+
         guard Snapshot.output != nil, UserDefaults.standard.string(forKey: "snapshotReview") != nil else { return }
         UserDefaults.standard.register(defaults: [GeneralSettings.reviewKey: true])
     }
@@ -33,9 +38,17 @@ struct BerthApp: App {
             CommandGroup(after: .newItem) {
                 ForEach([AppAction.newSession, .searchSessions, .newTerminal, .newGroup], id: \.self) { $0.menuButton(appDelegate.store) }
             }
+            CommandGroup(before: .saveItem) {
+                if isReviewEnabled {
+                    SaveMenuItem(store: appDelegate.store)
+                }
+            }
             CommandGroup(after: .pasteboard) {
                 AppAction.findInTerminal.menuButton(appDelegate.store)
                 AppAction.clearTerminal.menuButton(appDelegate.store)
+                if isReviewEnabled {
+                    SelectionMenu(store: appDelegate.store)
+                }
             }
             CommandGroup(before: .windowList) {
                 Button("Show Next Tab") { appDelegate.store.cycleTab(by: 1) }
@@ -92,6 +105,29 @@ private struct ChangesMenuItem: View {
     }
 }
 
+private struct SelectionMenu: View {
+    let store: Store
+
+    var body: some View {
+        Menu("Selection") {
+            ForEach(AppAction.carets, id: \.self) { action in
+                if action == .caret(.collapseCursors) { Divider() }
+                action.menuButton(store)
+                    .disabled(!action.isAvailable(in: store))
+            }
+        }
+    }
+}
+
+private struct SaveMenuItem: View {
+    let store: Store
+
+    var body: some View {
+        AppAction.save.menuButton(store)
+            .disabled(!AppAction.save.isAvailable(in: store))
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = Store.shared
 
@@ -131,9 +167,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let responder = event.window?.firstResponder as? NSView
             let ancestors = responder.map { Array(sequence(first: $0, next: \.superview)) } ?? []
             if flags == .command, event.charactersIgnoringModifiers == "f", ancestors.contains(where: { $0 is NSHostingView<ReviewDiffColumn> }) {
+                let textView = ancestors.lazy.compactMap { $0 as? ReviewTextView }.first
+                if let textView, textView.selectedRanges.count == 1, textView.selectedRange().length > 0, textView.textStorage?.mutableString.rangeOfCharacter(from: .newlines, options: [], range: textView.selectedRange()).location == NSNotFound {
+                    let setSearchString = NSMenuItem()
+                    setSearchString.tag = NSTextFinder.Action.setSearchString.rawValue
+                    textView.performTextFinderAction(setSearchString)
+                }
                 let showFindInterface = NSMenuItem()
                 showFindInterface.tag = NSTextFinder.Action.showFindInterface.rawValue
-                ancestors.lazy.compactMap { $0 as? ReviewTextView }.first?.performTextFinderAction(showFindInterface)
+                textView?.performTextFinderAction(showFindInterface)
                 return nil
             }
             if flags == .command, event.charactersIgnoringModifiers == "w", store.reviewModel?.selectedTab != nil, !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
@@ -141,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && $0.shortcut.map { String($0.key.character) } == event.charactersIgnoringModifiers?.lowercased() && (![.showChanges, .hideChanges, .findInTerminal].contains($0) || $0.isAvailable(in: store)) }) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && $0.shortcut.map { String($0.key.character) } == event.charactersIgnoringModifiers?.lowercased() && (!([.showChanges, .hideChanges, .findInTerminal, .save] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil
             }

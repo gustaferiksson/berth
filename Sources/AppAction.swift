@@ -4,12 +4,14 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showSideBySide, showInline, settings, checkForUpdates
+    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showSideBySide, showInline, save, settings, checkForUpdates
+    case caret(CaretAction)
 
     static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(AppAction.groupBy)
-        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showSideBySide, .showInline, .settings, .checkForUpdates]
-    static let routedPastTerminal = ([.commandPalette] + palette).filter { $0.shortcut != nil }
+        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showSideBySide, .showInline, .save, .settings, .checkForUpdates]
+    static let carets = CaretAction.allCases.map(AppAction.caret)
+    static let routedPastTerminal = ([.commandPalette] + palette + carets).filter { $0.shortcut != nil }
 
     var title: String {
         switch self {
@@ -33,8 +35,10 @@ enum AppAction: Hashable {
         case .hideChanges: "Hide Changes"
         case .showSideBySide: "Show Side by Side"
         case .showInline: "Show Inline"
+        case .save: "Save"
         case .settings: "Settings…"
         case .checkForUpdates: "Check for Updates…"
+        case let .caret(action): action.rawValue
         }
     }
 
@@ -52,6 +56,7 @@ enum AppAction: Hashable {
         case .harbor: "ambient boats piers overview"
         case .showChanges, .hideChanges: "review diff branch changes comments panel"
         case .showSideBySide, .showInline: "review diff layout split unified inline toggle"
+        case .save: "review file edits write disk"
         case .settings: "preferences"
         case .checkForUpdates: "update version release"
         default: ""
@@ -79,8 +84,10 @@ enum AppAction: Hashable {
         case .showChanges, .hideChanges: "plus.forwardslash.minus"
         case .showSideBySide: "rectangle.split.2x1"
         case .showInline: "rectangle"
+        case .save: "square.and.arrow.down"
         case .settings: "gear"
         case .checkForUpdates: "arrow.down.circle"
+        case .caret: "character.cursor.ibeam"
         }
     }
 
@@ -96,7 +103,9 @@ enum AppAction: Hashable {
         case let .groupBy(mode): KeyboardShortcut(KeyEquivalent(Character("\((GroupingMode.allCases.firstIndex(of: mode) ?? 0) + 1)")), modifiers: [.control, .command])
         case .showStats: KeyboardShortcut("s", modifiers: [.command, .shift])
         case .showChanges, .hideChanges: KeyboardShortcut("r", modifiers: [.command, .shift])
+        case .save: KeyboardShortcut("s")
         case .settings: KeyboardShortcut(",")
+        case let .caret(action): action.shortcut
         default: nil
         }
     }
@@ -111,6 +120,8 @@ enum AppAction: Hashable {
         case .hideChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.showsReviewPanel && !store.isHarborShown
         case .showSideBySide, .showInline:
             AppAction.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocument?.compare != nil && store.isReviewDiffUnified == (self == .showSideBySide)
+        case .save: AppAction.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { model.drafts[$0.path] } } != nil
+        case .caret: store.isReviewTextFocused
         default: true
         }
     }
@@ -139,8 +150,11 @@ enum AppAction: Hashable {
         case .hideChanges: store.showsReviewPanel = false
         case .showSideBySide: UserDefaults.standard.set(ReviewDiffLayout.sideBySide.rawValue, forKey: ReviewDiffLayout.key)
         case .showInline: UserDefaults.standard.set(ReviewDiffLayout.inline.rawValue, forKey: ReviewDiffLayout.key)
+        case .save:
+            if isAvailable(in: store), let model = store.reviewModel, let path = model.selectedDocument?.path, let text = model.editors[path]?.string { model.save(text, to: path) }
         case .settings: store.isSettingsRequested = true
         case .checkForUpdates: store.updater.check(.manual)
+        case let .caret(action): (NSApp.keyWindow?.firstResponder as? ReviewTextView)?.performCaretAction(action)
         }
     }
 
@@ -160,5 +174,30 @@ enum AppAction: Hashable {
     func menuButton(_ store: Store) -> some View {
         Button(title) { perform(on: store) }
             .keyboardShortcut(shortcut)
+    }
+}
+
+enum CaretAction: String, CaseIterable {
+    case addCursorAbove = "Add Cursor Above"
+    case addCursorBelow = "Add Cursor Below"
+    case addNextOccurrence = "Add Next Occurrence"
+    case moveLastSelectionToNextOccurrence = "Move Last Selection to Next Occurrence"
+    case selectAllOccurrences = "Select All Occurrences"
+    case changeAllOccurrences = "Change All Occurrences"
+    case addCursorsToLineEnds = "Add Cursors to Line Ends"
+    case undoCursor = "Undo Last Cursor Operation"
+    case collapseCursors = "Collapse to One Cursor"
+
+    var shortcut: KeyboardShortcut? {
+        switch self {
+        case .addCursorAbove: KeyboardShortcut(.upArrow, modifiers: [.command, .option])
+        case .addCursorBelow: KeyboardShortcut(.downArrow, modifiers: [.command, .option])
+        case .addNextOccurrence: KeyboardShortcut("d")
+        case .selectAllOccurrences: KeyboardShortcut("l", modifiers: [.command, .shift])
+        case .changeAllOccurrences: KeyboardShortcut(KeyEquivalent(Character("\u{F705}")))
+        case .addCursorsToLineEnds: KeyboardShortcut("i", modifiers: [.shift, .option])
+        case .undoCursor: KeyboardShortcut("u")
+        case .moveLastSelectionToNextOccurrence, .collapseCursors: nil
+        }
     }
 }
