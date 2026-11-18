@@ -66,6 +66,28 @@ final class LanguageServersTests {
         #expect(LanguageServers.languageID(forFile: "README.md") == "md")
     }
 
+    @Test func storedEntriesDecodeOneByOneWithDefaultsForOptionalFields() {
+        let json = #"""
+        [
+          {"id":"oxlint","name":"oxlint","command":"oxlint","languages":["javascript"]},
+          {"id":"broken","name":"Broken","command":"broken","languages":["js"],"rootMarkers":"biome.json"},
+          {"id":"typescript-language-server","name":"TypeScript","command":"tsls","arguments":["--stdio"],"languages":["typescript"],"rootMarkers":["tsconfig.json"],"settings":"{}","isDiagnosticsOnly":true,"isEnabled":false},
+          {"name":"No id","command":"x","languages":["js"]}
+        ]
+        """#
+
+        let stored = LanguageServerEntry.stored(json)
+        #expect(stored.unreadable == 2)
+        #expect(stored.entries == [
+            LanguageServerEntry(id: "oxlint", name: "oxlint", command: "oxlint", languages: ["javascript"]),
+            LanguageServerEntry(id: "typescript-language-server", name: "TypeScript", command: "tsls", arguments: ["--stdio"], languages: ["typescript"], rootMarkers: ["tsconfig.json"], settings: "{}", isDiagnosticsOnly: true, isEnabled: false),
+        ])
+        #expect(LanguageServerEntry.configured(json).map(\.id) == ["oxlint", "typescript-language-server", "sourcekit-lsp", "rust-analyzer"])
+        #expect(LanguageServerEntry.stored(nil).unreadable == 0)
+        #expect(LanguageServerEntry.stored("not json").unreadable == 1)
+        #expect(LanguageServerEntry.configured("not json") == LanguageServerEntry.defaults)
+    }
+
     @Test func serversMatchFilesByExtensionOrLanguageID() {
         let biome = LanguageServerEntry(name: "Biome", command: "biome", languages: ["ts", "json"])
         let typeScript = LanguageServerEntry.defaults[2]

@@ -41,20 +41,21 @@ Review runs language servers for diagnostics, hover and ⌘-click go to definiti
 `reviewEnabled` and `languageServersEnabled` must be `true`. `languageServers` is a JSON string
 holding an array of entries:
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `id` | string | Unique id. An entry with a built-in's id replaces that built-in. |
-| `name` | string | Shown in Settings, and as the diagnostic's source when the server sends none. |
-| `command` | string | Executable name, absolute path, or `~/` path. |
-| `arguments` | [string] | Arguments, e.g. `["--stdio"]`. |
-| `languages` | [string] | File extensions (`vue`) or language ids. Ids: `javascript`, `javascriptreact`, `typescript`, `typescriptreact`, `swift`, `rust`; any other extension is its own id (`json`, `css`). |
-| `rootMarkers` | [string] | Files that mark the server's root, e.g. `["biome.json"]`. |
-| `settings` | string or null | Optional JSON, as a string, for the server's configuration. |
-| `isDiagnosticsOnly` | bool | `true` for linters: never asked for hover or definition. |
-| `isEnabled` | bool | `false` turns the entry off. |
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `id` | string | required | Unique id. An entry with a built-in's id replaces that built-in. |
+| `name` | string | required | Shown in Settings, and as the diagnostic's source when the server sends none. |
+| `command` | string | required | Executable name, absolute path, or `~/` path. |
+| `languages` | [string] | required | File extensions (`vue`) or language ids. Ids: `javascript`, `javascriptreact`, `typescript`, `typescriptreact`, `swift`, `rust`; any other extension is its own id (`json`, `css`). |
+| `arguments` | [string] | `[]` | Arguments, e.g. `["--stdio"]`. |
+| `rootMarkers` | [string] | `[]` | Files that mark the server's root, e.g. `["biome.json"]`. |
+| `settings` | string | none | JSON, as a string, for the server's configuration. |
+| `isDiagnosticsOnly` | bool | `false` | `true` for linters: never asked for hover or definition. |
+| `isEnabled` | bool | `true` | `false` turns the entry off. |
 
-Every field except `settings` is required. If any entry fails to decode, Berth ignores the whole
-array and falls back to the built-ins.
+An entry that can't be read (a required field missing, a wrong type) is skipped and the others
+still run. Settings > General > Language Servers then says how many were skipped; changing servers
+there deletes them.
 
 - **Built-ins.** SourceKit-LSP (`sourcekit-lsp`), rust-analyzer (`rust-analyzer`) and TypeScript
   (`typescript-language-server`) are always there. Stored entries come first, then each built-in
@@ -102,13 +103,13 @@ install them there (`npm i -D @biomejs/biome`, `oxlint`, or `eslint vscode-langs
 ### Biome
 
 ```sh
-ENTRY='{"id":"biome","name":"Biome","command":"biome","arguments":["lsp-proxy"],"languages":["javascript","javascriptreact","typescript","typescriptreact","json","css"],"rootMarkers":["biome.json","biome.jsonc"],"isDiagnosticsOnly":true,"isEnabled":true}'
+ENTRY='{"id":"biome","name":"Biome","command":"biome","arguments":["lsp-proxy"],"languages":["javascript","javascriptreact","typescript","typescriptreact","json","css"],"rootMarkers":["biome.json","biome.jsonc"],"isDiagnosticsOnly":true}'
 ```
 
 ### oxlint
 
 ```sh
-ENTRY='{"id":"oxlint","name":"oxlint","command":"oxlint","arguments":["--lsp"],"languages":["javascript","javascriptreact","typescript","typescriptreact"],"rootMarkers":[".oxlintrc.json"],"isDiagnosticsOnly":true,"isEnabled":true}'
+ENTRY='{"id":"oxlint","name":"oxlint","command":"oxlint","arguments":["--lsp"],"languages":["javascript","javascriptreact","typescript","typescriptreact"],"rootMarkers":[".oxlintrc.json"],"isDiagnosticsOnly":true}'
 ```
 
 ### ESLint
@@ -122,7 +123,7 @@ ENTRY=$(jq -nc '{
   languages: ["javascript", "javascriptreact", "typescript", "typescriptreact"],
   rootMarkers: ["eslint.config.js", "eslint.config.mjs", "eslint.config.ts"],
   settings: ({validate: "on", nodePath: null, experimental: {}, problems: {}, rulesCustomizations: []} | tojson),
-  isDiagnosticsOnly: true, isEnabled: true
+  isDiagnosticsOnly: true
 }')
 ```
 
@@ -131,7 +132,7 @@ ENTRY=$(jq -nc '{
 Store the built-in under its own id with `isEnabled` false, then run the add command:
 
 ```sh
-ENTRY='{"id":"typescript-language-server","name":"TypeScript","command":"typescript-language-server","arguments":["--stdio"],"languages":["typescript","typescriptreact","javascript","javascriptreact"],"rootMarkers":[],"isDiagnosticsOnly":false,"isEnabled":false}'
+ENTRY='{"id":"typescript-language-server","name":"TypeScript","command":"typescript-language-server","languages":[],"isEnabled":false}'
 ```
 
 The other built-in ids are `sourcekit-lsp` and `rust-analyzer`.

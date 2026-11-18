@@ -40,9 +40,38 @@ public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
         self.isEnabled = isEnabled
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        command = try container.decode(String.self, forKey: .command)
+        arguments = try container.decodeIfPresent([String].self, forKey: .arguments) ?? []
+        languages = try container.decode([String].self, forKey: .languages)
+        rootMarkers = try container.decodeIfPresent([String].self, forKey: .rootMarkers) ?? []
+        settings = try container.decodeIfPresent(String.self, forKey: .settings)
+        isDiagnosticsOnly = try container.decodeIfPresent(Bool.self, forKey: .isDiagnosticsOnly) ?? false
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+    }
+
+    public static func stored(_ json: String?) -> (entries: [LanguageServerEntry], unreadable: Int) {
+        guard let json, !json.isEmpty else { return ([], 0) }
+        guard let elements = try? JSONDecoder().decode([StoredElement].self, from: Data(json.utf8)) else { return ([], 1) }
+
+        let entries = elements.compactMap(\.entry)
+        return (entries, elements.count - entries.count)
+    }
+
     public static func configured(_ json: String?) -> [LanguageServerEntry] {
-        let stored = (json?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([LanguageServerEntry].self, from: $0) } ?? []
+        let stored = stored(json).entries
         return stored + defaults.filter { entry in !stored.contains { $0.id == entry.id } }
+    }
+
+    private struct StoredElement: Decodable {
+        let entry: LanguageServerEntry?
+
+        init(from decoder: Decoder) throws {
+            entry = try? LanguageServerEntry(from: decoder)
+        }
     }
 
     public func serves(_ path: String) -> Bool {

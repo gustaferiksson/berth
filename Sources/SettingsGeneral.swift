@@ -78,6 +78,11 @@ struct GeneralSettings: View {
                         }
                     }
                     Button("Add Server…") { editedServer = LanguageServerEntry(name: "", command: "") }
+                    let unreadable = LanguageServerEntry.stored(configuredServers).unreadable
+                    if unreadable > 0 {
+                        Label("^[\(unreadable) entry](inflect: true) in languageServers couldn’t be read and won’t run. Changing servers here deletes unreadable entries.", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
                 } header: {
                     Text("Language Servers")
                 } footer: {
