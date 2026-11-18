@@ -291,6 +291,8 @@ enum Snapshot {
                 print("after Enter: log \(log())")
             }
             let report = { (label: String) in
+                let shown = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }
+                let sides = shown.count == 1 ? [shown[0].unifiedOriginal, shown[0]].compactMap(\.self) : shown
                 for (index, side) in sides.enumerated() {
                     print("\(label) \(index == 0 ? "left" : "right"): TextKit 2 \(side.textLayoutManager != nil), layoutManager requests \(side.layoutManagerRequests), height \(side.frame.height), usage \(side.textLayoutManager?.usageBoundsForTextContainer.height ?? -1), clip y \(side.enclosingScrollView?.contentView.bounds.minY ?? -1), reserved \(side.reserved), inline \(side.subviews.compactMap { $0 as? ReviewInlineComment }.filter { !$0.isHidden }.map { "\($0.frame)" })")
                 }
@@ -308,6 +310,52 @@ enum Snapshot {
                 print("\(label) \(sides[1].unifiedOriginal == nil ? "side by side" : "unified, width \(sides[1].frame.width) for \(sides[1].minimumWidth), text is the file \(sides[1].string == model.drafts[model.selectedDocument?.path ?? ""] ?? model.selectedDocument.flatMap { model.contents[$0]?.modified }.flatMap { if case let .text(text) = $0 { text } else { nil } } ?? "")"), height \(sides[1].frame.height) for top(ofRow: rowCount) \(sides[1].top(ofRow: sides[1].side?.rowCount ?? 0)), pane \(sides[1].enclosingScrollView?.superview?.frame.width ?? -1) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.filter { $0.1 != $0.2 }.count), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
             }
             report("review")
+            if let ratio = UserDefaults.standard.string(forKey: "snapshotReviewSplit").flatMap(Double.init), let file = model.selectedDocument {
+                let saved = UserDefaults.standard.object(forKey: "reviewSplitRatio")
+                let split = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last?.enclosingScrollView?.superview?.superview as? NSSplitView }
+                let press = { (x: CGFloat?, clickCount: Int) in
+                    guard let split = split() else { return }
+                    let divider = split.subviews[0].frame.maxX + split.dividerThickness / 2
+                    let event = { (type: NSEvent.EventType, x: CGFloat) in NSEvent.mouseEvent(with: type, location: split.convert(NSPoint(x: x, y: split.bounds.midY), to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: type == .leftMouseUp ? 0 : 1) }
+                    event(.leftMouseDragged, x ?? divider).map { NSApp.postEvent($0, atStart: false) }
+                    event(.leftMouseUp, x ?? divider).map { NSApp.postEvent($0, atStart: false) }
+                    event(.leftMouseDown, divider).map(window.sendEvent)
+                }
+                let state = { (label: String) in
+                    let texts = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }
+                    print("split \(label): sides \(split()?.subviews.map(\.frame.width) ?? []), stored \(UserDefaults.standard.object(forKey: "reviewSplitRatio").map { "\($0)" } ?? "unset"), clip x \(texts.map { $0.enclosingScrollView?.contentView.bounds.minX ?? -1 }), \(texts.last?.unifiedOriginal == nil ? "side by side" : "unified")")
+                }
+                sides.last.map { $0.scroll(NSPoint(x: 40, y: $0.visibleRect.minY)) }
+                state("before drag")
+                press(split().map { CGFloat(ratio) * ($0.bounds.width - $0.dividerThickness) }, 1)
+                try? await Task.sleep(for: .seconds(1))
+                state("dragged to \(ratio)")
+                report("split")
+                save(".split.png")
+                store.closeDiff()
+                try? await Task.sleep(for: .seconds(1))
+                model.open(file)
+                try? await Task.sleep(for: .seconds(2))
+                state("closed and reopened")
+                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                arguments[ReviewDiffLayout.key] = ReviewDiffLayout.inline.rawValue
+                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                try? await Task.sleep(for: .seconds(1))
+                state("unified")
+                report("unified")
+                save(".split-unified.png")
+                arguments[ReviewDiffLayout.key] = ReviewDiffLayout.sideBySide.rawValue
+                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                try? await Task.sleep(for: .seconds(1))
+                state("side by side again")
+                press(nil, 1)
+                press(nil, 2)
+                try? await Task.sleep(for: .seconds(1))
+                state("double-clicked")
+                report("reset")
+                save(".split-reset.png")
+                UserDefaults.standard.set(saved, forKey: "reviewSplitRatio")
+            }
             if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument {
                 let right = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last }
                 let point = { (textView: ReviewTextView, spec: String) -> NSPoint? in
