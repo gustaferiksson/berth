@@ -110,14 +110,24 @@ This is the slim first version; the rest is listed under Later.
 - Opt-in: Settings > General "Enable language servers", shown while Review is on, off by
   default (`languageServersEnabled`). Language servers and the build scripts they run execute the
   repository's code. Off means no server process ever starts, and turning it off stops them.
-- One server per root and language, owned by the session's `ReviewModel`: started when a file of
-  that language is shown, stopped when the model is dropped. The root is the repository root;
-  Swift roots at the nearest folder with a `Package.swift` above the file, and a Swift file with
-  none gets no server. Servers: sourcekit-lsp, rust-analyzer, typescript-language-server
-  (`LanguageServers`).
+- Servers are entries in Settings > General > Language Servers (`languageServers`, a JSON string in
+  UserDefaults, never read from a repository): name, command, arguments, languages (file extensions
+  or language ids), root markers, and whether the server gives diagnostics only or also definition
+  and hover. Add, Edit… (a sheet; Remove for added entries, Restore Default for built-ins) and an
+  enable switch per row. SourceKit-LSP (root marker `Package.swift`), rust-analyzer and
+  typescript-language-server are built-in entries the user can edit or turn off; stored entries
+  override them by id (`LanguageServerEntry.configured`).
+- A command resolves from the server root's `node_modules/.bin`, then PATH, then known install
+  folders; a script with a node shebang runs through a resolved `node`, since an app opened from
+  Finder has no node on its PATH.
+- One server per entry and root, owned by the session's `ReviewModel`: started when a file it
+  serves is shown, stopped when the model is dropped or the entry changes. The root is the nearest
+  folder above the file, up to the repository root, holding one of the entry's root markers; with
+  markers and none found, no server starts; without markers, the repository root.
 - Only the right side (working tree) talks to the server: its text is opened when shown and sent
   again 300 ms after the last edit, with the diff recompute. The left side is another revision.
-- Diagnostics: a squiggle under the range (errors in the closed colour, warnings in the needs-you
+- Diagnostics from every server serving a file are merged, each labelled by its `source` (else
+  the entry's name). A squiggle under the range (errors in the closed colour, warnings in the needs-you
   colour, others dimmed) and a dot in the right gutter; hovering either shows the message and
   source as a tooltip. Diagnostics for other files are kept and show when that file opens.
 - Hover: resting the pointer on an identifier for 500 ms shows the server's hover in a small card
@@ -129,6 +139,8 @@ This is the slim first version; the rest is listed under Later.
   loaded; any other file in the repository opens as an unchanged file (identical sides, editable,
   kept open by Refresh);
   outside the repository (SDK headers) nothing happens.
+- Definition and hover ask the file's servers that do more than diagnostics, in entry order, and
+  take the first answer.
 - A content-modified error or an empty answer just after start is retried once after 500 ms. A
   crashed server never takes Review down; the next file shown starts it again.
 

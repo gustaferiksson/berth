@@ -98,6 +98,11 @@ enum Snapshot {
         if let path = UserDefaults.standard.string(forKey: "snapshotCustomGroups"), let data = FileManager.default.contents(atPath: path) {
             store.customGroups = (try? JSONDecoder().decode([CustomGroup].self, from: data)) ?? []
         }
+        if let path = UserDefaults.standard.string(forKey: "snapshotLanguageServers"), let data = FileManager.default.contents(atPath: path) {
+            var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            arguments[LanguageServerEntry.storageKey] = String(decoding: data, as: UTF8.self)
+            UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        }
         await store.waitForScan()
         if UserDefaults.standard.bool(forKey: "snapshotRemote") { store.remote.update() }
         if UserDefaults.standard.bool(forKey: "snapshotFakeWaiting") {
@@ -273,7 +278,11 @@ enum Snapshot {
                 let clock = ContinuousClock.now
                 while ContinuousClock.now - clock < .seconds(120), right()?.diagnostics.isEmpty != false { try? await Task.sleep(for: .milliseconds(250)) }
                 let waited = ContinuousClock.now - clock
-                try? await Task.sleep(for: .milliseconds(500))
+                var settled = (diagnostics: right()?.diagnostics ?? [], at: ContinuousClock.now)
+                while ContinuousClock.now - settled.at < .seconds(3), ContinuousClock.now - clock < .seconds(150) {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    if let shown = right()?.diagnostics, shown != settled.diagnostics { settled = (shown, .now) }
+                }
                 if let textView = right(), let gutter = textView.gutter {
                     print("diagnostics shown after \(waited): " + textView.diagnostics.map { "\($0.range.start.line + 1):\($0.range.start.character + 1)-\($0.range.end.line + 1):\($0.range.end.character + 1) \($0.severity.map { "\($0)" } ?? "-") \($0.message.debugDescription) (\($0.source ?? "-"))" }.joined(separator: "; "))
                     if let first = textView.diagnostics.first, let segment = textView.segments(of: NSRange(location: textView.offset(of: first.range.start), length: 1)).first {

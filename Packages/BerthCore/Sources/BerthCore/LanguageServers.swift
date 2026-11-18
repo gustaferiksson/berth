@@ -10,50 +10,88 @@ public struct LanguageServerCommand: Sendable, Hashable {
     }
 }
 
+public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
+    public static let storageKey = "languageServers"
+    public static let defaults = [
+        LanguageServerEntry(id: "sourcekit-lsp", name: "SourceKit-LSP", command: "sourcekit-lsp", languages: ["swift"], rootMarkers: ["Package.swift"]),
+        LanguageServerEntry(id: "rust-analyzer", name: "rust-analyzer", command: "rust-analyzer", languages: ["rust"]),
+        LanguageServerEntry(id: "typescript-language-server", name: "TypeScript", command: "typescript-language-server", arguments: ["--stdio"], languages: ["typescript", "typescriptreact", "javascript", "javascriptreact"]),
+    ]
+
+    public var id: String
+    public var name: String
+    public var command: String
+    public var arguments: [String]
+    public var languages: [String]
+    public var rootMarkers: [String]
+    public var isDiagnosticsOnly: Bool
+    public var isEnabled: Bool
+
+    public init(id: String = UUID().uuidString, name: String, command: String, arguments: [String] = [], languages: [String] = [], rootMarkers: [String] = [], isDiagnosticsOnly: Bool = false, isEnabled: Bool = true) {
+        self.id = id
+        self.name = name
+        self.command = command
+        self.arguments = arguments
+        self.languages = languages
+        self.rootMarkers = rootMarkers
+        self.isDiagnosticsOnly = isDiagnosticsOnly
+        self.isEnabled = isEnabled
+    }
+
+    public static func configured(_ json: String?) -> [LanguageServerEntry] {
+        let stored = (json?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([LanguageServerEntry].self, from: $0) } ?? []
+        return stored + defaults.filter { entry in !stored.contains { $0.id == entry.id } }
+    }
+
+    public func serves(_ path: String) -> Bool {
+        let fileExtension = URL(filePath: path).pathExtension.lowercased()
+        return languages.contains { $0 == fileExtension || $0 == LanguageServers.languageID(forFile: path) }
+    }
+}
+
 public enum LanguageServers {
     private static let languageIDs = [
         "swift": "swift", "rs": "rust",
         "ts": "typescript", "mts": "typescript", "cts": "typescript", "tsx": "typescriptreact",
         "js": "javascript", "mjs": "javascript", "cjs": "javascript", "jsx": "javascriptreact",
     ]
-    private static let typeScriptLanguageIDs: Set = ["typescript", "typescriptreact", "javascript", "javascriptreact"]
 
-    public static func languageID(forFile path: String) -> String? {
-        languageIDs[URL(filePath: path).pathExtension.lowercased()]
+    public static func languageID(forFile path: String) -> String {
+        let fileExtension = URL(filePath: path).pathExtension.lowercased()
+        return languageIDs[fileExtension] ?? fileExtension
     }
 
-    public static func root(forFile path: String, languageID: String, repositoryRoot: String) -> String? {
-        guard languageID == "swift" else { return repositoryRoot }
+    public static func root(forFile path: String, server: LanguageServerEntry, repositoryRoot: String) -> String? {
+        guard !server.rootMarkers.isEmpty else { return repositoryRoot }
 
         let repository = URL(filePath: repositoryRoot, directoryHint: .isDirectory).standardizedFileURL.path
         let folders = sequence(first: URL(filePath: repositoryRoot).appending(path: path).deletingLastPathComponent().standardizedFileURL) { folder in
             folder.path.count > repository.count ? folder.deletingLastPathComponent() : nil
         }
-        return folders.first { FileManager.default.fileExists(atPath: $0.appending(path: "Package.swift").path) }?.path
+        return folders.first { folder in server.rootMarkers.contains { FileManager.default.fileExists(atPath: folder.appending(path: $0).path) } }?.path
     }
 
-    public static func command(forLanguage languageID: String, root: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> LanguageServerCommand? {
+    public static func command(for server: LanguageServerEntry, root: String, environment: [String: String] = ProcessInfo.processInfo.environment) -> LanguageServerCommand? {
         let home = environment["HOME"] ?? NSHomeDirectory()
         let path = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-
-        if languageID == "swift" {
-            return firstExecutable(path.map { "\($0)/sourcekit-lsp" } + ["/usr/bin/sourcekit-lsp"]).map { LanguageServerCommand(executable: $0, arguments: []) }
-        }
-
-        if languageID == "rust" {
-            let candidates = (path + ["\(home)/.cargo/bin"]).map { "\($0)/rust-analyzer" }
-                + ["\(home)/.rustup/toolchains/*/bin/rust-analyzer", "\(home)/.vscode/extensions/*/server/rust-analyzer"]
-            return firstExecutable(candidates).map { LanguageServerCommand(executable: $0, arguments: []) }
-        }
-
         let zed = "\(home)/Library/Application Support/Zed"
-        guard typeScriptLanguageIDs.contains(languageID),
-              let script = firstExecutable(["\(root)/node_modules/.bin/typescript-language-server"] + path.map { "\($0)/typescript-language-server" }
-                  + ["\(zed)/languages/typescript-language-server/node_modules/.bin/typescript-language-server"]),
-              let node = firstExecutable(path.map { "\($0)/node" }
-                  + ["\(home)/.nvm/versions/node/*/bin/node", "/opt/homebrew/bin/node", "/usr/local/bin/node", "\(zed)/node/*/bin/node"])
-        else { return nil }
-        return LanguageServerCommand(executable: node, arguments: [script, "--stdio"])
+        let fallbacks = [
+            "sourcekit-lsp": ["/usr/bin/sourcekit-lsp"],
+            "rust-analyzer": ["\(home)/.cargo/bin/rust-analyzer", "\(home)/.rustup/toolchains/*/bin/rust-analyzer", "\(home)/.vscode/extensions/*/server/rust-analyzer"],
+            "typescript-language-server": ["\(zed)/languages/typescript-language-server/node_modules/.bin/typescript-language-server"],
+            "node": ["\(home)/.nvm/versions/node/*/bin/node", "/opt/homebrew/bin/node", "/usr/local/bin/node", "\(zed)/node/*/bin/node"],
+        ]
+
+        let command = server.command.hasPrefix("~/") ? home + server.command.dropFirst() : server.command
+        let candidates = command.hasPrefix("/") ? [command]
+            : ["\(root)/node_modules/.bin/\(command)"] + path.map { "\($0)/\(command)" } + (fallbacks[command] ?? []) + ["/opt/homebrew/bin/\(command)", "/usr/local/bin/\(command)"]
+        guard let executable = firstExecutable(candidates) else { return nil }
+
+        let head = (try? FileHandle(forReadingFrom: URL(filePath: executable)).read(upToCount: 128)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        guard head.hasPrefix("#!"), head.prefix(while: { $0 != "\n" }).contains("node") else { return LanguageServerCommand(executable: executable, arguments: server.arguments) }
+
+        guard let node = firstExecutable(path.map { "\($0)/node" } + (fallbacks["node"] ?? [])) else { return nil }
+        return LanguageServerCommand(executable: node, arguments: [executable] + server.arguments)
     }
 
     private static func firstExecutable(_ patterns: [String]) -> String? {

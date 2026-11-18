@@ -4,8 +4,8 @@ import Foundation
 @Observable
 final class ReviewLanguage {
     private struct Key: Hashable {
+        let server: LanguageServerEntry
         let folder: String
-        let languageID: String
     }
 
     private struct Running {
@@ -14,20 +14,34 @@ final class ReviewLanguage {
     }
 
     let root: String
-    private(set) var diagnostics: [String: [LanguageServerDiagnostic]] = [:]
+    private var published: [Key: [String: [LanguageServerDiagnostic]]] = [:]
     @ObservationIgnored private var servers: [Key: Task<Running?, Never>] = [:]
-    @ObservationIgnored private var sent: [String: String] = [:]
+    @ObservationIgnored private var sent: [Key: [String: String]] = [:]
     @ObservationIgnored private var generation = 0
 
     init(root: String) {
         self.root = root
     }
 
-    func sync(_ path: String, text: String) async {
-        guard UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let key = key(for: path) else { return }
+    func diagnostics(for path: String) -> [LanguageServerDiagnostic] {
+        let file = URL(filePath: root).appending(path: path).resolvingSymlinksInPath().path
+        return published.sorted { $0.key.server.id < $1.key.server.id }.flatMap { $0.value[file] ?? [] }
+    }
 
-        if servers[key] == nil { servers[key] = start(key) }
-        _ = await send(path, text: text, to: key)
+    func sync(_ path: String, text: String) async {
+        guard UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey) else { return }
+
+        let configured = LanguageServerEntry.configured(UserDefaults.standard.string(forKey: LanguageServerEntry.storageKey)).filter(\.isEnabled)
+        for key in servers.keys where !configured.contains(key.server) {
+            let task = servers.removeValue(forKey: key)
+            Task { await task?.value?.server.stop() }
+            sent[key] = nil
+            published[key] = nil
+        }
+
+        let keys = keys(for: path, among: configured)
+        for key in keys where servers[key] == nil { servers[key] = start(key) }
+        for key in keys { _ = await send(path, text: text, to: key) }
     }
 
     func hover(_ path: String, text: String, at position: LanguageServerPosition) async -> String? {
@@ -47,18 +61,19 @@ final class ReviewLanguage {
         }
         servers = [:]
         sent = [:]
-        diagnostics = [:]
+        published = [:]
     }
 
-    private func key(for path: String) -> Key? {
-        guard let languageID = LanguageServers.languageID(forFile: path), let folder = LanguageServers.root(forFile: path, languageID: languageID, repositoryRoot: root) else { return nil }
-        return Key(folder: folder, languageID: languageID)
+    private func keys(for path: String, among configured: [LanguageServerEntry]) -> [Key] {
+        configured.filter { $0.serves(path) }.compactMap { server in
+            LanguageServers.root(forFile: path, server: server, repositoryRoot: root).map { Key(server: server, folder: $0) }
+        }
     }
 
     private func start(_ key: Key) -> Task<Running?, Never> {
         let generation = generation
         return Task { [weak self] in
-            guard let command = LanguageServers.command(forLanguage: key.languageID, root: key.folder) else { return nil }
+            guard let command = LanguageServers.command(for: key.server, root: key.folder) else { return nil }
 
             let server = LanguageServer(command: command, root: key.folder)
             let isStarted = (try? await server.start()) != nil
@@ -69,8 +84,12 @@ final class ReviewLanguage {
             }
 
             Task { [weak self] in
-                for await published in server.diagnostics {
-                    self?.diagnostics[published.url.resolvingSymlinksInPath().path] = published.diagnostics
+                for await update in server.diagnostics where self?.servers[key] != nil {
+                    self?.published[key, default: [:]][update.url.resolvingSymlinksInPath().path] = update.diagnostics.map { diagnostic in
+                        var labelled = diagnostic
+                        labelled.source = diagnostic.source ?? key.server.name
+                        return labelled
+                    }
                 }
                 await self?.exited(server, key: key)
             }
@@ -82,33 +101,37 @@ final class ReviewLanguage {
         guard let task = servers[key], await task.value?.server === server else { return }
 
         servers[key] = nil
-        sent = sent.filter { self.key(for: $0.key) != key }
+        sent[key] = nil
     }
 
     private func send(_ path: String, text: String, to key: Key) async -> Running? {
         guard let running = await servers[key]?.value else { return nil }
 
-        if sent[path] != text {
-            sent[path] = text
-            try? await running.server.open(URL(filePath: root).appending(path: path), languageID: key.languageID, text: text)
+        if sent[key]?[path] != text {
+            sent[key, default: [:]][path] = text
+            try? await running.server.open(URL(filePath: root).appending(path: path), languageID: LanguageServers.languageID(forFile: path), text: text)
         }
         return running
     }
 
     private func ask<Answer>(_ path: String, text: String, _ question: (LanguageServer) async throws -> Answer?) async -> Answer? {
-        guard let key = key(for: path), let running = await send(path, text: text, to: key) else { return nil }
+        let configured = LanguageServerEntry.configured(UserDefaults.standard.string(forKey: LanguageServerEntry.storageKey)).filter { $0.isEnabled && !$0.isDiagnosticsOnly }
 
-        for attempt in 0..<2 {
-            if attempt > 0 { try? await Task.sleep(for: .milliseconds(500)) }
-            guard !Task.isCancelled else { return nil }
+        for key in keys(for: path, among: configured) {
+            guard let running = await send(path, text: text, to: key) else { continue }
 
-            do {
-                if let answer = try await question(running.server) { return answer }
-                guard ContinuousClock.now - running.startedAt < .seconds(10) else { return nil }
-            } catch let LanguageServerError.response(code, _) where code == -32801 {
-                continue
-            } catch {
-                return nil
+            attempts: for attempt in 0..<2 {
+                if attempt > 0 { try? await Task.sleep(for: .milliseconds(500)) }
+                guard !Task.isCancelled else { return nil }
+
+                do {
+                    if let answer = try await question(running.server) { return answer }
+                    guard ContinuousClock.now - running.startedAt < .seconds(10) else { break attempts }
+                } catch let LanguageServerError.response(code, _) where code == -32801 {
+                    continue
+                } catch {
+                    break attempts
+                }
             }
         }
         return nil

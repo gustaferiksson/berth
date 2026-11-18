@@ -45,7 +45,7 @@ public struct LanguageServerDiagnostic: Sendable, Hashable {
     public let range: LanguageServerRange
     public let severity: Severity?
     public let message: String
-    public let source: String?
+    public var source: String?
 }
 
 public struct LanguageServerDiagnostics: Sendable, Hashable {
