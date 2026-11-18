@@ -23,15 +23,24 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
         let reference: ReviewReference
         let line: String
         let match: NSRange
+        let offset: Int
 
         init(reference: ReviewReference) {
             self.reference = reference
+            let lines = reference.text.components(separatedBy: "\n")
             let start = reference.location.range.start
-            let line = reference.text.components(separatedBy: "\n").dropFirst(start.line).first ?? ""
+            let end = reference.location.range.end
+            let line = lines.indices.contains(start.line) ? lines[start.line] : ""
+            let text = line as NSString
+            let column = min(start.character, text.length)
+            let wordEnd = (column..<text.length).first { index in
+                guard let scalar = UnicodeScalar(text.character(at: index)) else { return true }
+                return !(scalar == "_" || scalar == "$" || CharacterSet.alphanumerics.contains(scalar))
+            } ?? text.length
             let indent = line.prefix { $0 == " " || $0 == "\t" }
             self.line = String(line.dropFirst(indent.count))
-            let end = reference.location.range.end.line == start.line ? reference.location.range.end.character : line.utf16.count
-            match = NSRange(location: max(start.character - indent.utf16.count, 0), length: max(min(end, line.utf16.count) - start.character, 0))
+            match = NSRange(location: max(column - indent.utf16.count, 0), length: end.line == start.line && end.character > column ? min(end.character, text.length) - column : wordEnd - column)
+            offset = lines.prefix(start.line).reduce(0) { $0 + $1.utf16.count + 1 } + column
         }
     }
 
@@ -142,12 +151,13 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
     override func layout() {
         super.layout()
         let headerHeight: CGFloat = 26
-        let listWidth = max(bounds.width * 0.38, min(bounds.width / 2, 220)).rounded()
+        let listWidth = (bounds.width < 480 ? bounds.width / 2 : max(bounds.width * 0.38, 240)).rounded()
         header.frame = NSRect(x: 10, y: (headerHeight - 16) / 2, width: bounds.width - 44, height: 16)
         close.frame = NSRect(x: bounds.width - 26, y: (headerHeight - 16) / 2, width: 16, height: 16)
         previewScroll.frame = NSRect(x: 1, y: headerHeight, width: bounds.width - listWidth - 1, height: bounds.height - headerHeight - 1)
         listScroll.frame = NSRect(x: bounds.width - listWidth, y: headerHeight, width: listWidth - 1, height: bounds.height - headerHeight - 1)
         list.tableColumns.first?.width = listWidth - 24
+        scrollPreview()
     }
 
     override func mouseDown(with event: NSEvent) {}
@@ -207,16 +217,16 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
             preview.textStorage?.setAttributedString(text)
         }
 
-        let lines = reference.text.components(separatedBy: "\n")
-        let lineStarts = lines.reduce(into: [0]) { $0.append($0[$0.count - 1] + $1.utf16.count + 1) }
-        let start = reference.location.range.start
-        let end = reference.location.range.end
-        let location = lineStarts.indices.contains(start.line) ? lineStarts[start.line] + start.character : 0
-        let range = NSRange(location: min(location, (reference.text as NSString).length), length: lineStarts.indices.contains(end.line) ? max(lineStarts[end.line] + end.character - location, 0) : 0)
-        preview.setSelectedRange(range)
-        guard let manager = preview.textLayoutManager, let storage = preview.textContentStorage, let textLocation = storage.location(storage.documentRange.location, offsetBy: range.location), let laidOut = NSTextRange(location: storage.documentRange.location, end: textLocation) else { return }
-        manager.ensureLayout(for: laidOut)
-        let y = manager.textLayoutFragment(for: textLocation)?.layoutFragmentFrame.minY ?? 0
+        preview.setSelectedRange(NSRange(location: min(row.offset, (reference.text as NSString).length), length: row.match.length))
+        scrollPreview()
+    }
+
+    private func scrollPreview() {
+        let range = preview.selectedRange()
+        preview.scrollRangeToVisible(range)
+        guard let manager = preview.textLayoutManager, let storage = preview.textContentStorage, let location = storage.location(storage.documentRange.location, offsetBy: range.location),
+              let y = manager.textLayoutFragment(for: location)?.layoutFragmentFrame.minY
+        else { return }
         previewScroll.contentView.scroll(to: NSPoint(x: 0, y: max(y + preview.textContainerInset.height - previewScroll.contentSize.height / 3, 0)))
         previewScroll.reflectScrolledClipView(previewScroll.contentView)
     }
