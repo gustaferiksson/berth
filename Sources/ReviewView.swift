@@ -44,7 +44,6 @@ final class ReviewModel {
     var hasUnsavedEdits: Bool { !drafts.isEmpty }
     var selectedTab: ReviewTab? { tabs.first { $0.id == selectedTabID } }
     var selectedDocument: ReviewDocument? { selectedTab?.document }
-    var selectedPath: String? { selectedDocument?.path }
 
     init(folder: String) {
         self.folder = folder
@@ -70,9 +69,8 @@ final class ReviewModel {
                 return FileManager.default.fileExists(atPath: URL(filePath: changes.root).appending(path: document.path).path) ? ReviewDocument(path: document.path, compare: nil) : nil
             }
             tabs = tabs.compactMap { tab in
-                let history = tab.history.compactMap(existing)
-                guard !history.isEmpty else { return nil }
-                return ReviewTab(id: tab.id, history: history, index: min(tab.history[..<tab.index].compactMap(existing).count, history.count - 1), isPreview: tab.isPreview)
+                guard existing(tab.document) != nil else { return nil }
+                return ReviewTab(id: tab.id, history: tab.history.compactMap(existing), index: tab.history[..<tab.index].compactMap(existing).count, isPreview: tab.isPreview)
             }
             if selectedTab == nil { selectedTabID = tabs.last?.id }
         } catch {
@@ -304,7 +302,7 @@ private struct ReviewFileList: View {
         List(model.tree, children: \.children, selection: Binding(get: { model.selectedDocument.flatMap { $0.compare == .committed ? nil : $0.path } }, set: { $0.map { model.open(model.workingDocument($0)) } })) { node in
             let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
             Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
-                .foregroundStyle(status.flatMap { statusColors[$0] } ?? theme.foreground)
+                .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(node.path)
@@ -331,15 +329,11 @@ private struct ReviewFileList: View {
         .padding(.trailing, 12)
     }
 
-    private var statusColors: [ReviewFile.Status: Color] {
-        [.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch]
-    }
-
     private func fileRow(_ file: ReviewFile) -> some View {
         HStack(spacing: 6) {
             Text(file.status.rawValue)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(statusColors[file.status] ?? theme.secondary)
+                .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
