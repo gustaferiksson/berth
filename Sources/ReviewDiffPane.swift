@@ -315,6 +315,10 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             (notification.object as? ReviewTextView)?.gutter?.needsDisplay = true
+            (notification.object as? ReviewTextView)?.highlightOccurrences { [weak self] in
+                self?.ruler.needsDisplay = true
+                self?.minimap.needsDisplay = true
+            }
         }
 
         func undoManager(for view: NSTextView) -> UndoManager? {
