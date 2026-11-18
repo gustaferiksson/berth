@@ -84,7 +84,7 @@ This is the slim first version; the rest is listed under Later.
   it (regular title); opening from a kept tab then starts a new preview tab after it. Closing a
   tab selects its neighbour; closing the last collapses the column. Refresh keeps each history
   entry still listed in its compare, turns one that isn't into the plain file while the file
-  exists, else drops it, and closes tabs left empty.
+  exists, else drops it; a tab whose current entry is dropped closes.
 - A document is a path and a compare (`ReviewDocument`, `nil` for the plain file). Uncommitted
   compares and plain files are the working tree: they share the path's editor
   (`ReviewModel.editors`), undo history, draft and diagnostics, sync to the language servers,
