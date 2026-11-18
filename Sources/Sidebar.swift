@@ -32,6 +32,7 @@ struct Sidebar: View, Equatable {
         ScrollViewReader { proxy in
             SidebarList(layout: layout)
                 .equatable()
+                .safeAreaInset(edge: .bottom, spacing: 0) { ContextFooter() }
                 .onChange(of: store.selection, initial: true) { previous, selection in
                     if previous != selection, store.sidebarCursor != nil { store.sidebarCursor = nil }
                     guard let selection else { return }
@@ -455,6 +456,7 @@ private struct SessionItem: View {
                     hasBackgroundShell: store.backgroundShellIDs.contains(id),
                     isUnread: store.isUnread(session),
                     isFlagged: store.flaggedIDs.contains(id),
+                    context: tab != nil || live != nil ? session.context : nil,
                     pullRequest: store.pullRequest(for: session),
                     showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
                 )
@@ -779,6 +781,7 @@ private struct SessionRow: View {
     let hasBackgroundShell: Bool
     let isUnread: Bool
     let isFlagged: Bool
+    let context: SessionContext?
     let pullRequest: PullRequest?
     @Binding var showsLockedNotice: Bool
     @Environment(\.ghosttyTheme) private var theme
@@ -795,6 +798,7 @@ private struct SessionRow: View {
             hasBackgroundShell: hasBackgroundShell,
             isUnread: isUnread,
             isFlagged: isFlagged,
+            context: context,
             detail: {
                 if pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {
@@ -824,7 +828,7 @@ private struct SessionRow: View {
                             }
                             if let branch = session.branch {
                                 BranchText(branch: branch)
-                                    .frame(minWidth: 72, alignment: .leading)
+                                    .frame(minWidth: 48, alignment: .leading)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -887,12 +891,14 @@ private struct CardRow<Detail: View>: View {
     var hasBackgroundShell = false
     var isUnread = false
     var isFlagged = false
+    var context: SessionContext?
     var close: (() -> Void)?
     @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         let hasActivityDot = hasBackgroundShell || isLoaded && lastActivity != nil
+        let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 10 >= $0 * 6 && context.tokens <= $0 ? $0 : nil } }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
@@ -913,38 +919,45 @@ private struct CardRow<Detail: View>: View {
                 if isFlagged {
                     Image(systemName: "flag.fill")
                         .font(.system(size: 9))
+                        .frame(width: 8)
                         .foregroundStyle(theme.closed)
                         .help("Flagged")
                         .accessibilityLabel("Flagged")
-                        .padding(.trailing, hasActivityDot ? 0 : 10)
+                        .padding(.trailing, hasActivityDot || ringWindow != nil ? 0 : 10)
                 }
                 if let modified {
-                    ZStack(alignment: .trailing) {
-                        Text(verbatim: "00m").hidden()
-                        Text(age(since: modified))
-                    }
-                    .font(.caption)
-                    .monospacedDigit()
-                    .fixedSize()
-                    .foregroundStyle(theme.secondary)
-                    .padding(.leading, hasActivityDot ? 10 : 0)
-                    .overlay(alignment: .leading) {
-                        if hasBackgroundShell {
-                            Circle()
-                                .fill(theme.shellAttached)
-                                .frame(width: 6, height: 6)
-                                .help("Background shell running")
-                                .accessibilityLabel("Background shell running")
-                        } else if isLoaded, let lastActivity {
-                            let inactiveFrom = lastActivity.addingTimeInterval(15 * 60)
-                            TimelineView(.explicit([inactiveFrom])) { _ in
-                                let isActive = state == .working || Date.now < inactiveFrom
+                    HStack(spacing: 8) {
+                        if let context, let ringWindow {
+                            ContextRing(context: context, window: ringWindow)
+                                .padding(.trailing, hasActivityDot ? 0 : 10)
+                        }
+                        ZStack(alignment: .trailing) {
+                            Text(verbatim: "00m").hidden()
+                            Text(age(since: modified))
+                        }
+                        .font(.caption)
+                        .monospacedDigit()
+                        .fixedSize()
+                        .foregroundStyle(theme.secondary)
+                        .padding(.leading, hasActivityDot ? 10 : 0)
+                        .overlay(alignment: .leading) {
+                            if hasBackgroundShell {
                                 Circle()
-                                    .strokeBorder(theme.working, lineWidth: 1.25)
-                                    .background(Circle().fill(isActive ? theme.working : .clear))
+                                    .fill(theme.shellAttached)
                                     .frame(width: 6, height: 6)
-                                    .help(isActive ? "Active" : "Inactive for 15 minutes")
-                                    .accessibilityLabel(isActive ? "Active" : "Inactive")
+                                    .help("Background shell running")
+                                    .accessibilityLabel("Background shell running")
+                            } else if isLoaded, let lastActivity {
+                                let inactiveFrom = lastActivity.addingTimeInterval(15 * 60)
+                                TimelineView(.explicit([inactiveFrom])) { _ in
+                                    let isActive = state == .working || Date.now < inactiveFrom
+                                    Circle()
+                                        .strokeBorder(theme.working, lineWidth: 1.25)
+                                        .background(Circle().fill(isActive ? theme.working : .clear))
+                                        .frame(width: 6, height: 6)
+                                        .help(isActive ? "Active" : "Inactive for 15 minutes")
+                                        .accessibilityLabel(isActive ? "Active" : "Inactive")
+                                }
                             }
                         }
                     }
@@ -994,6 +1007,104 @@ private struct StatusSlot: View {
     }
 }
 
+private struct ContextRing: View {
+    let context: SessionContext
+    let window: Int
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        let fill = Double(context.tokens) / Double(window)
+        ZStack {
+            Circle()
+                .strokeBorder(theme.foreground.opacity(0.2), lineWidth: 2)
+            Circle()
+                .inset(by: 1)
+                .trim(from: 0, to: fill)
+                .stroke(fill >= 0.9 ? theme.closed : fill >= 0.7 ? theme.needsYou : theme.secondary, lineWidth: 2)
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 13, height: 13)
+        .help("\(tokenCount(context.tokens)) of \(tokenCount(window)) context")
+        .accessibilityLabel("Context \(fill.formatted(.percent.precision(.fractionLength(0)))) full")
+    }
+}
+
+private struct ContextFooter: View {
+    @Environment(Store.self) private var store
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        let sessionID = store.tabs.first { $0.id == store.selectedTabID && $0.kind == .claude }?.sessionID
+        if let sessionID, let context = store.sessionsByID[sessionID]?.context, let window = context.window, context.tokens <= window {
+            let parts = [("Cached prompt", context.cacheRead, theme.secondary), ("Written to cache", context.cacheWrite, theme.unread), ("New input", context.input, theme.working)]
+            let compactions = store.selectedCompactions.flatMap { $0.sessionID == sessionID && $0.count > 0 ? $0 : nil }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 4) {
+                    Text("Context")
+                        .fontWeight(.semibold)
+                        .foregroundStyle(theme.secondary)
+                    Text(context.modelName ?? context.model)
+                        .foregroundStyle(theme.secondary.opacity(0.6))
+                        .lineLimit(1)
+                }
+                .font(.system(size: 11))
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(tokenCount(context.tokens))
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(theme.foreground)
+                    Text("of \(tokenCount(window)) · \(Int((Double(context.tokens) / Double(window) * 100).rounded()))%")
+                        .foregroundStyle(theme.secondary)
+                }
+                .monospacedDigit()
+                Canvas { canvas, size in
+                    var x = 0.0
+                    for (_, tokens, color) in parts {
+                        let width = size.width * Double(tokens) / Double(window)
+                        canvas.fill(Path(CGRect(x: x, y: 0, width: width, height: size.height)), with: .color(color))
+                        x += width
+                    }
+                }
+                .frame(height: 8)
+                .background(theme.foreground.opacity(0.1))
+                .clipShape(.rect(cornerRadius: 4))
+                Grid(horizontalSpacing: 8, verticalSpacing: 4) {
+                    ForEach(parts, id: \.0) { label, tokens, color in
+                        GridRow {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(color)
+                                .frame(width: 8, height: 8)
+                            Text(label)
+                                .foregroundStyle(theme.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(tokenCount(tokens))
+                                .monospacedDigit()
+                                .foregroundStyle(theme.foreground)
+                                .gridColumnAlignment(.trailing)
+                        }
+                    }
+                }
+                .font(.system(size: 11))
+                if let compactions, let last = compactions.last {
+                    Text("\(compactions.count == 1 ? "Compacted once" : "Compacted \(compactions.count) times"), \(last, format: .relative(presentation: .named))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(theme.secondary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.background ?? Color(nsColor: .windowBackgroundColor))
+            .overlay(alignment: .top) { Hairline(axis: .horizontal) }
+        }
+    }
+}
+
+private func tokenCount(_ tokens: Int) -> String {
+    if tokens < 1000 { return "\(tokens)" }
+    if tokens < 1_000_000 { return "\((tokens + 500) / 1000)k" }
+    return "\((Double(tokens) / 1_000_000).formatted(.number.precision(.fractionLength(0...1))))M"
+}
+
 private struct PullRequestTag: View {
     let pullRequest: PullRequest
     @Environment(\.ghosttyTheme) private var theme
@@ -1002,15 +1113,35 @@ private struct PullRequestTag: View {
 
     var body: some View {
         let color = pullRequest.state.color(in: theme)
+        let checks = [.open, .draft].contains(pullRequest.state) ? pullRequest.checks : nil
         Button {
             openURL(pullRequest.url)
         } label: {
-            Label {
-                Text(verbatim: "#\(pullRequest.number)")
-            } icon: {
-                Image(systemName: "arrow.triangle.pull")
+            HStack(spacing: 4) {
+                Label {
+                    Text(verbatim: "#\(pullRequest.number)")
+                } icon: {
+                    Image(systemName: "arrow.triangle.pull")
+                }
+                .labelStyle(CompactLabel())
+                if let checks {
+                    Rectangle()
+                        .fill(color.opacity(0.35))
+                        .frame(width: 1, height: 8)
+                    Group {
+                        if checks == .running {
+                            Circle().frame(width: 6, height: 6)
+                        } else {
+                            Image(systemName: checks == .passed ? "checkmark" : "xmark")
+                                .imageScale(.small)
+                                .fontWeight(.bold)
+                                .frame(width: 7)
+                        }
+                    }
+                    .foregroundStyle(checks == .passed ? theme.working : checks == .failed ? theme.closed : theme.needsYou)
+                    .accessibilityLabel("Checks \(checks.rawValue)")
+                }
             }
-            .labelStyle(CompactLabel())
             .font(.caption.monospaced())
             .foregroundStyle(color)
             .padding(.horizontal, 4)
@@ -1019,7 +1150,7 @@ private struct PullRequestTag: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .help("Open pull request #\(pullRequest.number)")
+        .help("Open pull request #\(pullRequest.number)\(checks.map { ", checks \($0.rawValue)" } ?? "")")
     }
 }
 

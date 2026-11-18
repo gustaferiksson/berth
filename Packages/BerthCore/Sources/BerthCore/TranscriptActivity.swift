@@ -77,14 +77,14 @@ public struct TranscriptActivity: Sendable {
         return RemoteContext(model: reply.model, tokens: reply.tokens, window: fits ? window : nil, date: reply.date, compactions: compactions, lastCompaction: lastCompaction)
     }
 
-    public static func contextWindow(of model: String, catalogs: [Data]) -> Int? {
-        catalogs
+    public static func catalogModel(_ model: String, catalogs: [Data]) -> (window: Int?, name: String?) {
+        let entries = catalogs
             .compactMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             .sorted { $0["fetchedAt"] as? Double ?? 0 > $1["fetchedAt"] as? Double ?? 0 }
             .lazy
             .flatMap { (($0["catalog"] as? [String: Any])?["config"] as? [String: Any])?["models"] as? [[String: Any]] ?? [] }
-            .compactMap { $0["id"] as? String == model ? ($0["runtime"] as? [String: Any])?["max_input_tokens"] as? Int : nil }
-            .first
+            .filter { $0["id"] as? String == model }
+        return (entries.compactMap { ($0["runtime"] as? [String: Any])?["max_input_tokens"] as? Int }.first, entries.compactMap { $0["name"] as? String }.first)
     }
 
     @discardableResult

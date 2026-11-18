@@ -58,7 +58,10 @@ final class Store {
         didSet {
             if let oldValue { tabTouches[oldValue] = .now }
             if let oldValue, let sessionID = tabs.first(where: { $0.id == oldValue })?.sessionID { seenAt[sessionID] = .now }
-            if selectedTabID != oldValue { endTerminalSearch() }
+            if selectedTabID != oldValue {
+                endTerminalSearch()
+                refreshCompactions()
+            }
             saveOpenTabs()
             prepareReviewModel()
         }
@@ -152,6 +155,7 @@ final class Store {
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
     private(set) var pullRequests = Snapshot.fixturePullRequests
+    var selectedCompactions: (sessionID: String, count: Int, last: Date?)?
     private(set) var searchIndexVersion = 0
     private(set) var searchIndexing: (done: Int, total: Int)?
     @ObservationIgnored private(set) var searchIndex = TranscriptSearchIndex()
@@ -164,12 +168,15 @@ final class Store {
     @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var searchIndexTask: Task<Void, Never>?
+    @ObservationIgnored private var compactionsTask: Task<Void, Never>?
+    @ObservationIgnored private var compactionsActivities: [String: (url: URL, activity: TranscriptActivity)] = [:]
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var themeWatcher: FileWatcher?
     @ObservationIgnored private var summaries: [SessionSummary] = []
     @ObservationIgnored private var groupOrder: [String] = []
     @ObservationIgnored private var repositoryRoots: [String: String] = [:]
     @ObservationIgnored private var checkouts: [String: String] = [:]
+    @ObservationIgnored private var catalogModels: [String: (window: Int?, name: String?)] = [:]
     @ObservationIgnored private var repositories = Snapshot.fixtureRepositories
     @ObservationIgnored private var archivedAt = UserDefaults.standard.dictionary(forKey: "archivedSessions") as? [String: Date] ?? [:] {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
@@ -188,6 +195,7 @@ final class Store {
     #if DEBUG
     @ObservationIgnored var fakeWaiting: Bool?
     @ObservationIgnored var fakeLiveSessions: [LiveSession] = []
+    @ObservationIgnored var fakeContexts: [String: SessionContext] = [:]
     #endif
 
     func start(restoringTabs: Bool) {
@@ -311,23 +319,36 @@ final class Store {
     }
 
     func refresh() {
+        #if DEBUG
+        let fakeContexts = fakeContexts
+        #else
+        let fakeContexts: [String: SessionContext] = [:]
+        #endif
         refreshTask = Task { [previous = refreshTask, index] in
             await previous?.value
-            let (updated, summaries, roots, checkouts) = await Task.detached { [roots = repositoryRoots, checkouts = checkouts, fixtures = Snapshot.fixtureSessions] in
+            let (updated, summaries, roots, checkouts, catalog) = await Task.detached { [roots = repositoryRoots, checkouts = checkouts, known = catalogModels, fixtures = Snapshot.fixtureSessions, catalogDirectory = Self.claudeDirectory.appending(path: "cache/model-catalog")] in
                 var index = index
                 let refreshed = index.refresh()
                 let unchecked = Set((fixtures ?? refreshed).map(\.cwd)).filter { checkouts[$0] == nil && FileManager.default.fileExists(atPath: $0) }
                 let checkouts = checkouts.merging(unchecked.map { ($0, RepositoryRoot.checkout($0)) }) { $1 }
+                let missing = Set(refreshed.compactMap(\.context?.model)).subtracting(known.keys)
+                let catalogs = missing.isEmpty ? [] : ((try? FileManager.default.contentsOfDirectory(at: catalogDirectory, includingPropertiesForKeys: nil)) ?? []).compactMap { try? Data(contentsOf: $0) }
+                let catalog = known.merging(missing.map { ($0, TranscriptActivity.catalogModel($0, catalogs: catalogs)) }) { $1 }
                 let summaries = (fixtures ?? refreshed).map { summary in
                     var summary = summary
                     summary.checkout = checkouts[summary.cwd] ?? summary.originalCwd ?? summary.cwd
+                    let model = summary.context.flatMap { catalog[$0.model] }
+                    summary.context?.window = model?.window
+                    summary.context?.modelName = model?.name
+                    summary.context = fakeContexts[summary.id] ?? summary.context
                     return summary
                 }
                 let unresolved = Set(summaries.map(\.checkout)).filter { roots[$0] == nil }
-                return (index, summaries, roots.merging(unresolved.map { ($0, RepositoryRoot.resolve($0)) }) { $1 }, checkouts)
+                return (index, summaries, roots.merging(unresolved.map { ($0, RepositoryRoot.resolve($0)) }) { $1 }, checkouts, catalog)
             }.value
             self.index = updated
             self.checkouts = checkouts
+            catalogModels = catalog
             let listed = Set(summaries.map(\.id))
             let continued = Dictionary(summaries.compactMap { summary in summary.continuedIn.flatMap { listed.contains($0) ? (summary.id, $0) : nil } }) { first, _ in first }
             self.summaries = summaries.filter { continued[$0.id] == nil }
@@ -349,6 +370,27 @@ final class Store {
             refreshLive()
             if searchIndexTask != nil { updateSearchIndex() }
             resolvePullRequests()
+            refreshCompactions()
+        }
+    }
+
+    func refreshCompactions() {
+        guard let sessionID = tabs.first(where: { $0.id == selectedTabID })?.sessionID, let url = index.url(ofSession: sessionID) else { return }
+
+        compactionsTask = Task { [previous = compactionsTask] in
+            await previous?.value
+            guard tabs.first(where: { $0.id == selectedTabID })?.sessionID == sessionID else { return }
+
+            let cached = compactionsActivities[sessionID].flatMap { $0.url == url ? $0.activity : nil } ?? TranscriptActivity()
+            let activity = await Task.detached {
+                var activity = cached
+                activity.read(url)
+                return activity
+            }.value
+            let open = Set(tabs.compactMap(\.sessionID))
+            compactionsActivities = compactionsActivities.filter { open.contains($0.key) }.merging([sessionID: (url, activity)]) { $1 }
+            let context = activity.context(window: nil)
+            selectedCompactions = (sessionID, context?.compactions ?? 0, context?.lastCompaction)
         }
     }
 

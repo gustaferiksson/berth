@@ -1,5 +1,27 @@
 import Foundation
 
+public struct SessionContext: Sendable, Hashable {
+    public let model: String
+    public let input: Int
+    public let cacheRead: Int
+    public let cacheWrite: Int
+    public var window: Int?
+    public var modelName: String?
+
+    public init(model: String, input: Int, cacheRead: Int, cacheWrite: Int, window: Int? = nil, modelName: String? = nil) {
+        self.model = model
+        self.input = input
+        self.cacheRead = cacheRead
+        self.cacheWrite = cacheWrite
+        self.window = window
+        self.modelName = modelName
+    }
+
+    public var tokens: Int {
+        input + cacheRead + cacheWrite
+    }
+}
+
 public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let id: String
     public let cwd: String
@@ -11,8 +33,9 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let continuedIn: String?
     public let originalCwd: String?
     public var checkout: String
+    public var context: SessionContext?
 
-    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, continuedIn: String? = nil, originalCwd: String? = nil) {
+    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, continuedIn: String? = nil, originalCwd: String? = nil, context: SessionContext? = nil) {
         self.id = id
         self.cwd = cwd
         checkout = cwd
@@ -23,6 +46,7 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
         self.branches = branches ?? branch.map { [$0] } ?? []
         self.continuedIn = continuedIn
         self.originalCwd = originalCwd
+        self.context = context
     }
 }
 
@@ -32,7 +56,7 @@ public enum Transcript {
     static let maxTailBytes = 8 * 1024 * 1024
     static let maxTitleLength = 120
 
-    public static func summary(of url: URL, after known: (size: Int, lastPrompt: Date, branches: [String])? = nil) -> SessionSummary? {
+    public static func summary(of url: URL, after known: (size: Int, lastPrompt: Date, branches: [String], context: SessionContext?)? = nil) -> SessionSummary? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = (attributes[.size] as? NSNumber)?.intValue, size > 0,
               let modified = attributes[.modificationDate] as? Date,
@@ -54,11 +78,12 @@ public enum Transcript {
             head: records(in: head, dropFirst: false, dropLast: size > head.count),
             tail: tailRecords,
             earlierPrompt: earlierPrompt,
-            earlierBranches: known?.branches ?? []
+            earlierBranches: known?.branches ?? [],
+            earlierContext: known.flatMap { tailOffset <= $0.size ? $0.context : nil }
         )
     }
 
-    static func summary(id: String, folder: String, modified: Date, head: [Record], tail: [Record], earlierPrompt: Date? = nil, earlierBranches: [String] = []) -> SessionSummary? {
+    static func summary(id: String, folder: String, modified: Date, head: [Record], tail: [Record], earlierPrompt: Date? = nil, earlierBranches: [String] = [], earlierContext: SessionContext? = nil) -> SessionSummary? {
         let relocated = tail.last { $0.relocatedCwd != nil }?.relocatedCwd
         let worktreeState = tail.lastIndex { $0.type == "worktree-state" }
         let entered = tail.last { $0.worktreeSession != nil }?.worktreeSession
@@ -75,6 +100,19 @@ public enum Transcript {
         let branch = tail.last { $0.gitBranch != nil }?.gitBranch
         let continuedAt = tail.lastIndex { $0.continuedInSessionId != nil }
         let continuedIn = continuedAt.flatMap { index in tail[index...].contains(where: \.isConversation) ? nil : tail[index].continuedInSessionId }
+        let reply = tail.lastIndex { record in
+            let usage = record.message?.usage
+            return record.type == "assistant" && record.isSidechain != true && record.message?.model.map { $0 != "<synthetic>" } == true
+                && (usage?.input ?? 0) + (usage?.cacheRead ?? 0) + (usage?.cacheWrite ?? 0) > 0
+        }
+        let compaction = tail.lastIndex { $0.subtype == "compact_boundary" && $0.isSidechain != true }
+        let context: SessionContext? = if let compaction, compaction > reply ?? -1 {
+            nil
+        } else if let reply, let message = tail[reply].message, let model = message.model {
+            SessionContext(model: model, input: message.usage?.input ?? 0, cacheRead: message.usage?.cacheRead ?? 0, cacheWrite: message.usage?.cacheWrite ?? 0)
+        } else {
+            earlierContext
+        }
         let recordedBranches = tail.reversed().compactMap(\.gitBranch) + earlierBranches + head.reversed().compactMap(\.gitBranch)
         return SessionSummary(
             id: id,
@@ -87,7 +125,8 @@ public enum Transcript {
                 if branch != "HEAD", !branch.isEmpty, !branches.contains(branch) { branches.append(branch) }
             },
             continuedIn: continuedIn,
-            originalCwd: entered?.originalCwd
+            originalCwd: entered?.originalCwd,
+            context: context
         )
     }
 
@@ -176,11 +215,13 @@ struct Record: Decodable {
 
         let content: [Block]
         let id: String?
+        let model: String?
         let usage: Usage?
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             id = try? container.decode(String.self, forKey: .id)
+            model = try? container.decode(String.self, forKey: .model)
             usage = try? container.decode(Usage.self, forKey: .usage)
             if let text = try? container.decode(String.self, forKey: .content) {
                 content = [Block(type: "text", text: text)]
@@ -189,10 +230,11 @@ struct Record: Decodable {
             }
         }
 
-        enum CodingKeys: String, CodingKey { case content, id, usage }
+        enum CodingKeys: String, CodingKey { case content, id, model, usage }
     }
 
     let type: String?
+    let subtype: String?
     let cwd: String?
     let relocatedCwd: String?
     let worktreeSession: WorktreeSession?

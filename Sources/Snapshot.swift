@@ -70,7 +70,14 @@ enum Snapshot {
     static let fixtureSessions = !pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil
     private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
     static let fixtureRepositories = Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
-    static let fixturePullRequests = Dictionary(pullRequestFixtures.compactMap { item in item.session.branch.map { (PullRequestBranch(repository: fixtureRepository, branch: $0), item.pullRequest) } }) { first, _ in first }
+    private static let fixtureChecks = (UserDefaults.standard.string(forKey: "snapshotChecks") ?? "").split(separator: "|", omittingEmptySubsequences: false).map { PullRequestChecks.State(rawValue: String($0)) }
+    static let fixturePullRequests = Dictionary(pullRequestFixtures.enumerated().compactMap { index, item in
+        item.session.branch.map { branch in
+            var pullRequest = item.pullRequest
+            pullRequest?.checks = index < fixtureChecks.count ? fixtureChecks[index] : nil
+            return (PullRequestBranch(repository: fixtureRepository, branch: branch), pullRequest)
+        }
+    }) { first, _ in first }
     #else
     static let fixtureSessions: [SessionSummary]? = nil
     static let launcherKeys: String? = nil
@@ -157,6 +164,19 @@ enum Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotUnread") {
             for session in topSessions.enumerated().filter({ [1, 3].contains($0.offset) }).map(\.element) { store.markUnread(session.id) }
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotFakeContext") {
+            let sessions = Array(topSessions.prefix(4))
+            store.fakeContexts = Dictionary(uniqueKeysWithValues: zip(sessions, [68_000, 126_000, 162_000, 188_000]).map { session, tokens in
+                (session.id, SessionContext(model: "claude-opus-5-5", input: tokens * 8 / 100, cacheRead: tokens * 71 / 100, cacheWrite: tokens - tokens * 79 / 100, window: 200_000, modelName: "Opus 5.5"))
+            })
+            let opened = sessions.suffix(2)
+            for _ in opened { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
+            store.tabs = store.tabs.dropLast(opened.count) + zip(store.tabs.suffix(opened.count), opened).map { Tab(id: $0.id, kind: .claude, cwd: $1.cwd, sessionID: $1.id, terminal: $0.terminal) }
+            store.selectedTabID = store.tabs.last?.id
+            store.refresh()
+            await store.waitForScan()
+            store.selectedCompactions = sessions.last.map { ($0.id, 2, .now - 7200) }
         }
         if store.selection == nil, let forced = forcedSelection(in: store.groups) { store.sidebarCursor = forced }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {

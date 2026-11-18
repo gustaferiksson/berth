@@ -306,7 +306,7 @@ final class RemoteServer {
                 return meta?["finished"] as? Bool == true || meta?["stoppedByUser"] as? Bool == true
             })
             let catalogs = ((try? FileManager.default.contentsOfDirectory(at: catalogDirectory, includingPropertiesForKeys: nil)) ?? []).compactMap { try? Data(contentsOf: $0) }
-            let window = activity.model.flatMap { TranscriptActivity.contextWindow(of: $0, catalogs: catalogs) }
+            let window = activity.model.flatMap { TranscriptActivity.catalogModel($0, catalogs: catalogs).window }
             return (chunk, activity, RemoteActivity(tasks: activity.tasks(of: live, now: .now) { finished.contains($0) }, context: activity.context(window: window)))
         }.value
         guard let current = clients[id] else { return }
