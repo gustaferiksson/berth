@@ -14,6 +14,7 @@ struct ReviewDiffPane: View {
     let onRevealed: () -> Void
     let onDefinition: (LanguageServerLocation) -> Void
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
+    @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
     @State private var analysis: ReviewDiffAnalysis?
 
     var body: some View {
@@ -40,14 +41,14 @@ struct ReviewDiffPane: View {
                 showsMinimap: showsMinimap,
                 comments: $comments,
                 language: contents.modified == nil ? nil : language,
-                diagnostics: contents.modified == nil ? [] : language.map { $0.diagnostics[URL(filePath: $0.root).appending(path: path).resolvingSymlinksInPath().path] ?? [] } ?? [],
+                diagnostics: contents.modified == nil ? [] : language?.diagnostics(for: path) ?? [],
                 reveal: reveal,
                 isUnified: isUnified,
                 onRevealed: onRevealed,
                 onDefinition: onDefinition,
                 onEdit: { draft = $0 == loaded ? nil : $0 }
             )
-            .task(id: [original, modified]) {
+            .task(id: [original, modified, configuredServers]) {
                 if analysis != nil { try? await Task.sleep(for: .milliseconds(300)) }
                 guard !Task.isCancelled else { return }
 

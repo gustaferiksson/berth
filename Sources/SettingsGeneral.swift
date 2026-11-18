@@ -1,3 +1,4 @@
+import BerthCore
 import SwiftUI
 
 struct GeneralSettings: View {
@@ -12,6 +13,8 @@ struct GeneralSettings: View {
     @AppStorage(worktreeKey) private var startsInWorktree = false
     @AppStorage(reviewKey) private var isReviewEnabled = false
     @AppStorage(languageServersKey) private var areLanguageServersEnabled = false
+    @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
+    @State private var editedServer: LanguageServerEntry?
     @AppStorage(RemoteServer.enabledKey) private var isRemoteEnabled = false
     @AppStorage(RemoteServer.tokenKey) private var remoteToken = ""
     @State private var isTokenShown = false
@@ -61,6 +64,26 @@ struct GeneralSettings: View {
                     Text("Language servers add go to definition (⌘-click), hover and diagnostics. They and the build scripts they run execute the repository’s code.")
                 }
             }
+            if isReviewEnabled, areLanguageServersEnabled {
+                Section {
+                    ForEach(servers) { $server in
+                        LabeledContent {
+                            Button("Edit…") { editedServer = server }
+                            Toggle("Enabled", isOn: $server.isEnabled)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                        } label: {
+                            Text(server.name)
+                            Text(([server.command] + server.arguments).joined(separator: " "))
+                        }
+                    }
+                    Button("Add Server…") { editedServer = LanguageServerEntry(name: "", command: "") }
+                } header: {
+                    Text("Language Servers")
+                } footer: {
+                    Text("A server starts in the nearest folder above the file with one of its root markers, or the repository root when it has none. Commands resolve from that folder’s node_modules/.bin, then PATH.")
+                }
+            }
             Section {
                 Toggle("Allow remote control", isOn: $isRemoteEnabled)
                 if isRemoteEnabled {
@@ -86,10 +109,19 @@ struct GeneralSettings: View {
         }
         .formStyle(.grouped)
         .frame(height: 680)
+        .sheet(item: $editedServer) { LanguageServerEditor(server: $0, servers: servers) }
         .onChange(of: isRemoteEnabled) {
             if remoteToken.isEmpty { remoteToken = Data((0..<24).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString() }
             store.remote.update()
         }
         .onChange(of: remoteToken) { store.remote.update() }
+    }
+
+    private var servers: Binding<[LanguageServerEntry]> {
+        Binding {
+            LanguageServerEntry.configured(configuredServers)
+        } set: {
+            if let data = try? JSONEncoder().encode($0) { configuredServers = String(decoding: data, as: UTF8.self) }
+        }
     }
 }
