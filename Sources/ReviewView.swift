@@ -34,12 +34,8 @@ final class ReviewModel {
     private(set) var isLoading = false
     private(set) var contents: [ReviewDocument: ReviewContents] = [:]
     private(set) var language: ReviewLanguage?
-    private(set) var tabs: [ReviewTab] = [] {
-        didSet { revealSelectedFile() }
-    }
-    var selectedTabID: UUID? {
-        didSet { revealSelectedFile() }
-    }
+    private(set) var tabs: [ReviewTab] = []
+    var selectedTabID: UUID?
     var reveal: (document: ReviewDocument, range: LanguageServerRange)?
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
@@ -53,7 +49,6 @@ final class ReviewModel {
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
     @ObservationIgnored private var savedFromCommitted: Set<String> = []
-    @ObservationIgnored private var revealedPath: String?
 
     var hasUnsavedEdits: Bool { !drafts.isEmpty }
     var selectedTab: ReviewTab? { tabs.first { $0.id == selectedTabID } }
@@ -132,13 +127,6 @@ final class ReviewModel {
         tabs[preview].history = Array(tabs[preview].history.prefix(tabs[preview].index + 1)) + [document]
         tabs[preview].index += 1
         selectedTabID = tabs[preview].id
-    }
-
-    private func revealSelectedFile() {
-        guard let path = selectedDocument?.path, path != revealedPath else { return }
-
-        revealedPath = path
-        expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
     }
 
     func keep(_ id: ReviewTab.ID) {
@@ -303,6 +291,7 @@ private struct ReviewFileList: View {
                         list { filesSection(changes) }
                             .onChange(of: model.selectedDocument?.path, initial: true) { _, path in
                                 guard let path else { return }
+                                model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
                                 Task { proxy.scrollTo(path) }
                             }
                     }
