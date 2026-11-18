@@ -30,7 +30,7 @@ final class ReviewModel {
     private(set) var status: ReviewBranchStatus?
     private(set) var tree: [ReviewFileTree] = []
     private(set) var pullRequestDetails: [Int: PullRequestDetail] = [:]
-    private(set) var error: String?
+    private(set) var error: (any Error)?
     private(set) var isLoading = false
     private(set) var contents: [ReviewDocument: ReviewContents] = [:]
     private(set) var language: ReviewLanguage?
@@ -105,7 +105,7 @@ final class ReviewModel {
             savedFromCommitted.subtract(changes.uncommitted.map(\.path))
             if selectedTab == nil { selectedTabID = tabs.last?.id }
         } catch {
-            self.error = Self.describe(error)
+            self.error = error
             return
         }
         if let selectedDocument { await loadContents(of: selectedDocument) }
@@ -221,7 +221,7 @@ final class ReviewModel {
         }
     }
 
-    private static func describe(_ error: any Error) -> String {
+    static func describe(_ error: any Error) -> String {
         guard case let ReviewGitError.git(_, message) = error else { return String(describing: error) }
         return message
     }
@@ -299,13 +299,26 @@ private struct ReviewFileList: View {
                     comments
                 }
             }
+        } else if let error = model.error, case ReviewGitError.notARepository = error {
+            let failure = failure(error)
+            ContentUnavailableView(failure.title, systemImage: failure.symbol, description: Text(failure.description))
         } else if let error = model.error {
+            let failure = failure(error)
             ContentUnavailableView {
-                Label("Can’t Review Changes", systemImage: "exclamationmark.triangle")
+                Label(failure.title, systemImage: failure.symbol)
             } description: {
-                Text(error)
+                Text(failure.description)
+                if let detail = failure.detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                }
             } actions: {
-                refreshButton
+                Button("Try Again", action: refresh)
+                    .buttonStyle(.bordered)
+                    .disabled(model.isLoading)
             }
         } else {
             ContentUnavailableView {
@@ -478,9 +491,10 @@ private struct ReviewFileList: View {
                     .help("Couldn’t fetch \(changes.base ?? ""), comparing local refs: \(fetchError)")
             }
             if let error = model.error {
+                let failure = failure(error)
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(theme.needsYou)
-                    .help("Couldn’t refresh, showing the last changes: \(error)")
+                    .help("Couldn’t refresh, showing the last changes: \(failure.detail ?? failure.description)")
             }
             refreshButton
                 .buttonStyle(.borderless)
@@ -491,17 +505,27 @@ private struct ReviewFileList: View {
     }
 
     private var refreshButton: some View {
-        Button("Refresh", systemImage: "arrow.clockwise") {
-            Task {
-                await store.refreshReview()
-                guard store.reviewModel === model else { return }
-                if let repository = pullRequest?.repository, let branch = model.changes?.branch { await store.fetchPullRequests([PullRequestBranch(repository: repository, branch: branch)]) }
-                await loadPullRequestDetail()
-            }
+        Button("Refresh", systemImage: "arrow.clockwise", action: refresh)
+            .labelStyle(.iconOnly)
+            .disabled(model.isLoading)
+            .help("Refresh")
+    }
+
+    private func refresh() {
+        Task {
+            await store.refreshReview()
+            guard store.reviewModel === model else { return }
+            if let repository = pullRequest?.repository, let branch = model.changes?.branch { await store.fetchPullRequests([PullRequestBranch(repository: repository, branch: branch)]) }
+            await loadPullRequestDetail()
         }
-        .labelStyle(.iconOnly)
-        .disabled(model.isLoading)
-        .help("Refresh")
+    }
+
+    private func failure(_ error: any Error) -> (title: String, symbol: String, description: String, detail: String?) {
+        let folder = (model.folder as NSString).abbreviatingWithTildeInPath
+        if case ReviewGitError.notARepository = error { return ("No Git Repository", "folder", "\(folder) isn’t in a git repository, so there are no changes to review.", nil) }
+        if case ReviewGitError.folderNotFound = error { return ("Folder Not Found", "questionmark.folder", "\(folder) doesn’t exist anymore.", nil) }
+        if case let ReviewGitError.gitNotFound(message) = error { return ("Git Not Found", "exclamationmark.triangle", "Review needs git. Install the Command Line Tools by running xcode-select --install in Terminal.", message) }
+        return ("Can’t Read Changes", "exclamationmark.triangle", "Git couldn’t read the changes in \(folder).", ReviewModel.describe(error))
     }
 
     private func sendComments() {

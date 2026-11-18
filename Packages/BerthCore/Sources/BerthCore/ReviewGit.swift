@@ -81,6 +81,9 @@ public struct ReviewContents: Sendable, Equatable {
 public enum ReviewGitError: Error, Equatable {
     case git(arguments: [String], message: String)
     case pathOutsideRoot(String)
+    case folderNotFound
+    case gitNotFound(message: String)
+    case notARepository
 }
 
 public enum ReviewGit {
@@ -89,14 +92,25 @@ public enum ReviewGit {
     private static let fetches = FetchThrottle()
 
     public static func changes(in folder: String) async throws -> ReviewChanges {
-        let root = try await line(["rev-parse", "--show-toplevel"], in: folder)
-        let branch = (try? await line(["rev-parse", "--abbrev-ref", "HEAD"], in: root)) ?? "HEAD"
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else { throw ReviewGitError.folderNotFound }
+
+        let root: String
+        do {
+            root = try await line(["rev-parse", "--show-toplevel"], in: folder)
+        } catch {
+            guard case let ReviewGitError.git(_, message) = error else { throw error }
+            if (try? await git(["--version"], in: folder)) == nil { throw ReviewGitError.gitNotFound(message: message) }
+            if RepositoryRoot.enclosingRepository(folder) == nil { throw ReviewGitError.notARepository }
+            throw error
+        }
+        let branch = (try? await line(["symbolic-ref", "--short", "HEAD"], in: root)) ?? "HEAD"
         let base = await base(in: root)
         let isDefaultBranch = base == branch || base == "origin/\(branch)"
         let baseRefspecs = base.map { $0.hasPrefix("origin/") ? ["+refs/heads/\($0.dropFirst("origin/".count)):refs/remotes/\($0)"] : [] } ?? []
 
         let fetch = await (baseRefspecs.isEmpty ? nil : fetches.fetch(baseRefspecs, in: root))
-        let head = try await line(["rev-parse", "HEAD"], in: root)
+        let head = if let head = try? await line(["rev-parse", "--verify", "--quiet", "HEAD"], in: root) { head } else { try await line(["hash-object", "-t", "tree", "/dev/null"], in: root) }
         let comparedBase = isDefaultBranch ? nil : base
         let mergeBase = if let comparedBase { try await line(["merge-base", comparedBase, head], in: root) } else { head }
 

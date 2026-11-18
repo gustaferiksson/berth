@@ -11,7 +11,7 @@ public enum RepositoryRoot {
         return main + URL(filePath: folder, directoryHint: .isDirectory).standardizedFileURL.path.dropFirst(repository.root.path.count)
     }
 
-    private static func enclosingRepository(_ folder: String) -> (root: URL, mainCheckout: String?)? {
+    static func enclosingRepository(_ folder: String) -> (root: URL, mainCheckout: String?)? {
         var directory = URL(filePath: folder, directoryHint: .isDirectory).standardizedFileURL
         while true {
             let dotGit = directory.appending(path: ".git")
