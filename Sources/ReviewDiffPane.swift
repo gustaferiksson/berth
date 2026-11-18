@@ -3,8 +3,9 @@ import SwiftUI
 
 struct ReviewDiffPane: View {
     let path: String
+    let compare: ReviewCompare?
     let contents: ReviewContents
-    let editor: ReviewTextView
+    let editor: ReviewTextView?
     @Binding var draft: String?
     @Binding var comments: [ReviewComment]
     let style: ReviewStyle
@@ -31,6 +32,7 @@ struct ReviewDiffPane: View {
             let modified = draft ?? loaded
             ReviewDiffViews(
                 path: path,
+                compare: compare,
                 editor: editor,
                 original: original,
                 modified: modified,
@@ -98,7 +100,8 @@ nonisolated struct ReviewDiffAnalysis: Sendable {
 
 private struct ReviewDiffViews: NSViewRepresentable {
     let path: String
-    let editor: ReviewTextView
+    let compare: ReviewCompare?
+    let editor: ReviewTextView?
     let original: String
     let modified: String
     let isOriginalAbsent: Bool
@@ -116,7 +119,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let onEdit: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(right: editor)
+        Coordinator(right: editor ?? ReviewTextView(usingTextLayoutManager: true))
     }
 
     func makeNSView(context: Context) -> NSStackView {
@@ -145,7 +148,8 @@ private struct ReviewDiffViews: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ stack: NSStackView, coordinator: Coordinator) {
-        coordinator.right.subviews.filter { $0 is ReviewInlineComment }.forEach { $0.removeFromSuperview() }
+        (Array(coordinator.cards.values) + [coordinator.draft?.view].compactMap(\.self)).forEach { $0.removeFromSuperview() }
+        guard coordinator.right.delegate === coordinator else { return }
         coordinator.right.selectedLines = nil
         coordinator.right.unifiedOriginal = nil
         coordinator.right.minimumWidth = 0
@@ -165,8 +169,8 @@ private struct ReviewDiffViews: NSViewRepresentable {
         private var loadedOriginal: String?
         private var loadedModified: String?
         private var applied: ReviewDiffAnalysis?
-        private var cards: [String: ReviewInlineComment] = [:]
-        private var draft: (view: ReviewInlineComment, numbered: ReviewTextView, line: Int)?
+        var cards: [String: ReviewInlineComment] = [:]
+        var draft: (view: ReviewInlineComment, numbered: ReviewTextView, line: Int)?
 
         init(right: ReviewTextView) {
             self.right = right
@@ -222,7 +226,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         func update(_ view: ReviewDiffViews) {
             parent = view
             minimap.isHidden = !view.showsMinimap
-            right.isEditable = !view.isModifiedAbsent
+            right.isEditable = !view.isModifiedAbsent && view.compare != .committed
             left.isAbsent = view.isOriginalAbsent
             right.isAbsent = view.isModifiedAbsent
 
@@ -352,7 +356,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         private func layoutInline() {
             guard let parent else { return }
 
-            let comments = parent.comments.filter { $0.path == parent.path }
+            let comments = parent.comments.filter { $0.path == parent.path && $0.compare == parent.compare }
             for (id, card) in cards where !comments.contains(where: { $0.id == id }) {
                 card.removeFromSuperview()
                 cards[id] = nil
@@ -411,6 +415,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             let snippet = texts.map { isRemoval ? "-\($0)" : String($0) }.joined(separator: "\n")
             let numbers = last > first ? "Lines \(first + 1)–\(last + 1)" : "Line \(first + 1)"
             let path = parent?.path ?? ""
+            let compare = parent.flatMap(\.compare)
 
             let other = textView === left ? right : left
             draft?.view.removeFromSuperview()
@@ -418,7 +423,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             other.needsDisplay = true
             let view = ReviewInlineComment(title: isRemoval ? "Removed \(numbers)" : numbers, text: "", kind: .draft(
                 onAdd: { [weak self] text in
-                    self?.parent?.comments.append(ReviewComment(id: UUID().uuidString, path: path, line: first + 1, endLine: last + 1, text: text, snippet: snippet, side: isRemoval ? .original : .modified))
+                    self?.parent?.comments.append(ReviewComment(id: UUID().uuidString, path: path, line: first + 1, endLine: last + 1, text: text, snippet: snippet, side: isRemoval ? .original : .modified, compare: compare))
                     self?.closeDraft()
                 },
                 onCancel: { [weak self] in self?.closeDraft() },

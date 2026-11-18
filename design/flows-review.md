@@ -16,15 +16,19 @@ This is the slim first version; the rest is listed under Later.
   tab; a terminal tab shows "Select a Claude Session". Harbor hides the panel and the diff. It
   is not a tab kind, so `Store.tabs` and `openTabs` persistence are untouched, and the
   terminal surfaces are never re-hosted (`-snapshotReviewSurfaces` proves it).
-- One compare: the merge-base of the base and HEAD to the working tree (committed,
-  uncommitted and untracked), `ReviewGit.snapshot(in:)`.
+- Two compares, both from `ReviewGit.changes(in:)`: Uncommitted (HEAD to the working tree,
+  untracked files included) and Committed (the merge base of the base and HEAD to HEAD). On
+  the default branch, or with no base, there is no Committed compare. A path can be in both.
+  Plus the repository's files (`ReviewGit.files(in:)`, `git ls-files --cached --others
+  --exclude-standard`), each openable as a plain file.
 - Base, first hit wins: `branch.<b>.gh-merge-base` (the key `gh` writes), `@{upstream}`
   when it names a different branch, then `origin/HEAD`, `origin/main`, `origin/master`,
-  `main`, `master`; remote refs preferred. No base: HEAD, so only uncommitted work shows.
+  `main`, `master`; remote refs preferred.
 - A background `git fetch` of the base branch runs at most every 15 s per repository.
   A failure falls back to local refs and shows a warning icon in the header.
 - State lives in a `ReviewModel` per session (`Store.reviewModels`, created when the panel
-  shows the session): snapshot, open file, loaded contents, unsaved drafts and comments, so
+  shows the session): changes, branch status, file tree, open tabs, loaded contents, unsaved
+  drafts and comments, so
   they survive switching sessions and hiding the panel. Closing the session's tab drops it. While any model has unsaved
   drafts, `Store.isIdle` is false (no update restart).
 
@@ -33,14 +37,22 @@ This is the slim first version; the rest is listed under Later.
 - Toolbar: a Show / Hide Changes button, `sidebar.left` next to the traffic lights when the
   panel is on the left, `sidebar.right` at the trailing end when it is on the right.
 - Panel, 272 pt ideal (220–440), on the Ghostty theme like the sessions sidebar: the header,
-  then a flat `List` of changed files (status letter A/M/D/R in the theme's
-  working, needs-you, closed and branch colours, file name, dimmed parent folder, +/-
-  counts), the session's comments below it with a delete button each, and Send N Comments.
-- Panel header: branch → base, a fetch warning when the fetch failed, Refresh. Below it the
-  PR or branch card (`design/review-panel.md`), from `ReviewGit.changes(in:)` and
-  `branchStatus(of:)`, loaded with the file list; if either fails there is no card. Which card,
-  first match wins:
-  - On the default branch, or with no base: "Uncommitted changes on <branch>", its upstream
+  the card, a Changes | Files segmented control (`ReviewModel.list`), its list, the session's
+  comments below it with a delete button each, and Send N Comments.
+- Changes: an Uncommitted section (count, summed +/-) and a Committed section (count, "N
+  commits"), each only when it has files. Rows: status letter A/M/D/R in the theme's working,
+  needs-you, closed and branch colours, file name, +/- counts. Each row opens its own compare.
+  Nothing changed: "No uncommitted changes on <branch>" on the default branch or without a
+  base, else "No changes, <branch> matches <base>".
+- Files: the repository as an outline (`ReviewFileTree`, folders first), changed files in their
+  status colour (Uncommitted first). A file row opens its Uncommitted compare when it has one,
+  else the plain file. Folders only expand.
+- Panel header: branch → base ("<branch>, uncommitted only" on the default branch or without a
+  base), a fetch warning when the fetch failed, Refresh. Below it the PR or branch card
+  (`design/review-panel.md`), from `ReviewGit.changes(in:)` and `branchStatus(of:)`, loaded with
+  the lists; if the status fails there is no card. Which card, first match wins:
+  - On the default branch, or with no base: "Uncommitted changes on <branch>" ("No uncommitted
+    changes on <branch>" with a clean tree), its upstream
     state ("N not pushed", "N behind <upstream>", "Up to date with <upstream>" or "No
     upstream") and its last two commits.
   - With a PR (the sidebar's data, `Store.pullRequest(in:branch:)`): a state pill (Open, Draft,
@@ -56,13 +68,30 @@ This is the slim first version; the rest is listed under Later.
     and the branch's commits, at most 5 then "N more": short SHA, subject, age, and a dot,
     filled when pushed to the upstream, hollow in the needs-you colour when not.
 - Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal):
-  collapsed until a file row is clicked; nothing opens by itself. It opens 760 pt wide, less
+  collapsed while it has no tab; nothing opens by itself. It opens 760 pt wide, less
   to leave the terminal 360, never under 440, and window or panel resizes keep both within
   those minimums where they fit (`TerminalSplitController.fitDiff`, after layout: constraint
   minimums the window can't fit crash AppKit). When the split can't hold 801 pt, opening a diff
   (or narrowing the window with one open) collapses the session sidebar, and closing the diff
   brings it back unless the user toggled it meanwhile (`ContentView.sidebarYieldsToDiff`, an
-  overlay on the stored visibility, so nothing persisted changes). Its header is the file path, Save while there is a draft, and Close Diff (×).
+  overlay on the stored visibility, so nothing persisted changes).
+- Tabs (`ReviewModel.tabs`, VS Code preview semantics): a tab strip (file name, a diff or file
+  icon, ×), then a header with back and forward, the path, an Uncommitted or Committed chip and
+  Save while there is a draft. A click on a row (or a ⌘-clicked definition) opens a preview tab,
+  title in italics: at most one exists, and the next open replaces its document in place,
+  dropping its forward history, so back and forward walk that tab's history. A document already
+  open in a tab selects that tab. Double-clicking the row or the tab, or editing the file, keeps
+  it (regular title); opening from a kept tab then starts a new preview tab after it. Closing a
+  tab selects its neighbour; closing the last collapses the column. Refresh keeps each history
+  entry still listed in its compare, turns one that isn't into the plain file while the file
+  exists, else drops it, and closes tabs left empty.
+- A document is a path and a compare (`ReviewDocument`, `nil` for the plain file). Uncommitted
+  compares and plain files are the working tree: they share the path's editor
+  (`ReviewModel.editors`), undo history, draft and diagnostics, sync to the language servers,
+  and a save or a load updates every loaded one of that path. A Committed compare is read only
+  (HEAD on the right) with its own text view, no draft and no language server. A plain file is
+  a single editable pane (identical sides shown unified); edits show against the file on disk
+  until saved.
 - Diff: `ReviewDiffPane` gets the file's `ReviewContents`, a draft binding and `onComment`.
   Base on the left (read only), working tree on the right (editable unless deleted), in the
   Review style (Settings > Appearance > Review: colour scheme, One Dark by default, or Match
@@ -113,7 +142,7 @@ This is the slim first version; the rest is listed under Later.
 | Key | From | Result |
 |---|---|---|
 | ⇧⌘R, View ▸ Show / Hide Changes, palette, toolbar button | anywhere | Shows or hides the panel (showing leaves Harbor) |
-| ⌘W, Close Diff | a diff is open, focus outside a terminal | Closes the diff (collapses its column) and focuses the terminal |
+| ⌘W, a tab's × | a tab is open, focus outside a terminal | Closes the current tab; closing the last collapses the column and focuses the terminal |
 | ⌘S, Save in the header | Review, the file has a draft | Saves it through `ReviewGit.save` |
 | ⌘F | the diff | The focused side's find bar |
 | ⌘-click | an identifier on the right side, language servers on | Goes to its definition |
@@ -124,7 +153,10 @@ This is the slim first version; the rest is listed under Later.
 ## Comments
 
 - Added inline in the diff (see Layout), listed in the panel and shown as cards in the
-  diff; both views read `ReviewModel.comments`.
+  diff; both views read `ReviewModel.comments`. A comment keeps its document's compare
+  (`ReviewComment.compare`) and shows only in that document's tab.
+- A Committed comment's lines are HEAD's, which the working tree may have moved, so its block
+  says so: `path:lines (as committed)`.
 - Send N Comments pastes `ReviewComment.prompt` (one block per comment: path, line range,
   the snippet, the comment) into the session's claude prompt without submitting it, then
   focuses the terminal (the panel stays). Sent comments are cleared. If Claude isn't running in the tab,
@@ -166,9 +198,8 @@ This is the slim first version; the rest is listed under Later.
   dismisses it.
 - ⌘-click: while ⌘ is held the identifier under the pointer gets a link underline and the
   pointing hand. A click goes to the definition: in the same file it scrolls there (both sides
-  follow) and selects it; a changed file is selected in the panel, then scrolled and selected once
-  loaded; any other file in the repository opens as an unchanged file (identical sides, editable,
-  kept open by Refresh);
+  follow) and selects it; another file opens in the preview tab, its Uncommitted compare when it
+  has one, else the plain file, then scrolls and selects once loaded;
   outside the repository (SDK headers) nothing happens.
 - Definition and hover ask the file's servers that do more than diagnostics, in entry order, and
   take the first answer.
@@ -183,5 +214,4 @@ also refused when the file on disk changed since it was loaded.
 
 ## Later
 
-Uncommitted and PR compares; a folder tree and whole-project files; preview tabs for
-definitions (#71); per-prompt snapshots; posting comments to GitHub.
+A PR compare; per-prompt snapshots; posting comments to GitHub.

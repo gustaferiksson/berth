@@ -25,7 +25,7 @@ struct ContentView: View {
         @Bindable var store = store
         let selected = store.tabs.first { $0.id == store.selectedTabID }
         let isTrailing = sidebarPosition == .right
-        let isDiffOpen = showsPanel && store.reviewModel?.selectedPath != nil
+        let isDiffOpen = showsPanel && store.reviewModel?.selectedTab != nil
         NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanel ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
                 ReviewPanel()
