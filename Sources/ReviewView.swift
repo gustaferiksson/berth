@@ -324,7 +324,7 @@ private struct ReviewFileList: View {
             Section(isExpanded: expansion(of: "files")) {
                 OutlineGroup(model.tree, children: \.children) { node in
                     let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
-                    ReviewRow(path: node.path, open: node.children != nil || status == .deleted ? nil : { model.open(ReviewDocument(path: node.path, compare: nil)) }) {
+                    let row = ReviewRow(path: node.path, open: node.children != nil || status == .deleted ? nil : { model.open(ReviewDocument(path: node.path, compare: nil)) }) {
                         Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
                             .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
                             .lineLimit(1)
@@ -333,8 +333,11 @@ private struct ReviewFileList: View {
                         EmptyView()
                     }
                     .help(node.path)
-                    .tag(ReviewDocument(path: node.path, compare: nil))
-                    .selectionDisabled(node.children != nil)
+                    if node.children == nil {
+                        row.tag(ReviewDocument(path: node.path, compare: nil))
+                    } else {
+                        row.selectionDisabled()
+                    }
                 }
             } header: {
                 GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }

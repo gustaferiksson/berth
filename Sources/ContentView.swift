@@ -307,6 +307,12 @@ private struct TerminalArea: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topTrailing) {
+            if store.terminalSearch != nil {
+                TerminalFindBar()
+                    .padding(12)
+            }
+        }
         .safeAreaInset(edge: .top, spacing: 0) {
             if isReviewEnabled, store.showsReviewPanel, !store.isHarborShown {
                 VStack(spacing: 0) {
@@ -317,12 +323,6 @@ private struct TerminalArea: View {
                     Divider()
                 }
                 .frame(height: 33)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            if store.terminalSearch != nil {
-                TerminalFindBar()
-                    .padding(12)
             }
         }
         .environment(store)
