@@ -898,7 +898,7 @@ enum Snapshot {
                 let split = (descendantViews(window.contentView ?? NSView()).first { $0.identifier?.rawValue == "terminalSplit" } as? NSSplitView).map { split in split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" } } ?? []
                 let layout = "layout \(UserDefaults.standard.string(forKey: ReviewDiffLayout.key) ?? "unset"), shown \((descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last?.unifiedOriginal).map { _ in "unified" } ?? "side by side"), offered \([AppAction.showSideBySide, .showInline].filter { $0.isAvailable(in: store) }.map(\.title))"
                 let review = store.reviewModel.map { "review \($0.folder) \($0.changes.map { "\($0.branch) uncommitted \($0.uncommitted.map { "\($0.path) +\($0.additions ?? 0) -\($0.deletions ?? 0)" }) committed \($0.committed.map(\.path))" } ?? "not loaded"), loads \($0.loadCount)\($0.error.map { ", error \($0)" } ?? "")\($0.movedFolder.map { ", movedFolder \($0)" } ?? "")" } ?? "no review"
-                return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription) (\($0.string.count) characters), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "")
+                return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { ", text \($0.string.prefix(16).debugDescription) (\($0.string.count) characters), can undo \($0.undoManager?.canUndo == true), can redo \($0.undoManager?.canRedo == true)" } ?? "") + ", occurrences \(descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.occurrences.count) on \($0.occurrenceRows.count) rows" })" + ((window.firstResponder as? NSTextView).flatMap { $0 is ReviewTextView ? nil : ", find field \($0.string.debugDescription)" } ?? "")
             }
             let savedLayout = UserDefaults.standard.object(forKey: ReviewDiffLayout.key)
             print("start: \(state())")
@@ -967,6 +967,19 @@ enum Snapshot {
                     window.setContentSize(NSSize(width: width, height: window.contentLayoutRect.height))
                     try? await Task.sleep(for: .seconds(1))
                     print("\(spec) (sets the window width):\n  \(state())")
+                    continue
+                }
+                if spec.hasPrefix("select:"), let right = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewTextView }).last {
+                    let range = (right.string as NSString).range(of: spec.dropFirst(7).replacingOccurrences(of: "\\n", with: "\n").replacingOccurrences(of: "\\s", with: " "))
+                    let before = right.occurrences
+                    window.makeFirstResponder(right)
+                    right.setSelectedRange(range.location == NSNotFound ? NSRange(location: 0, length: 0) : range)
+                    right.scrollRangeToVisible(right.selectedRange())
+                    let start = Date.now
+                    while right.occurrences == before, Date.now.timeIntervalSince(start) < 2 { try? await Task.sleep(for: .milliseconds(10)) }
+                    let elapsed = Int(Date.now.timeIntervalSince(start) * 1000)
+                    try? await Task.sleep(for: .milliseconds(300))
+                    print("\(spec) (selects that text's first match on the right side, occurrences after \(elapsed) ms):\n  \(state())")
                     continue
                 }
                 if spec.hasPrefix("shot:") {

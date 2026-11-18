@@ -39,6 +39,10 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     private var hoverTask: Task<Void, Never>?
     private var hoverCard: NSView?
     private var flagsMonitor: Any?
+    private(set) var occurrences: [NSRange] = [] {
+        didSet { if occurrences != oldValue { needsDisplay = true } }
+    }
+    private var occurrenceSearch: Task<Void, Never>?
     private lazy var pointerTracking = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
 
     override var layoutManager: NSLayoutManager? {
@@ -62,6 +66,8 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         countLines()
         dismissHover()
         link = nil
+        occurrenceSearch?.cancel()
+        occurrences = []
         gutter?.needsDisplay = true
         super.didChangeText()
         placeDiagnostics()
@@ -315,6 +321,61 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         gutter?.needsDisplay = true
     }
 
+    func highlightOccurrences(then redraw: @escaping () -> Void) {
+        occurrenceSearch?.cancel()
+        let selection = selectedRange()
+        let needle = selectedRanges.count == 1 && selection.length > 0 ? textStorage?.mutableString.substring(with: selection) ?? "" : ""
+        guard !needle.trimmingCharacters(in: .whitespaces).isEmpty, needle.rangeOfCharacter(from: .newlines) == nil else {
+            occurrences = []
+            return redraw()
+        }
+
+        let wholeWord = identifierRange(at: selection.location) == selection
+        occurrenceSearch = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard let text = self?.string, !Task.isCancelled else { return }
+
+            let found = await Task.detached {
+                let text = text as NSString
+                let identifier = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_$"))
+                var ranges: [NSRange] = []
+                var match = text.range(of: needle, options: .literal)
+                while match.location != NSNotFound, ranges.count < 2000 {
+                    let end = NSMaxRange(match)
+                    let isWord = text.rangeOfCharacter(from: identifier, options: [.anchored, .backwards], range: NSRange(location: 0, length: match.location)).location == NSNotFound && text.rangeOfCharacter(from: identifier, options: .anchored, range: NSRange(location: end, length: text.length - end)).location == NSNotFound
+                    if !wholeWord || isWord { ranges.append(match) }
+                    match = text.range(of: needle, options: .literal, range: NSRange(location: end, length: text.length - end))
+                }
+                return ranges
+            }.value
+            guard !Task.isCancelled else { return }
+
+            self?.occurrences = found.count > 1 ? found : []
+            redraw()
+        }
+    }
+
+    var occurrenceRows: IndexSet {
+        IndexSet(occurrences.map { occurrence in
+            let line = lineStarts.partitioningIndex { $0 > occurrence.location } - 1
+            return side.map { $0.rows.indices.contains(line) ? $0.rows[line] : line } ?? line
+        })
+    }
+
+    private func drawOccurrences(in rect: NSRect) {
+        guard !occurrences.isEmpty else { return }
+
+        let start = line(atY: rect.minY).map { lineStarts[$0] } ?? 0
+        let end = line(atY: rect.maxY).flatMap { $0 + 1 < lineStarts.count ? lineStarts[$0 + 1] : nil } ?? textStorage?.length ?? 0
+        let selection = selectedRange()
+        style.foreground.withAlphaComponent(0.12).setFill()
+        for occurrence in occurrences[occurrences.partitioningIndex { NSMaxRange($0) > start }...].prefix(while: { $0.location < end }) where occurrence != selection {
+            for segment in segments(of: occurrence) where segment.rect.intersects(rect) {
+                NSBezierPath(roundedRect: segment.rect, xRadius: 2, yRadius: 2).fill()
+            }
+        }
+    }
+
     func refresh() {
         guard let storage = textContentStorage, let textStorage, let manager = textLayoutManager else { return }
 
@@ -502,6 +563,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         for (row, height) in reserved {
             NSRect(x: rect.minX, y: top(ofRow: row + 1) - height, width: rect.width, height: height).fill()
         }
+        drawOccurrences(in: rect)
 
         for segment in diagnosticSegments where segment.rect.intersects(rect) {
             let wave = NSBezierPath()
