@@ -157,7 +157,7 @@ final class ReviewModel {
             let text = listed == nil ? try ReviewGit.workingTreeText(document.path, in: changes.root) : nil
             let loaded = if let listed, let compare = document.compare { try await ReviewGit.contents(of: listed, compare: compare, in: changes) } else { ReviewContents(original: text, modified: text) }
             contents[document] = loaded
-            guard document.compare != .committed else { return }
+            guard document.compare != .committed || !changes.uncommitted.contains(where: { $0.path == document.path }) else { return }
 
             if drafts[document.path] == nil { loadedTexts[document.path] = if case let .text(text)? = loaded.modified { text } else { nil } }
             editors[document.path] = editors[document.path] ?? ReviewTextView(usingTextLayoutManager: true)
@@ -199,7 +199,7 @@ final class ReviewModel {
     }
 
     private func setWorkingTreeText(_ text: ReviewText?, of path: String) {
-        for document in contents.keys where document.path == path && document.compare != .committed {
+        for document in contents.keys where document.path == path && (document.compare != .committed || changes?.uncommitted.contains { $0.path == path } == false) {
             contents[document] = contents[document].map { ReviewContents(original: document.compare == nil ? text : $0.original, modified: text) }
         }
     }
@@ -679,7 +679,7 @@ struct ReviewDiffColumn: View {
             if let model = store.reviewModel, let tab = model.selectedTab {
                 let document = tab.document
                 let path = document.path
-                let isCommitted = document.compare == .committed
+                let isReadOnly = document.compare == .committed && model.changes?.uncommitted.contains { $0.path == path } != false
                 VStack(spacing: 0) {
                     ScrollView(.horizontal) {
                         HStack(spacing: 2) {
@@ -713,9 +713,8 @@ struct ReviewDiffColumn: View {
                             .help(isUnified ? "Show Side by Side" : "Show Inline")
                         }
                         Spacer(minLength: 8)
-                        if !isCommitted, let draft = model.drafts[path] {
-                            Button("Save") { model.save(draft, to: path) }
-                                .keyboardShortcut("s")
+                        if AppAction.save.isAvailable(in: store) {
+                            Button("Save") { AppAction.save.perform(on: store) }
                         }
                     }
                     .labelStyle(.iconOnly)
@@ -724,19 +723,19 @@ struct ReviewDiffColumn: View {
                     .padding(.horizontal, 8)
                     .frame(height: 36)
                     Divider()
-                    if let contents = model.contents[document], isCommitted || model.editors[path] != nil {
+                    if let contents = model.contents[document], isReadOnly || model.editors[path] != nil {
                         ReviewDiffPane(
                             path: path,
                             compare: document.compare,
                             contents: contents,
-                            editor: isCommitted ? nil : model.editors[path],
-                            draft: isCommitted ? .constant(nil) : Binding(get: { model.drafts[path] }, set: { draft in
+                            editor: isReadOnly ? nil : model.editors[path],
+                            draft: isReadOnly ? .constant(nil) : Binding(get: { model.drafts[path] }, set: { draft in
                                 model.drafts[path] = draft
                                 model.keep(tab.id)
                             }),
                             comments: Bindable(model).comments,
                             style: style,
-                            language: areLanguageServersEnabled && !isCommitted ? model.language : nil,
+                            language: areLanguageServersEnabled && !isReadOnly ? model.language : nil,
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
                             isUnified: isUnified || document.compare == nil,
                             takesFocus: model.focusesEditor,
@@ -744,6 +743,7 @@ struct ReviewDiffColumn: View {
                             onDefinition: model.goToDefinition
                         )
                         .id(document)
+                        .id(isReadOnly)
                         .task(id: model.focusesEditor) { model.focusesEditor = false }
                     } else {
                         ProgressView()
