@@ -68,8 +68,9 @@ enum Snapshot {
     }()
 
     static let fixtureSessions = !pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil
-    static let fixtureRepositories = Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some("acme/billing")) }) { first, _ in first }
-    static let fixturePullRequests = Dictionary(pullRequestFixtures.compactMap { item in item.session.branch.map { (PullRequestBranch(repository: "acme/billing", branch: $0), item.pullRequest) } }) { first, _ in first }
+    private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
+    static let fixtureRepositories = Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
+    static let fixturePullRequests = Dictionary(pullRequestFixtures.compactMap { item in item.session.branch.map { (PullRequestBranch(repository: fixtureRepository, branch: $0), item.pullRequest) } }) { first, _ in first }
     #else
     static let fixtureSessions: [SessionSummary]? = nil
     static let launcherKeys: String? = nil
@@ -203,8 +204,13 @@ enum Snapshot {
             store.activate(.session(sessionID))
         }
         let reviewFolder = UserDefaults.standard.string(forKey: "snapshotReview")
+        let createPullRequestClick = UserDefaults.standard.string(forKey: "snapshotReviewCreatePullRequest")?.split(separator: ",").compactMap { Double($0) }
         if let reviewFolder {
-            store.openShell(cwd: reviewFolder)
+            store.openShell(cwd: reviewFolder, command: createPullRequestClick != nil ? UserDefaults.standard.string(forKey: "snapshotRemoteLog").map { "/usr/bin/tee -a '\($0)'" } : nil)
+            if createPullRequestClick != nil, let live = try? JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":1,"sessionId":"snapshot-review","cwd":"\#(reviewFolder)","status":"idle","startedAt":0}"#.utf8)) {
+                store.fakeLiveSessions = [live]
+                store.refreshLive()
+            }
             store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: reviewFolder, sessionID: "snapshot-review", terminal: $0.terminal) : $0 }
             if AppAction.showChanges.isAvailable(in: store) { AppAction.showChanges.perform(on: store) }
             store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")]
@@ -257,6 +263,31 @@ enum Snapshot {
             let save = { (suffix: String) in
                 guard let image = image(of: window) else { return }
                 try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
+            }
+            let click = { (point: [Double]) in
+                let location = NSPoint(x: point.first ?? 0, y: (window.contentView?.frame.height ?? 0) - (point.last ?? 0))
+                let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) }
+                event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
+                event(.leftMouseDown).map(window.sendEvent)
+            }
+            if let point = UserDefaults.standard.string(forKey: "snapshotReviewRefresh")?.split(separator: ",").compactMap({ Double($0) }), let branch = model.changes?.branch {
+                let lookup = { store.pullRequest(in: model.folder, branch: branch).map { "\($0.repository) \($0.pullRequest.map { "#\($0.number) \($0.state.rawValue)" } ?? "no PR")" } ?? "unknown" }
+                print("before refresh: \(branch) \(lookup())")
+                click(point)
+                try? await Task.sleep(for: .seconds(8))
+                print("after refresh: \(branch) \(lookup())")
+                save(".refreshed.png")
+            }
+            if let point = createPullRequestClick {
+                let log = { (try? String(contentsOfFile: UserDefaults.standard.string(forKey: "snapshotRemoteLog") ?? "", encoding: .utf8)).debugDescription }
+                window.makeFirstResponder(nil)
+                click(point)
+                try? await Task.sleep(for: .seconds(1))
+                print("after create pull request click: log \(log()), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil"), notice \(model.notice ?? "-")")
+                save(".pr.png")
+                _ = store.tab(forSession: "snapshot-review")?.terminal.sendKey(.enter)
+                try? await Task.sleep(for: .seconds(1))
+                print("after Enter: log \(log())")
             }
             let report = { (label: String) in
                 for (index, side) in sides.enumerated() {

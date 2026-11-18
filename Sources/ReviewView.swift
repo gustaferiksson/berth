@@ -224,7 +224,7 @@ private struct ReviewFileList: View {
             VStack(spacing: 0) {
                 header(changes)
                 if let status = model.status {
-                    ReviewBranchCard(changes: changes, status: status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] })
+                    ReviewBranchCard(changes: changes, status: status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest)
                         .padding(.horizontal, 10)
                         .padding(.bottom, 6)
                 }
@@ -421,6 +421,7 @@ private struct ReviewFileList: View {
         Button("Refresh", systemImage: "arrow.clockwise") {
             Task {
                 await model.load()
+                if let repository = pullRequest?.repository, let branch = model.changes?.branch { await store.fetchPullRequests([PullRequestBranch(repository: repository, branch: branch)]) }
                 await loadPullRequestDetail()
             }
         }
@@ -439,6 +440,15 @@ private struct ReviewFileList: View {
         model.comments = []
         terminal.requestFocus()
     }
+
+    private func createPullRequest() {
+        guard store.liveBySession[sessionID] != nil, let terminal = store.tab(forSession: sessionID)?.terminal, terminal.paste(text: "Push this branch and open a pull request for it with gh.") else {
+            model.notice = "Claude isn’t running in this tab"
+            return
+        }
+
+        terminal.requestFocus()
+    }
 }
 
 private struct ReviewBranchCard: View {
@@ -446,6 +456,8 @@ private struct ReviewBranchCard: View {
     let status: ReviewBranchStatus
     let pullRequest: PullRequest??
     let detail: PullRequestDetail?
+    let isClaudeLive: Bool
+    let createPullRequest: () -> Void
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -520,6 +532,13 @@ private struct ReviewBranchCard: View {
             }
             if (pullRequest ?? nil) == nil, !status.commits.isEmpty {
                 commits
+            }
+            if pullRequest != nil, (pullRequest ?? nil) == nil, !changes.isDefaultBranch, changes.base != nil, status.ahead > 0 {
+                Button("Create Pull Request…", action: createPullRequest)
+                    .frame(maxWidth: .infinity)
+                    .disabled(!isClaudeLive)
+                    .help(isClaudeLive ? "Paste a prompt asking Claude to push this branch and open a pull request" : "Claude isn’t running in this tab")
+                    .padding(.top, 4)
             }
         }
         .lineLimit(1)

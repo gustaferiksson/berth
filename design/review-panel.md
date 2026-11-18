@@ -67,7 +67,8 @@ nopr=commits`). `flows-review.md` describes what has landed; each layer below up
   branch only, when the panel shows it and on Refresh, never in the sidebar's per-repo batch.
 - Without a PR: "No pull request", "N commits ahead of <base>", ↑ahead ↓behind, push state
   ("N not pushed", or "Not pushed, no upstream"), the branch's commits (hollow dot when
-  unpushed), and Create Pull Request… (its own later layer; defined then).
+  unpushed), and Create Pull Request… (pastes a prompt into the session's tab, see
+  `design/flows-review.md`).
 - On the default branch: "Uncommitted changes on <branch>", whether it is up to date with
   its upstream, its last two commits, no button.
 
