@@ -874,6 +874,7 @@ struct ReviewDiffColumn: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .top) { Divider() }
         .foregroundStyle(Color(nsColor: style.foreground))
         .background(Color(nsColor: style.background))
         .environment(\.colorScheme, style.isDark ? .dark : .light)
