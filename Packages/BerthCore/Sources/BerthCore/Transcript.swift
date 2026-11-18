@@ -79,7 +79,7 @@ public enum Transcript {
             tail: tailRecords,
             earlierPrompt: earlierPrompt,
             earlierBranches: known?.branches ?? [],
-            earlierContext: known?.context
+            earlierContext: known.flatMap { tailOffset <= $0.size ? $0.context : nil }
         )
     }
 

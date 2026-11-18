@@ -898,6 +898,7 @@ private struct CardRow<Detail: View>: View {
 
     var body: some View {
         let hasActivityDot = hasBackgroundShell || isLoaded && lastActivity != nil
+        let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 10 >= $0 * 6 && context.tokens <= $0 ? $0 : nil } }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
@@ -922,12 +923,13 @@ private struct CardRow<Detail: View>: View {
                         .foregroundStyle(theme.closed)
                         .help("Flagged")
                         .accessibilityLabel("Flagged")
-                        .padding(.trailing, hasActivityDot ? 0 : 10)
+                        .padding(.trailing, hasActivityDot || ringWindow != nil ? 0 : 10)
                 }
                 if let modified {
                     HStack(spacing: 8) {
-                        if let context, let window = context.window, context.tokens * 10 >= window * 6, context.tokens <= window {
-                            ContextRing(context: context, window: window)
+                        if let context, let ringWindow {
+                            ContextRing(context: context, window: ringWindow)
+                                .padding(.trailing, hasActivityDot ? 0 : 10)
                         }
                         ZStack(alignment: .trailing) {
                             Text(verbatim: "00m").hidden()
@@ -1050,7 +1052,7 @@ private struct ContextFooter: View {
                     Text(tokenCount(context.tokens))
                         .font(.title2.weight(.semibold))
                         .foregroundStyle(theme.foreground)
-                    Text("of \(tokenCount(window)) · \((Double(context.tokens) / Double(window)).formatted(.percent.precision(.fractionLength(0))))")
+                    Text("of \(tokenCount(window)) · \(Int((Double(context.tokens) / Double(window) * 100).rounded()))%")
                         .foregroundStyle(theme.secondary)
                 }
                 .monospacedDigit()

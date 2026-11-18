@@ -221,6 +221,37 @@ struct TranscriptTests {
         #expect(Transcript.summary(of: url)?.lastPrompt == prompt)
     }
 
+    @Test func contextIsKeptOnlyWhileTheTailCoversEverythingSinceTheLastRead() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "berth-\(UUID().uuidString)/-x/context.jsonl")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
+        let lines = [
+            #"{"type":"user","cwd":"/x","timestamp":"2026-10-29T09:00:00.000Z","message":{"content":"start"}}"#,
+            #"{"type":"assistant","timestamp":"2026-10-29T09:01:00.000Z","message":{"model":"claude-test-1","content":[{"type":"text","text":"Hi"}],"usage":{"input_tokens":5,"cache_read_input_tokens":900,"cache_creation_input_tokens":100}}}"#,
+            #"{"type":"ai-title","aiTitle":"Compacting"}"#,
+        ]
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        let context = try #require(Transcript.summary(of: url)?.context)
+        #expect(context.tokens == 1005)
+
+        let size = try #require(try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int)
+        let append = { (lines: [String]) in
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data((lines.joined(separator: "\n") + "\n").utf8))
+            try handle.close()
+        }
+        let known = (size: size, lastPrompt: Date.distantPast, branches: [String](), context: Optional(context))
+        try append([#"{"type":"user","timestamp":"2026-10-29T09:02:00.000Z","message":{"content":"next"}}"#, #"{"type":"ai-title","aiTitle":"Compacting"}"#])
+        #expect(Transcript.summary(of: url, after: known)?.context == context)
+
+        let reread = String(repeating: "x", count: 4000)
+        try append([#"{"type":"system","subtype":"compact_boundary","timestamp":"2026-10-29T09:03:00.000Z"}"#, #"{"type":"user","timestamp":"2026-10-29T09:03:01.000Z","isCompactSummary":true,"message":{"content":"Summary"}}"#]
+            + Array(repeating: #"{"type":"attachment","attachment":{"type":"file","content":"\#(reread)"}}"#, count: 40)
+            + [#"{"type":"user","timestamp":"2026-10-29T09:04:00.000Z","message":{"content":"carry on"}}"#, #"{"type":"ai-title","aiTitle":"Compacting"}"#])
+        #expect(Transcript.summary(of: url, after: known)?.context == nil)
+    }
+
     @Test func queuedHumanPromptCountsAsTheLastPrompt() throws {
         let head = records(#"{"type":"user","cwd":"/x","timestamp":"2026-10-29T09:00:00.000Z","message":{"content":"start"}}"#)
         let tail = records("""

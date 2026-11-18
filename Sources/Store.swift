@@ -169,7 +169,7 @@ final class Store {
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var searchIndexTask: Task<Void, Never>?
     @ObservationIgnored private var compactionsTask: Task<Void, Never>?
-    @ObservationIgnored private var compactionsActivity: (url: URL, activity: TranscriptActivity)?
+    @ObservationIgnored private var compactionsActivities: [String: (url: URL, activity: TranscriptActivity)] = [:]
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var themeWatcher: FileWatcher?
     @ObservationIgnored private var summaries: [SessionSummary] = []
@@ -379,13 +379,16 @@ final class Store {
 
         compactionsTask = Task { [previous = compactionsTask] in
             await previous?.value
-            let cached = compactionsActivity.flatMap { $0.url == url ? $0.activity : nil } ?? TranscriptActivity()
+            guard tabs.first(where: { $0.id == selectedTabID })?.sessionID == sessionID else { return }
+
+            let cached = compactionsActivities[sessionID].flatMap { $0.url == url ? $0.activity : nil } ?? TranscriptActivity()
             let activity = await Task.detached {
                 var activity = cached
                 activity.read(url)
                 return activity
             }.value
-            compactionsActivity = (url, activity)
+            let open = Set(tabs.compactMap(\.sessionID))
+            compactionsActivities = compactionsActivities.filter { open.contains($0.key) }.merging([sessionID: (url, activity)]) { $1 }
             let context = activity.context(window: nil)
             selectedCompactions = (sessionID, context?.compactions ?? 0, context?.lastCompaction)
         }

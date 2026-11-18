@@ -170,8 +170,9 @@ enum Snapshot {
             store.fakeContexts = Dictionary(uniqueKeysWithValues: zip(sessions, [68_000, 126_000, 162_000, 188_000]).map { session, tokens in
                 (session.id, SessionContext(model: "claude-opus-5-5", input: tokens * 8 / 100, cacheRead: tokens * 71 / 100, cacheWrite: tokens - tokens * 79 / 100, window: 200_000, modelName: "Opus 5.5"))
             })
-            for _ in sessions { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
-            store.tabs = store.tabs.dropLast(sessions.count) + zip(store.tabs.suffix(sessions.count), sessions).map { Tab(id: $0.id, kind: .claude, cwd: $1.cwd, sessionID: $1.id, terminal: $0.terminal) }
+            let opened = sessions.suffix(2)
+            for _ in opened { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
+            store.tabs = store.tabs.dropLast(opened.count) + zip(store.tabs.suffix(opened.count), opened).map { Tab(id: $0.id, kind: .claude, cwd: $1.cwd, sessionID: $1.id, terminal: $0.terminal) }
             store.selectedTabID = store.tabs.last?.id
             store.refresh()
             await store.waitForScan()
