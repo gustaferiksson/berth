@@ -523,34 +523,71 @@ enum Snapshot {
                     key(shown.list, 125, "\u{F701}", [])
                     print("references \(spec) after ↓: \(describePeek(shown))")
                     save(".references-\(name)-down.png")
-                    key(shown.list, 53, "\u{1B}", [])
+                    let press = { (view: NSView, point: NSPoint, clicks: Int) in
+                        let location = view.convert(point, to: nil)
+                        let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
+                        event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
+                        event(.leftMouseDown).map(window.sendEvent)
+                    }
+                    let lastRow = NSPoint(x: shown.list.rect(ofRow: shown.list.numberOfRows - 1).midX, y: shown.list.rect(ofRow: shown.list.numberOfRows - 1).midY)
+                    press(shown.list, lastRow, 1)
+                    try? await Task.sleep(for: .milliseconds(300))
+                    print("references \(spec) after clicking the last row: \(describePeek(shown))")
+                    window.makeFirstResponder(descendants(shown).first { $0 is NSTextView })
+                    let previewResponder = window.firstResponder
+                    if let responder = previewResponder as? NSView { key(responder, 53, "\u{1B}", []) }
                     await waitForPeek(false)
-                    print("references \(spec) after Esc: peek \(peek() == nil ? "closed" : "open"), reserved \(views().map(\.reserved)), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+                    print("references \(spec) after Esc in \(previewResponder.map { "\(type(of: $0))" } ?? "nil"): peek \(peek() == nil ? "closed" : "open"), reserved \(views().map(\.reserved)), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
 
                     let numbers = spec.split(separator: ":").compactMap { Int($0) }
-                    if clicked === textView, numbers.count == 2 {
-                        window.makeFirstResponder(textView)
-                        textView.setSelectedRange(NSRange(location: textView.offset(of: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1)), length: 0))
-                        key(textView, 111, "\u{F70F}", .shift)
-                    } else if let item = menu?.items.first(where: { $0.title == "Find References" }), let action = item.action {
-                        NSApp.sendAction(action, to: item.target, from: item)
+                    let reopen = {
+                        guard let (textView, clicked, target) = locate(spec) else { return }
+                        let menu = NSEvent.mouseEvent(with: .rightMouseDown, location: clicked.convert(target, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1).flatMap(clicked.menu(for:))
+                        if clicked === textView, numbers.count == 2 {
+                            window.makeFirstResponder(textView)
+                            textView.setSelectedRange(NSRange(location: textView.offset(of: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1)), length: 0))
+                            key(textView, 111, "\u{F70F}", .shift)
+                        } else if let item = menu?.items.first(where: { $0.title == "Find References" }), let action = item.action {
+                            NSApp.sendAction(action, to: item.target, from: item)
+                        }
+                        await waitForPeek(true)
                     }
-                    await waitForPeek(true)
+                    await reopen()
                     guard let reopened = peek() else {
                         print("references \(spec): no peek after \(clicked === textView ? "⇧F12" : "the context menu")")
                         continue
                     }
                     print("references \(spec) after \(clicked === textView ? "⇧F12" : "the context menu's Find References"): \(describePeek(reopened))")
-                    key(reopened.list, 125, "\u{F701}", [])
-                    let chosen = reopened.selectedReference
-                    key(reopened.list, 36, "\r", [])
-                    let started = ContinuousClock.now
-                    while ContinuousClock.now - started < .seconds(10), model.reveal != nil || peek() != nil { try? await Task.sleep(for: .milliseconds(100)) }
-                    try? await Task.sleep(for: .seconds(1))
-                    let landed = window.firstResponder as? ReviewTextView
-                    let selection = landed?.selectedRange() ?? NSRange()
-                    print("references \(spec) after ↩ on \(chosen.map { "\($0.path):\($0.location.range.start.line + 1)\($0.isBase ? " (old)" : "")" } ?? "-"): peek \(peek() == nil ? "closed" : "open"), \(describe(model)), first responder \(landed.map { $0 === views().first ? "left" : "right" } ?? "-") at \(landed.map { "\($0.position(ofOffset: selection.location).line + 1):\($0.position(ofOffset: selection.location).character + 1) selecting \(($0.string as NSString).substring(with: selection).debugDescription)" } ?? "-"), clips \(clipYs())")
-                    save(".references-\(name)-opened.png")
+                    press(reopened, NSPoint(x: reopened.bounds.width - 18, y: 13), 1)
+                    await waitForPeek(false)
+                    print("references \(spec) after clicking ×: peek \(peek() == nil ? "closed" : "open"), reserved \(views().map(\.reserved))")
+
+                    let land = { (gesture: String, chosen: ReviewReference?) in
+                        let started = ContinuousClock.now
+                        while ContinuousClock.now - started < .seconds(10), model.reveal != nil || peek() != nil { try? await Task.sleep(for: .milliseconds(100)) }
+                        try? await Task.sleep(for: .seconds(1))
+                        let landed = window.firstResponder as? ReviewTextView ?? right()
+                        let selection = landed?.selectedRange() ?? NSRange()
+                        print("references \(spec) after \(gesture) on \(chosen.map { "\($0.path):\($0.location.range.start.line + 1)\($0.isBase ? " (old)" : "")" } ?? "-"): peek \(peek() == nil ? "closed" : "open"), reveal pending \(model.reveal != nil), \(describe(model)), first responder is a diff side \(window.firstResponder is ReviewTextView), \(landed.map { $0 === views().first ? "left" : "right" } ?? "-") selects \(landed.map { "\($0.position(ofOffset: selection.location).line + 1):\($0.position(ofOffset: selection.location).character + 1) \(($0.string as NSString).substring(with: selection).debugDescription)" } ?? "-"), clips \(clipYs())")
+                    }
+                    await reopen()
+                    if let again = peek() {
+                        key(again.list, 125, "\u{F701}", [])
+                        let chosen = again.selectedReference
+                        key(again.list, 36, "\r", [])
+                        await land("↩", chosen)
+                        save(".references-\(name)-opened.png")
+                    }
+                    if model.selectedDocument != file {
+                        model.open(file)
+                        try? await Task.sleep(for: .seconds(2))
+                    }
+                    await reopen()
+                    if let again = peek() {
+                        again.list.selectRowIndexes(IndexSet(integer: again.list.numberOfRows - 1), byExtendingSelection: false)
+                        again.list.doubleAction.map { NSApp.sendAction($0, to: again.list.target, from: again.list) }
+                        await land("the list's double-click action", again.selectedReference)
+                    }
                 }
             }
             if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last {
