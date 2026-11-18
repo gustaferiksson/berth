@@ -27,6 +27,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     }
     weak var gutter: ReviewGutter?
     let history = UndoManager()
+    var carets = CaretState()
     private(set) var layoutManagerRequests = 0
     private(set) var lineStarts = [0]
     private(set) var rowHeight: CGFloat = 15
@@ -115,6 +116,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
 
     override func mouseDown(with event: NSEvent) {
         dismissHover()
+        if caretMouseDown(event) { return }
         guard event.modifierFlags.contains(.command), onDefinition != nil, let target = pointerTarget(at: convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
         link = nil
         needsDisplay = true
@@ -369,7 +371,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         let end = line(atY: rect.maxY).flatMap { $0 + 1 < lineStarts.count ? lineStarts[$0 + 1] : nil } ?? textStorage?.length ?? 0
         let selection = selectedRange()
         style.foreground.withAlphaComponent(0.12).setFill()
-        for occurrence in occurrences[occurrences.partitioningIndex { NSMaxRange($0) > start }...].prefix(while: { $0.location < end }) where occurrence != selection {
+        for occurrence in occurrences[occurrences.partitioningIndex { NSMaxRange($0) > start }...].prefix(while: { $0.location < end }) where occurrence != selection && !carets.ranges.contains(occurrence) {
             for segment in segments(of: occurrence) where segment.rect.intersects(rect) {
                 NSBezierPath(roundedRect: segment.rect, xRadius: 2, yRadius: 2).fill()
             }
@@ -578,6 +580,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
             style.link.setFill()
             for segment in link.textView === self ? segments(of: link.range) : link.segments { NSRect(x: segment.rect.minX, y: segment.baseline + 2, width: segment.rect.width, height: 1).fill() }
         }
+        drawCarets(in: rect)
     }
 
     private func reloadParagraphs(changedFrom old: [Int: CGFloat]) {
