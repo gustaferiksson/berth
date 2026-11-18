@@ -289,13 +289,17 @@ private struct ReviewFileList: View {
             Section(isExpanded: expansion(of: "files")) {
                 OutlineGroup(model.tree, children: \.children) { node in
                     let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
-                    Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
-                        .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(node.path)
-                        .tag(ReviewDocument(path: node.path, compare: nil))
-                        .selectionDisabled(node.children != nil)
+                    ReviewRow(path: node.path, open: node.children != nil || status == .deleted ? nil : { model.open(ReviewDocument(path: node.path, compare: nil)) }) {
+                        Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
+                            .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } counts: {
+                        EmptyView()
+                    }
+                    .help(node.path)
+                    .tag(ReviewDocument(path: node.path, compare: nil))
+                    .selectionDisabled(node.children != nil)
                 }
             } header: {
                 GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }
@@ -319,14 +323,14 @@ private struct ReviewFileList: View {
     }
 
     private func fileRow(_ file: ReviewFile) -> some View {
-        HStack(spacing: 6) {
+        ReviewRow(path: file.path, open: file.status == .deleted ? nil : { model.open(ReviewDocument(path: file.path, compare: nil)) }) {
             Text(file.status.rawValue)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: 4)
+        } counts: {
             HStack(spacing: 6) {
                 if let additions = file.additions, additions > 0 {
                     Text("+\(additions)").foregroundStyle(theme.working)
@@ -436,6 +440,29 @@ private struct ReviewFileList: View {
         }
 
         terminal.requestFocus()
+    }
+}
+
+private struct ReviewRow<Content: View, Counts: View>: View {
+    let path: String
+    let open: (() -> Void)?
+    @ViewBuilder let content: Content
+    @ViewBuilder let counts: Counts
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            content
+            Spacer(minLength: 4)
+            if let open, isHovering || Snapshot.forcedHover.contains(path) {
+                Button("Open File", systemImage: "doc", action: open)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("Open File")
+            }
+            counts
+        }
+        .onHover { isHovering = $0 }
     }
 }
 
