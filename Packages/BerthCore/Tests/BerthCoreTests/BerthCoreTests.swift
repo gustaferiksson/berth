@@ -217,7 +217,7 @@ struct TranscriptTests {
         try handle.write(contentsOf: Data((toolLoop.joined(separator: "\n") + "\n").utf8))
         try handle.close()
         let known = try Date("2026-10-29T09:59:00.000Z", strategy: .iso8601)
-        #expect(Transcript.summary(of: url, after: (size: size, lastPrompt: known, branches: []))?.lastPrompt == known)
+        #expect(Transcript.summary(of: url, after: (size: size, lastPrompt: known, branches: [], context: nil))?.lastPrompt == known)
         #expect(Transcript.summary(of: url)?.lastPrompt == prompt)
     }
 

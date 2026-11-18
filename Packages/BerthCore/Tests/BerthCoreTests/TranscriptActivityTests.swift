@@ -135,9 +135,9 @@ struct TranscriptActivityTests {
 
     @Test func contextIsTheLastMainReplysPromptSize() throws {
         let catalog = Data(#"{"fetchedAt":2,"catalog":{"config":{"models":[{"id":"claude-test-1","runtime":{"max_input_tokens":4000}}]}}}"#.utf8)
-        let stale = Data(#"{"fetchedAt":1,"catalog":{"config":{"models":[{"id":"claude-test-1","runtime":{"max_input_tokens":9000}}]}}}"#.utf8)
-        #expect(TranscriptActivity.contextWindow(of: "claude-test-1", catalogs: [stale, catalog]) == 4000)
-        #expect(TranscriptActivity.contextWindow(of: "claude-other", catalogs: [catalog]) == nil)
+        let stale = Data(#"{"fetchedAt":1,"catalog":{"config":{"models":[{"id":"claude-test-1","name":"Test 1","runtime":{"max_input_tokens":9000}}]}}}"#.utf8)
+        #expect(TranscriptActivity.catalogModel("claude-test-1", catalogs: [stale, catalog]) == (4000, "Test 1"))
+        #expect(TranscriptActivity.catalogModel("claude-other", catalogs: [catalog]) == (nil, nil))
 
         let replies = activity(launches + [
             #"{"type":"assistant","isSidechain":true,"timestamp":"2026-11-01T10:02:50.000Z","message":{"model":"claude-test-1","content":[],"usage":{"input_tokens":99999}}}"#,
@@ -155,6 +155,27 @@ struct TranscriptActivityTests {
 
         let next = activity(launches + [boundary, #"{"type":"assistant","timestamp":"2026-11-01T10:06:00.000Z","message":{"model":"claude-test-1","content":[{"type":"text","text":"Hi"}],"usage":{"input_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":700}}}"#])
         #expect(next.context(window: 4000)?.tokens == 705 && next.context(window: 4000)?.lastCompaction != nil)
+    }
+
+    @Test func theScansTailContextMatchesTheActivitys() throws {
+        let head = Transcript.records(in: Data(#"{"type":"user","cwd":"/x","timestamp":"2026-11-01T09:59:00.000Z","message":{"content":"start"}}"#.utf8), dropFirst: false, dropLast: false)
+        let summary = { (lines: [String], earlier: SessionContext?) in
+            Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: Transcript.records(in: Data(lines.joined(separator: "\n").utf8), dropFirst: false, dropLast: false), earlierContext: earlier)?.context
+        }
+        let sidechain = #"{"type":"assistant","isSidechain":true,"timestamp":"2026-11-01T10:02:50.000Z","message":{"model":"claude-test-1","content":[],"usage":{"input_tokens":99999}}}"#
+        let synthetic = #"{"type":"assistant","timestamp":"2026-11-01T10:02:55.000Z","message":{"model":"<synthetic>","content":[],"usage":{"input_tokens":0}}}"#
+        let boundary = #"{"type":"system","subtype":"compact_boundary","timestamp":"2026-11-01T10:05:00.000Z"}"#
+        let reply = #"{"type":"assistant","timestamp":"2026-11-01T10:06:00.000Z","message":{"model":"claude-test-2","content":[{"type":"text","text":"Hi"}],"usage":{"input_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":700}}}"#
+
+        for lines in [launches + [sidechain, synthetic], launches + [boundary, reply]] {
+            let context = try #require(summary(lines, nil))
+            #expect(context.model == activity(lines).model && context.tokens == activity(lines).context(window: nil)?.tokens)
+        }
+        #expect(summary(launches + [sidechain, synthetic], nil) == SessionContext(model: "claude-test-1", input: 10, cacheRead: 3000, cacheWrite: 0))
+
+        let earlier = SessionContext(model: "claude-test-1", input: 1, cacheRead: 2, cacheWrite: 3)
+        #expect(summary(launches + [boundary], earlier) == nil && activity(launches + [boundary]).context(window: nil)?.tokens == nil)
+        #expect(summary([#"{"type":"ai-title","aiTitle":"Cards"}"#], earlier) == earlier)
     }
 
     @Test func transcriptMessagesDecodeWithAndWithoutActivity() throws {

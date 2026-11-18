@@ -5,6 +5,16 @@ public struct PullRequestChecks: Sendable, Hashable {
         case passed
         case failed
         case running
+
+        public init(_ state: String) {
+            if ["SUCCESS", "NEUTRAL", "SKIPPED", "COMPLETED"].contains(state) {
+                self = .passed
+            } else if ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"].contains(state) {
+                self = .failed
+            } else {
+                self = .running
+            }
+        }
     }
 
     public let state: State
@@ -68,15 +78,9 @@ public struct PullRequestDetail: Sendable, Hashable {
     public static func parse(_ output: Data) -> PullRequestDetail? {
         guard let pullRequest = (try? JSONDecoder().decode(Response.self, from: output))?.data?.repository?.pullRequest else { return nil }
 
-        let state = { (state: String) -> PullRequestChecks.State in
-            if ["SUCCESS", "NEUTRAL", "SKIPPED", "COMPLETED"].contains(state) { return .passed }
-            if ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE"].contains(state) { return .failed }
-            return .running
-        }
-
         let checks = pullRequest.statusCheckRollup.map { rollup in
-            let counts = Dictionary(grouping: (rollup.contexts.checkRunCountsByState ?? []) + (rollup.contexts.statusContextCountsByState ?? []), by: { state($0.state) }).mapValues { $0.reduce(0) { $0 + $1.count } }
-            return PullRequestChecks(state: state(rollup.state), passed: counts[.passed] ?? 0, failed: counts[.failed] ?? 0, running: counts[.running] ?? 0)
+            let counts = Dictionary(grouping: (rollup.contexts.checkRunCountsByState ?? []) + (rollup.contexts.statusContextCountsByState ?? []), by: { PullRequestChecks.State($0.state) }).mapValues { $0.reduce(0) { $0 + $1.count } }
+            return PullRequestChecks(state: PullRequestChecks.State(rollup.state), passed: counts[.passed] ?? 0, failed: counts[.failed] ?? 0, running: counts[.running] ?? 0)
         }
 
         return PullRequestDetail(checks: checks, unresolvedThreads: pullRequest.reviewThreads.nodes.filter { $0?.isResolved == false }.count)
