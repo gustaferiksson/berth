@@ -23,11 +23,6 @@ enum ReviewDiffLayout: String {
     static let key = "reviewDiffLayout"
 }
 
-enum ReviewList: Hashable {
-    case changes
-    case files
-}
-
 @Observable
 final class ReviewModel {
     let folder: String
@@ -41,7 +36,6 @@ final class ReviewModel {
     private(set) var language: ReviewLanguage?
     private(set) var tabs: [ReviewTab] = []
     var selectedTabID: UUID?
-    var list = ReviewList.changes
     var reveal: (document: ReviewDocument, range: LanguageServerRange)?
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
@@ -213,6 +207,7 @@ private struct ReviewFileList: View {
     @Bindable var model: ReviewModel
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
+    @AppStorage("collapsedReviewSections") private var collapsedSections = "files"
 
     var body: some View {
         content
@@ -236,21 +231,7 @@ private struct ReviewFileList: View {
                         .padding(.horizontal, 10)
                         .padding(.bottom, 6)
                 }
-                Picker("List", selection: $model.list) {
-                    Text("Changes").tag(ReviewList.changes)
-                    Text("Files").tag(ReviewList.files)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 10)
-                .padding(.bottom, 4)
-                Group {
-                    if model.list == .files {
-                        filesList(changes)
-                    } else {
-                        changesList(changes)
-                    }
-                }
+                list(changes)
                 .listStyle(.sidebar)
                 .environment(\.sidebarRowSize, .small)
                 .scrollContentBackground(.hidden)
@@ -278,64 +259,63 @@ private struct ReviewFileList: View {
         }
     }
 
-    private func changesList(_ changes: ReviewChanges) -> some View {
-        List(selection: Binding(get: { model.selectedDocument }, set: { $0.map(model.open) })) {
+    private func list(_ changes: ReviewChanges) -> some View {
+        List(selection: Binding(get: { model.selectedDocument }, set: { $0.map { model.open($0.compare == nil ? model.workingDocument($0.path) : $0) } })) {
             if changes.uncommitted.isEmpty, changes.committed.isEmpty {
                 Text(changes.isDefaultBranch || changes.base == nil ? "No uncommitted changes on \(changes.branch)" : "No changes, \(changes.branch) matches \(changes.base ?? "")")
                     .foregroundStyle(theme.secondary)
             }
             if !changes.uncommitted.isEmpty {
-                Section {
+                Section(isExpanded: expansion(of: "uncommitted")) {
                     ForEach(changes.uncommitted, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .uncommitted)) }
                 } header: {
-                    sectionHeader("Uncommitted", count: changes.uncommitted.count, detail: "+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
+                    GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count, menu: { EmptyView() }) { _ in
+                        Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
+                            .monospacedDigit()
+                            .foregroundStyle(theme.secondary)
+                    }
                 }
             }
             if !changes.committed.isEmpty {
-                Section {
+                Section(isExpanded: expansion(of: "committed")) {
                     ForEach(changes.committed, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .committed)) }
                 } header: {
-                    sectionHeader("Committed", count: changes.committed.count, detail: model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
+                    GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count, menu: { EmptyView() }) { _ in
+                        Text(model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
+                            .foregroundStyle(theme.secondary)
+                    }
                 }
+            }
+            Section(isExpanded: expansion(of: "files")) {
+                OutlineGroup(model.tree, children: \.children) { node in
+                    let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
+                    Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
+                        .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(node.path)
+                        .tag(ReviewDocument(path: node.path, compare: nil))
+                        .selectionDisabled(node.children != nil)
+                }
+            } header: {
+                GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }
             }
         }
         .contextMenu(forSelectionType: ReviewDocument.self) { _ in
         } primaryAction: { documents in
             guard let document = documents.first else { return }
-            model.open(document)
+            model.open(document.compare == nil ? model.workingDocument(document.path) : document)
             model.selectedTabID.map(model.keep)
         }
     }
 
-    private func filesList(_ changes: ReviewChanges) -> some View {
-        List(model.tree, children: \.children, selection: Binding(get: { model.selectedDocument.flatMap { $0.compare == .committed ? nil : $0.path } }, set: { $0.map { model.open(model.workingDocument($0)) } })) { node in
-            let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
-            Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
-                .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(node.path)
-                .selectionDisabled(node.children != nil)
+    private func expansion(of id: String) -> Binding<Bool> {
+        Binding {
+            !collapsedSections.split(separator: ",").contains { $0 == id }
+        } set: { expanded in
+            let others = collapsedSections.split(separator: ",").filter { $0 != id }.map(String.init)
+            collapsedSections = (expanded ? others : others + [id]).joined(separator: ",")
         }
-        .contextMenu(forSelectionType: String.self) { _ in
-        } primaryAction: { paths in
-            guard let path = paths.first else { return }
-            model.open(model.workingDocument(path))
-            model.selectedTabID.map(model.keep)
-        }
-    }
-
-    private func sectionHeader(_ title: String, count: Int, detail: String) -> some View {
-        HStack(spacing: 4) {
-            Text(title)
-            Text("\(count)")
-                .foregroundStyle(theme.secondary)
-            Spacer(minLength: 4)
-            Text(detail)
-                .foregroundStyle(theme.secondary)
-        }
-        .monospacedDigit()
-        .padding(.trailing, 12)
     }
 
     private func fileRow(_ file: ReviewFile) -> some View {
