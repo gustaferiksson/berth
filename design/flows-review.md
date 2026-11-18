@@ -82,7 +82,8 @@ This is the slim first version; the rest is listed under Later.
   dropping its forward history, so back and forward walk that tab's history. A document already
   open in a tab selects that tab. Double-clicking the row or the tab, or editing the file, keeps
   it (regular title); opening from a kept tab then starts a new preview tab after it. Closing a
-  tab selects its neighbour; closing the last collapses the column. Refresh keeps each history
+  tab selects its neighbour and, when it was the current tab, focuses the neighbour's right side;
+  closing the last collapses the column. Refresh keeps each history
   entry still listed in its compare, turns one that isn't into the plain file while the file
   exists, else drops it; a tab whose current entry is dropped closes.
 - A document is a path and a compare (`ReviewDocument`, `nil` for the plain file). Uncommitted

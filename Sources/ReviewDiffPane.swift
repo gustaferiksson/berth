@@ -12,6 +12,7 @@ struct ReviewDiffPane: View {
     let language: ReviewLanguage?
     let reveal: LanguageServerRange?
     let isUnified: Bool
+    let takesFocus: Bool
     let onRevealed: () -> Void
     let onDefinition: (LanguageServerLocation) -> Void
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
@@ -46,6 +47,7 @@ struct ReviewDiffPane: View {
                 diagnostics: contents.modified == nil ? [] : language?.diagnostics(for: path) ?? [],
                 reveal: reveal,
                 isUnified: isUnified,
+                takesFocus: takesFocus,
                 onRevealed: onRevealed,
                 onDefinition: onDefinition,
                 onEdit: { draft = $0 == loaded ? nil : $0 }
@@ -114,6 +116,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let diagnostics: [LanguageServerDiagnostic]
     let reveal: LanguageServerRange?
     let isUnified: Bool
+    let takesFocus: Bool
     let onRevealed: () -> Void
     let onDefinition: (LanguageServerLocation) -> Void
     let onEdit: (String) -> Void
@@ -157,6 +160,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         coordinator.right.dismissHover()
         coordinator.right.onHover = nil
         coordinator.right.onDefinition = nil
+        coordinator.right.focusesInWindow = false
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -277,6 +281,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             }
 
             right.diagnostics = view.diagnostics
+            if view.takesFocus { right.focusesInWindow = true }
             right.onHover = view.language == nil ? nil : { [weak self] offset in await self?.hover(at: offset) }
             right.onDefinition = view.language == nil ? nil : { [weak self] offset in self?.definition(at: offset) }
             if let reveal = view.reveal, applied?.modified == loadedModified {

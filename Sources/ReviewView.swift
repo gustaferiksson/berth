@@ -38,6 +38,7 @@ final class ReviewModel {
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
     var notice: String?
+    var focusesEditor = false
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
 
@@ -656,10 +657,12 @@ struct ReviewDiffColumn: View {
                         language: areLanguageServersEnabled && !isCommitted ? model.language : nil,
                         reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
                         isUnified: isUnified || document.compare == nil,
+                        takesFocus: model.focusesEditor,
                         onRevealed: { model.reveal = nil },
                         onDefinition: model.goToDefinition
                     )
                     .id(document)
+                    .task(id: model.focusesEditor) { model.focusesEditor = false }
                 } else {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)

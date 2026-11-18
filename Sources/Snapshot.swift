@@ -757,7 +757,7 @@ enum Snapshot {
                     func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
                     let right = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last
                     if let right, spec != "files", spec != "changes" { window.makeFirstResponder(right) }
-                    print("\(spec) (\(target.count == 3 ? "\(target[0] == "dbl" ? "double-clicks" : "clicks") that row" : spec == "keep" ? "double-clicks the current tab" : spec == "refresh" ? "reloads Review" : spec.hasPrefix("file") ? "clicks that Changes row" : spec), then focuses the diff's right side): right side editable \(right?.isEditable == true), left shown \(right?.unifiedOriginal == nil), the path's editor \(right.map { right in model.editors.values.contains { $0 === right } } ?? false), language \(right?.onDefinition != nil)\n  \(state())")
+                    print("\(spec) (\(target.count == 3 ? "\(target[0] == "dbl" ? "double-clicks" : "clicks") that row" : spec == "keep" ? "double-clicks the current tab" : spec == "refresh" ? "reloads Review" : Int(spec.dropFirst(4)) != nil ? "clicks that Changes row" : spec), then focuses the diff's right side): right side editable \(right?.isEditable == true), left shown \(right?.unifiedOriginal == nil), the path's editor \(right.map { right in model.editors.values.contains { $0 === right } } ?? false), language \(right?.onDefinition != nil)\n  \(state())")
                     continue
                 }
                 let parts = spec.split(separator: "+").map(String.init)

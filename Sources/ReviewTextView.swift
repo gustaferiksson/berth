@@ -19,6 +19,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     }
     var onHover: ((Int) async -> String?)?
     var onDefinition: ((Int) -> Void)?
+    var focusesInWindow = false {
+        didSet { if focusesInWindow, window != nil { focusInWindow() } }
+    }
     weak var gutter: ReviewGutter?
     let history = UndoManager()
     private(set) var layoutManagerRequests = 0
@@ -63,6 +66,12 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if !trackingAreas.contains(pointerTracking) { addTrackingArea(pointerTracking) }
+        if focusesInWindow, window != nil { focusInWindow() }
+    }
+
+    private func focusInWindow() {
+        focusesInWindow = false
+        DispatchQueue.main.async { [weak self] in self.map { $0.window?.makeFirstResponder($0) } }
     }
 
     override func mouseMoved(with event: NSEvent) {
