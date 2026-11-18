@@ -15,6 +15,11 @@ struct BerthApp: App {
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
 
     init() {
+        // Restyling a SwiftUI List's scroll view afterwards re-tiles it inside a SwiftUI update, which crashes outline lists.
+        var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        arguments["AppleShowScrollBars"] = "WhenScrolling"
+        UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+
         guard Snapshot.output != nil, UserDefaults.standard.string(forKey: "snapshotReview") != nil else { return }
         UserDefaults.standard.register(defaults: [GeneralSettings.reviewKey: true])
     }
@@ -162,9 +167,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let responder = event.window?.firstResponder as? NSView
             let ancestors = responder.map { Array(sequence(first: $0, next: \.superview)) } ?? []
             if flags == .command, event.charactersIgnoringModifiers == "f", ancestors.contains(where: { $0 is NSHostingView<ReviewDiffColumn> }) {
+                let textView = ancestors.lazy.compactMap { $0 as? ReviewTextView }.first
+                if let textView, textView.selectedRanges.count == 1, textView.selectedRange().length > 0, textView.textStorage?.mutableString.rangeOfCharacter(from: .newlines, options: [], range: textView.selectedRange()).location == NSNotFound {
+                    let setSearchString = NSMenuItem()
+                    setSearchString.tag = NSTextFinder.Action.setSearchString.rawValue
+                    textView.performTextFinderAction(setSearchString)
+                }
                 let showFindInterface = NSMenuItem()
                 showFindInterface.tag = NSTextFinder.Action.showFindInterface.rawValue
-                ancestors.lazy.compactMap { $0 as? ReviewTextView }.first?.performTextFinderAction(showFindInterface)
+                textView?.performTextFinderAction(showFindInterface)
                 return nil
             }
             if flags == .command, event.charactersIgnoringModifiers == "w", store.reviewModel?.selectedTab != nil, !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {

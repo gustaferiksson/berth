@@ -14,6 +14,11 @@ public struct LanguageServerRange: Sendable, Hashable {
     public let start: LanguageServerPosition
     public let end: LanguageServerPosition
 
+    public init(start: LanguageServerPosition, end: LanguageServerPosition) {
+        self.start = start
+        self.end = end
+    }
+
     init?(json: Any?) {
         guard let range = json as? [String: Any],
               let start = range["start"] as? [String: Any], let startLine = start["line"] as? Int, let startCharacter = start["character"] as? Int,
@@ -27,6 +32,11 @@ public struct LanguageServerRange: Sendable, Hashable {
 public struct LanguageServerLocation: Sendable, Hashable {
     public let url: URL
     public let range: LanguageServerRange
+
+    public init(url: URL, range: LanguageServerRange) {
+        self.url = url
+        self.range = range
+    }
 }
 
 public struct LanguageServerHover: Sendable, Hashable {
@@ -153,6 +163,7 @@ public actor LanguageServer {
             "textDocument": [
                 "synchronization": ["dynamicRegistration": false],
                 "definition": ["linkSupport": true],
+                "references": ["dynamicRegistration": false],
                 "hover": ["contentFormat": ["markdown", "plaintext"]],
                 "publishDiagnostics": ["versionSupport": true],
             ],
@@ -208,6 +219,19 @@ public actor LanguageServer {
             guard let uri = (item["targetUri"] ?? item["uri"]) as? String, let url = URL(string: uri),
                   let range = LanguageServerRange(json: item["targetSelectionRange"] ?? item["range"])
             else { return nil }
+            return LanguageServerLocation(url: url, range: range)
+        }
+    }
+
+    public func references(in url: URL, at position: LanguageServerPosition) async throws -> [LanguageServerLocation] {
+        let result = try await request("textDocument/references", [
+            "textDocument": ["uri": url.absoluteString],
+            "position": ["line": position.line, "character": position.character],
+            "context": ["includeDeclaration": true],
+        ])
+
+        return (result as? [[String: Any]] ?? []).compactMap { item in
+            guard let uri = item["uri"] as? String, let url = URL(string: uri), let range = LanguageServerRange(json: item["range"]) else { return nil }
             return LanguageServerLocation(url: url, range: range)
         }
     }

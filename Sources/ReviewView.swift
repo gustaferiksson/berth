@@ -181,9 +181,16 @@ final class ReviewModel {
         guard let root = changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root) else { return }
 
         let path = String(target.dropFirst(root.count))
-        let document = selectedDocument.flatMap { $0.path == path ? $0 : nil } ?? workingDocument(path)
+        let isReadOnly = selectedDocument?.compare == .committed && changes?.uncommitted.contains { $0.path == path } != false
+        let document = selectedDocument.flatMap { $0.path == path && !isReadOnly ? $0 : nil } ?? workingDocument(path)
         reveal = (document, location.range)
         open(document)
+    }
+
+    func workingText(_ path: String) -> String? {
+        if let editor = editors[path] { return editor.string }
+        guard let root = changes?.root, case let .text(text)? = try? ReviewGit.workingTreeText(path, in: root) else { return nil }
+        return text
     }
 
     func save(_ text: String, to path: String) {
@@ -320,7 +327,6 @@ private struct ReviewFileList: View {
             .listStyle(.sidebar)
             .environment(\.sidebarRowSize, .small)
             .scrollContentBackground(.hidden)
-            .background(OverlayScroller())
     }
 
     @ViewBuilder
@@ -337,6 +343,7 @@ private struct ReviewFileList: View {
                     Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
                         .monospacedDigit()
                         .foregroundStyle(theme.secondary)
+                        .padding(.trailing, 6)
                 }
             }
         }
@@ -356,15 +363,11 @@ private struct ReviewFileList: View {
         Section(isExpanded: expansion(of: "files")) {
             OutlineGroup(model.tree, children: \.children) { node in
                 let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
-                let row = ReviewRow(path: node.path, open: node.children != nil || status == .deleted ? nil : { model.open(ReviewDocument(path: node.path, compare: nil)) }) {
-                    Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
-                        .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } counts: {
-                    EmptyView()
-                }
-                .help(node.path)
+                let row = Label(node.name, systemImage: node.children == nil ? "doc" : "folder")
+                    .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(node.path)
                 if node.children == nil {
                     row.tag(ReviewDocument(path: node.path, compare: nil))
                 } else {
@@ -386,14 +389,14 @@ private struct ReviewFileList: View {
     }
 
     private func fileRow(_ file: ReviewFile) -> some View {
-        ReviewRow(path: file.path, open: file.status == .deleted ? nil : { model.open(ReviewDocument(path: file.path, compare: nil)) }) {
+        HStack(spacing: 6) {
             Text(file.status.rawValue)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
-        } counts: {
+            Spacer(minLength: 4)
             HStack(spacing: 6) {
                 if let additions = file.additions, additions > 0 {
                     Text("+\(additions)").foregroundStyle(theme.working)
@@ -403,6 +406,16 @@ private struct ReviewFileList: View {
                 }
             }
             .fixedSize()
+            ZStack {
+                if file.status != .deleted {
+                    Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(theme.secondary)
+                        .help("Open File")
+                }
+            }
+            .frame(width: 16, alignment: .trailing)
         }
         .font(.callout)
         .monospacedDigit()
@@ -600,29 +613,6 @@ private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
 
     func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
         layout == .split ? proposedEffectiveRect.insetBy(dx: 0, dy: -3) : .zero
-    }
-}
-
-private struct ReviewRow<Content: View, Counts: View>: View {
-    let path: String
-    let open: (() -> Void)?
-    @ViewBuilder let content: Content
-    @ViewBuilder let counts: Counts
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            content
-            Spacer(minLength: 4)
-            if let open, isHovering || Snapshot.forcedHover.contains(path) {
-                Button("Open File", systemImage: "doc", action: open)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help("Open File")
-            }
-            counts
-        }
-        .onHover { isHovering = $0 }
     }
 }
 
@@ -855,12 +845,13 @@ struct ReviewDiffColumn: View {
                             }),
                             comments: Bindable(model).comments,
                             style: style,
-                            language: areLanguageServersEnabled && !isReadOnly ? model.language : nil,
+                            language: areLanguageServersEnabled ? model.language : nil,
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
                             isUnified: isUnified || document.compare == nil,
                             takesFocus: model.focusesEditor,
                             onRevealed: { model.reveal = nil },
-                            onDefinition: model.goToDefinition
+                            onDefinition: model.goToDefinition,
+                            workingText: { model.workingText(path) }
                         )
                         .id(document)
                         .id(isReadOnly)

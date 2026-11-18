@@ -34,8 +34,18 @@ final class ReviewMinimap: NSView {
         let image = image ?? render(scale: mapping.scale)
         self.image = image
         image?.draw(in: NSRect(x: 0, y: -mapping.clip.minY * (mapping.scale - mapping.slope), width: bounds.width, height: image?.size.height ?? 0), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        drawOccurrences(mapping: mapping)
         modified.style.foreground.withAlphaComponent(0.1).setFill()
         NSRect(x: 0, y: mapping.clip.minY * mapping.slope, width: bounds.width, height: mapping.clip.height * mapping.scale).fill(using: .sourceOver)
+    }
+
+    private func drawOccurrences(mapping: (scale: CGFloat, slope: CGFloat, clip: NSRect)) {
+        guard let modified, let context = NSGraphicsContext.current?.cgContext else { return }
+
+        context.setFillColor(modified.style.foreground.withAlphaComponent(0.3).cgColor)
+        for textView in [original, modified].compactMap(\.self) where !textView.isHiddenOrHasHiddenAncestor {
+            context.fill(textView.occurrenceRows.map { NSRect(x: 0, y: textView.top(ofRow: $0) * mapping.scale - mapping.clip.minY * (mapping.scale - mapping.slope), width: bounds.width, height: max(textView.rowHeight * mapping.scale, 1)) })
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -129,6 +139,7 @@ final class ReviewOverviewRuler: NSView {
         NSRect(x: 0, y: 0, width: 1 / (window?.backingScaleFactor ?? 2), height: bounds.height).fill()
 
         let factor = bounds.height / modified.frame.height
+        drawOccurrences(factor: factor)
         for (lane, rows, color) in [(0, original.changedRows, modified.style.removedWord), (1, modified.changedRows, modified.style.addedWord)] {
             color.withAlphaComponent(1).setFill()
             for range in rows.rangeView {
@@ -139,6 +150,15 @@ final class ReviewOverviewRuler: NSView {
         }
         modified.style.foreground.withAlphaComponent(0.12).setFill()
         NSRect(x: 0, y: clip.minY * factor, width: bounds.width, height: max(clip.height * factor, 4)).fill(using: .sourceOver)
+    }
+
+    private func drawOccurrences(factor: CGFloat) {
+        guard let modified, let context = NSGraphicsContext.current?.cgContext else { return }
+
+        context.setFillColor(modified.style.foreground.withAlphaComponent(0.55).cgColor)
+        for textView in [original, modified].compactMap(\.self) where !textView.isHiddenOrHasHiddenAncestor {
+            context.fill(textView.occurrenceRows.map { NSRect(x: 1.5, y: textView.top(ofRow: $0) * factor, width: bounds.width - 2, height: 2) })
+        }
     }
 
     override func mouseDown(with event: NSEvent) {

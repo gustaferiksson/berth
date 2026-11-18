@@ -44,14 +44,24 @@ final class ReviewLanguage {
         for key in keys { _ = await send(path, text: text, to: key) }
     }
 
-    func hover(_ path: String, text: String, at position: LanguageServerPosition) async -> String? {
-        let url = URL(filePath: root).appending(path: path)
-        return await ask(path, text: text) { try await $0.hover(in: url, at: position)?.markdown }
+    func hover(_ path: String, text: String, base: ReviewLanguageBase? = nil, at position: LanguageServerPosition) async -> String? {
+        await ask(path, text: text, base: base) { try await $0.hover(in: $1, at: position)?.markdown }
     }
 
-    func definition(_ path: String, text: String, at position: LanguageServerPosition) async -> LanguageServerLocation? {
+    func definition(_ path: String, text: String, base: ReviewLanguageBase? = nil, at position: LanguageServerPosition) async -> LanguageServerLocation? {
+        await ask(path, text: text, base: base) { try await $0.definition(in: $1, at: position).first }
+    }
+
+    func references(_ path: String, text: String, base: ReviewLanguageBase? = nil, at position: LanguageServerPosition) async -> [LanguageServerLocation]? {
+        await ask(path, text: text, base: base) { server, url in
+            let references = try await server.references(in: url, at: position)
+            return references.isEmpty ? nil : references
+        }
+    }
+
+    func base(of path: String, text: String) -> ReviewLanguageBase {
         let url = URL(filePath: root).appending(path: path)
-        return await ask(path, text: text) { try await $0.definition(in: url, at: position).first }
+        return ReviewLanguageBase(url: url.deletingLastPathComponent().appending(path: ".berth-\(UUID().uuidString.prefix(8))-\(url.lastPathComponent)"), text: text)
     }
 
     func stop() {
@@ -84,7 +94,7 @@ final class ReviewLanguage {
             }
 
             Task { [weak self] in
-                for await update in server.diagnostics where self?.servers[key] != nil {
+                for await update in server.diagnostics where self?.servers[key] != nil && !update.url.lastPathComponent.hasPrefix(".berth-") {
                     self?.published[key, default: [:]][update.url.resolvingSymlinksInPath().path] = update.diagnostics.map { diagnostic in
                         var labelled = diagnostic
                         labelled.source = diagnostic.source ?? key.server.name
@@ -114,26 +124,36 @@ final class ReviewLanguage {
         return running
     }
 
-    private func ask<Answer>(_ path: String, text: String, _ question: (LanguageServer) async throws -> Answer?) async -> Answer? {
+    private func ask<Answer>(_ path: String, text: String, base: ReviewLanguageBase?, _ question: (LanguageServer, URL) async throws -> Answer?) async -> Answer? {
         let configured = LanguageServerEntry.configured(UserDefaults.standard.string(forKey: LanguageServerEntry.storageKey)).filter { $0.isEnabled && !$0.isDiagnosticsOnly }
+        let url = base?.url ?? URL(filePath: root).appending(path: path)
 
         for key in keys(for: path, among: configured) {
             guard let running = await send(path, text: text, to: key) else { continue }
 
+            if let base { try? await running.server.open(base.url, languageID: LanguageServers.languageID(forFile: path), text: base.text) }
+            var answer: Answer?
             attempts: for attempt in 0..<2 {
                 if attempt > 0 { try? await Task.sleep(for: .milliseconds(500)) }
-                guard !Task.isCancelled else { return nil }
+                guard !Task.isCancelled else { break attempts }
 
                 do {
-                    if let answer = try await question(running.server) { return answer }
-                    guard ContinuousClock.now - running.startedAt < .seconds(10) else { break attempts }
+                    answer = try await question(running.server, url)
+                    if answer != nil || ContinuousClock.now - running.startedAt >= .seconds(10) { break attempts }
                 } catch let LanguageServerError.response(code, _) where code == -32801 {
                     continue
                 } catch {
                     break attempts
                 }
             }
+            if base != nil { try? await running.server.close(url) }
+            if answer != nil || Task.isCancelled { return answer }
         }
         return nil
     }
+}
+
+struct ReviewLanguageBase {
+    let url: URL
+    let text: String
 }
