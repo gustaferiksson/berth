@@ -15,6 +15,7 @@ struct ReviewDiffPane: View {
     let takesFocus: Bool
     let onRevealed: () -> Void
     let onDefinition: (LanguageServerLocation) -> Void
+    let workingText: () -> String?
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
     @AppStorage("reviewSplitRatio") private var splitRatio = 0.5
@@ -45,13 +46,14 @@ struct ReviewDiffPane: View {
                 showsMinimap: showsMinimap,
                 comments: $comments,
                 language: contents.modified == nil ? nil : language,
-                diagnostics: contents.modified == nil ? [] : language?.diagnostics(for: path) ?? [],
+                diagnostics: contents.modified == nil || editor == nil && compare == .committed ? [] : language?.diagnostics(for: path) ?? [],
                 reveal: reveal,
                 isUnified: isUnified,
                 splitRatio: splitRatio,
                 takesFocus: takesFocus,
                 onRevealed: onRevealed,
                 onDefinition: onDefinition,
+                workingText: workingText,
                 onEdit: { draft = $0 == loaded ? nil : $0 },
                 onSplit: { splitRatio = $0 }
             )
@@ -63,10 +65,10 @@ struct ReviewDiffPane: View {
                 let computed = await Task.detached { ReviewDiffAnalysis(original: original, modified: modified, base: base, path: path) }.value
                 guard !Task.isCancelled else { return }
                 analysis = computed
-                if contents.modified != nil { await language?.sync(path, text: modified) }
+                if contents.modified != nil, let text = editor == nil && compare == .committed ? workingText() : modified { await language?.sync(path, text: text) }
             }
             .onChange(of: language == nil) {
-                Task { if contents.modified != nil { await language?.sync(path, text: modified) } }
+                Task { if contents.modified != nil, let text = editor == nil && compare == .committed ? workingText() : modified { await language?.sync(path, text: text) } }
             }
         }
     }
@@ -124,6 +126,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let takesFocus: Bool
     let onRevealed: () -> Void
     let onDefinition: (LanguageServerLocation) -> Void
+    let workingText: () -> String?
     let onEdit: (String) -> Void
     let onSplit: (Double) -> Void
 
@@ -159,7 +162,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ stack: NSStackView, coordinator: Coordinator) {
-        (Array(coordinator.cards.values) + [coordinator.draft?.view].compactMap(\.self)).forEach { $0.removeFromSuperview() }
+        (Array(coordinator.cards.values) + [coordinator.draft?.view, coordinator.peek?.view].compactMap(\.self)).forEach { $0.removeFromSuperview() }
         guard coordinator.right.delegate === coordinator else { return }
         coordinator.right.selectedLines = nil
         coordinator.right.unifiedOriginal = nil
@@ -168,6 +171,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         coordinator.right.dismissHover()
         coordinator.right.onHover = nil
         coordinator.right.onDefinition = nil
+        coordinator.right.onReferences = nil
         coordinator.right.focusesInWindow = false
     }
 
@@ -184,6 +188,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         private var applied: ReviewDiffAnalysis?
         var cards: [String: ReviewInlineComment] = [:]
         var draft: (view: ReviewInlineComment, numbered: ReviewTextView, line: Int)?
+        var peek: (view: ReviewReferencesPeek, numbered: ReviewTextView, line: Int)?
 
         init(right: ReviewTextView) {
             self.right = right
@@ -214,6 +219,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             textView.isAutomaticSpellingCorrectionEnabled = false
             textView.isContinuousSpellCheckingEnabled = false
             textView.isAutomaticTextCompletionEnabled = false
+            textView.writingToolsBehavior = .none
             textView.isHorizontallyResizable = true
             textView.isVerticallyResizable = true
             textView.autoresizingMask = [.width]
@@ -266,6 +272,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 left.syntaxRuns = []
                 applied = nil
             }
+            if isOriginalChanged || isModifiedChanged { closePeek() }
             if isModifiedChanged {
                 loadedModified = view.modified
                 right.string = view.modified
@@ -303,33 +310,28 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
             right.diagnostics = view.diagnostics
             if view.takesFocus { right.focusesInWindow = true }
-            right.onHover = view.language == nil ? nil : { [weak self] offset in await self?.hover(at: offset) }
-            right.onDefinition = view.language == nil ? nil : { [weak self] offset in self?.definition(at: offset) }
+            for textView in [left, right] {
+                textView.onHover = view.language == nil ? nil : { [weak self, weak textView] offset in
+                    guard let textView else { return nil }
+                    return await self?.hover(in: textView, at: offset)
+                }
+                textView.onDefinition = view.language == nil ? nil : { [weak self, weak textView] offset in
+                    if let textView { self?.definition(in: textView, at: offset) }
+                }
+                textView.onReferences = view.language == nil ? nil : { [weak self, weak textView] offset in
+                    if let textView { self?.references(in: textView, at: offset) }
+                }
+            }
             if let reveal = view.reveal, applied?.modified == loadedModified {
                 right.reveal(NSRange(location: right.offset(of: reveal.start), length: max(right.offset(of: reveal.end) - right.offset(of: reveal.start), 0)))
                 Task { view.onRevealed() }
             }
         }
 
-        private func hover(at offset: Int) async -> String? {
-            guard let parent, let language = parent.language else { return nil }
-            return await language.hover(parent.path, text: right.string, at: right.position(ofOffset: offset))
-        }
-
-        private func definition(at offset: Int) {
-            guard let parent, let language = parent.language else { return }
-
-            let text = right.string
-            let position = right.position(ofOffset: offset)
-            Task {
-                guard let location = await language.definition(parent.path, text: text, at: position) else { return }
-                parent.onDefinition(location)
-            }
-        }
-
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? ReviewTextView, textView === right else { return }
             loadedModified = textView.string
+            closePeek()
             parent?.onEdit(textView.string)
         }
 
@@ -342,6 +344,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         @objc private func clipViewDidScroll(_ notification: Notification) {
+            left.dismissHover()
             right.dismissHover()
             left.gutter?.needsDisplay = true
             right.gutter?.needsDisplay = true
@@ -408,7 +411,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 cards[id] = nil
             }
             let isUnified = right.unifiedOriginal != nil
-            var placed: [(view: ReviewInlineComment, owner: ReviewTextView, row: Int)] = []
+            var placed: [(view: NSView, owner: ReviewTextView, row: Int)] = []
             for comment in comments {
                 let numbered = comment.side == .original ? left : right
                 let owner = isUnified ? right : numbered
@@ -425,11 +428,16 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 if draft.view.superview !== owner { owner.addSubview(draft.view) }
                 placed.append((draft.view, owner, rows[draft.line]))
             }
+            if let peek, let rows = peek.numbered.side?.rows, rows.indices.contains(peek.line) {
+                let owner = isUnified ? right : peek.numbered
+                if peek.view.superview !== owner { owner.addSubview(peek.view) }
+                placed.append((peek.view, owner, rows[peek.line]))
+            }
 
             let inset: CGFloat = 6
             let indent = right.textContainerOrigin.x + (right.textContainer?.lineFragmentPadding ?? 0)
             let widths = placed.map { max(($0.owner.enclosingScrollView?.contentView.bounds.width ?? 0) - indent - 2 * inset, 120) }
-            let heights = zip(placed, widths).map { $0.view.fittingHeight(forWidth: $1) }
+            let heights = zip(placed, widths).map { ($0.view as? ReviewInlineComment)?.fittingHeight(forWidth: $1) ?? ReviewReferencesPeek.height }
             var reserved: [Int: CGFloat] = [:]
             for (item, height) in zip(placed, heights) { reserved[item.row, default: 0] += height + inset * 2 }
             reserved = reserved.mapValues { $0.rounded(.up) }
@@ -509,6 +517,124 @@ private final class ReviewSplitView: NSSplitView {
         let width = subviews[0].frame.width
         super.mouseDown(with: event)
         if subviews[0].frame.width != width { onDrag(subviews[0].frame.width / (bounds.width - dividerThickness)) }
+    }
+}
+
+extension ReviewDiffViews.Coordinator {
+    private struct Question {
+        let language: ReviewLanguage
+        let path: String
+        let working: String
+        let base: ReviewLanguageBase?
+        let position: LanguageServerPosition
+        let diff: ReviewDiff?
+    }
+
+    private func question(_ textView: ReviewTextView, at offset: Int) async -> Question? {
+        guard let parent, let language = parent.language, let working = parent.editor == nil && parent.compare == .committed ? parent.workingText() : right.string else { return nil }
+
+        let source = textView.string
+        let position = textView.position(ofOffset: offset)
+        guard source != working else { return Question(language: language, path: parent.path, working: working, base: nil, position: position, diff: nil) }
+
+        let diff = await Task.detached { ReviewDiff(original: source, modified: working) }.value
+        let line = workingLine(of: position.line, in: diff)
+        return Question(language: language, path: parent.path, working: working, base: line == nil ? language.base(of: parent.path, text: source) : nil, position: LanguageServerPosition(line: line ?? position.line, character: position.character), diff: diff)
+    }
+
+    private func workingLine(of line: Int, in diff: ReviewDiff) -> Int? {
+        guard diff.original.rows.indices.contains(line), !diff.original.changedLines.contains(line) else { return nil }
+
+        let row = diff.original.rows[line]
+        let mapped = diff.modified.rows.partitioningIndex { $0 >= row }
+        return diff.modified.rows.indices.contains(mapped) && diff.modified.rows[mapped] == row ? mapped : nil
+    }
+
+    private func landing(of location: LanguageServerLocation, for question: Question) -> (location: LanguageServerLocation, isBase: Bool) {
+        guard let base = question.base, location.url.lastPathComponent == base.url.lastPathComponent else { return (location, false) }
+        guard let diff = question.diff, let line = workingLine(of: location.range.start.line, in: diff) else { return (location, true) }
+
+        let range = LanguageServerRange(start: LanguageServerPosition(line: line, character: location.range.start.character), end: LanguageServerPosition(line: location.range.end.line - location.range.start.line + line, character: location.range.end.character))
+        return (LanguageServerLocation(url: URL(filePath: question.language.root).appending(path: question.path), range: range), false)
+    }
+
+    func hover(in textView: ReviewTextView, at offset: Int) async -> String? {
+        guard let question = await question(textView, at: offset) else { return nil }
+        return await question.language.hover(question.path, text: question.working, base: question.base, at: question.position)
+    }
+
+    func definition(in textView: ReviewTextView, at offset: Int) {
+        Task {
+            guard let question = await question(textView, at: offset), let location = await question.language.definition(question.path, text: question.working, base: question.base, at: question.position) else { return }
+
+            let asked = question.base?.url ?? URL(filePath: question.language.root).appending(path: question.path)
+            let range = location.range
+            if location.url.resolvingSymlinksInPath().path == asked.resolvingSymlinksInPath().path, range.start.line == question.position.line, (range.start.character...max(range.end.character, range.start.character)).contains(question.position.character) {
+                return await showReferences(question, in: textView, line: textView.position(ofOffset: offset).line)
+            }
+            let landing = landing(of: location, for: question)
+            if landing.isBase { return revealBase(landing.location.range, in: textView) }
+            parent?.onDefinition(landing.location)
+        }
+    }
+
+    func references(in textView: ReviewTextView, at offset: Int) {
+        Task {
+            guard let question = await question(textView, at: offset) else { return }
+            await showReferences(question, in: textView, line: textView.position(ofOffset: offset).line)
+        }
+    }
+
+    private func showReferences(_ question: Question, in textView: ReviewTextView, line: Int) async {
+        guard let locations = await question.language.references(question.path, text: question.working, base: question.base, at: question.position) else { return }
+
+        let root = URL(filePath: question.language.root).resolvingSymlinksInPath().path + "/"
+        var texts = [question.path: question.working]
+        var references: [ReviewReference] = []
+        for location in locations {
+            let landing = landing(of: location, for: question)
+            if landing.isBase {
+                references.append(ReviewReference(path: question.path, location: landing.location, text: question.base?.text ?? "", isBase: true))
+                continue
+            }
+            guard !location.url.lastPathComponent.hasPrefix(".berth-") else { continue }
+
+            let file = landing.location.url.resolvingSymlinksInPath().path
+            let path = file.hasPrefix(root) ? String(file.dropFirst(root.count)) : file
+            texts[path] = texts[path] ?? (try? String(contentsOfFile: file, encoding: .utf8))
+            references.append(ReviewReference(path: path, location: landing.location, text: texts[path] ?? "", isBase: false))
+        }
+
+        closePeek()
+        let view = ReviewReferencesPeek(references: references, current: question.path, style: right.style, onOpen: { [weak self, weak textView] reference in
+            self?.closePeek()
+            if reference.isBase {
+                textView.map { self?.revealBase(reference.location.range, in: $0) }
+            } else {
+                self?.parent?.onDefinition(reference.location)
+            }
+        }, onClose: { [weak self] in self?.closePeek() })
+        peek = (view, textView, line)
+        layoutInline()
+        let owner = right.unifiedOriginal != nil ? right : textView
+        owner.scrollToVisible(NSRect(x: owner.visibleRect.minX, y: view.frame.minY - owner.rowHeight, width: 1, height: view.frame.height + owner.rowHeight * 2))
+        owner.window?.makeFirstResponder(view.list)
+    }
+
+    private func revealBase(_ range: LanguageServerRange, in textView: ReviewTextView) {
+        guard right.unifiedOriginal === textView, let rows = textView.side?.rows, rows.indices.contains(range.start.line) else {
+            return textView.reveal(NSRange(location: textView.offset(of: range.start), length: max(textView.offset(of: range.end) - textView.offset(of: range.start), 0)))
+        }
+        right.scrollVertically(to: right.top(ofRow: rows[range.start.line]) - right.visibleRect.height / 3)
+    }
+
+    func closePeek() {
+        guard let peek else { return }
+
+        if let window = peek.view.window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: peek.view) { window.makeFirstResponder(peek.view.superview) }
+        peek.view.removeFromSuperview()
+        self.peek = nil
+        layoutInline()
     }
 }
 
