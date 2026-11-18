@@ -7,6 +7,7 @@ extension ReviewTextView {
         var primary = 0
         var isMirroring = false
         var isFanningOut = false
+        var headsAtStart = false
         var history: [[NSRange]] = []
         var column: (anchor: Int, focus: Int)?
         var goalX: CGFloat?
@@ -59,9 +60,9 @@ extension ReviewTextView {
     func drawCarets(in rect: NSRect) {
         guard carets.ranges.count > 1 else { return }
 
-        let showsCarets = carets.isBlinkOn && window?.firstResponder === self && window?.isKeyWindow == true
-        for (index, caret) in carets.ranges.enumerated() where index != carets.primary && (caret.length > 0 || showsCarets) {
-            (caret.length > 0 ? style.selection : style.foreground).setFill()
+        let isFocused = window?.firstResponder === self && window?.isKeyWindow == true
+        for (index, caret) in carets.ranges.enumerated() where index != carets.primary && (caret.length > 0 || isFocused && carets.isBlinkOn) {
+            (caret.length == 0 ? style.foreground : isFocused ? style.selection : .unemphasizedSelectedTextBackgroundColor).setFill()
             for segment in segments(of: caret) where segment.rect.insetBy(dx: -2, dy: 0).intersects(rect) {
                 (caret.length > 0 ? segment.rect : NSRect(x: segment.rect.minX - 1, y: segment.rect.minY, width: 2, height: segment.rect.height)).fill(using: .sourceOver)
             }
@@ -75,6 +76,7 @@ extension ReviewTextView {
 
         if carets.ranges.count > 1, !stillSelecting { carets.history = (carets.history + [carets.ranges]).suffix(32) }
         carets.goalX = nil
+        carets.headsAtStart = false
         carets.ranges = ReviewCarets.normalize(incoming, length: textStorage?.length ?? 0)
         carets.primary = carets.ranges.count - 1
         caretsChanged()
@@ -100,6 +102,11 @@ extension ReviewTextView {
         carets.findSession = nil
         needsDisplay = true
         return true
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil, window?.firstResponder === self { Store.shared.isReviewTextFocused = false }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
@@ -129,7 +136,7 @@ extension ReviewTextView {
         let name = NSStringFromSelector(selector)
         if name == "cancelOperation:" { return performCaretAction(.collapseCursors) }
         if ["delete", "insert", "transpose", "yank"].contains(where: name.hasPrefix) { return fanOutEdit { _ in super.doCommand(by: selector) } }
-        if ["move", "select", "page"].contains(where: name.hasPrefix) { return fanOutMovement { super.doCommand(by: selector) } }
+        if ["move", "select", "page"].contains(where: name.hasPrefix) { return fanOutMovement(selector) }
         super.doCommand(by: selector)
     }
 
@@ -174,6 +181,7 @@ extension ReviewTextView {
         let hint = hint ?? carets.ranges[carets.primary].location
         if normalized != carets.ranges { carets.history = (carets.history + [carets.ranges]).suffix(32) }
         carets.goalX = nil
+        carets.headsAtStart = false
         carets.column = nil
         carets.ranges = normalized
         carets.primary = normalized.firstIndex { NSLocationInRange(hint, $0) || $0.location == hint } ?? normalized.count - 1
@@ -204,16 +212,23 @@ extension ReviewTextView {
         }
     }
 
-    private func fanOutMovement(_ body: () -> Void) {
-        carets.isFanningOut = true
+    private func fanOutMovement(_ selector: Selector) {
+        let name = NSStringFromSelector(selector)
+        let move = name.hasSuffix("AndModifySelection:") ? NSSelectorFromString(name.replacing("AndModifySelection:", with: ":")) : nil
+        var headsAtStart = false
         var results: [NSRange] = []
-        for caret in carets.ranges {
-            super.setSelectedRanges([NSValue(range: caret)], affinity: .downstream, stillSelecting: true)
-            body()
-            results.append(selectedRange())
+        carets.isFanningOut = true
+        for (index, caret) in carets.ranges.enumerated() {
+            let anchor = carets.headsAtStart ? NSMaxRange(caret) : caret.location
+            super.setSelectedRanges([NSValue(range: move == nil ? caret : NSRange(location: carets.headsAtStart ? caret.location : NSMaxRange(caret), length: 0))], affinity: .downstream, stillSelecting: true)
+            super.doCommand(by: move ?? selector)
+            let head = selectedRange().location
+            results.append(move == nil ? selectedRange() : NSRange(location: min(anchor, head), length: abs(head - anchor)))
+            if index == carets.primary { headsAtStart = move != nil && head < anchor }
         }
         carets.isFanningOut = false
         applyCarets(results, primaryAt: results[carets.primary].location)
+        carets.headsAtStart = headsAtStart
         scrollRangeToVisible(carets.ranges[carets.primary])
     }
 
