@@ -147,7 +147,7 @@ struct ContentView: View {
         .task(id: folderWithoutRepository) { store.watchForRepository(in: folderWithoutRepository) }
         .onChange(of: showsPanel) {
             guard !showsPanel else {
-                Task { await store.loadReviewModels() }
+                Task { for model in store.sessionReviewModels { await model.load() } }
                 return
             }
 
@@ -155,7 +155,10 @@ struct ContentView: View {
             keepsSidebarForDiff = false
         }
         .onChange(of: isReviewEnabled) {
-            if isReviewEnabled { store.prepareReviewModel() } else { store.reviewModels = [:] }
+            if isReviewEnabled { store.prepareReviewModel() } else {
+                store.reviewModels = [:]
+                store.activeReviewRoots = [:]
+            }
         }
         .onChange(of: areLanguageServersEnabled) {
             guard !areLanguageServersEnabled else { return }

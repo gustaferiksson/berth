@@ -110,6 +110,7 @@ struct ReviewRepositoryAccessory: View {
 struct ReviewSubheading: View {
     let title: String
     let files: [ReviewFile]
+    let indent: Double
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -128,7 +129,7 @@ struct ReviewSubheading: View {
         }
         .font(.system(size: 11))
         .frame(height: 20)
-        .listRowInsets(EdgeInsets(top: 2, leading: -8, bottom: 0, trailing: 8))
+        .listRowInsets(EdgeInsets(top: 2, leading: -8 - indent, bottom: 0, trailing: 8))
         .selectionDisabled()
     }
 }

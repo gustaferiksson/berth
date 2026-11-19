@@ -317,7 +317,7 @@ private struct ReviewFileList: View {
                 await model.load()
             }
             .onChange(of: owners.contains { $0.model.hasUnsavedEdits || !$0.model.comments.isEmpty }) { store.prepareReviewModel() }
-            .task(id: selection) { await active.loadSelectedContents() }
+            .task(id: selection) { await (store.reviewModel ?? model).loadSelectedContents() }
             .task(id: extraStates) { for extra in extras { await prepare(extra.repository, extra.model) } }
             .task(id: pullRequest?.pullRequest?.number) { await loadPullRequestDetail() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
@@ -347,8 +347,8 @@ private struct ReviewFileList: View {
                     changes: list { if isStacked { stackedSections(changes) } else { changeSections(changes) } }
                         .id(changesAsTree ? ([changes] + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
                         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
-                        .onChange(of: active.selectedDocument, initial: true) { _, document in
-                            guard let document, let compare = document.compare else { return }
+                        .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
+                            guard let document, let compare = document.compare, let active = store.reviewModel else { return }
 
                             active.collapsedChangeFolders = active.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
                         }
@@ -377,7 +377,16 @@ private struct ReviewFileList: View {
                     divider: NSColor(theme.foreground.opacity(0.1))
                 )
 
-                if commentCount > 0 {
+                if owners.contains(where: { !$0.model.comments.isEmpty }) {
+                    Hairline(axis: .horizontal)
+                    comments
+                }
+            }
+        } else if let error = model.error, case ReviewGitError.notARepository = error, !extras.isEmpty {
+            VStack(spacing: 0) {
+                list { stackedSections(nil) }
+                    .environment(\.ghosttyTheme, theme)
+                if owners.contains(where: { !$0.model.comments.isEmpty }) {
                     Hairline(axis: .horizontal)
                     comments
                 }
@@ -434,11 +443,9 @@ private struct ReviewFileList: View {
         return target
     }
 
-    private var active: ReviewModel { store.reviewModel ?? model }
-
     private var selection: ReviewDocument? {
-        let root = active === model ? nil : store.activeReviewRoots[sessionID]
-        return active.selectedDocument.map { ReviewDocument(path: $0.path, compare: $0.compare, root: root) }
+        let active = store.reviewModel ?? model
+        return active.selectedDocument.map { ReviewDocument(path: $0.path, compare: $0.compare, root: active === model ? nil : store.activeReviewRoots[sessionID]) }
     }
 
     @ViewBuilder
@@ -504,13 +511,7 @@ private struct ReviewFileList: View {
         [(model, nil)] + allExtras.map { ($0.model, $0.repository) }
     }
 
-    private var commentCount: Int { owners.reduce(0) { $0 + $1.model.comments.count } }
-
-    private var task: StoredTask? { store.task(containing: sessionID) }
-
-    private var isStacked: Bool { task != nil || !extras.isEmpty }
-
-    private var ownRoot: String { store.repositoryRoot(ofSession: sessionID) ?? model.folder }
+    private var isStacked: Bool { store.task(containing: sessionID) != nil || !extras.isEmpty }
 
     private var extraStates: [String] {
         extras.map { "\($0.repository.root)|\($0.model.changes?.branch ?? "")|\(store.pullRequests(inRoot: $0.repository.root, of: sessionID, branch: $0.model.changes?.branch).map { "\($0.number)\($0.baseRefName ?? "")" })" }
@@ -541,12 +542,14 @@ private struct ReviewFileList: View {
     private func areChangesCollapsed(_ changes: ReviewChanges) -> Bool {
         guard isStacked else { return (changes.uncommitted.isEmpty || !expansion(of: "uncommitted").wrappedValue) && (changes.committed.isEmpty || !expansion(of: "committed").wrappedValue) }
 
-        return !repositoryExpansion(ownRoot).wrappedValue && extras.allSatisfy { !repositoryExpansion($0.repository.root).wrappedValue }
+        return !repositoryExpansion(store.repositoryRoot(ofSession: sessionID) ?? model.folder).wrappedValue && extras.allSatisfy { !repositoryExpansion($0.repository.root).wrappedValue }
     }
 
     @ViewBuilder
-    private func stackedSections(_ changes: ReviewChanges) -> some View {
-        if let task {
+    private func stackedSections(_ changes: ReviewChanges?) -> some View {
+        let ownRoot = store.repositoryRoot(ofSession: sessionID) ?? model.folder
+        let inset = changesAsTree ? 9.0 : 0.0
+        if let task = store.task(containing: sessionID) {
             let members = task.sessionIDs.compactMap { store.sessionsByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt }
             ReviewTaskCard(
                 title: store.title(of: task),
@@ -558,26 +561,28 @@ private struct ReviewFileList: View {
                 isExpanded: repositoryExpansion(task.id),
                 activate: { store.activate(.session($0)) }
             )
-            .listRowInsets(EdgeInsets(top: 0, leading: -6, bottom: 4, trailing: -7))
+            .listRowInsets(EdgeInsets(top: 0, leading: -6 - inset, bottom: 4, trailing: -7))
             .listRowSeparator(.hidden)
             .selectionDisabled()
         }
-        Section(isExpanded: repositoryExpansion(ownRoot)) {
-            if let status = model.status {
-                branchCard(changes, status)
-                    .listRowInsets(EdgeInsets(top: 0, leading: -6, bottom: 6, trailing: -7))
-                    .selectionDisabled()
-            }
-            stackedRows(changes, in: model, root: nil)
-        } header: {
-            GroupHeader(title: URL(filePath: ownRoot).lastPathComponent, help: ownRoot, count: nil) { EmptyView() } accessory: { _ in
-                ReviewRepositoryAccessory(branch: nil, base: nil, pullRequests: store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch))
+        if let changes {
+            Section(isExpanded: repositoryExpansion(ownRoot)) {
+                if let status = model.status {
+                    branchCard(changes, status)
+                        .listRowInsets(EdgeInsets(top: 0, leading: -6 - inset, bottom: 6, trailing: -7))
+                        .selectionDisabled()
+                }
+                stackedRows(changes, in: model, root: nil, indent: inset)
+            } header: {
+                GroupHeader(title: URL(filePath: ownRoot).lastPathComponent, help: ownRoot, count: nil) { EmptyView() } accessory: { _ in
+                    ReviewRepositoryAccessory(branch: nil, base: nil, pullRequests: store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch))
+                }
             }
         }
         ForEach(extras, id: \.repository.root) { extra in
             Section(isExpanded: repositoryExpansion(extra.repository.root)) {
                 if let changes = extra.model.changes {
-                    stackedRows(changes, in: extra.model, root: extra.repository.root)
+                    stackedRows(changes, in: extra.model, root: extra.repository.root, indent: inset)
                 } else {
                     Text(extra.model.error == nil ? "Loading changes…" : "Can’t read changes")
                         .foregroundStyle(theme.secondary)
@@ -591,17 +596,17 @@ private struct ReviewFileList: View {
     }
 
     @ViewBuilder
-    private func stackedRows(_ changes: ReviewChanges, in model: ReviewModel, root: String?) -> some View {
+    private func stackedRows(_ changes: ReviewChanges, in model: ReviewModel, root: String?, indent: Double) -> some View {
         if changes.uncommitted.isEmpty, changes.committed.isEmpty {
             Text(changes.isDefaultBranch || changes.base == nil ? "No uncommitted changes on \(changes.branch)" : "No changes, \(changes.branch) matches \(changes.base ?? "")")
                 .foregroundStyle(theme.secondary)
         }
         if !changes.uncommitted.isEmpty {
-            ReviewSubheading(title: "Uncommitted", files: changes.uncommitted)
+            ReviewSubheading(title: "Uncommitted", files: changes.uncommitted, indent: indent)
             changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: root)
         }
         if !changes.committed.isEmpty {
-            ReviewSubheading(title: "Committed", files: changes.committed)
+            ReviewSubheading(title: "Committed", files: changes.committed, indent: indent)
             changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: root)
         }
     }
@@ -653,6 +658,7 @@ private struct ReviewFileList: View {
             .frame(maxHeight: 220)
             .fixedSize(horizontal: false, vertical: true)
 
+            let commentCount = owners.reduce(0) { $0 + $1.model.comments.count }
             Button("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")", action: sendComments)
                 .frame(maxWidth: .infinity)
                 .padding(10)
@@ -1296,7 +1302,7 @@ struct ReviewDiffColumn: View {
                 model.selectedTabID = tab.id
                 model.filesReveal = document.path
             }
-            .disabled(!FileManager.default.fileExists(atPath: absolute ?? ""))
+            .disabled(model !== store.primaryReviewModel || !FileManager.default.fileExists(atPath: absolute ?? ""))
             Divider()
             Button("Close") { store.closeDiff(tab: tab.id) }
             Button("Close Others") {

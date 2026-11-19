@@ -856,6 +856,7 @@ final class Store {
             let model = ReviewModel(folder: repository.folder)
             model.onOpen = { [weak self] in self?.activeReviewRoots[sessionID] = repository.root }
             reviewModels[key] = model
+            if activeReviewRoots[sessionID] == repository.root { activeReviewRoots[sessionID] = nil }
         }
         let prefix = sessionID + "\n"
         for key in reviewModels.keys where key.hasPrefix(prefix) && !shown.contains(where: { Self.reviewKey(sessionID, root: $0.root) == key }) { reviewModels[key] = nil }
@@ -875,15 +876,11 @@ final class Store {
         return (tasked + edited).filter { seen.insert($0.root).inserted }
     }
 
-    func loadReviewModels() async {
-        for model in sessionReviewModels { await model.load() }
-    }
-
     func refreshReview() async {
         refresh()
         await waitForScan()
         prepareReviewModel()
-        await loadReviewModels()
+        for model in sessionReviewModels { await model.load() }
     }
 
     func pullRequests(inRoot root: String?, of sessionID: String, branch: String?) -> [PullRequest] {
