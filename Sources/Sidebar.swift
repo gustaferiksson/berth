@@ -1022,6 +1022,8 @@ private struct TaskRow: View {
     let isUnread: Bool
     @Environment(\.ghosttyTheme) private var theme
 
+    private var showsChevron: Bool { isExpanded || state == nil && !isUnread }
+
     var body: some View {
         CardRow(
             title: task.title,
@@ -1030,7 +1032,7 @@ private struct TaskRow: View {
             isLoaded: false,
             modified: task.sessions[0].lastPrompt,
             isUnread: isUnread,
-            chevron: isExpanded ? "chevron.down" : "chevron.right",
+            chevron: showsChevron ? (isExpanded ? "chevron.down" : "chevron.right") : nil,
             titleWeight: .semibold
         ) {
             HStack(spacing: 8) {
@@ -1039,7 +1041,6 @@ private struct TaskRow: View {
                     .font(.caption)
                     .foregroundStyle(theme.secondary)
             }
-            .padding(.leading, 16)
         }
         .help(task.title)
         .accessibilityElement(children: .combine)
@@ -1154,13 +1155,6 @@ private struct CardRow<Detail: View>: View {
         let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 10 >= $0 * 6 && context.tokens <= $0 ? $0 : nil } }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if let chevron {
-                    Image(systemName: chevron)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(theme.secondary)
-                        .frame(width: 8)
-                        .accessibilityHidden(true)
-                }
                 Text(title)
                     .fontWeight(titleWeight)
                     .foregroundStyle(theme.foreground)
@@ -1236,7 +1230,7 @@ private struct CardRow<Detail: View>: View {
         .padding(.trailing, -8)
         .padding(.vertical, 8)
         .overlay(alignment: .topLeading) {
-            StatusSlot(state: state, isUnread: isUnread).offset(x: -8, y: 8)
+            StatusSlot(state: state, isUnread: isUnread, chevron: chevron).offset(x: -8, y: 8)
         }
     }
 }
@@ -1244,11 +1238,17 @@ private struct CardRow<Detail: View>: View {
 private struct StatusSlot: View {
     let state: RowState?
     let isUnread: Bool
+    var chevron: String?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         ZStack {
-            if state == .working {
+            if let chevron {
+                Image(systemName: chevron)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.secondary)
+                    .accessibilityHidden(true)
+            } else if state == .working {
                 WorkingDots(label: "Working")
             } else if case let .needsYou(reason) = state {
                 Circle()
