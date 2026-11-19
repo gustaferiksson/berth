@@ -103,6 +103,12 @@ nonisolated enum PullRequestStatus {
         }
     }
 
+    static func inbox() -> [InboxPullRequest]? {
+        guard let gh, let output = run(gh, arguments: PullRequestInbox.arguments) else { return nil }
+
+        return PullRequestInbox.parse(output)
+    }
+
     static func detail(repository: String, number: Int) -> PullRequestDetail? {
         guard let gh, let arguments = PullRequestDetail.arguments(repository: repository, number: number), let output = run(gh, arguments: arguments) else { return nil }
 

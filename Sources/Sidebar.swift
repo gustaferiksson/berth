@@ -1092,7 +1092,7 @@ private func tokenCount(_ tokens: Int) -> String {
     return "\((Double(tokens) / 1_000_000).formatted(.number.precision(.fractionLength(0...1))))M"
 }
 
-private struct PullRequestTag: View {
+struct PullRequestTag: View {
     let pullRequest: PullRequest
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL

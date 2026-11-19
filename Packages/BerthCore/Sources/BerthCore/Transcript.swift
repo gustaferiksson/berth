@@ -14,6 +14,16 @@ public struct SessionContext: Sendable, Hashable {
     }
 }
 
+public struct PullRequestLink: Sendable, Hashable {
+    public let repository: String
+    public let number: Int
+
+    public init(repository: String, number: Int) {
+        self.repository = repository
+        self.number = number
+    }
+}
+
 public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let id: String
     public let cwd: String
@@ -22,12 +32,13 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let lastPrompt: Date
     public let branch: String?
     public let branches: [String]
+    public let pullRequests: [PullRequestLink]
     public let continuedIn: String?
     public let originalCwd: String?
     public var checkout: String
     public var context: SessionContext?
 
-    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, continuedIn: String? = nil, originalCwd: String? = nil, context: SessionContext? = nil) {
+    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, pullRequests: [PullRequestLink] = [], continuedIn: String? = nil, originalCwd: String? = nil, context: SessionContext? = nil) {
         self.id = id
         self.cwd = cwd
         checkout = cwd
@@ -36,6 +47,7 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
         self.lastPrompt = lastPrompt ?? lastActivity
         self.branch = branch
         self.branches = branches ?? branch.map { [$0] } ?? []
+        self.pullRequests = pullRequests
         self.continuedIn = continuedIn
         self.originalCwd = originalCwd
         self.context = context
@@ -48,7 +60,7 @@ public enum Transcript {
     static let maxTailBytes = 8 * 1024 * 1024
     static let maxTitleLength = 120
 
-    public static func summary(of url: URL, after known: (size: Int, lastPrompt: Date, branches: [String], context: SessionContext?)? = nil) -> SessionSummary? {
+    public static func summary(of url: URL, after known: (size: Int, lastPrompt: Date, branches: [String], pullRequests: [PullRequestLink], context: SessionContext?)? = nil) -> SessionSummary? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = (attributes[.size] as? NSNumber)?.intValue, size > 0,
               let modified = attributes[.modificationDate] as? Date,
@@ -73,11 +85,12 @@ public enum Transcript {
             tail: tailRecords,
             earlierPrompt: earlierPrompt,
             earlierBranches: known?.branches ?? [],
+            earlierPullRequests: known?.pullRequests ?? [],
             earlierContext: known.flatMap { tailOffset <= $0.size ? $0.context : nil }
         )
     }
 
-    static func summary(id: String, folder: String, modified: Date, head: [Record], tail: [Record], earlierPrompt: Date? = nil, earlierBranches: [String] = [], earlierContext: SessionContext? = nil) -> SessionSummary? {
+    static func summary(id: String, folder: String, modified: Date, head: [Record], tail: [Record], earlierPrompt: Date? = nil, earlierBranches: [String] = [], earlierPullRequests: [PullRequestLink] = [], earlierContext: SessionContext? = nil) -> SessionSummary? {
         let relocated = tail.last { $0.relocatedCwd != nil }?.relocatedCwd
         let worktreeState = tail.lastIndex { $0.type == "worktree-state" }
         let entered = tail.last { $0.worktreeSession != nil }?.worktreeSession
@@ -119,6 +132,9 @@ public enum Transcript {
             branch: branch == "HEAD" || branch?.isEmpty == true ? nil : branch,
             branches: recordedBranches.reduce(into: []) { branches, branch in
                 if branch != "HEAD", !branch.isEmpty, !branches.contains(branch) { branches.append(branch) }
+            },
+            pullRequests: (tail.reversed().compactMap(\.pullRequestLink) + earlierPullRequests + head.reversed().compactMap(\.pullRequestLink)).reduce(into: []) { links, link in
+                if !links.contains(link) { links.append(link) }
             },
             continuedIn: continuedIn,
             originalCwd: entered?.originalCwd,
@@ -240,6 +256,8 @@ struct Record: Decodable {
     let worktreeSession: WorktreeSession?
     let continuedInSessionId: String?
     let gitBranch: String?
+    let prRepository: String?
+    let prNumber: Int?
     let timestamp: String?
     let customTitle: String?
     let aiTitle: String?
@@ -272,6 +290,12 @@ struct Record: Decodable {
 
     var date: Date? {
         timestamp.flatMap { try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0) }
+    }
+
+    var pullRequestLink: PullRequestLink? {
+        guard type == "pr-link", let prRepository, let prNumber else { return nil }
+
+        return PullRequestLink(repository: prRepository, number: prNumber)
     }
 
     var isConversation: Bool {

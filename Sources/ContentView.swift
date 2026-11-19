@@ -27,6 +27,7 @@ struct ContentView: View {
         let isTrailing = sidebarPosition == .right
         let reviewRoot = showsPanel ? store.reviewModel?.changes?.root : nil
         let folderWithoutRepository: String? = if showsPanel, let model = store.reviewModel, case ReviewGitError.notARepository? = model.error { model.folder } else { nil }
+        let reviewRequests = store.inbox?.count { $0.role == .reviewRequested } ?? 0
         NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanel ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
                 ReviewPanel()
@@ -97,6 +98,19 @@ struct ContentView: View {
                     }
                 }
                 .toolbar {
+                    if reviewRequests > 0 {
+                        ToolbarItem(placement: isTrailing ? .navigation : .automatic) {
+                            Button {
+                                store.launcherRole = .reviewRequested
+                                store.launcherMode = .pullRequests
+                            } label: {
+                                Label("\(reviewRequests) to review", systemImage: "arrow.triangle.pull")
+                                    .labelStyle(.titleAndIcon)
+                                    .foregroundStyle(store.theme.needsYou)
+                            }
+                            .help(Text("^[\(reviewRequests) pull request](inflect: true) waiting for your review"))
+                        }
+                    }
                     if isReviewEnabled, isTrailing {
                         ToolbarItem(placement: .navigation) { panelToggle(symbol: "sidebar.left") }
                     }
@@ -126,6 +140,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             store.isAppActive = true
             store.refreshPullRequests()
+            store.refreshInbox()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
         .task(id: reviewRoot) { await store.watchReview(reviewRoot) }
