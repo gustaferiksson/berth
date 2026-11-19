@@ -31,6 +31,7 @@ Changes apply to a running Berth without a relaunch, except where the table says
 | `reviewLineHeight` | `-float` | `1.3` | Line height multiple, 1.0 to 2.0. |
 | `reviewShowsMinimap` | `-bool` | `true` | Show the diff minimap. |
 | `reviewDiffLayout` | `-string` | `auto` | `auto` (side by side from 760 pt of diff column), `sideBySide` or `inline`. |
+| `reviewChangesAsTree` | `-bool` | `false` | Show Uncommitted and Committed as a folder tree instead of a list. |
 | `remoteEnabled` | `-bool` | `false` | Berth Remote. Turn it on in Settings, which creates the token; a `defaults write` alone does nothing. |
 
 Remove a key with `defaults delete $ID <key>` to go back to its default.
