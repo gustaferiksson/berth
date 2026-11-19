@@ -369,6 +369,10 @@ final class Store {
         )
     }
 
+    func state(of issue: IssueRef) -> IssueState? {
+        pullRequests.values.compactMap(\.self).flatMap(\.closingIssues).first { $0.ref == issue }?.state
+    }
+
     func title(of task: StoredTask) -> String {
         let issueTitles = Dictionary(pullRequests.values.compactMap(\.self).flatMap(\.closingIssues).map { ($0.ref, $0.title) }) { first, _ in first }
         let newest = task.sessionIDs.compactMap { sessionsByID[$0] }.max { $0.lastPrompt < $1.lastPrompt }
