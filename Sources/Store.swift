@@ -77,7 +77,6 @@ final class Store {
             if let oldValue, let sessionID = tabs.first(where: { $0.id == oldValue })?.sessionID { seenAt[sessionID] = .now }
             if selectedTabID != oldValue {
                 endTerminalSearch()
-                refreshCompactions()
                 refreshEditedRepositories()
             }
             saveOpenTabs()
@@ -209,7 +208,6 @@ final class Store {
     private(set) var pullRequests = Snapshot.fixturePullRequests
     private(set) var inbox = Snapshot.fixtureInbox
     private(set) var isInboxLoading = false
-    var selectedCompactions: (sessionID: String, count: Int, last: Date?)?
     private(set) var searchIndexVersion = 0
     private(set) var searchIndexing: (done: Int, total: Int)?
     @ObservationIgnored private(set) var searchIndex = TranscriptSearchIndex()
@@ -225,8 +223,6 @@ final class Store {
     @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var searchIndexTask: Task<Void, Never>?
-    @ObservationIgnored private var compactionsTask: Task<Void, Never>?
-    @ObservationIgnored private var compactionsActivities: [String: (url: URL, activity: TranscriptActivity)] = [:]
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var themeWatcher: FileWatcher?
     @ObservationIgnored private var summaries: [SessionSummary] = []
@@ -585,28 +581,7 @@ final class Store {
             refreshLive()
             if searchIndexTask != nil { updateSearchIndex() }
             resolvePullRequests()
-            refreshCompactions()
             refreshEditedRepositories()
-        }
-    }
-
-    func refreshCompactions() {
-        guard let sessionID = tabs.first(where: { $0.id == selectedTabID })?.sessionID, let url = index.url(ofSession: sessionID) else { return }
-
-        compactionsTask = Task { [previous = compactionsTask] in
-            await previous?.value
-            guard tabs.first(where: { $0.id == selectedTabID })?.sessionID == sessionID else { return }
-
-            let cached = compactionsActivities[sessionID].flatMap { $0.url == url ? $0.activity : nil } ?? TranscriptActivity()
-            let activity = await Task.detached {
-                var activity = cached
-                activity.read(url)
-                return activity
-            }.value
-            let open = Set(tabs.compactMap(\.sessionID))
-            compactionsActivities = compactionsActivities.filter { open.contains($0.key) }.merging([sessionID: (url, activity)]) { $1 }
-            let context = activity.context(window: nil)
-            selectedCompactions = (sessionID, context?.compactions ?? 0, context?.lastCompaction)
         }
     }
 
