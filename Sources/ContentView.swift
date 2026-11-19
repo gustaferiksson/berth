@@ -99,7 +99,7 @@ struct ContentView: View {
                 }
                 .toolbar {
                     if reviewRequests > 0 {
-                        ToolbarItem(placement: isTrailing ? .navigation : .automatic) {
+                        ToolbarItem(placement: .automatic) {
                             Button {
                                 store.launcherRole = .reviewRequested
                                 store.launcherMode = .pullRequests
@@ -112,9 +112,9 @@ struct ContentView: View {
                         }
                     }
                     if reviewRequests > 0 {
-                        ToolbarSpacer(.fixed, placement: isTrailing ? .navigation : .automatic)
+                        ToolbarSpacer(.fixed, placement: .automatic)
                     }
-                    ToolbarItem(placement: isTrailing ? .navigation : .automatic) {
+                    ToolbarItem(placement: .automatic) {
                         Button(AppAction.switchTerminal.title, systemImage: AppAction.switchTerminal.symbol) {
                             AppAction.switchTerminal.perform(on: store)
                         }
@@ -318,7 +318,6 @@ private struct TerminalArea: View {
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
 
     var body: some View {
-        let selected = store.tabs.first { $0.id == store.selectedTabID }
         ZStack {
             ForEach(store.tabs) { tab in
                 let isSelected = tab.id == store.selectedTabID && !store.isHarborShown
@@ -343,9 +342,6 @@ private struct TerminalArea: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             if isReviewEnabled, store.showsReviewPanel, !store.isHarborShown {
                 VStack(spacing: 0) {
-                    if let selected {
-                        TerminalHeader(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
-                    }
                     Spacer(minLength: 0)
                     Divider()
                 }
@@ -355,23 +351,6 @@ private struct TerminalArea: View {
         }
         .environment(store)
         .environment(\.ghosttyTheme, store.theme)
-    }
-}
-
-private struct TerminalHeader: View {
-    let tab: Tab
-    @ObservedObject var terminal: TerminalViewState
-    let sessionTitle: String?
-    @Environment(\.ghosttyTheme) private var theme
-
-    var body: some View {
-        Label(tab.title(terminalTitle: terminal.title, sessionTitle: sessionTitle), systemImage: tab.kind == .claude ? "sparkle" : "apple.terminal")
-            .font(.callout)
-            .foregroundStyle(theme.secondary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
 
