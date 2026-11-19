@@ -706,6 +706,8 @@ private struct ReviewFilesSplit<Changes: View, Files: View>: NSViewRepresentable
         split.layout = layout
         split.filesHeight = filesHeight
         split.resizeSubviews(withOldSize: split.bounds.size)
+        // NSSplitView's divider is a sublayer it positions and colours in layout, never in draw.
+        split.needsLayout = true
     }
 }
 
@@ -721,7 +723,7 @@ private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
     var layout = Layout.split
     var filesHeight = 0.0
     var divider = NSColor.separatorColor {
-        didSet { needsDisplay = true }
+        didSet { needsLayout = true }
     }
 
     var dragged: (Double) -> Void = { _ in }
@@ -748,7 +750,6 @@ private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
         let filesHeight = min(max(height, 0), available)
         changes.frame = NSRect(x: 0, y: 0, width: bounds.width, height: available - filesHeight)
         files.frame = NSRect(x: 0, y: available - filesHeight + dividerThickness, width: bounds.width, height: filesHeight)
-        needsDisplay = true
     }
 
     func splitView(_: NSSplitView, constrainMinCoordinate _: CGFloat, ofSubviewAt _: Int) -> CGFloat {
