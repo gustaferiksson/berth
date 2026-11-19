@@ -314,6 +314,7 @@ private struct ReviewFileList: View {
                 }
                 ReviewFilesSplit(
                     changes: list { changeSections(changes) }
+                        .id(changesAsTree ? [changes.uncommitted, changes.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } : nil)
                         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
                         .onChange(of: model.selectedDocument, initial: true) { _, document in
                             guard let document, let compare = document.compare else { return }

@@ -7,6 +7,12 @@ public struct ReviewFileTree: Sendable, Hashable, Identifiable {
 
     public var id: String { path }
 
+    public var folderPaths: [String] {
+        guard let children else { return [] }
+
+        return [path] + children.flatMap(\.folderPaths)
+    }
+
     public static func nodes(_ paths: [String]) -> [Self] {
         nodes(paths.map { $0.split(separator: "/").map(String.init) }, under: "")
     }
