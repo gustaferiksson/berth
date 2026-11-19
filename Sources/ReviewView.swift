@@ -691,6 +691,7 @@ private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
         let filesHeight = min(max(height, 0), available)
         changes.frame = NSRect(x: 0, y: 0, width: bounds.width, height: available - filesHeight)
         files.frame = NSRect(x: 0, y: available - filesHeight + dividerThickness, width: bounds.width, height: filesHeight)
+        needsDisplay = true
     }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
