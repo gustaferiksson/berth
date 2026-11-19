@@ -620,7 +620,10 @@ private struct ReviewFileNode: View {
                 .selectionDisabled()
             }
         } else if let compare, let file = (compare == .committed ? changes.committed : changes.uncommitted).first(where: { $0.path == node.path }) {
-            ReviewChangeRow(file: file, model: model).tag(ReviewDocument(path: node.path, compare: compare))
+            ReviewChangeRow(file: file, model: model)
+                .padding(.vertical, 5)
+                .listRowInsets(.vertical, 0)
+                .tag(ReviewDocument(path: node.path, compare: compare))
         } else {
             label.tag(ReviewDocument(path: node.path, compare: nil))
         }
