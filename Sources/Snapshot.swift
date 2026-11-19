@@ -277,7 +277,6 @@ enum Snapshot {
             store.selectedTabID = store.tabs.last?.id
             store.refresh()
             await store.waitForScan()
-            store.selectedCompactions = sessions.last.map { ($0.id, 2, .now - 7200) }
         }
         if store.selection == nil, let forced = forcedSelection(in: store.groups) { store.sidebarCursor = forced }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
