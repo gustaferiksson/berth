@@ -10,6 +10,7 @@ import Observation
 final class RemoteServer {
     static let enabledKey = "remoteEnabled"
     static let tokenKey = "remoteToken"
+
     #if DEBUG
     static let port = UInt16(UserDefaults.standard.string(forKey: "snapshotRemotePort") ?? "") ?? 7878
     #else

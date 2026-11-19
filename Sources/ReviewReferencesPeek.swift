@@ -153,7 +153,7 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
 
     @available(*, unavailable)
     required init?(coder _: NSCoder) {
-        fatalError()
+        fatalError("init(coder:) is unavailable")
     }
 
     override var isFlipped: Bool { true }

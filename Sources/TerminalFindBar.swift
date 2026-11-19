@@ -43,6 +43,7 @@ struct TerminalFindBar: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             TextField("Find", text: needle, selection: $selection, prompt: Text("Find"))
                 .textFieldStyle(.plain)
                 .frame(width: 180)

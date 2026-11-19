@@ -1,17 +1,22 @@
 import BerthCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct GroupEditor: View {
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.ghosttyTheme) private var theme
-    @State var group: CustomGroup
+    @State private var group: CustomGroup
     @State private var selectedPath: String?
     @State private var isImporting = false
     @State private var isConfirmingDelete = false
     @FocusState private var isNameFocused: Bool
 
     private static let visibleChips = 4
+
+    init(group: CustomGroup) {
+        _group = State(initialValue: group)
+    }
 
     var body: some View {
         let isNew = !store.customGroups.contains { $0.id == group.id }
@@ -81,6 +86,7 @@ struct GroupEditor: View {
                 .background(theme.foreground.opacity(selectedPath == rule.path ? 0.1 : 0), in: .rect(cornerRadius: 4))
                 .contentShape(.rect)
                 .onTapGesture { selectedPath = rule.path }
+                .accessibilityAddTraits(.isButton)
             }
             if !group.rules.isEmpty { Divider() }
             HStack(spacing: 4) {

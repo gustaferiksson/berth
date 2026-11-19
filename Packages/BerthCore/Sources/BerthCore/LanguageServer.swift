@@ -112,7 +112,7 @@ public actor LanguageServer {
     private let process = Process()
     private let input = Pipe()
     private var nextID = 0
-    private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
+    private var pending: [Int: CheckedContinuation<Data, any Error>] = [:]
     private var versions: [URL: Int] = [:]
     private var hasExited = false
     private var pullsDiagnostics = false
@@ -187,9 +187,11 @@ public actor LanguageServer {
         guard versions[url] == nil else { return try change(url, text: text) }
 
         versions[url] = 1
-        try send(["jsonrpc": "2.0", "method": "textDocument/didOpen", "params": [
-            "textDocument": ["uri": url.absoluteString, "languageId": languageID, "version": 1, "text": text],
-        ],])
+        try send([
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": ["textDocument": ["uri": url.absoluteString, "languageId": languageID, "version": 1, "text": text]],
+        ])
         if pullsDiagnostics { Task { await pullDiagnostics(url) } }
     }
 
@@ -197,10 +199,11 @@ public actor LanguageServer {
         guard let version = versions[url].map({ $0 + 1 }) else { return }
 
         versions[url] = version
-        try send(["jsonrpc": "2.0", "method": "textDocument/didChange", "params": [
-            "textDocument": ["uri": url.absoluteString, "version": version],
-            "contentChanges": [["text": text]],
-        ],])
+        try send([
+            "jsonrpc": "2.0",
+            "method": "textDocument/didChange",
+            "params": ["textDocument": ["uri": url.absoluteString, "version": version], "contentChanges": [["text": text]]],
+        ])
         if pullsDiagnostics { Task { await pullDiagnostics(url) } }
     }
 

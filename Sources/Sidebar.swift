@@ -128,7 +128,7 @@ private struct SidebarList: View, Equatable {
                             .modifier(GroupDropTarget<PinDrag>(indicatorOffset: 0) { movePin($0, onto: index) })
                     }
                 } header: {
-                    GroupHeader(title: "Pinned", help: "Pinned sessions", count: layout.pinnedIDs.count, menu: { EmptyView() }) { _ in EmptyView() }
+                    GroupHeader(title: "Pinned", help: "Pinned sessions", count: layout.pinnedIDs.count) { EmptyView() } accessory: { _ in EmptyView() }
                 }
             }
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
@@ -148,7 +148,7 @@ private struct SidebarList: View, Equatable {
                             .id(SidebarItem.session(id))
                     }
                 } header: {
-                    GroupHeader(title: "Archived", help: "Archived sessions", count: layout.archivedIDs.count, menu: { EmptyView() }) { _ in EmptyView() }
+                    GroupHeader(title: "Archived", help: "Archived sessions", count: layout.archivedIDs.count) { EmptyView() } accessory: { _ in EmptyView() }
                 }
             }
         }
@@ -268,7 +268,7 @@ private struct SidebarList: View, Equatable {
                     .id(SidebarItem.tab(id))
             }
         } header: {
-            GroupHeader(title: "Terminals", help: "Terminals", count: layout.terminalIDs.count, menu: { EmptyView() }) { isHovering in
+            GroupHeader(title: "Terminals", help: "Terminals", count: layout.terminalIDs.count) { EmptyView() } accessory: { isHovering in
                 Button("New Terminal", systemImage: "plus") { store.newTerminal() }
                     .help("New terminal (⌘T)")
                     .labelStyle(.iconOnly)
@@ -321,26 +321,27 @@ private struct SidebarList: View, Equatable {
                 } else if let folder = source.folder {
                     folderGroupMenu(group.layout.folders, root: folder, title: source.title)
                 }
-            }
-        ) { isHovering in
-            if let singleFolder {
-                Button("New Session", systemImage: "plus") { store.openClaude(cwd: singleFolder) }
-                    .help("New session in \(URL(filePath: singleFolder).lastPathComponent)")
-                    .labelStyle(.iconOnly)
+            },
+            accessory: { isHovering in
+                if let singleFolder {
+                    Button("New Session", systemImage: "plus") { store.openClaude(cwd: singleFolder) }
+                        .help("New session in \(URL(filePath: singleFolder).lastPathComponent)")
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
+                } else if let custom {
+                    Menu {
+                        startItems(custom)
+                    } label: {
+                        Label("New Session", systemImage: "plus").labelStyle(.iconOnly)
+                    }
+                    .menuStyle(.button)
+                    .menuIndicator(.hidden)
                     .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
-            } else if let custom {
-                Menu {
-                    startItems(custom)
-                } label: {
-                    Label("New Session", systemImage: "plus").labelStyle(.iconOnly)
+                    .fixedSize()
+                    .help("New session in \(custom.name)")
                 }
-                .menuStyle(.button)
-                .menuIndicator(.hidden)
-                .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
-                .fixedSize()
-                .help("New session in \(custom.name)")
             }
-        }
+        )
     }
 
     @ViewBuilder
@@ -506,8 +507,7 @@ private struct SessionItem: View {
         CopySessionIDButton(sessionID: id)
     }
 
-    @ViewBuilder
-    private var flagButton: some View {
+    @ViewBuilder private var flagButton: some View {
         if store.flaggedIDs.contains(id) {
             Button("Unflag") { store.unflag(id) }
         } else {
@@ -699,8 +699,8 @@ private struct GroupDropTarget<Drag: Transferable & Identifiable<String>>: ViewM
             }
             .dropDestination(for: Drag.self) { drags, _ in
                 drags.first.flatMap { drop?($0.id) } ?? false
-            } isTargeted: {
-                isTargeted = drop != nil && $0
+            } isTargeted: { targeted in
+                isTargeted = drop != nil && targeted
             }
     }
 }

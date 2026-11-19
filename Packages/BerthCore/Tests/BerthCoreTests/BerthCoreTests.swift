@@ -594,8 +594,7 @@ struct FuzzyMatchTests {
 }
 
 struct ClaudeLaunchTests {
-    @Test(arguments: ["it's \"quoted\"", "$(touch /tmp/berth-pwned) `id` $HOME", "back\\slash\nnew line", "-p print mode", "'; exit 0; '"])
-    func sessionIDReachesClaudeVerbatim(id: String) throws {
+    @Test(arguments: ["it's \"quoted\"", "$(touch /tmp/berth-pwned) `id` $HOME", "back\\slash\nnew line", "-p print mode", "'; exit 0; '"]) func sessionIDReachesClaudeVerbatim(id: String) throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "berth-launch-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

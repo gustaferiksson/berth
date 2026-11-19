@@ -40,7 +40,7 @@ public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
         self.isEnabled = isEnabled
     }
 
-    public init(from decoder: Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)

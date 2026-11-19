@@ -1,5 +1,6 @@
 import AppKit
 import BerthCore
+import GhosttyTerminal
 import SwiftUI
 
 enum Snapshot {
@@ -665,7 +666,7 @@ enum Snapshot {
                     await reopen()
                     if let again = peek() {
                         again.list.selectRowIndexes(IndexSet(integer: again.list.numberOfRows - 1), byExtendingSelection: false)
-                        again.list.doubleAction.map { NSApp.sendAction($0, to: again.list.target, from: again.list) }
+                        if let action = again.list.doubleAction { NSApp.sendAction(action, to: again.list.target, from: again.list) }
                         await land("the list's double-click action", again.selectedReference)
                     }
                 }
@@ -905,7 +906,7 @@ enum Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
             for tab in [store.tabs.first { $0.id != store.selectedTabID }, store.tabs.first { $0.id == store.selectedTabID }].compactMap(\.self) {
-                weak var view = tab.terminal.attachedPlatformView
+                weak let view = tab.terminal.attachedPlatformView
                 let kind = tab.id == store.selectedTabID ? "selected" : "background"
                 if let view { window.makeFirstResponder(view) }
                 try? await Task.sleep(for: .seconds(1))
@@ -1082,7 +1083,7 @@ enum Snapshot {
                     continue
                 }
                 if spec.hasPrefix("select:"), let right = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewTextView }).last {
-                    let range = (right.string as NSString).range(of: spec.dropFirst(7).replacingOccurrences(of: "\\n", with: "\n").replacingOccurrences(of: "\\s", with: " "))
+                    let range = (right.string as NSString).range(of: String(spec.dropFirst(7)).replacing("\\n", with: "\n").replacing("\\s", with: " "))
                     let before = right.occurrences
                     window.makeFirstResponder(right)
                     right.setSelectedRange(range.location == NSNotFound ? NSRange(location: 0, length: 0) : range)

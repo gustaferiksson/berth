@@ -1,4 +1,5 @@
 import AppKit
+import BerthCore
 
 final class ReviewMinimap: NSView {
     weak var original: ReviewTextView?

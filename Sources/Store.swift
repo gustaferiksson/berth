@@ -1,4 +1,5 @@
 import BerthCore
+import CoreGraphics
 import Darwin
 import Foundation
 import GhosttyTerminal
@@ -180,9 +181,11 @@ final class Store {
 
     @ObservationIgnored var persistsTabs = true
     @ObservationIgnored var lastKeyInput = Date.distantPast
+
     #if DEBUG
     @ObservationIgnored var probeOpenedClaude: [(cwd: String, start: ClaudeLaunch.Start)] = []
     #endif
+
     @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var searchIndexTask: Task<Void, Never>?
@@ -213,6 +216,7 @@ final class Store {
     @ObservationIgnored private var waitingSessionIDs: Set<String>?
     @ObservationIgnored private var tabTouches: [Tab.ID: Date] = [:]
     @ObservationIgnored private var recentTabIDs: [Tab.ID] = []
+
     #if DEBUG
     @ObservationIgnored var fakeWaiting: Bool?
     @ObservationIgnored var fakeLiveSessions: [LiveSession] = []

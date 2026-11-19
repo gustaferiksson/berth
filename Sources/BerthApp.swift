@@ -1,5 +1,6 @@
 import AppKit
 import BerthCore
+import GhosttyTerminal
 import SwiftUI
 import UserNotifications
 

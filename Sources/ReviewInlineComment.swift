@@ -61,7 +61,7 @@ final class ReviewInlineComment: NSView {
 
     @available(*, unavailable)
     required init?(coder _: NSCoder) {
-        fatalError()
+        fatalError("init(coder:) is unavailable")
     }
 
     override var isFlipped: Bool { true }

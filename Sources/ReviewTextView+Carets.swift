@@ -178,7 +178,7 @@ extension ReviewTextView {
 
     private func pasteAtCarets(_ clipboard: String) {
         var lines = clipboard.replacing("\r\n", with: "\n").components(separatedBy: "\n")
-        if lines.count > 1, lines.last == "" { lines.removeLast() }
+        if lines.count > 1, lines.last?.isEmpty == true { lines.removeLast() }
         let splitsLines = lines.count == carets.ranges.count
         fanOutEdit { index in super.insertText(splitsLines ? lines[index] : clipboard, replacementRange: NSRange(location: NSNotFound, length: 0)) }
     }

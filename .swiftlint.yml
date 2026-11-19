@@ -43,6 +43,8 @@ disabled_rules:
   # Case order is menu and settings order, and synthesized raw values are the persisted values.
   - sorted_enum_cases
   - explicit_enum_raw_value
+  # Mutually exclusive with redundant_string_enum_value for camelCase cases; both ends share RemoteProtocol.swift.
+  - raw_value_for_camel_cased_codable_enum
   # Mutually exclusive with extension_access_modifier, which agrees with SwiftFormat's extensionAccessControl.
   - no_extension_access_modifier
   # SwiftFormat owns these (sortImports, modifierOrder, indent, redundantSelf) and they disagree on details.

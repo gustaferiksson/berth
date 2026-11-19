@@ -1,4 +1,5 @@
 import BerthCore
+import GhosttyTerminal
 import SwiftUI
 
 struct ReviewDocument: Hashable {
@@ -291,8 +292,7 @@ private struct ReviewFileList: View {
             }
     }
 
-    @ViewBuilder
-    private var content: some View {
+    @ViewBuilder private var content: some View {
         if let changes = model.changes {
             VStack(spacing: 0) {
                 header(changes)
@@ -394,7 +394,7 @@ private struct ReviewFileList: View {
             Section(isExpanded: expansion(of: "uncommitted")) {
                 ForEach(changes.uncommitted, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .uncommitted)) }
             } header: {
-                GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count, menu: { EmptyView() }) { _ in
+                GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count) { EmptyView() } accessory: { _ in
                     Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
                         .monospacedDigit()
                         .foregroundStyle(theme.secondary)
@@ -406,7 +406,7 @@ private struct ReviewFileList: View {
             Section(isExpanded: expansion(of: "committed")) {
                 ForEach(changes.committed, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .committed)) }
             } header: {
-                GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count, menu: { EmptyView() }) { _ in
+                GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count) { EmptyView() } accessory: { _ in
                     Text(model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
                         .foregroundStyle(theme.secondary)
                 }
@@ -416,7 +416,7 @@ private struct ReviewFileList: View {
 
     private var filesHeader: some View {
         Section(isExpanded: expansion(of: "files")) {} header: {
-            GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }
+            GroupHeader(title: "Files", help: "The repository’s files", count: nil) { EmptyView() } accessory: { _ in EmptyView() }
         }
     }
 
@@ -518,12 +518,14 @@ private struct ReviewFileList: View {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(theme.needsYou)
                     .help("Couldn’t fetch \(changes.base ?? ""), comparing local refs: \(fetchError)")
+                    .accessibilityLabel("Fetch failed")
             }
             if let error = model.error {
                 let failure = failure(error)
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(theme.needsYou)
                     .help("Couldn’t refresh, showing the last changes: \(failure.detail ?? failure.description)")
+                    .accessibilityLabel("Refresh failed")
             }
             refreshButton
                 .buttonStyle(.borderless)
@@ -995,6 +997,7 @@ struct ReviewDiffColumn: View {
         return HStack(spacing: 6) {
             Image(systemName: document.compare == nil ? "doc" : "plus.forwardslash.minus")
                 .font(.caption)
+                .accessibilityHidden(true)
             Text((document.path as NSString).lastPathComponent)
                 .italic(tab.isPreview)
                 .lineLimit(1)
@@ -1010,6 +1013,7 @@ struct ReviewDiffColumn: View {
         .background(Color(nsColor: style.foreground).opacity(isSelected ? 0.1 : 0), in: .rect(cornerRadius: 8))
         .contentShape(.rect)
         .onTapGesture { model.selectedTabID = tab.id }
+        .accessibilityAddTraits(.isButton)
         .simultaneousGesture(TapGesture(count: 2).onEnded { model.keep(tab.id) })
         .help("\(document.path)\(document.compare == .committed ? ", committed" : document.compare == .uncommitted ? ", uncommitted" : "")\(tab.isPreview ? ", preview: double-click or edit to keep it" : "")")
     }

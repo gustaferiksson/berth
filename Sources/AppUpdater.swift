@@ -33,7 +33,7 @@ final class AppUpdater {
     private(set) var isPostponed = false
     @ObservationIgnored private var newerVersion: String?
     @ObservationIgnored private var timer: Timer?
-    @ObservationIgnored private var wakeObserver: NSObjectProtocol?
+    @ObservationIgnored private var wakeObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var swapping = false
     @ObservationIgnored private var idleTimer: Timer?
     @ObservationIgnored var workingSessions: () -> Int = { 0 }
@@ -314,12 +314,12 @@ final class AppUpdater {
         let components = { (version: String) in
             (version.hasPrefix("v") ? String(version.dropFirst()) : version).split(separator: ".").map { Int($0) ?? 0 }
         }
-        let r = components(remote)
-        let l = components(local)
-        for index in 0..<max(r.count, l.count) {
-            let a = index < r.count ? r[index] : 0
-            let b = index < l.count ? l[index] : 0
-            if a != b { return a > b }
+        let remoteParts = components(remote)
+        let localParts = components(local)
+        for index in 0..<max(remoteParts.count, localParts.count) {
+            let remotePart = index < remoteParts.count ? remoteParts[index] : 0
+            let localPart = index < localParts.count ? localParts[index] : 0
+            if remotePart != localPart { return remotePart > localPart }
         }
         return false
     }

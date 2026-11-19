@@ -32,9 +32,9 @@ enum ProcessAncestry {
         size = processes.count * MemoryLayout<kinfo_proc>.stride
         guard sysctl(&mib, 4, &processes, &size, nil, 0) == 0 else { return [] }
 
-        let me = getpid()
+        let ownPID = getpid()
         return Set(processes.prefix(size / MemoryLayout<kinfo_proc>.stride)
-            .filter { $0.kp_proc.p_pid > 1 && $0.kp_proc.p_pid != me && isDescendant($0.kp_proc.p_pid, of: me) }
+            .filter { $0.kp_proc.p_pid > 1 && $0.kp_proc.p_pid != ownPID && isDescendant($0.kp_proc.p_pid, of: ownPID) }
             .map { Process(pid: $0.kp_proc.p_pid, started: $0.kp_proc.p_starttime.tv_sec * 1_000_000 + Int($0.kp_proc.p_starttime.tv_usec)) })
     }
 

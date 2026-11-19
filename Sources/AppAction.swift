@@ -1,4 +1,5 @@
 import BerthCore
+import GhosttyTerminal
 import SwiftUI
 
 enum AppAction: Hashable {

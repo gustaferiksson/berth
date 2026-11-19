@@ -12,6 +12,7 @@ struct AboutSettings: View {
             Image(nsImage: NSImage(named: "AppIcon") ?? NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 96, height: 96)
+                .accessibilityHidden(true)
             Text("Berth")
                 .font(.title.bold())
             Text("Version \(version) (\(build))")
@@ -41,7 +42,8 @@ struct AboutSettings: View {
         .frame(height: 320)
     }
 
-    @ViewBuilder private func updateStatus(_ status: AppUpdater.Status) -> some View {
+    @ViewBuilder
+    private func updateStatus(_ status: AppUpdater.Status) -> some View {
         if status == .checking {
             Text("Checking for updates…").foregroundStyle(.secondary)
         } else if status == .downloading {

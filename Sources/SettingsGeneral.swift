@@ -125,8 +125,8 @@ struct GeneralSettings: View {
     private var servers: Binding<[LanguageServerEntry]> {
         Binding {
             LanguageServerEntry.configured(configuredServers)
-        } set: {
-            configuredServers = LanguageServerEntry.storage($0, keeping: LanguageServerEntry.stored(configuredServers).unreadable)
+        } set: { entries in
+            configuredServers = LanguageServerEntry.storage(entries, keeping: LanguageServerEntry.stored(configuredServers).unreadable)
         }
     }
 }

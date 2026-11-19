@@ -1,5 +1,7 @@
 import BerthCore
+import GhosttyTerminal
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum LauncherMode {
     case newSession, search, palette
