@@ -304,6 +304,7 @@ private struct ReviewFileList: View {
     @AppStorage("reviewChangesAsTree") private var changesAsTree = false
     @State private var changesContentHeight = 0.0
     @State private var filesHeaderHeight = 0.0
+    @FocusState private var focusedList: String?
 
     var body: some View {
         content
@@ -335,16 +336,16 @@ private struct ReviewFileList: View {
                         .font(.caption)
                         .foregroundStyle(theme.needsYou)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 8)
                         .padding(.bottom, 6)
                 }
                 if !isStacked, let status = model.status {
                     branchCard(changes, status)
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, 8)
                         .padding(.bottom, 6)
                 }
                 ReviewFilesSplit(
-                    changes: list { if isStacked { stackedSections(changes) } else { changeSections(changes) } }
+                    changes: list(name: "changes", order: order(changes)) { if isStacked { stackedSections(changes) } else { changeSections(changes) } }
                         .id(changesAsTree ? ([changes] + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
                         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
                         .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
@@ -360,7 +361,7 @@ private struct ReviewFileList: View {
                             // Expanded, the List's own 10 pt of vertical padding would otherwise sit between the header and the tree.
                             .frame(height: expansion(of: "files").wrappedValue ? max(filesHeaderHeight - 10, 0) : filesHeaderHeight)
                         ScrollViewReader { proxy in
-                            list { ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) } }
+                            list(name: "files", order: expansion(of: "files").wrappedValue ? model.tree.flatMap { leaves(of: $0, compare: nil, in: model, root: nil) } : []) { ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) } }
                                 .onChange(of: [model.selectedDocument?.path, model.filesReveal], initial: true) {
                                     guard let path = model.filesReveal ?? model.selectedDocument?.path else { return }
 
@@ -421,18 +422,68 @@ private struct ReviewFileList: View {
         }
     }
 
-    private func list(@ViewBuilder _ sections: () -> some View) -> some View {
-        List(selection: Binding(get: { selection }, set: { if let document = $0 { open(document) } }), content: sections)
-            .contextMenu(forSelectionType: ReviewDocument.self) { _ in
-            } primaryAction: { documents in
-                guard let document = documents.first else { return }
+    private func list(name: String = "", order: [ReviewDocument] = [], @ViewBuilder _ sections: () -> some View) -> some View {
+        let content = sections()
+        return ScrollViewReader { proxy in
+            List { content }
+                .focusable(!order.isEmpty)
+                .focused($focusedList, equals: name)
+                .focusEffectDisabled()
+                .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in step(1, in: order, proxy: proxy) }
+                .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in step(-1, in: order, proxy: proxy) }
+                .onKeyPress(.return) {
+                    let target = store.reviewModel ?? model
+                    guard !order.isEmpty, let tab = target.selectedTabID else { return .ignored }
 
-                let target = open(document)
-                target.selectedTabID.map(target.keep)
-            }
-            .listStyle(.sidebar)
-            .environment(\.sidebarRowSize, .small)
-            .scrollContentBackground(.hidden)
+                    target.keep(tab)
+                    return .handled
+                }
+                .listStyle(.sidebar)
+                .environment(\.sidebarRowSize, .small)
+                .scrollContentBackground(.hidden)
+        }
+    }
+
+    private func step(_ offset: Int, in order: [ReviewDocument], proxy: ScrollViewProxy) -> KeyPress.Result {
+        guard !order.isEmpty else { return .ignored }
+
+        let current = selection.flatMap(order.firstIndex(of:))
+        let next = order[min(max((current ?? (offset > 0 ? -1 : order.count)) + offset, 0), order.count - 1)]
+        open(next)
+        proxy.scrollTo(next.path)
+        return .handled
+    }
+
+    private func order(_ changes: ReviewChanges?) -> [ReviewDocument] {
+        guard isStacked else {
+            guard let changes else { return [] }
+
+            return (expansion(of: "uncommitted").wrappedValue ? documents(changes.uncommitted, compare: .uncommitted, in: model, root: nil) : [])
+                + (expansion(of: "committed").wrappedValue ? documents(changes.committed, compare: .committed, in: model, root: nil) : [])
+        }
+
+        let own = changes.flatMap { changes in
+            repositoryExpansion(store.repositoryRoot(ofSession: sessionID) ?? model.folder).wrappedValue ? documents(changes.uncommitted, compare: .uncommitted, in: model, root: nil) + documents(changes.committed, compare: .committed, in: model, root: nil) : nil
+        } ?? []
+        let others = extras.flatMap { extra -> [ReviewDocument] in
+            guard repositoryExpansion(extra.repository.root).wrappedValue, let changes = extra.model.changes else { return [] }
+
+            return documents(changes.uncommitted, compare: .uncommitted, in: extra.model, root: extra.repository.root) + documents(changes.committed, compare: .committed, in: extra.model, root: extra.repository.root)
+        }
+        return own + others
+    }
+
+    private func documents(_ files: [ReviewFile], compare: ReviewCompare, in model: ReviewModel, root: String?) -> [ReviewDocument] {
+        guard changesAsTree else { return files.map { ReviewDocument(path: $0.path, compare: compare, root: root) } }
+
+        return ReviewFileTree.compactNodes(files.map(\.path)).flatMap { leaves(of: $0, compare: compare, in: model, root: root) }
+    }
+
+    private func leaves(of node: ReviewFileTree, compare: ReviewCompare?, in model: ReviewModel, root: String?) -> [ReviewDocument] {
+        guard let children = node.children else { return [ReviewDocument(path: node.path, compare: compare, root: root)] }
+
+        let isExpanded = compare.map { !model.collapsedChangeFolders.contains(ReviewDocument(path: node.path, compare: $0)) } ?? model.expandedFolders.contains(node.path)
+        return isExpanded ? children.flatMap { leaves(of: $0, compare: compare, in: model, root: root) } : []
     }
 
     @discardableResult
@@ -485,7 +536,11 @@ private struct ReviewFileList: View {
         if changesAsTree {
             ForEach(ReviewFileTree.compactNodes(files.map(\.path))) { ReviewFileNode(node: $0, compare: compare, changes: changes, model: model, root: root) }
         } else {
-            ForEach(files, id: \.path) { ReviewChangeRow(file: $0, model: model).tag(ReviewDocument(path: $0.path, compare: compare, root: root)) }
+            ForEach(files, id: \.path) { file in
+                let document = ReviewDocument(path: file.path, compare: compare, root: root)
+                ReviewChangeRow(file: file, model: model)
+                    .modifier(ReviewRowChrome(document: document, model: model))
+            }
         }
     }
 
@@ -568,15 +623,13 @@ private struct ReviewFileList: View {
                 isExpanded: repositoryExpansion(task.id),
                 activate: { store.activate(.session($0)) }
             )
-            .listRowInsets(EdgeInsets(top: 0, leading: -6 - inset, bottom: 4, trailing: -7))
+            .listRowInsets(EdgeInsets(top: 0, leading: -7.5 - inset, bottom: 4, trailing: -8))
             .listRowSeparator(.hidden)
-            .selectionDisabled()
         }
         if let changes {
             Section(isExpanded: repositoryExpansion(ownRoot)) {
                 branchCard(changes, model.status ?? .unknown)
-                    .listRowInsets(EdgeInsets(top: 0, leading: -6 - inset, bottom: 6, trailing: -7))
-                    .selectionDisabled()
+                    .listRowInsets(EdgeInsets(top: 0, leading: -7.5 - inset, bottom: 6, trailing: -8))
                 stackedRows(changes, in: model, root: nil, indent: inset)
             } header: {
                 GroupHeader(title: URL(filePath: ownRoot).lastPathComponent, help: ownRoot, count: nil) { EmptyView() } accessory: { _ in
@@ -589,8 +642,7 @@ private struct ReviewFileList: View {
                 if let changes = extra.model.changes {
                     let found = extraPullRequest(extra.repository.root, changes.branch)
                     ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil)
-                        .listRowInsets(EdgeInsets(top: 0, leading: -6 - inset, bottom: 6, trailing: -7))
-                        .selectionDisabled()
+                        .listRowInsets(EdgeInsets(top: 0, leading: -7.5 - inset, bottom: 6, trailing: -8))
                     stackedRows(changes, in: extra.model, root: extra.repository.root, indent: inset)
                 } else {
                     Text(extra.model.error == nil ? "Loading changes…" : "Can’t read changes")
@@ -747,7 +799,7 @@ private struct ReviewFileList: View {
                 .buttonStyle(.borderless)
         }
         .font(.callout)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 8)
         .padding(.vertical, 8)
     }
 
@@ -798,6 +850,30 @@ private struct ReviewFileList: View {
         }
 
         terminal.requestFocus()
+    }
+}
+
+private struct ReviewRowChrome: ViewModifier {
+    let document: ReviewDocument?
+    let model: ReviewModel
+    @State private var isHovering = false
+    @Environment(Store.self) private var store
+
+    private func open(_ document: ReviewDocument) {
+        model.open(document.compare == nil ? model.workingDocument(document.path) : ReviewDocument(path: document.path, compare: document.compare))
+        if NSApp.currentEvent?.clickCount == 2 { model.selectedTabID.map(model.keep) }
+    }
+
+    func body(content: Content) -> some View {
+        let isSelected = document.map { document in
+            store.reviewModel.map { $0 === model } ?? true && model.selectedDocument.map { $0.path == document.path && $0.compare == document.compare } ?? false
+        } ?? false
+        content
+            .contentShape(.rect)
+            .onTapGesture { document.map(open) }
+            .onHover { isHovering = $0 }
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            .listRowBackground(RowFill(opacity: isSelected ? 0.1 : isHovering ? 0.05 : 0))
     }
 }
 
@@ -863,15 +939,18 @@ private struct ReviewFileNode: View {
                 }
                 .buttonStyle(.plain)
                 .listRowInsets(.vertical, 0)
-                .selectionDisabled()
+                .modifier(ReviewRowChrome(document: nil, model: model))
             }
         } else if let compare, let file = (compare == .committed ? changes.committed : changes.uncommitted).first(where: { $0.path == node.path }) {
+            let document = ReviewDocument(path: node.path, compare: compare, root: root)
             ReviewChangeRow(file: file, model: model)
                 .padding(.vertical, 5)
                 .listRowInsets(.vertical, 0)
-                .tag(ReviewDocument(path: node.path, compare: compare, root: root))
+                .modifier(ReviewRowChrome(document: document, model: model))
         } else {
-            label.tag(ReviewDocument(path: node.path, compare: nil))
+            let document = ReviewDocument(path: node.path, compare: nil)
+            label
+                .modifier(ReviewRowChrome(document: document, model: model))
         }
     }
 
@@ -1007,7 +1086,7 @@ private struct ReviewBranchCard: View {
                 Text(changes.uncommitted.isEmpty ? "No uncommitted changes on \(changes.branch)" : "Uncommitted changes on \(changes.branch)")
                     .fontWeight(.semibold)
                 pushState
-                    .font(.subheadline)
+                    .font(.caption)
             } else {
                 let found = pullRequest ?? nil
                 if pullRequest != nil {
@@ -1017,13 +1096,13 @@ private struct ReviewBranchCard: View {
                             .labelStyle(CompactLabel())
                             .font(.caption.weight(.medium))
                             .foregroundStyle(color)
-                            .padding(.horizontal, 6)
+                            .padding(.horizontal, 4)
                             .padding(.vertical, 2)
-                            .background(color.opacity(0.16), in: .capsule)
+                            .background(color.opacity(0.16), in: .rect(cornerRadius: 4))
                             .fixedSize()
                         if let found {
                             Text(verbatim: "#\(found.number)")
-                                .font(.subheadline.monospaced())
+                                .font(.caption.monospaced())
                                 .foregroundStyle(theme.secondary)
                             Spacer(minLength: 4)
                             Link(destination: found.url) {
@@ -1071,7 +1150,7 @@ private struct ReviewBranchCard: View {
                     }
                 }
                 .labelStyle(CompactLabel())
-                .font(.subheadline)
+                .font(.caption)
                 .foregroundStyle(theme.secondary)
             }
             if (pullRequest ?? nil) == nil, !status.commits.isEmpty {
@@ -1125,13 +1204,13 @@ private struct ReviewBranchCard: View {
                         .frame(width: 7, height: 7)
                         .help(commit.isPushed ? "Pushed" : "Not pushed")
                     Text(commit.sha)
-                        .font(.subheadline.monospaced())
+                        .font(.caption.monospaced())
                         .foregroundStyle(theme.secondary)
                     Text(commit.subject)
                         .truncationMode(.tail)
                     Spacer(minLength: 4)
                     Text(age(since: commit.date))
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundStyle(theme.secondary)
                 }
                 .frame(height: 22)
@@ -1139,7 +1218,7 @@ private struct ReviewBranchCard: View {
             }
             if status.commits.count > 5 {
                 Text("\(status.commits.count - 5) more")
-                    .font(.subheadline)
+                    .font(.caption)
                     .foregroundStyle(theme.secondary)
                     .frame(height: 22)
             }
