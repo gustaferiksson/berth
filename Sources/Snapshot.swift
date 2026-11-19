@@ -70,22 +70,64 @@ enum Snapshot {
         ]
     }()
 
-    static let fixtureSessions = !pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil
+    private static let inboxFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: [PullRequestBranch: PullRequest?], inbox: [InboxPullRequest]?)? = {
+        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil else { return nil }
+
+        let code = NSTemporaryDirectory() + "berth-pull-requests"
+        for name in ["billing/.git", "web/.git"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) }
+        let billing = "\(code)/billing"
+        let web = "\(code)/web"
+        let node = { (number: Int, repository: String, title: String, branch: String, author: String, hours: Double, draft: Bool, checks: String, decision: String) in
+            let rollup = checks.isEmpty ? "null" : #"{"state":"\#(checks)"}"#
+            let reviewDecision = decision.isEmpty ? "null" : #""\#(decision)""#
+            return #"{"number":\#(number),"title":"\#(title)","url":"https://github.com/\#(repository)/pull/\#(number)","isDraft":\#(draft),"updatedAt":"\#((Date.now - hours * 3600).ISO8601Format())","headRefName":"\#(branch)","reviewDecision":\#(reviewDecision),"author":{"login":"\#(author)"},"repository":{"nameWithOwner":"\#(repository)"},"statusCheckRollup":\#(rollup)}"#
+        }
+        let reviewRequested = [
+            node(88, "acme/web", "Add usage export page", "lee/usage-export-page", "lee", 3, false, "SUCCESS", "REVIEW_REQUIRED"),
+            node(415, "northwind/infra", "Rotate the state bucket key", "sam/rotate-key", "sam", 26, false, "PENDING", ""),
+        ]
+        let mine = [
+            node(212, "acme/billing", "Fix rounding in invoice totals", "fix/invoice-rounding", "me", 0.01, false, "FAILURE", "CHANGES_REQUESTED"),
+            node(214, "acme/billing", "Usage export API", "feat/usage-export-api", "me", 2, false, "SUCCESS", "APPROVED"),
+            node(89, "acme/web", "Usage export in dashboard", "feat/usage-dashboard", "me", 1, true, "PENDING", ""),
+            node(150, "acme/billing", "Drop the legacy CSV importer", "chore/drop-csv-importer", "me", 1080, false, "SUCCESS", ""),
+        ]
+        let assigned = [node(77, "acme/web", "Fix the flaky login test", "kim/flaky-login", "kim", 120, false, "", "")]
+        let json = #"{"data":{"reviewRequested":{"nodes":[\#(reviewRequested.joined(separator: ","))]},"mine":{"nodes":[\#(mine.joined(separator: ","))]},"assigned":{"nodes":[\#(assigned.joined(separator: ","))]}}}"#
+        return (
+            [
+                SessionSummary(id: "fixture-rounding", cwd: billing, title: "Fix rounding in invoice totals", lastActivity: .now - 60, branch: "fix/invoice-rounding"),
+                SessionSummary(id: "fixture-usage", cwd: billing, title: "Usage export API and dashboard", lastActivity: .now - 3600, branch: "main", pullRequests: [PullRequestLink(repository: "acme/web", number: 89), PullRequestLink(repository: "acme/billing", number: 214)]),
+                SessionSummary(id: "fixture-web", cwd: web, title: "Tidy the web build", lastActivity: .now - 86_400, branch: "main"),
+            ],
+            [RepositoryRoot.resolve(billing): "acme/billing", RepositoryRoot.resolve(web): "acme/web"],
+            [
+                PullRequestBranch(repository: "acme/billing", branch: "fix/invoice-rounding"): PullRequest(number: 212, url: URL(string: "https://github.com/acme/billing/pull/212")!, title: "Fix rounding in invoice totals", state: .open, checks: .failed),
+                PullRequestBranch(repository: "acme/billing", branch: "main"): PullRequest?.none,
+                PullRequestBranch(repository: "acme/web", branch: "main"): PullRequest?.none,
+            ],
+            PullRequestInbox.parse(Data(json.utf8))
+        )
+    }()
+
+    static let fixtureSessions = inboxFixtures?.sessions ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
     private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
-    static let fixtureRepositories = Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
+    static let fixtureRepositories = inboxFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
     private static let fixtureChecks = (UserDefaults.standard.string(forKey: "snapshotChecks") ?? "").split(separator: "|", omittingEmptySubsequences: false).map { PullRequestChecks.State(rawValue: String($0)) }
-    static let fixturePullRequests = Dictionary(pullRequestFixtures.enumerated().compactMap { index, item in
+    static let fixturePullRequests = inboxFixtures?.pullRequests ?? Dictionary(pullRequestFixtures.enumerated().compactMap { index, item in
         item.session.branch.map { branch in
             var pullRequest = item.pullRequest
             pullRequest?.checks = index < fixtureChecks.count ? fixtureChecks[index] : nil
             return (PullRequestBranch(repository: fixtureRepository, branch: branch), pullRequest)
         }
     }) { first, _ in first }
+    static let fixtureInbox = inboxFixtures?.inbox
     #else
     static let fixtureSessions: [SessionSummary]? = nil
     static let launcherKeys: String? = nil
     static let fixtureRepositories: [String: String?] = [:]
     static let fixturePullRequests: [PullRequestBranch: PullRequest?] = [:]
+    static let fixtureInbox: [InboxPullRequest]? = nil
     static let fixturePullRequestDetail: PullRequestDetail? = nil
     #endif
 
@@ -101,7 +143,7 @@ enum Snapshot {
     }
 
     #if DEBUG
-    static let launcherQuery = UserDefaults.standard.string(forKey: "snapshotLauncher") ?? UserDefaults.standard.string(forKey: "snapshotSearch") ?? UserDefaults.standard.string(forKey: "snapshotPalette") ?? ""
+    static let launcherQuery = UserDefaults.standard.string(forKey: "snapshotLauncher") ?? UserDefaults.standard.string(forKey: "snapshotSearch") ?? UserDefaults.standard.string(forKey: "snapshotPalette") ?? UserDefaults.standard.string(forKey: "snapshotPullRequests") ?? ""
     #else
     static let launcherQuery = ""
     #endif
@@ -248,6 +290,22 @@ enum Snapshot {
         if UserDefaults.standard.string(forKey: "snapshotLauncher") != nil { store.launcherMode = .newSession }
         if UserDefaults.standard.string(forKey: "snapshotSearch") != nil { store.launcherMode = .search }
         if UserDefaults.standard.string(forKey: "snapshotPalette") != nil { store.launcherMode = .palette }
+        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") {
+            let ranked = PullRequestInbox.rank(query, in: store.inbox ?? [], now: .now)
+            print("pull requests for \"\(query)\": \(ranked.pullRequests.count) shown, \(ranked.older) older hidden, toolbar count \(store.inbox?.count { $0.role == .reviewRequested } ?? 0)")
+            for pullRequest in ranked.pullRequests {
+                let opening = store.opening(of: pullRequest)
+                let action = if case let .session(session) = opening {
+                    "resume \(session.id)"
+                } else if case let .worktree(folder) = opening {
+                    "new worktree session in \(URL(filePath: folder).lastPathComponent)"
+                } else {
+                    "notice: No local checkout of \(pullRequest.repository)"
+                }
+                print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: pullRequest).map(\.id)) | enter: \(action)")
+            }
+            if launcherKeys == nil { store.launcherMode = .pullRequests }
+        }
         let editedGroup = UserDefaults.standard.string(forKey: "snapshotEditGroup").map { name in
             store.customGroups.first { $0.name == name } ?? CustomGroup(name: "", rules: [])
         }
@@ -1270,12 +1328,12 @@ enum Snapshot {
             store.launcherMode = .newSession
             try? await Task.sleep(for: .seconds(1))
             print("launcher first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
-            let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r")]
-            let letters: [Character: UInt16] = ["h": 4, "u": 32, "b": 11, "x": 7, "i": 34, "-": 27]
+            let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "tab": (48, "\t")]
+            let letters: [Character: UInt16] = ["h": 4, "u": 32, "b": 11, "x": 7, "i": 34, "-": 27, "r": 15, "o": 31, "n": 45, "d": 2, "#": 20]
             for spec in keys.split(separator: " ").map(String.init) {
                 let strokes = special[spec].map { [$0] } ?? spec.compactMap { character in letters[character].map { (keyCode: $0, characters: String(character)) } }
                 for stroke in strokes {
-                    let flags: NSEvent.ModifierFlags = spec == "alt-enter" ? .option : special[spec] != nil && spec != "enter" ? [.function, .numericPad] : []
+                    let flags: NSEvent.ModifierFlags = spec == "alt-enter" ? .option : ["down", "up"].contains(spec) ? [.function, .numericPad] : []
                     guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: stroke.characters, charactersIgnoringModifiers: stroke.characters, isARepeat: false, keyCode: stroke.keyCode) else { continue }
 
                     window.sendEvent(event)
@@ -1284,6 +1342,7 @@ enum Snapshot {
                 print("\(spec): launcher \(String(describing: store.launcherMode))")
             }
             print("openClaude calls: \(store.probeOpenedClaude.count) \(store.probeOpenedClaude.map { "\(URL(filePath: $0.cwd).lastPathComponent) \($0.start)" })")
+            print("opened URLs: \(store.probeOpenedURLs.map(\.absoluteString))")
         }
         let tab = store.tabs.first { $0.id == store.selectedTabID }
         window.title = showsStats ? "Stats" : store.isHarborShown ? "Harbor" : tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"

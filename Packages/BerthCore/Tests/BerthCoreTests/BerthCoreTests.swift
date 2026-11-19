@@ -122,6 +122,19 @@ struct TranscriptTests {
         #expect(summary?.branches == ["main", "feat/cards", "feat/middle", "feat/start"])
     }
 
+    @Test func linkedPullRequestsAreNewestFirstWithRememberedOnesAfterTheTail() {
+        let head = Transcript.records(in: Data(#"{"type":"user","cwd":"/x","message":{"content":"hi"}}"#.utf8), dropFirst: false, dropLast: false)
+        let tail = Transcript.records(in: Data("""
+        {"type":"pr-link","sessionId":"a","prNumber":12,"prUrl":"https://github.com/acme/web/pull/12","prRepository":"acme/web","timestamp":"2026-01-02T10:00:00.000Z"}
+        {"type":"assistant","gitBranch":"main"}
+        {"type":"pr-link","sessionId":"a","prNumber":7,"prUrl":"https://github.com/acme/api/pull/7","prRepository":"acme/api","timestamp":"2026-01-02T11:00:00.000Z"}
+        {"type":"pr-link","sessionId":"a","prNumber":12,"prUrl":"https://github.com/acme/web/pull/12","prRepository":"acme/web","timestamp":"2026-01-02T12:00:00.000Z"}
+        {"type":"pr-link","sessionId":"a","prRepository":"acme/web"}
+        """.utf8), dropFirst: false, dropLast: false)
+        let summary = Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail, earlierPullRequests: [PullRequestLink(repository: "acme/api", number: 3), PullRequestLink(repository: "acme/api", number: 7)])
+        #expect(summary?.pullRequests == [PullRequestLink(repository: "acme/web", number: 12), PullRequestLink(repository: "acme/api", number: 7), PullRequestLink(repository: "acme/api", number: 3)])
+    }
+
     @Test func resumingWithoutConversationKeepsTheOldActivity() throws {
         let head = Transcript.records(in: Data("""
         {"type":"user","cwd":"/x","timestamp":"2026-10-01T10:00:00.000Z","message":{"content":"fix the parser"}}
@@ -217,7 +230,7 @@ struct TranscriptTests {
         try handle.write(contentsOf: Data((toolLoop.joined(separator: "\n") + "\n").utf8))
         try handle.close()
         let known = try Date("2026-10-29T09:59:00.000Z", strategy: .iso8601)
-        #expect(Transcript.summary(of: url, after: (size: size, lastPrompt: known, branches: [], context: nil))?.lastPrompt == known)
+        #expect(Transcript.summary(of: url, after: (size: size, lastPrompt: known, branches: [], pullRequests: [], context: nil))?.lastPrompt == known)
         #expect(Transcript.summary(of: url)?.lastPrompt == prompt)
     }
 
@@ -241,7 +254,7 @@ struct TranscriptTests {
             try handle.write(contentsOf: Data((lines.joined(separator: "\n") + "\n").utf8))
             try handle.close()
         }
-        let known = (size: size, lastPrompt: Date.distantPast, branches: [String](), context: Optional(context))
+        let known = (size: size, lastPrompt: Date.distantPast, branches: [String](), pullRequests: [PullRequestLink](), context: Optional(context))
         try append([#"{"type":"user","timestamp":"2026-10-29T09:02:00.000Z","message":{"content":"next"}}"#, #"{"type":"ai-title","aiTitle":"Compacting"}"#])
         #expect(Transcript.summary(of: url, after: known)?.context == context)
 
