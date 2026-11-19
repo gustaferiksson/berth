@@ -150,6 +150,7 @@ final class ReviewInlineComment: NSView {
 
     @objc private func edit() {
         guard case let .card(onEdit, _) = kind else { return }
+        buttons.forEach { $0.isHidden = true }
         onEdit()
     }
 
