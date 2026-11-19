@@ -53,6 +53,12 @@ final class ReviewModel {
     var hasUnsavedEdits: Bool { !drafts.isEmpty }
     var selectedTab: ReviewTab? { tabs.first { $0.id == selectedTabID } }
     var selectedDocument: ReviewDocument? { selectedTab?.document }
+    var selectedDocumentHasBothSides: Bool {
+        guard let document = selectedDocument, let compare = document.compare else { return false }
+
+        let status = (compare == .committed ? changes?.committed : changes?.uncommitted)?.first { $0.path == document.path }?.status
+        return status != nil && status != .added && status != .deleted
+    }
 
     init(folder: String) {
         self.folder = folder
@@ -883,6 +889,8 @@ struct ReviewDiffColumn: View {
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 1)
                                 .background(Color(nsColor: style.foreground).opacity(0.08), in: .rect(cornerRadius: 4))
+                        }
+                        if model.selectedDocumentHasBothSides {
                             Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
                                 diffLayout = isUnified ? .sideBySide : .inline
                             }
@@ -913,7 +921,7 @@ struct ReviewDiffColumn: View {
                             style: style,
                             language: areLanguageServersEnabled ? model.language : nil,
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
-                            isUnified: isUnified || document.compare == nil,
+                            isUnified: isUnified || !model.selectedDocumentHasBothSides,
                             takesFocus: model.focusesEditor,
                             onRevealed: { model.reveal = nil },
                             onDefinition: model.goToDefinition,
