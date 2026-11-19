@@ -310,6 +310,10 @@ final class ReviewGitTests {
         try await git(repo, "update-ref", "refs/remotes/origin/feat/a", "feat/a")
         let twins = try await ReviewGit.changes(in: repo.path) { _, _ in (nil, "feat/a") }
         #expect(twins.bases.map(\.ref) == ["origin/feat/a", "main"] && twins.base == "origin/feat/a" && twins.baseReason == .pullRequest)
+
+        try await git(repo, "config", "branch.feat/b.gh-merge-base", "feat/a")
+        let configured = try await ReviewGit.changes(in: repo.path)
+        #expect(configured.bases.map(\.ref) == ["origin/feat/a", "main"] && configured.base == "origin/feat/a" && configured.baseReason == .configured)
     }
 
     @Test func withoutABaseChangesAreOnlyUncommitted() async throws {

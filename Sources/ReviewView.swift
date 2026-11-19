@@ -305,8 +305,12 @@ private struct ReviewFileList: View {
     var body: some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .task(id: pullRequest?.pullRequest?.baseRefName) {
-                model.pullRequestBase = model.changes.flatMap { changes in pullRequest?.pullRequest?.baseRefName.map { (changes.branch, $0) } }
+            .task { await model.load() }
+            .task(id: [model.changes?.branch, pullRequest?.pullRequest?.baseRefName]) {
+                let base = model.changes.flatMap { changes in pullRequest?.pullRequest?.baseRefName.map { (branch: changes.branch, base: $0) } }
+                guard base?.branch != model.pullRequestBase?.branch || base?.base != model.pullRequestBase?.base else { return }
+
+                model.pullRequestBase = base
                 await model.load()
             }
             .onChange(of: model.hasUnsavedEdits || !model.comments.isEmpty) { store.prepareReviewModel() }
@@ -542,6 +546,8 @@ private struct ReviewFileList: View {
                     } label: {
                         HStack(spacing: 3) {
                             Text("→ \(base)")
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                             Image(systemName: "chevron.down")
                                 .imageScale(.small)
                                 .accessibilityHidden(true)
@@ -551,7 +557,6 @@ private struct ReviewFileList: View {
                     .menuStyle(.button)
                     .buttonStyle(.plain)
                     .menuIndicator(.hidden)
-                    .fixedSize()
                     .help("Compare against…")
                 }
             }

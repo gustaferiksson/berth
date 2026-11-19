@@ -21,21 +21,23 @@ This is the slim first version; the rest is listed under Later.
   the default branch, or with no base, there is no Committed compare. A path can be in both.
   Plus the repository's files (`ReviewGit.files(in:)`, `git ls-files --cached --others
   --exclude-standard`), each openable as a plain file.
-- Default branch, first hit wins: `branch.<b>.gh-merge-base` (the key `gh` writes), `@{upstream}`
-  when it names a different branch, then `origin/HEAD`, `origin/main`, `origin/master`,
-  `main`, `master`; remote refs preferred.
+- Configured base, first hit wins: `branch.<b>.gh-merge-base` (the key `gh` writes), then
+  `@{upstream}` when it names a different branch; remote refs preferred. Default branch, first hit
+  wins: `origin/HEAD`, `origin/main`, `origin/master`, `main`, `master`. Without a configured base
+  it is the default branch; the current branch is the default branch when it is the configured base.
 - Base candidates (`ReviewChanges.bases`, for stacked branches): local and `origin/` branches between
   the merge base with the default branch and HEAD (`git for-each-ref --merged=HEAD --contains=<merge
-  base>`), without the current branch, its `origin/` twin, its upstream and refs at HEAD or at the merge
-  base; a local branch at the same commit as its `origin/` twin shows once, as the remote. Each carries
-  its distance (`rev-list --count <ref>..HEAD`), nearest first, and the default branch always comes last.
+  base>`), without the current branch, its `origin/` twin and refs at HEAD or at the merge base; a
+  local branch at the same commit as its `origin/` twin shows once, as the remote. Each carries its
+  distance (`rev-list --count <ref>..HEAD`), nearest first, and the default branch always comes last.
 - Base, first hit wins (`ReviewChanges.baseReason`): the user's pick (`reviewBaseBranches`, per
   repository root and branch), the PR's base branch (`baseRefName`, as `origin/<name>` else `<name>`),
-  each only while it shares history with HEAD, then the nearest candidate, then the default branch. A
-  pick that no longer resolves is removed. Everything below that says base uses this one: the Committed
-  compare, ahead and behind, the commits, the branch total and Create Pull Request.
-- A background `git fetch` of the default branch runs at most every 15 s per repository; other
-  bases are compared as they are locally.
+  the configured base when it isn't the default branch, each only while it shares history with HEAD,
+  then the nearest candidate, then the default branch. A pick that no longer resolves is removed.
+  Everything below that says base uses this one: the Committed compare, ahead and behind, the
+  commits, the branch total and Create Pull Request.
+- A background `git fetch` of the configured base and the default branch runs at most every 15 s per
+  repository; a picked, PR or nearest base is compared as it is locally.
   A failure falls back to local refs and shows a warning icon in the header.
 - State lives in a `ReviewModel` per session (`Store.reviewModels`, created when the panel
   shows the session): changes, branch status, file tree, open tabs, loaded contents, unsaved

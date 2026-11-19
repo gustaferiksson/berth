@@ -32,6 +32,7 @@ public enum ReviewCompare: Sendable, Hashable {
 public enum ReviewBaseReason: String, Sendable {
     case picked
     case pullRequest = "PR"
+    case configured
     case nearest
     case defaultBranch = "default"
 }
@@ -123,9 +124,10 @@ public enum ReviewGit {
             throw error
         }
         let branch = await (try? line(["symbolic-ref", "--short", "HEAD"], in: root)) ?? "HEAD"
-        let defaultBase = await base(in: root)
-        let isDefaultBranch = defaultBase == branch || defaultBase == "origin/\(branch)"
-        let baseRefspecs = defaultBase.map { $0.hasPrefix("origin/") ? ["+refs/heads/\($0.dropFirst("origin/".count)):refs/remotes/\($0)"] : [] } ?? []
+        let configuredBase = await base(in: root)
+        let defaultBase = await defaultBranch(in: root) ?? configuredBase
+        let isDefaultBranch = configuredBase == branch || configuredBase == "origin/\(branch)"
+        let baseRefspecs = Set([configuredBase, defaultBase].compactMap(\.self)).sorted().filter { $0.hasPrefix("origin/") }.map { "+refs/heads/\($0.dropFirst("origin/".count)):refs/remotes/\($0)" }
 
         let fetch = await (baseRefspecs.isEmpty ? nil : fetches.fetch(baseRefspecs, in: root))
         let head = if let head = try? await line(["rev-parse", "--verify", "--quiet", "HEAD"], in: root) { head } else { try await line(["hash-object", "-t", "tree", "/dev/null"], in: root) }
@@ -134,7 +136,7 @@ public enum ReviewGit {
 
         let preferred = comparableBase == nil ? (picked: nil, pullRequest: nil) : preferredBase(root, branch)
         var chosen: (ref: String, reason: ReviewBaseReason)?
-        for case let (ref?, reason) in [(preferred.picked, ReviewBaseReason.picked), (preferred.pullRequest.map { "origin/\($0)" }, .pullRequest), (preferred.pullRequest, .pullRequest)] where !ref.hasPrefix("-") {
+        for case let (ref?, reason) in [(preferred.picked, ReviewBaseReason.picked), (preferred.pullRequest.map { "origin/\($0)" }, .pullRequest), (preferred.pullRequest, .pullRequest), (configuredBase == defaultBase ? nil : configuredBase, .configured)] where !ref.hasPrefix("-") {
             guard await (try? git(["merge-base", ref, head], in: root)) != nil else { continue }
 
             chosen = (ref, reason)
@@ -208,11 +210,18 @@ public enum ReviewGit {
         let configured = try? await line(["config", "--get", "branch.\(branch).gh-merge-base"], in: root)
         let merge = try? await line(["config", "--get", "branch.\(branch).merge"], in: root)
         let upstream = try? await line(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: root)
-        let originHead = try? await line(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], in: root)
         let otherUpstream = merge == "refs/heads/\(branch)" ? nil : upstream
-        let candidates = [configured.map { "origin/\($0)" }, configured, otherUpstream, originHead, "origin/main", "origin/master", "main", "master"].compactMap(\.self)
 
-        for candidate in candidates where !candidate.hasPrefix("-") {
+        for candidate in [configured.map { "origin/\($0)" }, configured, otherUpstream].compactMap(\.self) where !candidate.hasPrefix("-") {
+            if await (try? git(["rev-parse", "--verify", "--quiet", "\(candidate)^{commit}"], in: root)) != nil { return candidate }
+        }
+        return await defaultBranch(in: root)
+    }
+
+    private static func defaultBranch(in root: String) async -> String? {
+        let originHead = try? await line(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], in: root)
+
+        for candidate in [originHead, "origin/main", "origin/master", "main", "master"].compactMap(\.self) where !candidate.hasPrefix("-") {
             if await (try? git(["rev-parse", "--verify", "--quiet", "\(candidate)^{commit}"], in: root)) != nil { return candidate }
         }
         return nil
@@ -224,8 +233,7 @@ public enum ReviewGit {
               let refs = try? await line(["for-each-ref", "--merged=\(head)", "--contains=\(mergeBase)", "--format=%(objectname) %(refname)", "refs/heads", "refs/remotes/origin"], in: root)
         else { return [] }
 
-        let upstream = try? await line(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: root)
-        let excluded = Set([branch, "origin/\(branch)", "origin/HEAD", defaultBase, upstream].compactMap(\.self))
+        let excluded: Set = [branch, "origin/\(branch)", "origin/HEAD", defaultBase]
         let named = refs.split(separator: "\n").compactMap { entry -> (sha: Substring, name: String)? in
             let parts = entry.split(separator: " ", maxSplits: 1)
             guard parts.count == 2, parts[0] != head, parts[0] != mergeBase else { return nil }
