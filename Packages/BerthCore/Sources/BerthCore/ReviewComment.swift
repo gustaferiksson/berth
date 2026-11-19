@@ -9,7 +9,7 @@ public struct ReviewComment: Sendable, Hashable, Identifiable {
     public let path: String
     public let line: Int
     public let endLine: Int
-    public let text: String
+    public var text: String
     public let snippet: String
     public let side: Side
     public let compare: ReviewCompare?
