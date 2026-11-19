@@ -279,7 +279,7 @@ enum Snapshot {
             }
             try? await Task.sleep(for: .seconds(1))
             print("review \(model.changes.map { "\($0.branch) → \($0.base ?? "-"), fetch error \($0.fetchError ?? "-")" } ?? "error \(model.error.map(ReviewModel.describe) ?? "timed out")")")
-            print("review card \(model.status.map { "base \(model.changes?.base ?? "-"), default branch \(model.changes?.isDefaultBranch == true), ahead \($0.ahead), behind \($0.behind), upstream \($0.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" })" } ?? "none"), pull request details \(model.pullRequestDetails)")
+            print("review card \(model.status.map { "base \(model.changes?.base ?? "-"), default branch \(model.changes?.isDefaultBranch == true), ahead \($0.ahead), behind \($0.behind), upstream \($0.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" }), total \(model.changes?.total.map { "+\($0.additions) -\($0.deletions)" } ?? "-")" } ?? "none"), pull request details \(model.pullRequestDetails)")
             for (section, files) in [("uncommitted", model.changes?.uncommitted ?? []), ("committed", model.changes?.committed ?? [])] {
                 for file in files { print("  \(section) \(file.status.rawValue) \(file.path) +\(file.additions.map(String.init) ?? "?") -\(file.deletions.map(String.init) ?? "?")") }
             }
