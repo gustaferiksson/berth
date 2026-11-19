@@ -102,6 +102,10 @@ private struct ChangesMenuItem: View {
         let layout = AppAction.showInline.isAvailable(in: store) ? AppAction.showInline : .showSideBySide
         layout.menuButton(store)
             .disabled(!layout.isAvailable(in: store))
+        ForEach([AppAction.goBack, .goForward], id: \.self) { action in
+            action.menuButton(store)
+                .disabled(!action.isAvailable(in: store))
+        }
     }
 }
 
@@ -183,7 +187,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && $0.shortcut.map { String($0.key.character) } == event.charactersIgnoringModifiers?.lowercased() && (!([.showChanges, .hideChanges, .findInTerminal, .save] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
+            let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showChanges, .hideChanges, .findInTerminal, .save, .goBack, .goForward] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil
             }

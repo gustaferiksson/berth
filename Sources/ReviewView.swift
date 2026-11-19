@@ -8,11 +8,11 @@ struct ReviewDocument: Hashable {
 
 struct ReviewTab: Identifiable {
     let id: UUID
-    var history: [ReviewDocument]
+    var history: [(document: ReviewDocument, range: LanguageServerRange?)]
     var index: Int
     var isPreview: Bool
 
-    var document: ReviewDocument { history[index] }
+    var document: ReviewDocument { history[index].document }
 }
 
 enum ReviewDiffLayout: String {
@@ -100,14 +100,15 @@ final class ReviewModel {
             }
             tabs = tabs.compactMap { tab in
                 guard existing(tab.document) != nil else { return nil }
-                return ReviewTab(id: tab.id, history: tab.history.compactMap(existing), index: tab.history[..<tab.index].compactMap(existing).count, isPreview: tab.isPreview)
+                let history = tab.history.compactMap { entry in existing(entry.document).map { (document: $0, range: entry.range) } }
+                return ReviewTab(id: tab.id, history: history, index: tab.history[..<tab.index].compactMap { existing($0.document) }.count, isPreview: tab.isPreview)
             }
             for index in tabs.indices {
                 let document = tabs[index].document
                 guard document.compare == .committed, savedFromCommitted.contains(document.path), changes.uncommitted.contains(where: { $0.path == document.path }) else { continue }
 
                 if tabs[index].id == selectedTabID, let editor = editors[document.path], editor.window?.firstResponder === editor { focusesEditor = true }
-                tabs[index].history[tabs[index].index] = ReviewDocument(path: document.path, compare: .uncommitted)
+                tabs[index].history[tabs[index].index].document = ReviewDocument(path: document.path, compare: .uncommitted)
             }
             savedFromCommitted.subtract(changes.uncommitted.map(\.path))
             if selectedTab == nil { selectedTabID = tabs.last?.id }
@@ -124,13 +125,13 @@ final class ReviewModel {
             return
         }
         guard let preview = tabs.firstIndex(where: \.isPreview) else {
-            let tab = ReviewTab(id: UUID(), history: [document], index: 0, isPreview: true)
+            let tab = ReviewTab(id: UUID(), history: [(document, nil)], index: 0, isPreview: true)
             tabs.insert(tab, at: tabs.firstIndex { $0.id == selectedTabID }.map { $0 + 1 } ?? tabs.count)
             selectedTabID = tab.id
             return
         }
 
-        tabs[preview].history = Array(tabs[preview].history.prefix(tabs[preview].index + 1)) + [document]
+        tabs[preview].history = Array(tabs[preview].history.prefix(tabs[preview].index + 1)) + [(document, nil)]
         tabs[preview].index += 1
         selectedTabID = tabs[preview].id
     }
@@ -143,6 +144,8 @@ final class ReviewModel {
     func go(by offset: Int) {
         guard let index = tabs.firstIndex(where: { $0.id == selectedTabID }), tabs[index].history.indices.contains(tabs[index].index + offset) else { return }
         tabs[index].index += offset
+        reveal = tabs[index].history[tabs[index].index].range.map { (tabs[index].document, $0) }
+        focusesEditor = true
     }
 
     func close(_ id: ReviewTab.ID) {
@@ -183,15 +186,25 @@ final class ReviewModel {
         }
     }
 
-    func goToDefinition(_ location: LanguageServerLocation) {
+    func goToDefinition(_ location: LanguageServerLocation, from origin: LanguageServerRange) {
         let target = location.url.resolvingSymlinksInPath().path
-        guard let root = changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root) else { return }
+        guard let root = changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root), let current = tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
 
         let path = String(target.dropFirst(root.count))
         let isReadOnly = selectedDocument?.compare == .committed && changes?.uncommitted.contains { $0.path == path } != false
         let document = selectedDocument.flatMap { $0.path == path && !isReadOnly ? $0 : nil } ?? workingDocument(path)
+        tabs[current].history[tabs[current].index].range = origin
         reveal = (document, location.range)
+        if document == tabs[current].document {
+            guard location.range.start != origin.start else { return }
+
+            tabs[current].history = Array(tabs[current].history.prefix(tabs[current].index + 1)) + [(document, location.range)]
+            tabs[current].index += 1
+            return
+        }
+
         open(document)
+        if let landed = tabs.firstIndex(where: { $0.id == selectedTabID }) { tabs[landed].history[tabs[landed].index].range = location.range }
     }
 
     func workingText(_ path: String) -> String? {
@@ -879,10 +892,12 @@ struct ReviewDiffColumn: View {
                     .frame(height: 32)
                     Divider()
                     HStack(spacing: 8) {
-                        Button("Back", systemImage: "chevron.backward") { model.go(by: -1) }
+                        Button(AppAction.goBack.title, systemImage: AppAction.goBack.symbol) { model.go(by: -1) }
                             .disabled(tab.index == 0)
-                        Button("Forward", systemImage: "chevron.forward") { model.go(by: 1) }
+                            .help("\(AppAction.goBack.title) (⌃-)")
+                        Button(AppAction.goForward.title, systemImage: AppAction.goForward.symbol) { model.go(by: 1) }
                             .disabled(tab.index == tab.history.count - 1)
+                            .help("\(AppAction.goForward.title) (⌃⇧-)")
                         Text(path)
                             .foregroundStyle(Color(nsColor: style.secondary))
                             .lineLimit(1)

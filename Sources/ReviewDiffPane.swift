@@ -14,7 +14,7 @@ struct ReviewDiffPane: View {
     let isUnified: Bool
     let takesFocus: Bool
     let onRevealed: () -> Void
-    let onDefinition: (LanguageServerLocation) -> Void
+    let onDefinition: (LanguageServerLocation, LanguageServerRange) -> Void
     let workingText: () -> String?
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
@@ -125,7 +125,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let splitRatio: Double
     let takesFocus: Bool
     let onRevealed: () -> Void
-    let onDefinition: (LanguageServerLocation) -> Void
+    let onDefinition: (LanguageServerLocation, LanguageServerRange) -> Void
     let workingText: () -> String?
     let onEdit: (String) -> Void
     let onSplit: (Double) -> Void
@@ -578,24 +578,28 @@ extension ReviewDiffViews.Coordinator {
             let asked = question.base?.url ?? URL(filePath: question.language.root).appending(path: question.path)
             let range = location.range
             if location.url.resolvingSymlinksInPath().path == asked.resolvingSymlinksInPath().path, range.start.line == question.position.line, (range.start.character...max(range.end.character, range.start.character)).contains(question.position.character) {
-                return await showReferences(question, in: textView, line: textView.position(ofOffset: offset).line)
+                return await showReferences(question, in: textView, at: offset)
             }
             let landing = landing(of: location, for: question)
             if landing.isBase { return revealBase(landing.location.range, in: textView) }
-            parent?.onDefinition(landing.location)
+            let selection = textView === right ? NSRange(location: offset, length: 0) : right.selectedRange()
+            let origin = LanguageServerRange(start: right.position(ofOffset: selection.location), end: right.position(ofOffset: NSMaxRange(selection)))
+            parent?.onDefinition(landing.location, origin)
         }
     }
 
     func references(in textView: ReviewTextView, at offset: Int) {
         Task {
             guard let question = await question(textView, at: offset) else { return }
-            await showReferences(question, in: textView, line: textView.position(ofOffset: offset).line)
+            await showReferences(question, in: textView, at: offset)
         }
     }
 
-    private func showReferences(_ question: Question, in textView: ReviewTextView, line: Int) async {
+    private func showReferences(_ question: Question, in textView: ReviewTextView, at offset: Int) async {
         guard let locations = await question.language.references(question.path, text: question.working, base: question.base, at: question.position) else { return }
 
+        let selection = textView === right ? NSRange(location: offset, length: 0) : right.selectedRange()
+        let origin = LanguageServerRange(start: right.position(ofOffset: selection.location), end: right.position(ofOffset: NSMaxRange(selection)))
         let root = URL(filePath: question.language.root).resolvingSymlinksInPath().path + "/"
         var texts = [question.path: question.working]
         var references: [ReviewReference] = []
@@ -619,10 +623,10 @@ extension ReviewDiffViews.Coordinator {
             if reference.isBase {
                 textView.map { self?.revealBase(reference.location.range, in: $0) }
             } else {
-                self?.parent?.onDefinition(reference.location)
+                self?.parent?.onDefinition(reference.location, origin)
             }
         }, onClose: { [weak self] in self?.closePeek() })
-        peek = (view, textView, line)
+        peek = (view, textView, textView.position(ofOffset: offset).line)
         layoutInline()
         let owner = right.unifiedOriginal != nil ? right : textView
         owner.scrollToVisible(NSRect(x: owner.visibleRect.minX, y: view.frame.minY - owner.rowHeight, width: 1, height: view.frame.height + owner.rowHeight * 2))
