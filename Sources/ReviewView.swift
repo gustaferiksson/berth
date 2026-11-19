@@ -139,6 +139,7 @@ final class ReviewModel {
         guard let index = tabs.firstIndex(where: { $0.id == selectedTabID }), tabs[index].history.indices.contains(tabs[index].index + offset) else { return }
         tabs[index].index += offset
         reveal = tabs[index].history[tabs[index].index].range.map { (tabs[index].document, $0) }
+        focusesEditor = true
     }
 
     func close(_ id: ReviewTab.ID) {
@@ -189,6 +190,8 @@ final class ReviewModel {
         tabs[current].history[tabs[current].index].range = origin
         reveal = (document, location.range)
         if document == tabs[current].document {
+            guard location.range.start != origin.start else { return }
+
             tabs[current].history = Array(tabs[current].history.prefix(tabs[current].index + 1)) + [(document, location.range)]
             tabs[current].index += 1
             return
