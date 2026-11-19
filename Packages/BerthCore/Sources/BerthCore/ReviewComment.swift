@@ -25,13 +25,14 @@ public struct ReviewComment: Sendable, Hashable, Identifiable {
         self.compare = compare
     }
 
-    public static func prompt(for comments: [Self], branch: String, base: String) -> String {
+    public static func prompt(for comments: [Self], branch: String, base: String, repository: (name: String, path: String)? = nil) -> String {
         let printable = { (text: String) in String(String.UnicodeScalarView(text.unicodeScalars.filter { $0 == "\n" || $0 == "\t" || ($0.value >= 0x20 && $0.value != 0x7F) })) }
         let blocks = comments.map { comment in
             let lines = comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)"
             let language = (comment.path as NSString).pathExtension
-            return "\(comment.path):\(lines)\(comment.compare == .committed ? " (as committed)" : "")\n```\(language)\n\(printable(comment.snippet))\n```\n\(printable(comment.text))"
+            return "\(repository.map { "\($0.name):" } ?? "")\(comment.path):\(lines)\(comment.compare == .committed ? " (as committed)" : "")\n```\(language)\n\(printable(comment.snippet))\n```\n\(printable(comment.text))"
         }
-        return (["Review comments on \(branch) (vs \(base)):"] + blocks).joined(separator: "\n\n")
+        let heading = "Review comments on \(branch) (vs \(base))\(repository.map { " in the \($0.name) repository at \($0.path), paths relative to it" } ?? ""):"
+        return ([heading] + blocks).joined(separator: "\n\n")
     }
 }

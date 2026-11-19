@@ -1047,7 +1047,7 @@ private struct TaskRow: View {
     }
 }
 
-private struct IssueTag: View {
+struct IssueTag: View {
     let issue: IssueRef
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL

@@ -369,6 +369,23 @@ final class Store {
         )
     }
 
+    func title(of task: StoredTask) -> String {
+        let issueTitles = Dictionary(pullRequests.values.compactMap(\.self).flatMap(\.closingIssues).map { ($0.ref, $0.title) }) { first, _ in first }
+        let newest = task.sessionIDs.compactMap { sessionsByID[$0] }.max { $0.lastPrompt < $1.lastPrompt }
+        return task.name ?? task.issue.flatMap { issueTitles[$0] } ?? newest?.title ?? "Task"
+    }
+
+    func pullRequestCount(of members: [SessionSummary]) -> Int {
+        Set(members.flatMap { member in
+            let repository = repositoryRoots[member.checkout].flatMap { repositories[$0] ?? nil }?.lowercased() ?? ""
+            return member.pullRequests.map { "\($0.repository.lowercased())#\($0.number)" } + [pullRequest(for: member)].compactMap(\.self).map { "\(repository)#\($0.number)" }
+        }).count
+    }
+
+    func repositoryRoot(ofSession sessionID: String) -> String? {
+        sessionsByID[sessionID].flatMap { repositoryRoots[$0.checkout] }
+    }
+
     func task(containing sessionID: String) -> StoredTask? {
         shownTasks.first { $0.sessionIDs.contains(sessionID) }
     }
