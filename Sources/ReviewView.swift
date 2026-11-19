@@ -433,6 +433,7 @@ private struct ReviewFileList: View {
             .listStyle(.sidebar)
             .environment(\.sidebarRowSize, .small)
             .scrollContentBackground(.hidden)
+            .scrollEdgeEffectStyle(.soft, for: .top)
     }
 
     @discardableResult
