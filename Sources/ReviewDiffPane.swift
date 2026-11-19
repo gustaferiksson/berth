@@ -507,6 +507,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             let view = ReviewInlineComment(title: isRemoval ? "Removed \(numbers)" : numbers, text: "", kind: .draft(
                 onAdd: { [weak self] text in
                     guard !text.isEmpty else { return }
+
                     self?.parent?.comments.append(ReviewComment(id: UUID().uuidString, path: path, line: first + 1, endLine: last + 1, text: text, snippet: snippet, side: isRemoval ? .original : .modified, compare: compare))
                     self?.closeDraft()
                 },

@@ -802,7 +802,7 @@ enum Snapshot {
             }
             if UserDefaults.standard.bool(forKey: "snapshotReviewEditComment"), sides.count == 2 {
                 let inline = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment } }
-                let box = { inline().first { $0.field.isEditable } }
+                let box = { inline().first(where: \.field.isEditable) }
                 let card = { inline().first { !$0.field.isEditable && !$0.isHidden } }
                 let state = { (label: String) in
                     print("edit \(label): comments \(model.comments.enumerated().map { "\($0.offset) \($0.element.id) \($0.element.line)-\($0.element.endLine) \($0.element.side) \($0.element.compare.map { "\($0)" } ?? "file") \($0.element.text.debugDescription)" }), box \(box().map { "\($0.frame) \($0.header.stringValue) text \($0.field.string.debugDescription) caret \($0.field.selectedRange().location)+\($0.field.selectedRange().length) of \(($0.field.string as NSString).length), buttons \($0.subviews.compactMap { $0 as? NSButton }.map { "\($0.title) \($0.isEnabled ? "enabled" : "disabled")" })" } ?? "closed"), first responder is box field \(box().map { window.firstResponder === $0.field } ?? false), cards \(inline().filter { !$0.field.isEditable }.map { "\($0.isHidden ? "hidden" : "shown") \($0.frame) \($0.field.string.debugDescription)" }), reserved \(sides[1].reserved)")
@@ -813,6 +813,7 @@ enum Snapshot {
                         let keyCode: UInt16 = character == "\r" || character == "\n" ? 36 : character == "\u{1B}" ? 53 : 0
                         let typed = character == "\n" ? "\r" : String(character)
                         guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: character == "\n" ? .shift : [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: typed, charactersIgnoringModifiers: typed, isARepeat: false, keyCode: keyCode) else { continue }
+
                         window.sendEvent(event)
                     }
                 }
@@ -824,6 +825,7 @@ enum Snapshot {
                 }
                 let doubleClick = {
                     guard let field = card()?.field else { return print("edit: no card to double-click") }
+
                     press(field, 1)
                     try? await Task.sleep(for: .milliseconds(100))
                     press(field, 2)
