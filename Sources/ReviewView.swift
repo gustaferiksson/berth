@@ -53,6 +53,12 @@ final class ReviewModel {
     var hasUnsavedEdits: Bool { !drafts.isEmpty }
     var selectedTab: ReviewTab? { tabs.first { $0.id == selectedTabID } }
     var selectedDocument: ReviewDocument? { selectedTab?.document }
+    var selectedDocumentHasBothSides: Bool {
+        guard let document = selectedDocument, let compare = document.compare else { return false }
+
+        let status = (compare == .committed ? changes?.committed : changes?.uncommitted)?.first { $0.path == document.path }?.status
+        return status != nil && status != .added && status != .deleted
+    }
 
     init(folder: String) {
         self.folder = folder
@@ -263,7 +269,7 @@ private struct ReviewFileList: View {
     @AppStorage("collapsedReviewSections") private var collapsedSections = "files"
     @AppStorage("reviewFilesPaneHeight") private var filesPaneHeight = 0.0
     @State private var changesContentHeight = 0.0
-    @State private var filesContentHeight = 0.0
+    @State private var filesHeaderHeight = 0.0
 
     var body: some View {
         content
@@ -300,17 +306,23 @@ private struct ReviewFileList: View {
                     changes: list { changeSections(changes) }
                         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
                         .environment(\.ghosttyTheme, theme),
-                    files: ScrollViewReader { proxy in
-                        list { filesSection(changes) }
-                            .onChange(of: model.selectedDocument?.path, initial: true) { _, path in
-                                guard let path else { return }
-                                model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
-                                Task { proxy.scrollTo(path) }
-                            }
+                    files: VStack(spacing: 0) {
+                        list { filesHeader }
+                            .scrollDisabled(true)
+                            .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { filesHeaderHeight = $1 }
+                            // Expanded, the List's own 10 pt of vertical padding would otherwise sit between the header and the tree.
+                            .frame(height: expansion(of: "files").wrappedValue ? max(filesHeaderHeight - 10, 0) : filesHeaderHeight)
+                        ScrollViewReader { proxy in
+                            list { ForEach(model.tree) { ReviewFileNode(node: $0, changes: changes, model: model) } }
+                                .onChange(of: model.selectedDocument?.path, initial: true) { _, path in
+                                    guard let path else { return }
+                                    model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
+                                    Task { proxy.scrollTo(path) }
+                                }
+                        }
                     }
-                    .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { filesContentHeight = $1 }
                     .environment(\.ghosttyTheme, theme),
-                    layout: !expansion(of: "files").wrappedValue ? .filesCollapsed(filesContentHeight) : (changes.uncommitted.isEmpty || !expansion(of: "uncommitted").wrappedValue) && (changes.committed.isEmpty || !expansion(of: "committed").wrappedValue) ? .changesCollapsed(changesContentHeight) : .split,
+                    layout: !expansion(of: "files").wrappedValue ? .filesCollapsed(filesHeaderHeight) : (changes.uncommitted.isEmpty || !expansion(of: "uncommitted").wrappedValue) && (changes.committed.isEmpty || !expansion(of: "committed").wrappedValue) ? .changesCollapsed(changesContentHeight) : .split,
                     filesHeight: $filesPaneHeight,
                     divider: NSColor(theme.foreground.opacity(0.1))
                 )
@@ -393,9 +405,8 @@ private struct ReviewFileList: View {
         }
     }
 
-    private func filesSection(_ changes: ReviewChanges) -> some View {
+    private var filesHeader: some View {
         Section(isExpanded: expansion(of: "files")) {
-            ForEach(model.tree) { ReviewFileNode(node: $0, changes: changes, model: model) }
         } header: {
             GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }
         }
@@ -898,6 +909,8 @@ struct ReviewDiffColumn: View {
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 1)
                                 .background(Color(nsColor: style.foreground).opacity(0.08), in: .rect(cornerRadius: 4))
+                        }
+                        if model.selectedDocumentHasBothSides {
                             Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
                                 diffLayout = isUnified ? .sideBySide : .inline
                             }
@@ -928,7 +941,7 @@ struct ReviewDiffColumn: View {
                             style: style,
                             language: areLanguageServersEnabled ? model.language : nil,
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
-                            isUnified: isUnified || document.compare == nil,
+                            isUnified: isUnified || !model.selectedDocumentHasBothSides,
                             takesFocus: model.focusesEditor,
                             onRevealed: { model.reveal = nil },
                             onDefinition: model.goToDefinition,

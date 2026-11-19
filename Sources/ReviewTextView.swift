@@ -523,7 +523,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         super.drawBackground(in: rect)
 
         let changed = kind == .original ? style.removedLine : style.addedLine
-        if isAbsent {
+        if isAbsent, unifiedOriginal == nil {
             style.filler.setFill()
             rect.fill(using: .sourceOver)
         } else {
