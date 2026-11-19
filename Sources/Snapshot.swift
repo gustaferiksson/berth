@@ -436,11 +436,11 @@ enum Snapshot {
                     if let shown = right()?.diagnostics, shown != settled.diagnostics { settled = (shown, .now) }
                 }
                 if let textView = right(), let gutter = textView.gutter {
-                    print("diagnostics shown after \(waited): " + textView.diagnostics.map { "\($0.range.start.line + 1):\($0.range.start.character + 1)-\($0.range.end.line + 1):\($0.range.end.character + 1) \($0.severity.map { "\($0)" } ?? "-") \($0.message.debugDescription) (\($0.source ?? "-"))" }.joined(separator: "; "))
+                    print("diagnostics shown after \(waited): " + textView.diagnostics.map { "\($0.range.start.line + 1):\($0.range.start.character + 1)-\($0.range.end.line + 1):\($0.range.end.character + 1) \($0.severity.map { "\($0)" } ?? "-") \($0.message.debugDescription) (\($0.source ?? "-")) tags \($0.tags.map { "\($0)" }.sorted())" }.joined(separator: "; "))
                     if let first = textView.diagnostics.first, let segment = textView.segments(of: NSRange(location: textView.offset(of: first.range.start), length: 1)).first {
                         let middle = NSPoint(x: segment.rect.midX, y: segment.rect.midY)
                         let mark = gutter.convert(middle, from: textView)
-                        print("diagnostic tooltips: text \(textView.view(textView, stringForToolTip: 0, point: middle, userData: nil).debugDescription), gutter \(gutter.view(gutter, stringForToolTip: 0, point: NSPoint(x: 7, y: mark.y), userData: nil).debugDescription)")
+                        print("diagnostic tooltip: gutter \(gutter.view(gutter, stringForToolTip: 0, point: NSPoint(x: 7, y: mark.y), userData: nil).debugDescription)")
                         crop(".diagnostic.png", gutter, NSRect(x: 0, y: mark.y - 40, width: gutter.bounds.width + 520, height: 80))
                     }
                 }
@@ -497,7 +497,7 @@ enum Snapshot {
                         mouse(textView, .mouseMoved, target, [])
                         try? await Task.sleep(for: .seconds(2))
                     }
-                    print("hover \(spec) after \(ContinuousClock.now - started): \((card()?.subviews.first as? NSTextField)?.stringValue.debugDescription ?? "no card"), card \(card().map { "\($0.frame), label \($0.subviews.first?.frame ?? .zero)" } ?? "-"), visible width \(textView.visibleRect.width), layoutManager requests \(requests) → \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)")
+                    print("hover \(spec) after \(ContinuousClock.now - started): \(card()?.subviews.map { ($0 as? NSTextField)?.stringValue.debugDescription ?? "———" }.joined(separator: " ") ?? "no card"), card \(card().map { "\($0.frame), label \($0.subviews.first?.frame ?? .zero)" } ?? "-"), visible width \(textView.visibleRect.width), layoutManager requests \(requests) → \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)")
                     if let shown = card() { crop(".hover.png", textView, shown.frame.union(NSRect(x: target.x - 60, y: target.y - 20, width: 120, height: 20)).insetBy(dx: -16, dy: -16)) }
                     mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
                     print("hover after moving away: card \(card() == nil ? "dismissed" : "shown")")

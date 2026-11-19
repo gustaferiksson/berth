@@ -6,7 +6,7 @@ final nonisolated class ReviewTextLayoutManager: NSTextLayoutManager {
     @objc(flushTextLayoutFragmentsFromLocation:direction:) func keepTextLayoutFragments(from _: any NSTextLocation, direction _: Int) {}
 }
 
-final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewToolTipOwner {
+final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     private typealias PointerTarget = (textView: ReviewTextView, range: NSRange, segments: [(rect: NSRect, baseline: CGFloat)])
 
     var style = ReviewStyle(scheme: .oneDark, fontFamily: "", fontSize: 0, lineHeightMultiple: 1.3, ghostty: GhosttyTheme(values: [:]))
@@ -44,8 +44,10 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     private var isStale = false
     private var coloredParagraphs = IndexSet()
     private var diagnosticSegments: [(rect: NSRect, baseline: CGFloat, diagnostic: LanguageServerDiagnostic)] = []
+    private var taggedRanges: [NSRange: Set<LanguageServerDiagnostic.Tag>] = [:]
     private var link: PointerTarget?
     private var hoverTarget: PointerTarget?
+    private var hoverDiagnostics: [LanguageServerDiagnostic] = []
     private var hoverTask: Task<Void, Never>?
     private var hoverCard: NSView?
     private var flagsMonitor: Any?
@@ -168,10 +170,6 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         dismissHover()
     }
 
-    func view(_: NSView, stringForToolTip _: NSView.ToolTipTag, point: NSPoint, userData _: UnsafeMutableRawPointer?) -> String {
-        diagnosticSegments.filter { $0.rect.contains(point) }.map { $0.diagnostic.message + ($0.diagnostic.source.map { " (\($0))" } ?? "") }.joined(separator: "\n")
-    }
-
     func offset(of position: LanguageServerPosition) -> Int {
         let length = (string as NSString).length
         guard lineStarts.indices.contains(position.line) else { return length }
@@ -197,6 +195,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         hoverTask?.cancel()
         hoverTask = nil
         hoverTarget = nil
+        hoverDiagnostics = []
         hoverCard?.removeFromSuperview()
         hoverCard = nil
     }
@@ -209,17 +208,25 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
             link = newLink
             needsDisplay = true
         }
-        guard target?.textView !== hoverTarget?.textView || target?.range != hoverTarget?.range else { return }
+        let problems = diagnosticSegments.filter { $0.rect.contains(point) }
+        guard target?.textView !== hoverTarget?.textView || target?.range != hoverTarget?.range || problems.map(\.diagnostic) != hoverDiagnostics else { return }
 
         dismissHover()
         hoverTarget = target
-        guard let target, let onHover = target.textView.onHover, let anchor = target.segments.first?.rect else { return }
+        hoverDiagnostics = problems.map(\.diagnostic)
+        let onHover = target?.textView.onHover
+        let location = target?.range.location ?? 0
+        let diagnostics = hoverDiagnostics
+        guard onHover != nil || !diagnostics.isEmpty, let anchor = target?.segments.first?.rect ?? problems.first?.rect else { return }
 
         hoverTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
-            guard !Task.isCancelled, let markdown = await onHover(target.range.location), !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return }
 
-            self?.showHover(markdown, below: anchor)
+            let markdown = await onHover?(location)
+            guard !Task.isCancelled, markdown != nil || !diagnostics.isEmpty else { return }
+
+            self?.showHover(markdown, diagnostics: diagnostics, below: anchor)
         }
     }
 
@@ -255,31 +262,52 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         return nil
     }
 
-    private func showHover(_ markdown: String, below anchor: NSRect) {
-        let text = NSMutableAttributedString()
+    private func showHover(_ markdown: String?, diagnostics: [LanguageServerDiagnostic], below anchor: NSRect) {
+        let small = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        let problems = NSMutableAttributedString()
+        for diagnostic in diagnostics {
+            problems.append(NSAttributedString(string: (problems.length > 0 ? "\n" : "") + diagnostic.message, attributes: [.font: small, .foregroundColor: style.color(for: diagnostic.severity)]))
+            if let source = diagnostic.source { problems.append(NSAttributedString(string: " (\(source))", attributes: [.font: small, .foregroundColor: style.secondary])) }
+        }
+
+        let info = NSMutableAttributedString()
         var isCode = false
-        for line in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+        for line in (markdown ?? "").split(separator: "\n", omittingEmptySubsequences: false) {
             if line.hasPrefix("```") {
                 isCode.toggle()
                 continue
             }
-            let font = isCode ? style.font : .systemFont(ofSize: NSFont.smallSystemFontSize)
-            text.append(NSAttributedString(string: (text.length > 0 ? "\n" : "") + line, attributes: [.font: font, .foregroundColor: style.foreground]))
+            info.append(NSAttributedString(string: (info.length > 0 ? "\n" : "") + line, attributes: [.font: isCode ? style.font : small, .foregroundColor: style.foreground]))
         }
 
-        let label = NSTextField(wrappingLabelWithString: "")
-        label.attributedStringValue = text
-        label.maximumNumberOfLines = 20
-        label.preferredMaxLayoutWidth = min(520, visibleRect.width - 40)
-        let size = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.preferredMaxLayoutWidth, height: .greatestFiniteMagnitude)) ?? .zero
-        label.frame = NSRect(x: 10, y: 8, width: size.width.rounded(.up), height: size.height.rounded(.up))
-        let card = NSView(frame: NSRect(x: 0, y: 0, width: label.frame.width + 20, height: label.frame.height + 16))
+        let labels = [problems, info].filter { $0.length > 0 }.map { text in
+            let label = NSTextField(wrappingLabelWithString: "")
+            label.attributedStringValue = text
+            label.maximumNumberOfLines = 20
+            label.preferredMaxLayoutWidth = min(520, visibleRect.width - 40)
+            let size = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.preferredMaxLayoutWidth, height: .greatestFiniteMagnitude)) ?? .zero
+            label.frame.size = NSSize(width: size.width.rounded(.up), height: size.height.rounded(.up))
+            return label
+        }
+        let width = (labels.map(\.frame.width).max() ?? 0) + 20
+        let card = NSView(frame: NSRect(x: 0, y: 0, width: width, height: labels.map { $0.frame.height + 16 }.reduce(0, +)))
         card.wantsLayer = true
         card.layer?.backgroundColor = (style.background.blended(withFraction: 0.08, of: style.foreground) ?? style.background).cgColor
         card.layer?.borderColor = style.commentBorder.cgColor
         card.layer?.borderWidth = 1
         card.layer?.cornerRadius = 6
-        card.addSubview(label)
+        var top = card.frame.height
+        for label in labels {
+            if top < card.frame.height {
+                let separator = NSView(frame: NSRect(x: 0, y: top, width: width, height: 1))
+                separator.wantsLayer = true
+                separator.layer?.backgroundColor = style.commentBorder.cgColor
+                card.addSubview(separator)
+            }
+            label.frame.origin = NSPoint(x: 10, y: top - 8 - label.frame.height)
+            card.addSubview(label)
+            top -= label.frame.height + 16
+        }
         let below = anchor.maxY + 4
         card.frame.origin = NSPoint(x: max(min(anchor.minX, visibleRect.maxX - card.frame.width - 8), visibleRect.minX), y: below + card.frame.height > visibleRect.maxY ? anchor.minY - card.frame.height - 4 : below)
         addSubview(card)
@@ -329,14 +357,30 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
 
     private func placeDiagnostics() {
         let length = (string as NSString).length
-        diagnosticSegments = diagnostics.flatMap { diagnostic in
+        let ranges = diagnostics.map { diagnostic in
             let start = offset(of: diagnostic.range.start)
             let end = offset(of: diagnostic.range.end)
-            let range = end > start ? NSRange(location: start, length: end - start) : identifierRange(at: start) ?? identifierRange(at: start - 1) ?? NSRange(location: start, length: start < length ? 1 : 0)
-            return segments(of: range).map { (rect: $0.rect, baseline: $0.baseline, diagnostic: diagnostic) }
+            return (diagnostic: diagnostic, range: end > start ? NSRange(location: start, length: end - start) : identifierRange(at: start) ?? identifierRange(at: start - 1) ?? NSRange(location: start, length: start < length ? 1 : 0))
         }
-        removeAllToolTips()
-        for segment in diagnosticSegments { addToolTip(segment.rect, owner: self, userData: nil) }
+        diagnosticSegments = ranges.flatMap { item in segments(of: item.range).map { (rect: $0.rect, baseline: $0.baseline, diagnostic: item.diagnostic) } }
+
+        let tagged = Dictionary(ranges.filter { !$0.diagnostic.tags.isEmpty }.map { ($0.range, $0.diagnostic.tags) }, uniquingKeysWith: { $0.union($1) })
+        let changed = Set(tagged.keys).union(taggedRanges.keys).filter { tagged[$0] != taggedRanges[$0] }
+        taggedRanges = tagged
+        if let storage = textContentStorage, let manager = textLayoutManager {
+            for span in changed {
+                guard let location = storage.location(storage.documentRange.location, offsetBy: span.location) else { continue }
+
+                manager.enumerateTextLayoutFragments(from: location) { fragment in
+                    let start = storage.offset(from: storage.documentRange.location, to: fragment.rangeInElement.location)
+                    guard start <= span.location || start < NSMaxRange(span) else { return false }
+
+                    coloredParagraphs.remove(start)
+                    colorSyntax(in: fragment)
+                    return true
+                }
+            }
+        }
         needsDisplay = true
         gutter?.needsDisplay = true
     }
@@ -501,8 +545,12 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         }
 
         manager.setRenderingAttributes([:], for: range)
+        let faded = taggedRanges.filter { $0.value.contains(.unnecessary) && $0.key.location < end && NSMaxRange($0.key) > start }.keys
+        for span in faded { add(.foregroundColor, style.foreground.withAlphaComponent(0.6), span) }
         for run in syntaxRuns[syntaxRuns.partitioningIndex { NSMaxRange($0.range) > start }...].prefix(while: { $0.range.location < end }) {
-            add(.foregroundColor, style.color(forCapture: run.capture), run.range)
+            let color = style.color(forCapture: run.capture)
+            add(.foregroundColor, color, run.range)
+            for span in faded { run.range.intersection(span).map { add(.foregroundColor, color.withAlphaComponent(0.6), $0) } }
         }
         let words = side?.changedWordRangesInText ?? []
         for word in words[words.partitioningIndex { NSMaxRange($0) > start }...].prefix(while: { $0.location < end }) {
@@ -594,6 +642,12 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         drawOccurrences(in: rect)
 
         for segment in diagnosticSegments where segment.rect.intersects(rect) {
+            if segment.diagnostic.tags.contains(.deprecated) {
+                style.foreground.setFill()
+                NSRect(x: segment.rect.minX, y: (segment.baseline - style.font.xHeight / 2).rounded(), width: segment.rect.width, height: 1).fill()
+            }
+            guard segment.diagnostic.tags.isEmpty || [.error, .warning].contains(segment.diagnostic.severity) else { continue }
+
             let wave = NSBezierPath()
             wave.move(to: NSPoint(x: segment.rect.minX, y: segment.baseline + 3))
             for (step, x) in stride(from: segment.rect.minX + 2, through: segment.rect.maxX, by: 2).enumerated() {
@@ -680,7 +734,7 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
                 style.selection.setFill()
                 NSRect(x: 0, y: rect.minY, width: bounds.width, height: rect.height).fill(using: .sourceOver)
             }
-            if let worst = textView.diagnostics.filter({ $0.range.start.line == line }).min(by: { ($0.severity?.rawValue ?? 4) < ($1.severity?.rawValue ?? 4) }) {
+            if let worst = textView.diagnostics.filter({ $0.range.start.line == line && ($0.tags.isEmpty || [.error, .warning].contains($0.severity)) }).min(by: { ($0.severity?.rawValue ?? 4) < ($1.severity?.rawValue ?? 4) }) {
                 let mark = NSRect(x: 4, y: rect.midY - 3, width: 6, height: 6)
                 style.color(for: worst.severity).setFill()
                 NSBezierPath(ovalIn: mark).fill()

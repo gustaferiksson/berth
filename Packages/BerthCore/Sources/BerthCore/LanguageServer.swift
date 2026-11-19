@@ -53,10 +53,16 @@ public struct LanguageServerDiagnostic: Sendable, Hashable {
         case hint
     }
 
+    public enum Tag: Int, Sendable {
+        case unnecessary = 1
+        case deprecated
+    }
+
     public let range: LanguageServerRange
     public let severity: Severity?
     public let message: String
     public var source: String?
+    public var tags: Set<Tag> = []
 }
 
 public struct LanguageServerDiagnostics: Sendable, Hashable {
@@ -167,7 +173,7 @@ public actor LanguageServer {
                 "definition": ["linkSupport": true],
                 "references": ["dynamicRegistration": false],
                 "hover": ["contentFormat": ["markdown", "plaintext"]],
-                "publishDiagnostics": ["versionSupport": true],
+                "publishDiagnostics": ["versionSupport": true, "tagSupport": ["valueSet": [1, 2]]],
             ],
             "workspace": ["configuration": settings != nil],
         ]
@@ -372,7 +378,8 @@ public actor LanguageServer {
             guard let range = LanguageServerRange(json: diagnostic["range"]), let message = diagnostic["message"] as? String else { return nil }
 
             let severity = (diagnostic["severity"] as? Int).flatMap(LanguageServerDiagnostic.Severity.init(rawValue:))
-            return LanguageServerDiagnostic(range: range, severity: severity, message: message, source: diagnostic["source"] as? String)
+            let tags = (diagnostic["tags"] as? [Int] ?? []).compactMap(LanguageServerDiagnostic.Tag.init(rawValue:))
+            return LanguageServerDiagnostic(range: range, severity: severity, message: message, source: diagnostic["source"] as? String, tags: Set(tags))
         }
         diagnosticsContinuation.yield(LanguageServerDiagnostics(url: url, version: params?["version"] as? Int, diagnostics: diagnostics))
     }
