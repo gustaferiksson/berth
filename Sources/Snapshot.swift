@@ -969,6 +969,12 @@ enum Snapshot {
                     print("\(spec) (sets the selection like ↑/↓ in the sidebar):\n  \(state())")
                     continue
                 }
+                if spec == "terminal" {
+                    window.makeFirstResponder(store.focusedTerminal?.attachedPlatformView)
+                    try? await Task.sleep(for: .milliseconds(gap))
+                    print("terminal (focuses the selected tab's terminal):\n  \(state())")
+                    continue
+                }
                 if spec == "exit" {
                     _ = store.focusedTerminal?.paste(text: "exit")
                     _ = store.focusedTerminal?.sendKey(.enter)
