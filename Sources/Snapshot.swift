@@ -323,6 +323,13 @@ enum Snapshot {
                 let shown = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }
                 let sides = shown.count == 1 ? [shown[0].unifiedOriginal, shown[0]].compactMap(\.self) : shown
                 for (index, side) in sides.enumerated() {
+                    let lineViews = descendants(side).filter { "\(type(of: $0))" == "_NSTextViewportElementView" && !$0.isHidden }.map { side.convert($0.frame, from: $0.superview) }.filter { $0.intersects(side.visibleRect) }
+                    let offFragment = lineViews.filter { frame in
+                        let origin = side.textContainerOrigin
+                        guard let fragment = side.textLayoutManager?.textLayoutFragment(for: CGPoint(x: 0, y: frame.midY - origin.y)) else { return true }
+                        return frame != fragment.renderingSurfaceBounds.offsetBy(dx: fragment.layoutFragmentFrame.minX + origin.x, dy: fragment.layoutFragmentFrame.minY + origin.y)
+                    }
+                    print("\(label) \(index == 0 ? "left" : "right") line views: \(lineViews.count) on screen, \(offFragment.count) off their layout fragment\(offFragment.prefix(3).map { " \($0)" }.joined())")
                     print("\(label) \(index == 0 ? "left" : "right"): TextKit 2 \(side.textLayoutManager != nil), layoutManager requests \(side.layoutManagerRequests), height \(side.frame.height), usage \(side.textLayoutManager?.usageBoundsForTextContainer.height ?? -1), clip y \(side.enclosingScrollView?.contentView.bounds.minY ?? -1), reserved \(side.reserved), inline \(side.subviews.compactMap { $0 as? ReviewInlineComment }.filter { !$0.isHidden }.map { "\($0.frame)" })")
                 }
                 guard sides.count == 2 else { return }
