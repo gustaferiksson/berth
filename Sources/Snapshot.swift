@@ -476,7 +476,7 @@ enum Snapshot {
                 }
                 if let spec = UserDefaults.standard.string(forKey: "snapshotReviewHover"), let (_, textView, target) = locate(spec) {
                     let requests = textView.layoutManagerRequests
-                    let card = { textView.subviews.first { $0.subviews.contains { $0 is NSTextField } } }
+                    let card = { textView.subviews.first { $0.subviews.first is NSTextField } }
                     let started = ContinuousClock.now
                     while ContinuousClock.now - started < .seconds(60), card() == nil {
                         mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
