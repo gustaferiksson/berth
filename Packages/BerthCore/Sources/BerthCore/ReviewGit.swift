@@ -38,6 +38,7 @@ public struct ReviewChanges: Sendable {
     public let mergeBase: String
     public let uncommitted: [ReviewFile]
     public let committed: [ReviewFile]
+    public let total: (additions: Int, deletions: Int)?
     public let fetchedAt: Date?
     public let fetchError: String?
 }
@@ -117,7 +118,8 @@ public enum ReviewGit {
 
         let committed = try await changes(git(["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", "--no-color", mergeBase, head], in: root)).sorted { $0.path < $1.path }
         let uncommitted = try await workingTreeChanges(from: head, in: root)
-        return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, base: base, head: head, mergeBase: mergeBase, uncommitted: uncommitted, committed: committed, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
+        let total = try await comparedBase == nil ? nil : workingTreeChanges(from: mergeBase, in: root).reduce((additions: 0, deletions: 0)) { ($0.additions + ($1.additions ?? 0), $0.deletions + ($1.deletions ?? 0)) }
+        return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, base: base, head: head, mergeBase: mergeBase, uncommitted: uncommitted, committed: committed, total: total, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
     }
 
     public static func branchStatus(of changes: ReviewChanges) async throws -> ReviewBranchStatus {

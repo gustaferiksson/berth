@@ -3,13 +3,13 @@ import GhosttyTerminal
 import SwiftUI
 
 enum AppAction: Hashable {
-    case commandPalette, newSession, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
+    case commandPalette, newSession, pullRequests, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
     case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showSideBySide, showInline, save, settings, checkForUpdates
     case goBack, goForward
     case caret(CaretAction)
 
-    static let palette: [Self] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
+    static let palette: [Self] = [.newSession, .pullRequests, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
         + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showSideBySide, .showInline, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
@@ -19,6 +19,7 @@ enum AppAction: Hashable {
         switch self {
         case .commandPalette: "Command Palette…"
         case .newSession: "New Session…"
+        case .pullRequests: "Open Pull Request…"
         case .searchSessions: "Search Sessions…"
         case .newTerminal: "New Terminal"
         case .switchTerminal: "Switch Terminal / Claude"
@@ -49,6 +50,7 @@ enum AppAction: Hashable {
     var keywords: String {
         switch self {
         case .newSession: "claude start folder"
+        case .pullRequests: "github pr review requested mine assigned checkout worktree"
         case .searchSessions: "find transcripts"
         case .newTerminal: "shell tab"
         case .switchTerminal: "shell toggle jump"
@@ -71,6 +73,7 @@ enum AppAction: Hashable {
         switch self {
         case .commandPalette: "command"
         case .newSession: "plus.bubble"
+        case .pullRequests: "arrow.triangle.pull"
         case .searchSessions: "magnifyingglass"
         case .newTerminal: "plus.rectangle"
         case .switchTerminal: "apple.terminal"
@@ -140,6 +143,8 @@ enum AppAction: Hashable {
         case .commandPalette: store.launcherMode = store.launcherMode == .palette ? nil : .palette
 
         case .newSession: store.launcherMode = .newSession
+
+        case .pullRequests: store.launcherMode = .pullRequests
 
         case .searchSessions: store.launcherMode = .search
 

@@ -44,6 +44,7 @@ final class ReviewModel {
     var notice: String?
     var movedFolder: String?
     var focusesEditor = false
+    var filesReveal: String?
     var expandedFolders: Set<String> = []
     var collapsedChangeFolders: Set<ReviewDocument> = []
     @ObservationIgnored private var loading: Task<Void, Never>?
@@ -330,9 +331,11 @@ private struct ReviewFileList: View {
                             .frame(height: expansion(of: "files").wrappedValue ? max(filesHeaderHeight - 10, 0) : filesHeaderHeight)
                         ScrollViewReader { proxy in
                             list { ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) } }
-                                .onChange(of: model.selectedDocument?.path, initial: true) { _, path in
-                                    guard let path else { return }
+                                .onChange(of: [model.selectedDocument?.path, model.filesReveal], initial: true) {
+                                    guard let path = model.filesReveal ?? model.selectedDocument?.path else { return }
 
+                                    if model.filesReveal != nil, !expansion(of: "files").wrappedValue { expansion(of: "files").wrappedValue = true }
+                                    model.filesReveal = nil
                                     model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
                                     Task { proxy.scrollTo(path) }
                                 }
@@ -416,8 +419,10 @@ private struct ReviewFileList: View {
                 changeRows(changes.committed, compare: .committed, changes: changes)
             } header: {
                 GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count) { EmptyView() } accessory: { _ in
-                    Text(model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
+                    Text("+\(changes.committed.compactMap(\.additions).reduce(0, +)) −\(changes.committed.compactMap(\.deletions).reduce(0, +))")
+                        .monospacedDigit()
                         .foregroundStyle(theme.secondary)
+                        .padding(.trailing, 6)
                 }
             }
         }
@@ -814,36 +819,39 @@ private struct ReviewBranchCard: View {
                         .fontWeight(.semibold)
                         .lineLimit(2)
                         .help(found.title)
-                    if let detail {
-                        HStack(spacing: 10) {
-                            if let checks = detail.checks {
-                                let failed = checks.state == .failed
-                                let running = checks.state == .running
-                                Label(failed ? "\(checks.failed) failed" : running ? "\(checks.running) running" : "Checks passed", systemImage: failed ? "xmark" : running ? "clock" : "checkmark")
-                                    .foregroundStyle(failed ? theme.closed : running ? theme.needsYou : theme.working)
-                                    .help("Checks: \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
-                            }
-                            Label("\(detail.unresolvedThreads) open", systemImage: "bubble.left")
-                                .help("Unresolved review threads")
-                        }
-                        .labelStyle(CompactLabel())
-                        .font(.subheadline)
-                        .foregroundStyle(theme.secondary)
-                    }
                 } else {
                     Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits") ahead of \(changes.base ?? "")")
                         .fontWeight(.semibold)
-                    HStack(spacing: 10) {
+                }
+                HStack(spacing: 10) {
+                    if found == nil {
                         Text("↑\(status.ahead) ↓\(status.behind)")
                             .monospaced()
                             .help("\(status.ahead) ahead of \(changes.base ?? ""), \(status.behind) behind")
-                        if status.ahead > 0 {
-                            pushState
-                        }
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(theme.secondary)
+                    if let total = changes.total {
+                        Text("+\(total.additions) −\(total.deletions)")
+                            .monospacedDigit()
+                            .help("Changes against \(changes.base ?? ""), uncommitted included")
+                    }
+                    if found == nil, status.ahead > 0 {
+                        pushState
+                    }
+                    if let checks = detail?.checks {
+                        let failed = checks.state == .failed
+                        let running = checks.state == .running
+                        Label(failed ? "\(checks.failed) failed" : running ? "\(checks.running) running" : "Checks passed", systemImage: failed ? "xmark" : running ? "clock" : "checkmark")
+                            .foregroundStyle(failed ? theme.closed : running ? theme.needsYou : theme.working)
+                            .help("Checks: \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
+                    }
+                    if let detail {
+                        Label("\(detail.unresolvedThreads) open", systemImage: "bubble.left")
+                            .help("Unresolved review threads")
+                    }
                 }
+                .labelStyle(CompactLabel())
+                .font(.subheadline)
+                .foregroundStyle(theme.secondary)
             }
             if (pullRequest ?? nil) == nil, !status.commits.isEmpty {
                 commits
@@ -941,51 +949,44 @@ struct ReviewDiffColumn: View {
                 let path = document.path
                 let isReadOnly = document.compare == .committed && model.changes?.uncommitted.contains { $0.path == path } != false
                 VStack(spacing: 0) {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 2) {
-                            ForEach(model.tabs) { tabButton($0, in: model, style: style) }
+                    HStack {
+                        HStack {
+                            Button(AppAction.goBack.title, systemImage: AppAction.goBack.symbol) { model.go(by: -1) }
+                                .disabled(tab.index == 0)
+                                .opacity(tab.index == 0 ? 0.4 : 1)
+                                .help("\(AppAction.goBack.title) (⌃-)")
+                            Button(AppAction.goForward.title, systemImage: AppAction.goForward.symbol) { model.go(by: 1) }
+                                .disabled(tab.index == tab.history.count - 1)
+                                .opacity(tab.index == tab.history.count - 1 ? 0.4 : 1)
+                                .help("\(AppAction.goForward.title) (⌃⇧-)")
                         }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                    }
-                    .scrollIndicators(.hidden)
-                    .frame(height: 32)
-                    Divider()
-                    HStack(spacing: 8) {
-                        Button(AppAction.goBack.title, systemImage: AppAction.goBack.symbol) { model.go(by: -1) }
-                            .disabled(tab.index == 0)
-                            .help("\(AppAction.goBack.title) (⌃-)")
-                        Button(AppAction.goForward.title, systemImage: AppAction.goForward.symbol) { model.go(by: 1) }
-                            .disabled(tab.index == tab.history.count - 1)
-                            .help("\(AppAction.goForward.title) (⌃⇧-)")
-                        Text(path)
-                            .foregroundStyle(Color(nsColor: style.secondary))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        if let compare = document.compare {
-                            Text(compare == .committed ? "Committed" : "Uncommitted")
-                                .font(.caption)
-                                .foregroundStyle(Color(nsColor: style.secondary))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
-                                .background(Color(nsColor: style.foreground).opacity(0.08), in: .rect(cornerRadius: 4))
-                        }
-                        if model.selectedDocumentHasBothSides {
-                            Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
-                                diffLayout = isUnified ? .sideBySide : .inline
+                        .padding(.leading, 10)
+                        ScrollView(.horizontal) {
+                            HStack(spacing: 2) {
+                                ForEach(model.tabs) { tabButton($0, in: model, style: style) }
                             }
-                            .help(isUnified ? "Show Side by Side" : "Show Inline")
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
                         }
-                        Spacer(minLength: 8)
-                        if AppAction.save.isAvailable(in: store) {
-                            Button("Save") { AppAction.save.perform(on: store) }
+                        .scrollIndicators(.hidden)
+                        HStack {
+                            if model.selectedDocumentHasBothSides {
+                                Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
+                                    diffLayout = isUnified ? .sideBySide : .inline
+                                }
+                                .help(isUnified ? "Show Side by Side" : "Show Inline")
+                            }
+                            if AppAction.save.isAvailable(in: store) {
+                                Button(AppAction.save.title, systemImage: AppAction.save.symbol) { AppAction.save.perform(on: store) }
+                                    .help("\(AppAction.save.title) (⌘S)")
+                            }
                         }
+                        .padding(.trailing, 10)
                     }
                     .labelStyle(.iconOnly)
                     .buttonStyle(.borderless)
-                    .font(.callout)
-                    .padding(.horizontal, 8)
-                    .frame(height: 36)
+                    .foregroundStyle(Color(nsColor: style.secondary))
+                    .frame(height: 32)
                     Divider()
                     if let contents = model.contents[document], isReadOnly || model.editors[path] != nil {
                         ReviewDiffPane(
@@ -1043,13 +1044,22 @@ struct ReviewDiffColumn: View {
     private func tabButton(_ tab: ReviewTab, in model: ReviewModel, style: ReviewStyle) -> some View {
         let document = tab.document
         let isSelected = tab.id == model.selectedTabID
+        let name = (document.path as NSString).lastPathComponent
+        let folders = document.path.split(separator: "/").dropLast()
+        let namesakes = Set(model.tabs.map(\.document.path)).subtracting([document.path]).filter { ($0 as NSString).lastPathComponent == name }.map { $0.split(separator: "/").dropLast() }
+        let parents = namesakes.isEmpty ? [] : (1..<folders.count + 1).lazy.map { folders.suffix($0) }.first { suffix in namesakes.allSatisfy { $0.suffix(suffix.count) != suffix } } ?? folders
         return HStack(spacing: 6) {
             Image(systemName: document.compare == nil ? "doc" : "plus.forwardslash.minus")
                 .font(.caption)
                 .accessibilityHidden(true)
-            Text((document.path as NSString).lastPathComponent)
+            Text(name)
                 .italic(tab.isPreview)
                 .lineLimit(1)
+            if !parents.isEmpty {
+                Text(parents.joined(separator: "/"))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             Button("Close Tab", systemImage: "xmark") { store.closeDiff(tab: tab.id) }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
@@ -1063,6 +1073,31 @@ struct ReviewDiffColumn: View {
         .contentShape(.rect)
         .onTapGesture { model.selectedTabID = tab.id }
         .simultaneousGesture(TapGesture(count: 2).onEnded { model.keep(tab.id) })
-        .help("\(document.path)\(document.compare == .committed ? ", committed" : document.compare == .uncommitted ? ", uncommitted" : "")\(tab.isPreview ? ", preview: double-click or edit to keep it" : "")")
+        .help("\(document.path)\(document.compare == .committed ? " (Committed)" : document.compare == .uncommitted ? " (Uncommitted)" : "")\(tab.isPreview ? ", preview: double-click or edit to keep it" : "")")
+        .contextMenu {
+            let absolute = model.changes.map { ($0.root as NSString).appendingPathComponent(document.path) }
+            if let absolute {
+                Button("Copy Path") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(absolute, forType: .string)
+                }
+            }
+            Button("Copy Relative Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(document.path, forType: .string)
+            }
+            Button("Reveal in Files") {
+                model.selectedTabID = tab.id
+                model.filesReveal = document.path
+            }
+            .disabled(!FileManager.default.fileExists(atPath: absolute ?? ""))
+            Divider()
+            Button("Close") { store.closeDiff(tab: tab.id) }
+            Button("Close Others") {
+                model.selectedTabID = tab.id
+                for other in model.tabs where other.id != tab.id { model.close(other.id) }
+            }
+            .disabled(model.tabs.count == 1)
+        }
     }
 }

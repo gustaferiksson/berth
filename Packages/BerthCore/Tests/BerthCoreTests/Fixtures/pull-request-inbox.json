@@ -1,0 +1,26 @@
+{
+  "data": {
+    "reviewRequested": {
+      "nodes": [
+        {"number": 88, "title": "Add usage export page", "url": "https://github.com/acme/web/pull/88", "isDraft": false, "updatedAt": "2026-03-01T09:00:00Z", "headRefName": "lee/usage-export-page", "reviewDecision": "REVIEW_REQUIRED", "author": {"login": "lee"}, "repository": {"nameWithOwner": "acme/web"}, "statusCheckRollup": {"state": "SUCCESS"}},
+        {"number": 415, "title": "Rotate the state bucket key", "url": "https://github.com/northwind/infra/pull/415", "isDraft": false, "updatedAt": "2025-12-01T09:00:00Z", "headRefName": "sam/rotate-key", "reviewDecision": null, "author": null, "repository": {"nameWithOwner": "northwind/infra"}, "statusCheckRollup": {"state": "PENDING"}}
+      ]
+    },
+    "mine": {
+      "nodes": [
+        {"number": 212, "title": "Fix rounding in invoice totals", "url": "https://github.com/acme/billing/pull/212", "isDraft": false, "updatedAt": "2026-03-01T11:59:00Z", "headRefName": "fix/invoice-rounding", "reviewDecision": "CHANGES_REQUESTED", "author": {"login": "me"}, "repository": {"nameWithOwner": "acme/billing"}, "statusCheckRollup": {"state": "FAILURE"}},
+        {},
+        null,
+        {"number": 89, "title": "Usage export in dashboard", "url": "https://github.com/acme/web/pull/89", "isDraft": true, "updatedAt": "2026-03-01T11:00:00Z", "headRefName": "feat/usage-dashboard", "reviewDecision": null, "author": {"login": "me"}, "repository": {"nameWithOwner": "acme/web"}, "statusCheckRollup": null},
+        {"number": 150, "title": "Drop the legacy CSV importer", "url": "https://github.com/acme/billing/pull/150", "isDraft": false, "updatedAt": "2026-01-10T08:00:00Z", "headRefName": "chore/drop-csv-importer", "reviewDecision": "APPROVED", "author": {"login": "me"}, "repository": {"nameWithOwner": "acme/billing"}, "statusCheckRollup": {"state": "SUCCESS"}}
+      ]
+    },
+    "assigned": {
+      "nodes": [
+        {"number": 212, "title": "Fix rounding in invoice totals", "url": "https://github.com/acme/billing/pull/212", "isDraft": false, "updatedAt": "2026-03-01T11:59:00Z", "headRefName": "fix/invoice-rounding", "reviewDecision": "CHANGES_REQUESTED", "author": {"login": "me"}, "repository": {"nameWithOwner": "Acme/Billing"}, "statusCheckRollup": {"state": "FAILURE"}},
+        {"number": 77, "title": "Fix the flaky login test", "url": "https://github.com/acme/web/pull/77", "isDraft": false, "updatedAt": "2026-02-24T10:00:00Z", "headRefName": "kim/flaky-login", "reviewDecision": null, "author": {"login": "kim"}, "repository": {"nameWithOwner": "acme/web"}, "statusCheckRollup": {"state": "IN_PROGRESS"}}
+      ]
+    }
+  },
+  "errors": [{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}]
+}

@@ -38,7 +38,13 @@ enum SidebarItem: Hashable {
 }
 
 enum NewSessionCheckout {
-    case preferred, main
+    case preferred, main, worktree
+}
+
+enum PullRequestOpening {
+    case session(SessionSummary)
+    case worktree(String)
+    case noCheckout
 }
 
 @Observable
@@ -116,6 +122,7 @@ final class Store {
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
         didSet {
+            if launcherMode != .pullRequests { launcherRole = nil }
             guard oldValue != nil, launcherMode == nil else { return }
 
             DispatchQueue.main.async { [weak self] in
@@ -127,6 +134,7 @@ final class Store {
     }
 
     @ObservationIgnored var launcherQuery = Snapshot.launcherQuery
+    var launcherRole: InboxPullRequest.Role?
     var groupingMode = GroupingMode(rawValue: UserDefaults.standard.string(forKey: "groupingMode") ?? "") ?? .project {
         didSet {
             if persistsTabs { UserDefaults.standard.set(groupingMode.rawValue, forKey: "groupingMode") }
@@ -174,6 +182,8 @@ final class Store {
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
     private(set) var pullRequests = Snapshot.fixturePullRequests
+    private(set) var inbox = Snapshot.fixtureInbox
+    private(set) var isInboxLoading = false
     var selectedCompactions: (sessionID: String, count: Int, last: Date?)?
     private(set) var searchIndexVersion = 0
     private(set) var searchIndexing: (done: Int, total: Int)?
@@ -184,6 +194,7 @@ final class Store {
 
     #if DEBUG
     @ObservationIgnored var probeOpenedClaude: [(cwd: String, start: ClaudeLaunch.Start)] = []
+    @ObservationIgnored var probeOpenedURLs: [URL] = []
     #endif
 
     @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
@@ -212,6 +223,7 @@ final class Store {
     }
 
     @ObservationIgnored private var pullRequestsFetchedAt = Date.distantPast
+    @ObservationIgnored private var inboxFetchedAt = Date.distantPast
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var waitingSessionIDs: Set<String>?
     @ObservationIgnored private var tabTouches: [Tab.ID: Date] = [:]
@@ -224,7 +236,7 @@ final class Store {
     #endif
 
     func start(restoringTabs: Bool) {
-        updater.workingSessions = { [weak self] in self?.workingSessionCount ?? 0 }
+        updater.busySessions = { [weak self] in self?.busySessionCount ?? 0 }
         updater.isIdle = { [weak self] in self?.isIdle ?? false }
         let sessions = Self.claudeDirectory.appending(path: "sessions").path
         watcher = FileWatcher(paths: [sessions, Self.claudeDirectory.appending(path: "projects").path], latency: 1) { [weak self] paths in
@@ -241,10 +253,12 @@ final class Store {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(300))
                 self?.refreshPullRequests()
+                self?.refreshInbox()
                 self?.unloadIdleTabs()
             }
         }
         refresh()
+        refreshInbox()
         guard restoringTabs else { return }
 
         Task {
@@ -313,8 +327,40 @@ final class Store {
         if merged != pullRequests { pullRequests = merged }
     }
 
+    func refreshInbox() {
+        guard Snapshot.output == nil, inboxFetchedAt.timeIntervalSinceNow < -60 else { return }
+
+        inboxFetchedAt = .now
+        isInboxLoading = true
+        Task {
+            let fetched = await Task.detached { PullRequestStatus.inbox() }.value
+            if let fetched, fetched != inbox { inbox = fetched }
+            isInboxLoading = false
+        }
+    }
+
+    func sessions(for pullRequest: InboxPullRequest) -> [SessionSummary] {
+        let repository = pullRequest.repository.lowercased()
+        return (activeSessions + archivedSessions)
+            .filter { session in
+                session.pullRequests.contains { $0.number == pullRequest.number && $0.repository.lowercased() == repository }
+                    || self.pullRequest(for: session)?.number == pullRequest.number && repositoryRoots[session.checkout].flatMap { repositories[$0] ?? nil }?.lowercased() == repository
+            }
+            .sorted { $0.lastActivity > $1.lastActivity }
+    }
+
+    func opening(of pullRequest: InboxPullRequest) -> PullRequestOpening {
+        if let session = sessions(for: pullRequest).first { return .session(session) }
+
+        let repository = pullRequest.repository.lowercased()
+        let root = knownFolders.lazy.compactMap { self.repositoryRoots[$0.path] }.first { root in
+            (self.repositories[root] ?? nil)?.lowercased() == repository && FileManager.default.fileExists(atPath: root)
+        }
+        return root.map(PullRequestOpening.worktree) ?? .noCheckout
+    }
+
     private func resolvePullRequests() {
-        let unresolved = Set(summaries.filter { !$0.branches.isEmpty }.compactMap { repositoryRoots[$0.checkout] }).filter { repositories[$0] == nil }
+        let unresolved = Set(summaries.compactMap { repositoryRoots[$0.checkout] }).filter { repositories[$0] == nil }
         Task {
             if !unresolved.isEmpty { await repositories.merge(Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
             if (pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) { refreshPullRequests() }
@@ -508,12 +554,12 @@ final class Store {
         tabs.first { $0.sessionID == id }
     }
 
-    var workingSessionCount: Int {
-        tabs.compactMap(\.sessionID).count(where: { liveBySession[$0]?.activity == .working })
+    var busySessionCount: Int {
+        tabs.compactMap(\.sessionID).count { (liveBySession[$0]?.activity ?? .idle) != .idle }
     }
 
     var isIdle: Bool {
-        workingSessionCount == 0
+        busySessionCount == 0
             && lastKeyInput.timeIntervalSinceNow < -30
             && !terminals.contains { $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
             && !reviewModels.values.contains(where: \.hasUnsavedEdits)
@@ -754,14 +800,14 @@ final class Store {
         activate(.tab(candidates[(current + offset + candidates.count) % candidates.count].id))
     }
 
-    func openClaude(cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred) {
+    func openClaude(cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil) {
         let session = sessionID ?? UUID().uuidString.lowercased()
         let attachID = liveBySession[session]?.attachID
         let start: ClaudeLaunch.Start = if attachID != nil {
             .attach
         } else if sessionID != nil {
             .resume
-        } else if checkout == .preferred, UserDefaults.standard.bool(forKey: GeneralSettings.worktreeKey), FileManager.default.fileExists(atPath: URL(filePath: RepositoryRoot.resolve(cwd)).appending(path: ".git").path) {
+        } else if checkout == .worktree || checkout == .preferred && UserDefaults.standard.bool(forKey: GeneralSettings.worktreeKey), FileManager.default.fileExists(atPath: URL(filePath: RepositoryRoot.resolve(cwd)).appending(path: ".git").path) {
             .newInWorktree
         } else {
             .new
@@ -780,6 +826,23 @@ final class Store {
         tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }))
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
+        guard let prompt else { return }
+
+        Task { await paste(prompt, intoStartingSession: session, tab: id) }
+    }
+
+    private func paste(_ prompt: String, intoStartingSession sessionID: String, tab id: Tab.ID) async {
+        let deadline = Date.now + 120
+        while liveBySession[sessionID].map({ $0.status == "waiting" }) ?? true {
+            guard Date.now < deadline, tabs.contains(where: { $0.id == id }), await (try? Task.sleep(for: .milliseconds(250))) != nil else { return }
+
+            refreshLive()
+        }
+        try? await Task.sleep(for: .seconds(2))
+        refreshLive()
+        guard let terminal = tabs.first(where: { $0.id == id })?.terminal, liveBySession[sessionID].map({ $0.status != "waiting" }) == true, terminal.paste(text: prompt) else { return }
+
+        if selectedTabID == id { terminal.requestFocus() }
     }
 
     private func terminal(cwd: String, command: String?, environment: [String: String] = [:], onClose: @escaping () -> Void) -> TerminalViewState {
