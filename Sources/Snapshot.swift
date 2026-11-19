@@ -137,14 +137,14 @@ enum Snapshot {
             sessions,
             [RepositoryRoot.resolve("\(code)/billing"): "acme/billing", RepositoryRoot.resolve("\(code)/web"): "acme/web", RepositoryRoot.resolve("\(code)/infra"): "acme/infra"],
             [
-                PullRequestBranch(repository: "acme/billing", branch: "usage-export"): PullRequest(number: 61, url: url("acme/billing", 61), title: "Usage export endpoint", state: .open, closingIssues: [ClosingIssue(ref: usage, title: "Usage export for invoices")]),
-                PullRequestBranch(repository: "acme/billing", branch: "fix/invoice-rounding"): PullRequest(number: 212, url: url("acme/billing", 212), title: "Fix rounding in invoice totals", state: .open, closingIssues: [ClosingIssue(ref: rounding, title: "Invoice totals round the wrong way")]),
+                PullRequestBranch(repository: "acme/billing", branch: "usage-export"): PullRequest(number: 61, url: url("acme/billing", 61), title: "Usage export endpoint", state: .open, closingIssues: [ClosingIssue(ref: usage, title: "Usage export for invoices", state: .open)]),
+                PullRequestBranch(repository: "acme/billing", branch: "fix/invoice-rounding"): PullRequest(number: 212, url: url("acme/billing", 212), title: "Fix rounding in invoice totals", state: .open, closingIssues: [ClosingIssue(ref: rounding, title: "Invoice totals round the wrong way", state: .completed)]),
                 PullRequestBranch(repository: "acme/billing", branch: "chore/cleanup"): PullRequest?.none,
                 PullRequestBranch(repository: "acme/web", branch: "feat/export-button"): PullRequest?.none,
                 PullRequestBranch(repository: "acme/web", branch: "feat/rounded-totals"): PullRequest?.none,
                 PullRequestBranch(repository: "acme/web", branch: "usage-export"): PullRequest?.none,
             ].merging(reviewing ? [
-                PullRequestBranch(repository: "acme/billing", branch: "usage-export"): PullRequest(number: 61, url: url("acme/billing", 61), title: "Usage export endpoint", state: .open, checks: .passed, closingIssues: [ClosingIssue(ref: usage, title: "Usage export for invoices")]),
+                PullRequestBranch(repository: "acme/billing", branch: "usage-export"): PullRequest(number: 61, url: url("acme/billing", 61), title: "Usage export endpoint", state: .open, checks: .passed, closingIssues: [ClosingIssue(ref: usage, title: "Usage export for invoices", state: .open)]),
                 PullRequestBranch(repository: "acme/billing", branch: "usage-docs"): PullRequest(number: 62, url: url("acme/billing", 62), title: "Document the usage export", state: .draft, checks: .running),
                 PullRequestBranch(repository: "acme/web", branch: "feat/export-button"): PullRequest(number: 89, url: url("acme/web", 89), title: "Usage export in dashboard", state: .open, checks: .failed),
                 PullRequestBranch(repository: "acme/infra", branch: "ci-cache"): PullRequest?.none,
@@ -277,7 +277,6 @@ enum Snapshot {
             store.selectedTabID = store.tabs.last?.id
             store.refresh()
             await store.waitForScan()
-            store.selectedCompactions = sessions.last.map { ($0.id, 2, .now - 7200) }
         }
         if store.selection == nil, let forced = forcedSelection(in: store.groups) { store.sidebarCursor = forced }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
@@ -361,6 +360,7 @@ enum Snapshot {
                 }
                 print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: pullRequest).map(\.id)) | enter: \(action)")
             }
+            if UserDefaults.standard.string(forKey: "snapshotLauncherRole") == "reviewRequested" { store.launcherRole = .reviewRequested }
             if launcherKeys == nil { store.launcherMode = .pullRequests }
         }
         let editedGroup = UserDefaults.standard.string(forKey: "snapshotEditGroup").map { name in

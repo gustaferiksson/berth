@@ -55,7 +55,6 @@ struct Sidebar: View, Equatable {
         ScrollViewReader { proxy in
             SidebarList(layout: layout)
                 .equatable()
-                .safeAreaInset(edge: .bottom, spacing: 0) { ContextFooter() }
                 .onChange(of: store.selection, initial: true) { previous, selection in
                     if previous != selection, store.sidebarCursor != nil { store.sidebarCursor = nil }
                     guard let selection else { return }
@@ -1027,6 +1026,8 @@ private struct TaskRow: View {
     let isUnread: Bool
     @Environment(\.ghosttyTheme) private var theme
 
+    private var showsChevron: Bool { isExpanded || state == nil && !isUnread }
+
     var body: some View {
         CardRow(
             title: task.title,
@@ -1035,7 +1036,7 @@ private struct TaskRow: View {
             isLoaded: false,
             modified: task.sessions[0].lastPrompt,
             isUnread: isUnread,
-            chevron: isExpanded ? "chevron.down" : "chevron.right",
+            chevron: showsChevron ? (isExpanded ? "chevron.down" : "chevron.right") : nil,
             titleWeight: .semibold
         ) {
             HStack(spacing: 8) {
@@ -1044,7 +1045,6 @@ private struct TaskRow: View {
                     .font(.caption)
                     .foregroundStyle(theme.secondary)
             }
-            .padding(.leading, 16)
         }
         .help(task.title)
         .accessibilityElement(children: .combine)
@@ -1054,25 +1054,28 @@ private struct TaskRow: View {
 
 struct IssueTag: View {
     let issue: IssueRef
+    @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @State private var isHovering = false
 
     var body: some View {
+        let state = store.state(of: issue)
+        let color = state == .open ? theme.working : state == .completed ? theme.merged : theme.secondary
         Button {
             if let url = issue.url { openURL(url) }
         } label: {
             Label {
                 Text(verbatim: "#\(issue.number)")
             } icon: {
-                Image(systemName: "smallcircle.filled.circle")
+                Image(systemName: state == .completed ? "checkmark.circle" : state == .notPlanned ? "slash.circle" : "smallcircle.filled.circle")
             }
             .labelStyle(CompactLabel())
             .font(.caption.monospaced())
-            .foregroundStyle(theme.secondary)
+            .foregroundStyle(color)
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
-            .background(theme.secondary.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
+            .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -1159,13 +1162,6 @@ private struct CardRow<Detail: View>: View {
         let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 10 >= $0 * 6 && context.tokens <= $0 ? $0 : nil } }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if let chevron {
-                    Image(systemName: chevron)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(theme.secondary)
-                        .frame(width: 8)
-                        .accessibilityHidden(true)
-                }
                 Text(title)
                     .fontWeight(titleWeight)
                     .foregroundStyle(theme.foreground)
@@ -1241,7 +1237,7 @@ private struct CardRow<Detail: View>: View {
         .padding(.trailing, -8)
         .padding(.vertical, 8)
         .overlay(alignment: .topLeading) {
-            StatusSlot(state: state, isUnread: isUnread).offset(x: -8, y: 8)
+            StatusSlot(state: state, isUnread: isUnread, chevron: chevron).offset(x: -8, y: 8)
         }
     }
 }
@@ -1249,11 +1245,17 @@ private struct CardRow<Detail: View>: View {
 private struct StatusSlot: View {
     let state: RowState?
     let isUnread: Bool
+    var chevron: String?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         ZStack {
-            if state == .working {
+            if let chevron {
+                Image(systemName: chevron)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.secondary)
+                    .accessibilityHidden(true)
+            } else if state == .working {
                 WorkingDots(label: "Working")
             } else if case let .needsYou(reason) = state {
                 Circle()
@@ -1292,54 +1294,6 @@ private struct ContextRing: View {
         .frame(width: 13, height: 13)
         .help("\(tokenCount(context.tokens)) of \(tokenCount(window)) context")
         .accessibilityLabel("Context \(fill.formatted(.percent.precision(.fractionLength(0)))) full")
-    }
-}
-
-private struct ContextFooter: View {
-    @Environment(Store.self) private var store
-    @Environment(\.ghosttyTheme) private var theme
-
-    var body: some View {
-        let sessionID = store.tabs.first { $0.id == store.selectedTabID && $0.kind == .claude }?.sessionID
-        if let sessionID, let context = store.sessionsByID[sessionID]?.context, let window = context.window, context.tokens <= window {
-            let fill = Double(context.tokens) / Double(window)
-            let compactions = store.selectedCompactions.flatMap { $0.sessionID == sessionID && $0.count > 0 ? $0 : nil }
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 4) {
-                    Text("Context")
-                        .fontWeight(.semibold)
-                        .foregroundStyle(theme.secondary)
-                    Text(context.modelName ?? context.model)
-                        .foregroundStyle(theme.secondary.opacity(0.6))
-                        .lineLimit(1)
-                }
-                .font(.system(size: 11))
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    Text(tokenCount(context.tokens))
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(theme.foreground)
-                    Text("of \(tokenCount(window)) · \(Int((fill * 100).rounded()))%")
-                        .foregroundStyle(theme.secondary)
-                }
-                .monospacedDigit()
-                Canvas { canvas, size in
-                    canvas.fill(Path(CGRect(x: 0, y: 0, width: size.width * fill, height: size.height)), with: .color(fill >= 0.9 ? theme.closed : fill >= 0.7 ? theme.needsYou : theme.secondary))
-                }
-                .frame(height: 8)
-                .background(theme.foreground.opacity(0.1))
-                .clipShape(.rect(cornerRadius: 4))
-                if let compactions, let last = compactions.last {
-                    Text("\(compactions.count == 1 ? "Compacted once" : "Compacted \(compactions.count) times"), \(last, format: .relative(presentation: .named))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(theme.secondary)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.background ?? Color(nsColor: .windowBackgroundColor))
-            .overlay(alignment: .top) { Hairline(axis: .horizontal) }
-        }
     }
 }
 
