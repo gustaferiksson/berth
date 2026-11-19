@@ -13,6 +13,12 @@ public enum RepositoryRoot {
         return main + URL(filePath: folder, directoryHint: .isDirectory).standardizedFileURL.path.dropFirst(repository.root.path.count)
     }
 
+    static func worktree(containing folder: String) -> (identity: String, folder: String)? {
+        guard let repository = enclosingRepository(folder) else { return nil }
+
+        return (repository.mainCheckout ?? repository.root.path, repository.root.path)
+    }
+
     static func enclosingRepository(_ folder: String) -> (root: URL, mainCheckout: String?)? {
         var directory = URL(filePath: folder, directoryHint: .isDirectory).standardizedFileURL
         while true {
