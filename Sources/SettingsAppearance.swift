@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AppearanceSettings: View {
     @Environment(Store.self) private var store
+    @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
     @AppStorage(ReviewStyle.colorSchemeKey) private var reviewColorScheme = ReviewColorScheme.oneDark
     @AppStorage(ReviewStyle.fontFamilyKey) private var reviewFontFamily = ""
@@ -14,6 +15,17 @@ struct AppearanceSettings: View {
         let configFile = GhosttyConfig.configFiles.last
         let style = ReviewStyle(scheme: reviewColorScheme, fontFamily: reviewFontFamily, fontSize: reviewFontSize, lineHeightMultiple: reviewLineHeight, ghostty: store.theme)
         Form {
+            Section {
+                Picker("Density", selection: $density) {
+                    ForEach(SidebarDensity.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                SidebarDensityPreview(density: density)
+            } header: {
+                Text("Sidebar")
+            } footer: {
+                Text("Compact shows one line per session, with the pull request beside the title.")
+            }
             Section {
                 LabeledContent("Config", value: configFile.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "None")
                 LabeledContent("Theme", value: GhosttyConfig.themeName ?? "Default")
@@ -54,7 +66,7 @@ struct AppearanceSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: isReviewEnabled ? 640 : 260)
+        .frame(height: isReviewEnabled ? 860 : 480)
     }
 }
 
@@ -106,5 +118,37 @@ private struct ReviewStylePreview: View {
         }
         .padding(.vertical, 8)
         .background(Color(nsColor: style.background), in: .rect(cornerRadius: 6))
+    }
+}
+
+private struct SidebarDensityPreview: View {
+    let density: SidebarDensity
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach([("Fix rounding in invoice totals", "#4821"), ("Add the usage export endpoint", "#4790"), ("Tidy the CI pipeline", "")], id: \.0) { title, pullRequest in
+                VStack(alignment: .leading, spacing: density.isCompact ? 0 : 4) {
+                    HStack {
+                        Text(title)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        if density.isCompact {
+                            Text(verbatim: pullRequest).font(.caption.monospaced())
+                        }
+                        Text(verbatim: "2m").font(.caption)
+                    }
+                    if !density.isCompact {
+                        Text(verbatim: "billing · fix/rounding")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, density.rowPadding)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 6))
+        .accessibilityHidden(true)
     }
 }
