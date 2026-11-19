@@ -32,6 +32,9 @@ struct ReviewStyle: Equatable {
         let tag: NSColor
         let `operator`: NSColor
         let comment: NSColor
+        let variable: NSColor
+        let constant: NSColor
+        let regexp: NSColor
     }
 
     let isDark: Bool
@@ -67,7 +70,7 @@ struct ReviewStyle: Equatable {
                 isDark: true, font: font, lineHeight: lineHeight, ghostty: ghostty, italicComments: true,
                 background: hex(0x282C34FF), foreground: hex(0xABB2BFFF), gutterForeground: hex(0x495162FF), selection: hex(0x67769660),
                 removedLine: hex(0x9A353D40), addedLine: hex(0x10986833), removedWord: hex(0x9A353D80), addedWord: hex(0x10986866),
-                syntax: Syntax(keyword: hex(0xC678DDFF), string: hex(0x98C379FF), number: hex(0xD19A66FF), type: hex(0xE5C07BFF), function: hex(0x61AFEFFF), property: hex(0xE06C75FF), tag: hex(0xE06C75FF), operator: hex(0x56B6C2FF), comment: hex(0x5C6370FF))
+                syntax: Syntax(keyword: hex(0xC678DDFF), string: hex(0x98C379FF), number: hex(0xD19A66FF), type: hex(0xE5C07BFF), function: hex(0x61AFEFFF), property: hex(0xE06C75FF), tag: hex(0xE06C75FF), operator: hex(0x56B6C2FF), comment: hex(0x5C6370FF), variable: hex(0xE06C75FF), constant: hex(0xE5C07BFF), regexp: hex(0xE06C75FF))
             )
             return
         }
@@ -76,7 +79,7 @@ struct ReviewStyle: Equatable {
                 isDark: false, font: font, lineHeight: lineHeight, ghostty: ghostty, italicComments: true,
                 background: hex(0xFAFAFAFF), foreground: hex(0x383A42FF), gutterForeground: hex(0x9D9D9FFF), selection: hex(0xE5E5E6FF),
                 removedLine: hex(0xE4564926), addedLine: hex(0x50A14F26), removedWord: hex(0xE456494D), addedWord: hex(0x50A14F4D),
-                syntax: Syntax(keyword: hex(0xA626A4FF), string: hex(0x50A14FFF), number: hex(0x986801FF), type: hex(0xC18401FF), function: hex(0x4078F2FF), property: hex(0xE45649FF), tag: hex(0xE45649FF), operator: hex(0x0184BCFF), comment: hex(0xA0A1A7FF))
+                syntax: Syntax(keyword: hex(0xA626A4FF), string: hex(0x50A14FFF), number: hex(0x986801FF), type: hex(0xC18401FF), function: hex(0x4078F2FF), property: hex(0xE45649FF), tag: hex(0xE45649FF), operator: hex(0x0184BCFF), comment: hex(0xA0A1A7FF), variable: hex(0xE45649FF), constant: hex(0xC18401FF), regexp: hex(0xE45649FF))
             )
             return
         }
@@ -85,7 +88,7 @@ struct ReviewStyle: Equatable {
                 isDark: true, font: font, lineHeight: lineHeight, ghostty: ghostty, italicComments: false,
                 background: hex(0x0D1117FF), foreground: hex(0xE6EDF3FF), gutterForeground: hex(0x6E7681FF), selection: hex(0x264F78FF),
                 removedLine: hex(0xDA363326), addedLine: hex(0x23863626), removedWord: hex(0xFF7B724D), addedWord: hex(0x3FB9504D),
-                syntax: Syntax(keyword: hex(0xFF7B72FF), string: hex(0xA5D6FFFF), number: hex(0x79C0FFFF), type: hex(0xFFA657FF), function: hex(0xD2A8FFFF), property: hex(0x79C0FFFF), tag: hex(0x7EE787FF), operator: hex(0xFF7B72FF), comment: hex(0x8B949EFF))
+                syntax: Syntax(keyword: hex(0xFF7B72FF), string: hex(0xA5D6FFFF), number: hex(0x79C0FFFF), type: hex(0xFFA657FF), function: hex(0xD2A8FFFF), property: hex(0x79C0FFFF), tag: hex(0x7EE787FF), operator: hex(0xFF7B72FF), comment: hex(0x8B949EFF), variable: hex(0xE6EDF3FF), constant: hex(0x79C0FFFF), regexp: hex(0xA5D6FFFF))
             )
             return
         }
@@ -94,7 +97,7 @@ struct ReviewStyle: Equatable {
                 isDark: false, font: font, lineHeight: lineHeight, ghostty: ghostty, italicComments: false,
                 background: hex(0xFFFFFFFF), foreground: hex(0x1F2328FF), gutterForeground: hex(0x8C959FFF), selection: hex(0xADD6FFFF),
                 removedLine: hex(0xFFCECB4D), addedLine: hex(0xACEEBB4D), removedWord: hex(0xFF818266), addedWord: hex(0x6FDD8B80),
-                syntax: Syntax(keyword: hex(0xCF222EFF), string: hex(0x0A3069FF), number: hex(0x0550AEFF), type: hex(0x953800FF), function: hex(0x8250DFFF), property: hex(0x0550AEFF), tag: hex(0x116329FF), operator: hex(0xCF222EFF), comment: hex(0x6E7781FF))
+                syntax: Syntax(keyword: hex(0xCF222EFF), string: hex(0x0A3069FF), number: hex(0x0550AEFF), type: hex(0x953800FF), function: hex(0x8250DFFF), property: hex(0x0550AEFF), tag: hex(0x116329FF), operator: hex(0xCF222EFF), comment: hex(0x6E7781FF), variable: hex(0x1F2328FF), constant: hex(0x0550AEFF), regexp: hex(0x0A3069FF))
             )
             return
         }
@@ -102,7 +105,7 @@ struct ReviewStyle: Equatable {
             isDark: ghostty.isDark, font: font, lineHeight: lineHeight, ghostty: ghostty, italicComments: false,
             background: ghostty.background.map(NSColor.init) ?? .textBackgroundColor, foreground: NSColor(ghostty.foreground), gutterForeground: NSColor(ghostty.secondary), selection: NSColor.selectedContentBackgroundColor.withAlphaComponent(0.35),
             removedLine: NSColor(ghostty.closed).withAlphaComponent(0.2), addedLine: NSColor(ghostty.working).withAlphaComponent(0.2), removedWord: NSColor(ghostty.closed).withAlphaComponent(0.35), addedWord: NSColor(ghostty.working).withAlphaComponent(0.35),
-            syntax: Syntax(keyword: NSColor(ghostty.merged), string: NSColor(ghostty.working), number: NSColor(ghostty.needsYou), type: NSColor(ghostty.branch), function: NSColor(ghostty.unread), property: NSColor(ghostty.closed), tag: NSColor(ghostty.branch), operator: NSColor(ghostty.foreground), comment: NSColor(ghostty.secondary))
+            syntax: Syntax(keyword: NSColor(ghostty.merged), string: NSColor(ghostty.working), number: NSColor(ghostty.needsYou), type: NSColor(ghostty.branch), function: NSColor(ghostty.unread), property: NSColor(ghostty.closed), tag: NSColor(ghostty.branch), operator: NSColor(ghostty.foreground), comment: NSColor(ghostty.secondary), variable: NSColor(ghostty.closed), constant: NSColor(ghostty.branch), regexp: NSColor(ghostty.closed))
         )
     }
 
@@ -133,12 +136,15 @@ struct ReviewStyle: Equatable {
     func color(forCapture capture: String) -> NSColor {
         let kind = String(capture.prefix { $0 != "." })
         if kind == "comment" { return syntax.comment }
-        if ["operator", "escape"].contains(kind) || ["string.escape", "string.regexp"].contains(capture) { return syntax.operator }
+        if capture == "string.regexp" { return syntax.regexp }
+        if ["operator", "escape"].contains(kind) || capture == "string.escape" { return syntax.operator }
         if ["property", "attribute"].contains(kind) || ["string.special.key", "variable.member"].contains(capture) { return syntax.property }
         if kind == "tag" { return syntax.tag }
         if ["keyword", "charset", "import", "keyframes", "media", "namespace", "supports"].contains(kind) || capture == "text.title" { return syntax.keyword }
         if ["string", "character"].contains(kind) || capture == "text.literal" { return syntax.string }
+        if ["constant", "variable.builtin"].contains(capture) { return syntax.constant }
         if ["number", "boolean", "constant"].contains(kind) { return syntax.number }
+        if ["variable", "variable.parameter"].contains(capture) { return syntax.variable }
         if ["type", "constructor"].contains(kind) { return syntax.type }
         if kind == "function" || ["text.uri", "text.reference"].contains(capture) { return syntax.function }
         return foreground
