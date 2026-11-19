@@ -140,9 +140,10 @@ This is the slim first version; the rest is listed under Later.
   side is a `ContentUnavailableView`.
 - Layout: `@AppStorage` `reviewDiffLayout` is `auto` (default), `sideBySide` or `inline`. A
   toggle after the compare chip in the diff header (`rectangle.split.2x1` "Show Side by Side"
-  while unified, `rectangle` "Show Inline" while side by side, hidden for a plain file) sets an
+  while unified, `rectangle` "Show Inline" while side by side, hidden for a plain file and for an
+  added or deleted file, which are always unified) sets an
   explicit value; View ▸ Show Side by Side / Show Inline and the palette run the same
-  (`AppAction.showSideBySide` / `.showInline`, only while the panel shows a compare). Nothing in
+  (`AppAction.showSideBySide` / `.showInline`, only while the panel shows a compare with both sides). Nothing in
   the UI sets `auto` back. In `auto`, below 760 pt of diff column width the diff is unified,
   switching live on divider moves and window resizes (the top visible line stays put). Unified:
   only the right side shows, and each hunk's
@@ -185,7 +186,7 @@ This is the slim first version; the rest is listed under Later.
 |---|---|---|
 | ⇧⌘R, View ▸ Show / Hide Changes, palette, toolbar button | anywhere | Shows or hides the panel (showing leaves Harbor) |
 | ⌘W, a tab's × | a tab is open, focus outside a terminal | Closes the current tab; closing the last leaves "No File Open" and focuses the terminal |
-| View ▸ Show Side by Side / Show Inline, palette, the header toggle | a compare is shown | Sets `reviewDiffLayout` |
+| View ▸ Show Side by Side / Show Inline, palette, the header toggle | a compare of a file that is neither added nor deleted is shown | Sets `reviewDiffLayout` |
 | ⌘S, Save in the header | Review, the file has a draft | Saves it through `ReviewGit.save` |
 | ⌘F | the diff | The focused side's find bar |
 | ⌘-click | an identifier on the right side, language servers on | Goes to its definition |
