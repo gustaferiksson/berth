@@ -33,6 +33,7 @@ struct BerthRemoteApp: App {
             .task(id: scenePhase) {
                 if scenePhase == .background { return client.suspend() }
                 guard scenePhase == .active else { return }
+
                 client.resume()
                 await updates.checkIfDue()
             }

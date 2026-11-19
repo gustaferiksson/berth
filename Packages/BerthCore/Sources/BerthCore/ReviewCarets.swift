@@ -24,6 +24,7 @@ public enum ReviewCarets {
                 merged.append(range)
                 continue
             }
+
             merged[merged.count - 1] = NSUnionRange(last, range)
         }
         return merged
@@ -63,6 +64,7 @@ public enum ReviewCarets {
 
     private static func isWordCharacter(at index: Int, in text: NSString) -> Bool {
         guard let scalar = Unicode.Scalar(text.character(at: index)) else { return true }
+
         return !wordSeparators.contains(scalar)
     }
 }

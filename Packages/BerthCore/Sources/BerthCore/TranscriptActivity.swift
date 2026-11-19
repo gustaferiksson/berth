@@ -33,8 +33,9 @@ public struct TranscriptActivity: Sendable {
 
     public mutating func read(_ url: URL) {
         guard let handle = try? FileHandle(forReadingFrom: url), let size = try? handle.seekToEnd() else { return }
+
         defer { try? handle.close() }
-        if Int(size) < end { self = TranscriptActivity() }
+        if Int(size) < end { self = Self() }
         guard (try? handle.seek(toOffset: UInt64(end))) != nil else { return }
 
         var buffer = Data()
@@ -73,6 +74,7 @@ public struct TranscriptActivity: Sendable {
 
     public func context(window: Int?) -> RemoteContext? {
         guard let reply else { return nil }
+
         let fits = window.map { reply.tokens ?? 0 <= $0 } ?? false
         return RemoteContext(model: reply.model, tokens: reply.tokens, window: fits ? window : nil, date: reply.date, compactions: compactions, lastCompaction: lastCompaction)
     }
@@ -140,6 +142,7 @@ public struct TranscriptActivity: Sendable {
 
             let tokens = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].compactMap { usage[$0] as? Int }.reduce(0, +)
             guard tokens > 0 else { continue }
+
             reply = Reply(model: model, tokens: tokens, date: date)
             return
         }
@@ -150,6 +153,7 @@ public struct TranscriptActivity: Sendable {
 
         for block in blocks where block["type"] as? String == "tool_use" {
             guard let id = block["id"] as? String, let tool = block["name"] as? String, Self.tools.contains(tool) else { continue }
+
             let input = block["input"] as? [String: Any] ?? [:]
             let title = ["description", "summary", "command"].lazy.compactMap { input[$0] as? String }.first ?? tool
             pending[id] = Launch(tool: tool, title: title, started: date)
@@ -195,18 +199,21 @@ public struct TranscriptActivity: Sendable {
 
         for notification in text.components(separatedBy: "<task-notification>").dropFirst() {
             guard notification.contains("<status>") || notification.contains(/<event>\s*\[Monitor (expired|timed out)/) else { continue }
+
             for match in notification.matches(of: /<task-id>([^<]*)<\/task-id>/) { end(String(match.1), at: date) }
         }
     }
 
     mutating func start(_ id: String, _ launch: Launch) {
         guard ended[id].map({ $0 < launch.started }) ?? true else { return }
+
         running[id] = launch
     }
 
     mutating func end(_ id: String, at date: Date) {
         ended[id] = max(ended[id] ?? .distantPast, date)
         guard let launch = running[id], launch.started <= date else { return }
+
         running[id] = nil
     }
 }

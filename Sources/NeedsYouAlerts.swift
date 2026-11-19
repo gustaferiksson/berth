@@ -12,6 +12,7 @@ enum NeedsYouAlerts {
         if NSApp.dockTile.badgeLabel != badge { NSApp.dockTile.badgeLabel = badge }
         if logsInsteadOfPosting { print("badge: \(NSApp.dockTile.badgeLabel ?? "nil")") }
         guard UserDefaults.standard.object(forKey: notifiesKey) == nil || UserDefaults.standard.bool(forKey: notifiesKey) else { return }
+
         let selectedSession = store.tabs.first { $0.id == store.selectedTabID }?.sessionID
         for session in entered where !(NSApp.isActive && session.sessionId == selectedSession) {
             let summary = store.sessionsByID[session.sessionId]
@@ -29,22 +30,24 @@ enum NeedsYouAlerts {
     }
 
     private static func post(_ request: UNNotificationRequest) {
-        let authorization = authorization ?? Task { (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert])) ?? false }
+        let authorization = authorization ?? Task { await (try? UNUserNotificationCenter.current().requestAuthorization(options: [.alert])) ?? false }
         Self.authorization = authorization
         Task {
             guard await authorization.value else { return }
+
             try? await UNUserNotificationCenter.current().add(request)
         }
     }
 }
 
 extension AppDelegate: UNUserNotificationCenterDelegate {
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    nonisolated func userNotificationCenter(_: UNUserNotificationCenter, willPresent _: UNNotification) async -> UNNotificationPresentationOptions {
         [.banner, .list]
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    nonisolated func userNotificationCenter(_: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         guard let sessionID = response.notification.request.content.userInfo["sessionID"] as? String else { return }
+
         await showSession(sessionID)
     }
 

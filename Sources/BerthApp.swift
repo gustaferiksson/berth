@@ -1,5 +1,5 @@
 import AppKit
-import BerthCore
+import GhosttyTerminal
 import SwiftUI
 import UserNotifications
 
@@ -21,6 +21,7 @@ struct BerthApp: App {
         UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
 
         guard Snapshot.output != nil, UserDefaults.standard.string(forKey: "snapshotReview") != nil else { return }
+
         UserDefaults.standard.register(defaults: [GeneralSettings.reviewKey: true])
     }
 
@@ -137,12 +138,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var keyMonitor: Any?
 
-    func applicationWillFinishLaunching(_ notification: Notification) {
+    func applicationWillFinishLaunching(_: Notification) {
         guard Snapshot.output != nil || settingsSnapshot != nil else { return }
+
         UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_: Notification) {
         // Rows draw their own grey selection and hover; AppKit's blue context-menu ring has no public switch.
         if let method = class_getInstanceMethod(NSTableView.self, NSSelectorFromString("drawContextMenuHighlightForRow:")) {
             let noHighlight: @convention(block) (NSTableView, Int) -> Void = { _, _ in }
@@ -157,6 +159,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [store] event in
             guard event.window?.identifier?.rawValue.hasPrefix("main") == true else { return event }
+
             store.lastKeyInput = .now
             let flags = event.modifierFlags.intersection([.command, .shift, .control, .option])
             let isTab = event.keyCode == 48
@@ -182,7 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 textView?.performTextFinderAction(showFindInterface)
                 return nil
             }
-            if flags == .command, event.charactersIgnoringModifiers == "w", store.reviewModel?.selectedTab != nil, !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
+            if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w", AppAction.hideChanges.isAvailable(in: store) || store.reviewModel?.selectedTab != nil && !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
                 store.closeDiff()
                 return nil
             }
@@ -197,6 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             guard flags == .command else { return event }
+
             if let number = event.charactersIgnoringModifiers.flatMap(Int.init), (1...9).contains(number) {
                 store.selectTab(number: number)
                 return nil
@@ -213,16 +217,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store.remote.update()
             return
         }
+
         store.persistsTabs = false
         store.start(restoringTabs: false)
         Task { await Snapshot.capture(to: output, store: store) }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    func applicationWillTerminate(_: Notification) {
         store.saveOpenTabs()
         ProcessAncestry.hangUpDescendants()
         store.updater.installOnQuit()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationShouldTerminateAfterLastWindowClosed(_: NSApplication) -> Bool { true }
 }

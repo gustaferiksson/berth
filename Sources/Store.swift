@@ -1,4 +1,5 @@
 import BerthCore
+import CoreGraphics
 import Darwin
 import Foundation
 import GhosttyTerminal
@@ -54,6 +55,7 @@ final class Store {
             prepareReviewModel()
         }
     }
+
     var selectedTabID: Tab.ID? {
         didSet {
             if let oldValue { tabTouches[oldValue] = .now }
@@ -66,6 +68,7 @@ final class Store {
             prepareReviewModel()
         }
     }
+
     var lockedSessionID: String?
     var sidebarCursor: SidebarItem?
     var multiSelection: [SidebarItem] = []
@@ -78,15 +81,18 @@ final class Store {
         didSet {
             if isHarborShown { endTerminalSearch() }
             guard oldValue, !isHarborShown, let terminal = focusedTerminal else { return }
+
             DispatchQueue.main.async { terminal.requestFocus() }
         }
     }
+
     var showsReviewPanel = UserDefaults.standard.bool(forKey: "showsReviewPanel") {
         didSet {
             if persistsTabs { UserDefaults.standard.set(showsReviewPanel, forKey: "showsReviewPanel") }
             prepareReviewModel()
         }
     }
+
     var isReviewDiffUnified = false
     var isReviewTextFocused = false
     @ObservationIgnored private var reviewWatcher: FileWatcher?
@@ -98,22 +104,28 @@ final class Store {
             for (id, model) in oldValue where reviewModels[id] !== model { model.language?.stop() }
         }
     }
+
     var terminalSearch: TerminalSearch? {
         didSet {
             guard let terminalSearch, terminalSearch.needle != oldValue?.needle else { return }
+
             terminalSearch.terminal.performBindingAction("search:\(terminalSearch.needle)")
         }
     }
+
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
         didSet {
             guard oldValue != nil, launcherMode == nil else { return }
+
             DispatchQueue.main.async { [weak self] in
                 guard let self, !isHarborShown, terminalSearch == nil else { return }
+
                 focusedTerminal?.requestFocus()
             }
         }
     }
+
     @ObservationIgnored var launcherQuery = Snapshot.launcherQuery
     var groupingMode = GroupingMode(rawValue: UserDefaults.standard.string(forKey: "groupingMode") ?? "") ?? .project {
         didSet {
@@ -121,18 +133,21 @@ final class Store {
             applyGroups()
         }
     }
+
     var showsCustomGroups = UserDefaults.standard.object(forKey: "showsCustomGroups") == nil || UserDefaults.standard.bool(forKey: "showsCustomGroups") {
         didSet {
             if persistsTabs { UserDefaults.standard.set(showsCustomGroups, forKey: "showsCustomGroups") }
             applyGroups()
         }
     }
+
     var customGroups = (UserDefaults.standard.string(forKey: "customGroups")?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([CustomGroup].self, from: $0) } ?? [] {
         didSet {
             if persistsTabs, let data = try? JSONEncoder().encode(customGroups) { UserDefaults.standard.set(String(decoding: data, as: UTF8.self), forKey: "customGroups") }
             applyGroups()
         }
     }
+
     private(set) var groups: [SessionGroup] = []
     private(set) var activeSessions: [SessionSummary] = []
     private(set) var archivedSessions: [SessionSummary] = []
@@ -143,15 +158,19 @@ final class Store {
     private(set) var seenAt = UserDefaults.standard.dictionary(forKey: "seenSessions") as? [String: Date] ?? [:] {
         didSet { if persistsTabs { UserDefaults.standard.set(seenAt, forKey: "seenSessions") } }
     }
+
     private(set) var flaggedIDs = Set(UserDefaults.standard.stringArray(forKey: "flaggedSessions") ?? []) {
         didSet { if persistsTabs { UserDefaults.standard.set(flaggedIDs.sorted(), forKey: "flaggedSessions") } }
     }
+
     var isAppActive = true {
         didSet {
             guard oldValue, !isAppActive, let sessionID = tabs.first(where: { $0.id == selectedTabID })?.sessionID else { return }
+
             seenAt[sessionID] = .now
         }
     }
+
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
     private(set) var pullRequests = Snapshot.fixturePullRequests
@@ -162,9 +181,11 @@ final class Store {
 
     @ObservationIgnored var persistsTabs = true
     @ObservationIgnored var lastKeyInput = Date.distantPast
+
     #if DEBUG
     @ObservationIgnored var probeOpenedClaude: [(cwd: String, start: ClaudeLaunch.Start)] = []
     #endif
+
     @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var searchIndexTask: Task<Void, Never>?
@@ -181,17 +202,21 @@ final class Store {
     @ObservationIgnored private var archivedAt = UserDefaults.standard.dictionary(forKey: "archivedSessions") as? [String: Date] ?? [:] {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
     }
+
     @ObservationIgnored private var pinnedIDs = UserDefaults.standard.stringArray(forKey: "pinnedSessions") ?? [] {
         didSet { if persistsTabs { UserDefaults.standard.set(pinnedIDs, forKey: "pinnedSessions") } }
     }
+
     @ObservationIgnored var isPointerInSidebar = false {
         didSet { if !isPointerInSidebar { applyGroups() } }
     }
+
     @ObservationIgnored private var pullRequestsFetchedAt = Date.distantPast
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var waitingSessionIDs: Set<String>?
     @ObservationIgnored private var tabTouches: [Tab.ID: Date] = [:]
     @ObservationIgnored private var recentTabIDs: [Tab.ID] = []
+
     #if DEBUG
     @ObservationIgnored var fakeWaiting: Bool?
     @ObservationIgnored var fakeLiveSessions: [LiveSession] = []
@@ -204,6 +229,7 @@ final class Store {
         let sessions = Self.claudeDirectory.appending(path: "sessions").path
         watcher = FileWatcher(paths: [sessions, Self.claudeDirectory.appending(path: "projects").path], latency: 1) { [weak self] paths in
             guard let self else { return }
+
             if paths.allSatisfy({ $0.hasPrefix(sessions) }) {
                 refreshLive()
             } else {
@@ -220,6 +246,7 @@ final class Store {
         }
         refresh()
         guard restoringTabs else { return }
+
         Task {
             await refreshTask?.value
             restoreOpenTabs()
@@ -255,6 +282,7 @@ final class Store {
         let previous = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
         let shownGroups = ordered.map { group in
             guard isPointerInSidebar, let shown = previous[group.id] else { return group }
+
             let rank = Dictionary(uniqueKeysWithValues: shown.sessions.enumerated().map { ($1.id, $0) })
             return SessionGroup(kind: group.kind, sessions: group.sessions.sorted { rank[$0.id, default: -1] < rank[$1.id, default: -1] })
         }
@@ -274,6 +302,7 @@ final class Store {
     func refreshPullRequests() {
         let branches = Set((pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches))
         guard !branches.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
+
         pullRequestsFetchedAt = .now
         Task { await fetchPullRequests(branches) }
     }
@@ -287,7 +316,7 @@ final class Store {
     private func resolvePullRequests() {
         let unresolved = Set(summaries.filter { !$0.branches.isEmpty }.compactMap { repositoryRoots[$0.checkout] }).filter { repositories[$0] == nil }
         Task {
-            if !unresolved.isEmpty { repositories.merge(await Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
+            if !unresolved.isEmpty { await repositories.merge(Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
             if (pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) { refreshPullRequests() }
         }
     }
@@ -298,13 +327,16 @@ final class Store {
 
     func pullRequest(in folder: String, branch: String) -> (repository: String, pullRequest: PullRequest?)? {
         guard let repository = repositoryRoots[folder].flatMap({ repositories[$0] ?? nil }), let pullRequest = pullRequests[PullRequestBranch(repository: repository, branch: branch)] else { return nil }
+
         return (repository, pullRequest)
     }
 
     private func pullRequestBranches(of session: SessionSummary) -> [PullRequestBranch] {
         guard let repository = repositoryRoots[session.checkout].flatMap({ repositories[$0] ?? nil }) else { return [] }
+
         let branches = session.branches.map { PullRequestBranch(repository: repository, branch: $0) }
         guard let found = branches.firstIndex(where: { (pullRequests[$0] ?? nil) != nil }) else { return branches }
+
         return Array(branches[...found])
     }
 
@@ -354,6 +386,7 @@ final class Store {
             self.summaries = summaries.filter { continued[$0.id] == nil }
             for index in tabs.indices {
                 guard let target = tabs[index].sessionID.flatMap({ continued[$0] }) else { continue }
+
                 tabs[index].sessionID = target
             }
             let pins = pinnedIDs.map { continued[$0] ?? $0 }
@@ -363,6 +396,7 @@ final class Store {
             repositoryRoots = roots
             for index in tabs.indices {
                 guard let cwd = self.summaries.first(where: { $0.id == tabs[index].sessionID })?.cwd, cwd != tabs[index].cwd else { continue }
+
                 tabs[index].cwd = cwd
             }
             if !hasScanned { hasScanned = true }
@@ -400,7 +434,8 @@ final class Store {
             await refreshTask?.value
             let sources = await Task.detached { [index] in index.searchSources }.value
             let stale = searchIndex.stale(sources).sorted { lhs, rhs in
-                let (left, right) = (lhs.url.path.contains("/subagents/"), rhs.url.path.contains("/subagents/"))
+                let left = lhs.url.path.contains("/subagents/")
+                let right = rhs.url.path.contains("/subagents/")
                 return left != right ? right : lhs.modified > rhs.modified
             }
             searchIndex.retain(sources)
@@ -430,6 +465,7 @@ final class Store {
                 tab.kind == .claude && tab.cwd == session.cwd && tab.sessionID.map { liveBySession[$0] == nil } ?? true
                     && session.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) >= tab.opened } ?? false
             }), ProcessAncestry.isDescendant(session.pid, of: getpid()) else { continue }
+
             tabs[position].sessionID = session.sessionId
         }
         let needsYou = NeedsYou.update(previous: waitingSessionIDs, live: Array(liveBySession.values), inBerth: Set(tabs.compactMap(\.sessionID)))
@@ -464,6 +500,7 @@ final class Store {
 
     func sessionTitle(of tab: Tab) -> String? {
         guard let id = tab.sessionID else { return nil }
+
         return activeSessions.first { $0.id == id }?.title
     }
 
@@ -472,18 +509,19 @@ final class Store {
     }
 
     var workingSessionCount: Int {
-        tabs.compactMap(\.sessionID).filter { liveBySession[$0]?.activity == .working }.count
+        tabs.compactMap(\.sessionID).count(where: { liveBySession[$0]?.activity == .working })
     }
 
     var isIdle: Bool {
         workingSessionCount == 0
             && lastKeyInput.timeIntervalSinceNow < -30
             && !terminals.contains { $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
-            && !reviewModels.values.contains { $0.hasUnsavedEdits }
+            && !reviewModels.values.contains(where: \.hasUnsavedEdits)
     }
 
     var selection: SidebarItem? {
         guard let tab = tabs.first(where: { $0.id == selectedTabID }) else { return nil }
+
         if let sessionID = tab.sessionID, activeSessions.contains(where: { $0.id == sessionID }) {
             return .session(sessionID)
         }
@@ -494,6 +532,7 @@ final class Store {
         if !multiSelection.isEmpty { multiSelection = [] }
 
         guard let tab = tab(activating: item) else { return }
+
         selectedTabID = tab.id
         recentTabIDs = [tab.id] + recentTabIDs.filter { $0 != tab.id }
         isHarborShown = false
@@ -505,16 +544,19 @@ final class Store {
         guard case let .session(id) = item,
               let session = (activeSessions + archivedSessions).first(where: { $0.id == id })
         else { return nil }
+
         if archivedAt[id] != nil { unarchive(id) }
         refreshLive()
         if let tab = tab(forSession: session.id) {
             guard liveBySession[session.id] == nil, tab.opened.timeIntervalSinceNow < -10 else { return tab }
+
             close(tab.id)
         }
         guard liveBySession[session.id].map({ $0.attachID != nil }) ?? true else {
             lockedSessionID = session.id
             return nil
         }
+
         openClaude(cwd: session.originalCwd ?? (FileManager.default.fileExists(atPath: session.cwd) ? session.cwd : session.checkout), resuming: session.id)
         return tabs.first { $0.id == selectedTabID }
     }
@@ -537,6 +579,7 @@ final class Store {
         selectedLast.compactMap { item in
             if case let .tab(id) = item { return tabs.first { $0.id == id } }
             guard case let .session(id) = item else { return nil }
+
             return tab(forSession: id)
         }
     }
@@ -544,6 +587,7 @@ final class Store {
     var multiSelectedSessions: [SessionSummary] {
         selectedLast.compactMap { item in
             guard case let .session(id) = item else { return nil }
+
             return sessionsByID[id]
         }
     }
@@ -579,6 +623,7 @@ final class Store {
 
     var reviewModel: ReviewModel? {
         guard let tab = tabs.first(where: { $0.id == selectedTabID }), tab.kind == .claude, let sessionID = tab.sessionID else { return nil }
+
         return reviewModels[sessionID]
     }
 
@@ -587,6 +632,7 @@ final class Store {
               let tab = tabs.first(where: { $0.id == selectedTabID }), tab.kind == .claude,
               let sessionID = tab.sessionID
         else { return }
+
         if let model = reviewModels[sessionID], model.folder == tab.cwd || model.hasUnsavedEdits || !model.comments.isEmpty {
             let moved = model.folder == tab.cwd ? nil : tab.cwd
             if model.movedFolder != moved { model.movedFolder = moved }
@@ -607,13 +653,14 @@ final class Store {
         reviewReload?.cancel()
         guard let root, let git = try? await ReviewGit.gitDirectories(in: root) else { return }
 
-        let ignored = (try? await ReviewGit.ignoredDirectories(in: root)) ?? []
+        let ignored = await (try? ReviewGit.ignoredDirectories(in: root)) ?? []
         guard !Task.isCancelled else { return }
 
         reviewIgnored = ignored
         let watched = [git.directory + "/HEAD", git.directory + "/index", git.common + "/packed-refs"]
         reviewWatcher = FileWatcher(paths: [root, git.common], latency: 0.5) { [weak self] paths in
             guard let self else { return }
+
             let isRelevant = paths.contains { path in
                 path.hasPrefix(git.common + "/") || path.hasPrefix(git.directory + "/")
                     ? watched.contains(path) || path.hasPrefix(git.common + "/refs/") && !path.hasSuffix(".lock")
@@ -623,8 +670,9 @@ final class Store {
 
             reviewReload?.cancel()
             reviewReload = Task {
-                guard (try? await Task.sleep(for: .milliseconds(500))) != nil else { return }
-                reviewIgnored = (try? await ReviewGit.ignoredDirectories(in: root)) ?? reviewIgnored
+                guard await (try? Task.sleep(for: .milliseconds(500))) != nil else { return }
+
+                reviewIgnored = await (try? ReviewGit.ignoredDirectories(in: root)) ?? reviewIgnored
                 await refreshReview()
             }
         }
@@ -637,12 +685,14 @@ final class Store {
         let dotGit = URL(filePath: folder).resolvingSymlinksInPath().appending(path: ".git").path
         repositoryWatcher = FileWatcher(paths: [folder], latency: 0.5) { [weak self] paths in
             guard paths.contains(where: { $0.hasSuffix("/.git") && URL(filePath: $0).resolvingSymlinksInPath().path == dotGit }) else { return }
+
             Task { await self?.refreshReview() }
         }
     }
 
     func closeDiff(tab id: ReviewTab.ID? = nil) {
         guard let model = reviewModel, let id = id ?? model.selectedTabID else { return }
+
         let isSelected = id == model.selectedTabID
         model.close(id)
         if model.tabs.isEmpty { focusedTerminal?.requestFocus() } else if isSelected { model.focusesEditor = true }
@@ -650,6 +700,7 @@ final class Store {
 
     func startTerminalSearch(in terminal: TerminalViewState, needle: String?) {
         guard focusedTerminal === terminal else { return }
+
         if terminalSearch?.terminal !== terminal { terminalSearch = TerminalSearch(terminal: terminal) }
         if let needle { terminalSearch?.needle = needle }
         terminalSearch?.focusRequests += 1
@@ -688,14 +739,17 @@ final class Store {
     func selectTab(number: Int) {
         let candidates = sidebarOrderedTabs
         guard !candidates.isEmpty else { return }
+
         let target = number >= 9 ? candidates[candidates.count - 1] : candidates.indices.contains(number - 1) ? candidates[number - 1] : nil
         guard let target else { return }
+
         activate(.tab(target.id))
     }
 
     func cycleTab(by offset: Int) {
         let candidates = sidebarOrderedTabs
         guard !candidates.isEmpty else { return }
+
         let current = candidates.firstIndex { $0.id == selectedTabID } ?? 0
         activate(.tab(candidates[(current + offset + candidates.count) % candidates.count].id))
     }
@@ -719,6 +773,7 @@ final class Store {
             missingFolder = cwd
             return
         }
+
         let id = UUID()
         let environment = [ClaudeLaunch.sessionVariable: attachID ?? session]
         let command = ClaudeLaunch.command(start)
@@ -751,19 +806,23 @@ final class Store {
 
     func addFolder(_ folder: String, to groupID: CustomGroup.ID) {
         guard let index = customGroups.firstIndex(where: { $0.id == groupID }), !customGroups[index].rules.contains(where: { $0.path == folder }) else { return }
+
         customGroups[index].rules.append(FolderRule(path: folder, includesSubfolders: false))
     }
 
     func moveGroup(from source: Int, to destination: Int) {
         let shown = sidebarGroups.map(\.group)
         guard showsCustomGroups, shown.indices.contains(source), shown[source].custom != nil else { return }
+
         let moved = SessionGrouping.moving(shown, from: source, to: min(max(destination, 0), shown.count))
         guard moved.count == customGroups.count else { return }
+
         customGroups = moved
     }
 
     func setGroupsExpanded(_ expanded: Bool) {
         guard persistsTabs else { return }
+
         let current = Set(sidebarGroups.map(\.group.id) + [Sidebar.terminalsID])
         let others = (UserDefaults.standard.string(forKey: "collapsedGroups") ?? "").split(separator: "\n").map(String.init).filter { !current.contains($0) }
         let listed = current.filter { Sidebar.collapsedByDefault.contains($0) == expanded }.sorted()
@@ -808,6 +867,7 @@ final class Store {
 
     func pin(_ sessionID: String) {
         guard !pinnedIDs.contains(sessionID) else { return }
+
         pinnedIDs.append(sessionID)
         applyGroups()
     }
@@ -839,8 +899,10 @@ final class Store {
         recentTabIDs.removeAll { $0 == id }
         if multiSelection.contains(.tab(id)) { multiSelection.removeAll { $0 == .tab(id) } }
         guard selectedTabID == id else { return }
+
         selectedTabID = recentTabIDs.first ?? tabs.last?.id
         guard !isHarborShown else { return }
+
         focusedTerminal?.requestFocus()
     }
 
@@ -853,6 +915,7 @@ final class Store {
 
     func saveOpenTabs() {
         guard persistsTabs else { return }
+
         let saved = tabs.map { SavedTab(kind: $0.kind, cwd: $0.folder, sessionID: $0.sessionID, isSelected: $0.id == selectedTabID) }
         UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: "openTabs")
     }
@@ -861,14 +924,17 @@ final class Store {
         guard let data = UserDefaults.standard.data(forKey: "openTabs"),
               let saved = try? JSONDecoder().decode([SavedTab].self, from: data)
         else { return }
+
         var selected: Tab.ID?
         for tab in saved {
             if tab.kind == .shell {
                 openShell(cwd: tab.cwd)
             } else {
                 guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id].map({ $0.attachID != nil }) ?? true else { continue }
+
                 let folder = session.originalCwd ?? (FileManager.default.fileExists(atPath: session.cwd) ? session.cwd : session.checkout)
                 guard FileManager.default.fileExists(atPath: folder) else { continue }
+
                 openClaude(cwd: folder, resuming: session.id)
             }
             if tab.isSelected == true { selected = selectedTabID }

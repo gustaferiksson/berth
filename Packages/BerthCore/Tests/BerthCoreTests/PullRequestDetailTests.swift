@@ -1,6 +1,6 @@
+@testable import BerthCore
 import Foundation
 import Testing
-@testable import BerthCore
 
 struct PullRequestDetailTests {
     @Test func countsChecksByOutcomeAndOpenThreads() {

@@ -15,6 +15,7 @@ final class UpdateCheck {
         available = UserDefaults.standard.string(forKey: "snapshotUpdateAvailable")
         #else
         guard available == nil, !Self.currentVersion.hasSuffix("-local") else { return }
+
         if let lastCheck, Date.now.timeIntervalSince(lastCheck) < 24 * 60 * 60 { return }
 
         let request = URLRequest(url: Self.manifestURL, cachePolicy: .reloadIgnoringLocalCacheData)

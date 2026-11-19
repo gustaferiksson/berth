@@ -1,22 +1,22 @@
+@testable import BerthCore
 import Foundation
 import Testing
-@testable import BerthCore
 
 struct UsageStatsTests {
-    let calendar = {
+    private let calendar = {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Stockholm")!
         calendar.firstWeekday = 2
         return calendar
     }()
 
-    func date(_ text: String) -> Date {
+    private func date(_ text: String) -> Date {
         try! Date("\(text)+01:00", strategy: .iso8601)
     }
 
-    var now: Date { date("2026-03-04T12:00:00") }
+    private var now: Date { date("2026-03-04T12:00:00") }
 
-    func session(_ id: String, project: String, prompts: [String] = [], replies: [(String, Int)] = []) -> (summary: SessionSummary, activity: SessionActivity) {
+    private func session(_ id: String, project: String, prompts: [String] = [], replies: [(String, Int)] = []) -> (summary: SessionSummary, activity: SessionActivity) {
         (SessionSummary(id: id, cwd: "/Users/example/Repos/\(project)", title: "\(id) title", lastActivity: now),
          SessionActivity(prompts: prompts.map(date), replies: replies.map { .init(date: date($0.0), tokens: TokenUsage(input: 1, output: $0.1, cacheRead: 1000, cacheWrite: 0)) }))
     }

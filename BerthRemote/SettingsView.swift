@@ -66,8 +66,10 @@ struct SettingsView: View {
                             Text("Text Size")
                         } minimumValueLabel: {
                             Image(systemName: "textformat.size.smaller")
+                                .accessibilityLabel("Smaller")
                         } maximumValueLabel: {
                             Image(systemName: "textformat.size.larger")
+                                .accessibilityLabel("Larger")
                         }
                     } label: {
                         Text("Text Size")

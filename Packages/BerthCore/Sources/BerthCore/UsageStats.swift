@@ -15,8 +15,8 @@ public struct TokenUsage: Sendable, Hashable {
 
     public var new: Int { input + output + cacheWrite }
 
-    static func + (lhs: TokenUsage, rhs: TokenUsage) -> TokenUsage {
-        TokenUsage(input: lhs.input + rhs.input, output: lhs.output + rhs.output, cacheRead: lhs.cacheRead + rhs.cacheRead, cacheWrite: lhs.cacheWrite + rhs.cacheWrite)
+    static func + (lhs: Self, rhs: Self) -> Self {
+        Self(input: lhs.input + rhs.input, output: lhs.output + rhs.output, cacheRead: lhs.cacheRead + rhs.cacheRead, cacheWrite: lhs.cacheWrite + rhs.cacheWrite)
     }
 }
 
@@ -116,7 +116,7 @@ public struct UsageStats: Sendable {
 
         totals = recent.flatMap(\.replies).reduce(TokenUsage()) { $0 + $1.tokens }
         let week = calendar.dateInterval(of: .weekOfYear, for: now) ?? DateInterval(start: today, duration: 0)
-        sessionsThisWeek = recent.filter { $0.prompts.contains(where: week.contains) || $0.replies.contains { week.contains($0.date) } }.count
+        sessionsThisWeek = recent.count(where: { $0.prompts.contains(where: week.contains) || $0.replies.contains { week.contains($0.date) } })
         promptsThisWeek = recent.flatMap(\.prompts).filter(week.contains).count
 
         longestSession = recent.map { session in

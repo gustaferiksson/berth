@@ -1,9 +1,9 @@
+@testable import BerthCore
 import Foundation
 import Testing
-@testable import BerthCore
 
 struct TranscriptActivityTests {
-    let launches = [
+    private let launches = [
         #"{"type":"assistant","timestamp":"2026-11-01T10:00:00.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-shell","name":"Bash","input":{"command":"npm run dev","description":"Start the dev server","run_in_background":true}}],"usage":{"input_tokens":10,"cache_read_input_tokens":1000,"cache_creation_input_tokens":90,"output_tokens":5}}}"#,
         #"{"type":"user","timestamp":"2026-11-01T10:00:01.000Z","message":{"content":[{"tool_use_id":"tu-shell","type":"tool_result","content":"Command running in background with ID: bshell1."}]},"toolUseResult":{"stdout":"","backgroundTaskId":"bshell1"}}"#,
         #"{"type":"assistant","timestamp":"2026-11-01T10:01:00.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-agent","name":"Agent","input":{"description":"Review the parser","prompt":"…"}}],"usage":{"input_tokens":10,"cache_read_input_tokens":2000,"cache_creation_input_tokens":0,"output_tokens":5}}}"#,
@@ -11,16 +11,16 @@ struct TranscriptActivityTests {
         #"{"type":"assistant","timestamp":"2026-11-01T10:02:00.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-monitor","name":"Monitor","input":{"description":"Watch CI","command":"gh run watch","timeout_ms":600000}}],"usage":{"input_tokens":10,"cache_read_input_tokens":3000,"cache_creation_input_tokens":0,"output_tokens":5}}}"#,
         #"{"type":"user","timestamp":"2026-11-01T10:02:01.000Z","message":{"content":[{"tool_use_id":"tu-monitor","type":"tool_result","content":"Monitor started."}]},"toolUseResult":{"taskId":"bmon1","timeoutMs":600000,"persistent":false}}"#,
     ]
-    let live = try! JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":1,"sessionId":"s","cwd":"/","status":"busy","startedAt":1793523600000}"#.utf8))
-    let now = try! Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse("2026-11-01T10:03:00.000Z")
+    private let live = try! JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":1,"sessionId":"s","cwd":"/","status":"busy","startedAt":1793523600000}"#.utf8))
+    private let now = try! Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse("2026-11-01T10:03:00.000Z")
 
-    func activity(_ lines: [String]) -> TranscriptActivity {
+    private func activity(_ lines: [String]) -> TranscriptActivity {
         var activity = TranscriptActivity()
         activity.apply(Data((lines.joined(separator: "\n") + "\n").utf8))
         return activity
     }
 
-    func session(_ status: String, startedAt: String = "1793523600000") -> LiveSession {
+    private func session(_ status: String, startedAt: String = "1793523600000") -> LiveSession {
         try! JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":1,"sessionId":"s","cwd":"/","status":"\#(status)","startedAt":\#(startedAt)}"#.utf8))
     }
 
@@ -180,11 +180,13 @@ struct TranscriptActivityTests {
 
     @Test func transcriptMessagesDecodeWithAndWithoutActivity() throws {
         guard case let .transcript(_, _, _, _, missing) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"transcript":{"sessionID":"s","entries":[],"isContinuation":true,"queued":[]}}"#.utf8)) else { throw CancellationError() }
+
         #expect(missing == nil)
 
         let activity = RemoteActivity(tasks: [RemoteTask(id: "b1", kind: "future-kind", title: "t", started: .now)], context: nil)
         let data = try JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: "s", entries: [], isContinuation: false, queued: nil, activity: activity))
         guard case let .transcript(_, _, _, _, decoded) = try JSONDecoder().decode(RemoteServerMessage.self, from: data) else { throw CancellationError() }
+
         #expect(decoded == activity)
     }
 }

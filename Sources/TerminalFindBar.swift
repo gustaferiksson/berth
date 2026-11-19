@@ -16,16 +16,19 @@ extension TerminalViewState: @retroactive TerminalSurfaceSearchDelegate {
 
     public func terminalDidEndSearch() {
         guard Store.shared.terminalSearch?.terminal === self else { return }
+
         Store.shared.terminalSearch = nil
     }
 
     public func terminalDidUpdateSearchTotal(_ total: Int?) {
         guard Store.shared.terminalSearch?.terminal === self else { return }
+
         Store.shared.terminalSearch?.total = total
     }
 
     public func terminalDidUpdateSearchSelected(_ selected: Int?) {
         guard Store.shared.terminalSearch?.terminal === self else { return }
+
         Store.shared.terminalSearch?.selected = selected
     }
 }
@@ -40,6 +43,7 @@ struct TerminalFindBar: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             TextField("Find", text: needle, selection: $selection, prompt: Text("Find"))
                 .textFieldStyle(.plain)
                 .frame(width: 180)
@@ -78,6 +82,7 @@ struct TerminalFindBar: View {
 
     private var count: String {
         guard let search = store.terminalSearch, !search.needle.isEmpty, let total = search.total else { return "" }
+
         if total == 0 { return "No results" }
         return search.selected.map { "\($0 + 1) of \(total)" } ?? "\(total) results"
     }

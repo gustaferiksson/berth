@@ -64,8 +64,8 @@ final class ReviewInlineComment: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError()
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) is unavailable")
     }
 
     override var isFlipped: Bool { true }
@@ -116,11 +116,11 @@ final class ReviewInlineComment: NSView {
         addCursorRect(bounds, cursor: .arrow)
     }
 
-    override func mouseEntered(with event: NSEvent) {
+    override func mouseEntered(with _: NSEvent) {
         if case .card = kind { buttons.forEach { $0.isHidden = false } }
     }
 
-    override func mouseExited(with event: NSEvent) {
+    override func mouseExited(with _: NSEvent) {
         if case .card = kind { buttons.forEach { $0.isHidden = true } }
     }
 
@@ -134,28 +134,33 @@ final class ReviewInlineComment: NSView {
 
     private func fieldDidChange() {
         guard case let .draft(_, _, onResize) = kind else { return }
+
         buttons[1].isEnabled = !field.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         onResize()
     }
 
     @objc private func add() {
         guard case let .draft(onAdd, _, _) = kind else { return }
+
         onAdd(field.string.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     @objc private func cancel() {
         guard case let .draft(_, onCancel, _) = kind else { return }
+
         onCancel()
     }
 
     @objc private func edit() {
         guard case let .card(onEdit, _) = kind else { return }
+
         buttons.forEach { $0.isHidden = true }
         onEdit()
     }
 
     @objc private func delete() {
         guard case let .card(_, onDelete) = kind else { return }
+
         onDelete()
     }
 }
@@ -194,6 +199,7 @@ final class ReviewCommentField: NSTextView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard string.isEmpty, isEditable, let placeholder else { return }
+
         placeholder.draw(at: textContainerOrigin)
     }
 }

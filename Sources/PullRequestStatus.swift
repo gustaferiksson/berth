@@ -66,6 +66,7 @@ nonisolated enum PullRequestStatus {
 
     static func fetch(_ branches: Set<PullRequestBranch>) async -> [PullRequestBranch: PullRequest?] {
         guard let gh else { return [:] }
+
         return await withTaskGroup(of: [PullRequestBranch: PullRequest?].self) { group in
             for (repository, branches) in Dictionary(grouping: branches, by: \.repository) {
                 group.addTask { fetch(branches.map(\.branch), in: repository, gh: gh) }
@@ -77,6 +78,7 @@ nonisolated enum PullRequestStatus {
     private static func fetch(_ branches: [String], in repository: String, gh: String) -> [PullRequestBranch: PullRequest?] {
         let parts = repository.split(separator: "/").map(String.init)
         guard parts.count == 2, parts.allSatisfy({ $0.wholeMatch(of: /[A-Za-z0-9_.-]+/) != nil }) else { return [:] }
+
         let target = "repository(owner: \"\(parts[0])\", name: \"\(parts[1])\")"
         let variables = branches.indices.map { "$b\($0): String!" }.joined(separator: ", ")
         let fields = branches.indices.map { "b\($0): pullRequests(headRefName: $b\($0), first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number url title state isDraft headRepository { nameWithOwner } statusCheckRollup { state } } }" }.joined(separator: " ")
@@ -89,6 +91,7 @@ nonisolated enum PullRequestStatus {
 
         return branches.enumerated().reduce(into: [:]) { results, item in
             guard let connection = connections["b\(item.offset)"] ?? nil else { return }
+
             let own = connection.nodes.filter { $0.headRepository?.nameWithOwner == info.nameWithOwner }
             let node = item.element == info.defaultBranchRef?.name ? nil : own.first { $0.state == "OPEN" } ?? own.first
             results[PullRequestBranch(repository: repository, branch: item.element)] = .some(node.map { node in
@@ -100,6 +103,7 @@ nonisolated enum PullRequestStatus {
 
     static func detail(repository: String, number: Int) -> PullRequestDetail? {
         guard let gh, let arguments = PullRequestDetail.arguments(repository: repository, number: number), let output = run(gh, arguments: arguments) else { return nil }
+
         return PullRequestDetail.parse(output)
     }
 
@@ -111,6 +115,7 @@ nonisolated enum PullRequestStatus {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return nil }
+
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return data
