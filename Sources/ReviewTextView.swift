@@ -623,6 +623,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         }
         manager.ensureLayout(for: manager.documentRange)
         setFrameSize(NSSize(width: frame.width, height: manager.usageBoundsForTextContainer.height + 2 * textContainerInset.height))
+        layoutSubtreeIfNeeded()
+        needsDisplay = true
+        gutter?.needsDisplay = true
         placeDiagnostics()
     }
 

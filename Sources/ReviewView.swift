@@ -44,6 +44,7 @@ final class ReviewModel {
     var movedFolder: String?
     var focusesEditor = false
     var expandedFolders: Set<String> = []
+    var collapsedChangeFolders: Set<ReviewDocument> = []
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private var queuedLoad: Task<Void, Never>?
     @ObservationIgnored private(set) var loadCount = 0
@@ -276,6 +277,7 @@ private struct ReviewFileList: View {
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedReviewSections") private var collapsedSections = "files"
     @AppStorage("reviewFilesPaneHeight") private var filesPaneHeight = 0.0
+    @AppStorage("reviewChangesAsTree") private var changesAsTree = false
     @State private var changesContentHeight = 0.0
     @State private var filesHeaderHeight = 0.0
 
@@ -312,6 +314,10 @@ private struct ReviewFileList: View {
                 ReviewFilesSplit(
                     changes: list { changeSections(changes) }
                         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
+                        .onChange(of: model.selectedDocument, initial: true) { _, document in
+                            guard let document, let compare = document.compare else { return }
+                            model.collapsedChangeFolders = model.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
+                        }
                         .environment(\.ghosttyTheme, theme),
                     files: VStack(spacing: 0) {
                         list { filesHeader }
@@ -320,7 +326,7 @@ private struct ReviewFileList: View {
                             // Expanded, the List's own 10 pt of vertical padding would otherwise sit between the header and the tree.
                             .frame(height: expansion(of: "files").wrappedValue ? max(filesHeaderHeight - 10, 0) : filesHeaderHeight)
                         ScrollViewReader { proxy in
-                            list { ForEach(model.tree) { ReviewFileNode(node: $0, changes: changes, model: model) } }
+                            list { ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) } }
                                 .onChange(of: model.selectedDocument?.path, initial: true) { _, path in
                                     guard let path else { return }
 
@@ -392,7 +398,7 @@ private struct ReviewFileList: View {
         }
         if !changes.uncommitted.isEmpty {
             Section(isExpanded: expansion(of: "uncommitted")) {
-                ForEach(changes.uncommitted, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .uncommitted)) }
+                changeRows(changes.uncommitted, compare: .uncommitted, changes: changes)
             } header: {
                 GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count) { EmptyView() } accessory: { _ in
                     Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
@@ -404,13 +410,22 @@ private struct ReviewFileList: View {
         }
         if !changes.committed.isEmpty {
             Section(isExpanded: expansion(of: "committed")) {
-                ForEach(changes.committed, id: \.path) { fileRow($0).tag(ReviewDocument(path: $0.path, compare: .committed)) }
+                changeRows(changes.committed, compare: .committed, changes: changes)
             } header: {
                 GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count) { EmptyView() } accessory: { _ in
                     Text(model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
                         .foregroundStyle(theme.secondary)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func changeRows(_ files: [ReviewFile], compare: ReviewCompare, changes: ReviewChanges) -> some View {
+        if changesAsTree {
+            ForEach(ReviewFileTree.compactNodes(files.map(\.path))) { ReviewFileNode(node: $0, compare: compare, changes: changes, model: model) }
+        } else {
+            ForEach(files, id: \.path) { ReviewChangeRow(file: $0, model: model).tag(ReviewDocument(path: $0.path, compare: compare)) }
         }
     }
 
@@ -427,40 +442,6 @@ private struct ReviewFileList: View {
             let others = collapsedSections.split(separator: ",").filter { $0 != id }.map(String.init)
             collapsedSections = (expanded ? others : others + [id]).joined(separator: ",")
         }
-    }
-
-    private func fileRow(_ file: ReviewFile) -> some View {
-        HStack(spacing: 6) {
-            Text(file.status.rawValue)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
-            Text((file.path as NSString).lastPathComponent)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 4)
-            HStack(spacing: 6) {
-                if let additions = file.additions, additions > 0 {
-                    Text("+\(additions)").foregroundStyle(theme.working)
-                }
-                if let deletions = file.deletions, deletions > 0 {
-                    Text("−\(deletions)").foregroundStyle(theme.closed)
-                }
-            }
-            .fixedSize()
-            ZStack {
-                if file.status != .deleted {
-                    Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(theme.secondary)
-                        .help("Open File")
-                }
-            }
-            .frame(width: 16, alignment: .trailing)
-        }
-        .font(.callout)
-        .monospacedDigit()
-        .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 
     private var comments: some View {
@@ -527,6 +508,12 @@ private struct ReviewFileList: View {
                     .help("Couldn’t refresh, showing the last changes: \(failure.detail ?? failure.description)")
                     .accessibilityLabel("Refresh failed")
             }
+            if !changes.uncommitted.isEmpty || !changes.committed.isEmpty {
+                Button(changesAsTree ? "View as List" : "View as Tree", systemImage: changesAsTree ? "list.bullet" : "list.bullet.indent") { changesAsTree.toggle() }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help(changesAsTree ? "View as List" : "View as Tree")
+            }
             refreshButton
                 .buttonStyle(.borderless)
         }
@@ -581,18 +568,60 @@ private struct ReviewFileList: View {
     }
 }
 
+private struct ReviewChangeRow: View {
+    let file: ReviewFile
+    let model: ReviewModel
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(file.status.rawValue)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
+            Text((file.path as NSString).lastPathComponent)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .fontWeight(.regular)
+            Spacer(minLength: 4)
+            HStack(spacing: 6) {
+                if let additions = file.additions, additions > 0 {
+                    Text("+\(additions)").foregroundStyle(theme.working)
+                }
+                if let deletions = file.deletions, deletions > 0 {
+                    Text("−\(deletions)").foregroundStyle(theme.closed)
+                }
+            }
+            .fixedSize()
+            ZStack {
+                if file.status != .deleted {
+                    Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(theme.secondary)
+                        .help("Open File")
+                }
+            }
+            .frame(width: 16, alignment: .trailing)
+        }
+        .font(.callout)
+        .monospacedDigit()
+        .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
+    }
+}
+
 private struct ReviewFileNode: View {
     let node: ReviewFileTree
+    let compare: ReviewCompare?
     let changes: ReviewChanges
     let model: ReviewModel
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         if let children = node.children {
-            DisclosureGroup(isExpanded: Binding { model.expandedFolders.contains(node.path) } set: { $0 ? model.expandedFolders.formUnion([node.path]) : model.expandedFolders.subtract([node.path]) }) {
-                ForEach(children) { Self(node: $0, changes: changes, model: model) }
+            DisclosureGroup(isExpanded: isExpanded) {
+                ForEach(children) { ReviewFileNode(node: $0, compare: compare, changes: changes, model: model) }
             } label: {
-                Button(action: toggle) {
+                Button { isExpanded.wrappedValue.toggle() } label: {
                     label
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 5)
@@ -602,9 +631,21 @@ private struct ReviewFileNode: View {
                 .listRowInsets(.vertical, 0)
                 .selectionDisabled()
             }
+        } else if let compare, let file = (compare == .committed ? changes.committed : changes.uncommitted).first(where: { $0.path == node.path }) {
+            ReviewChangeRow(file: file, model: model)
+                .padding(.vertical, 5)
+                .listRowInsets(.vertical, 0)
+                .tag(ReviewDocument(path: node.path, compare: compare))
         } else {
             label.tag(ReviewDocument(path: node.path, compare: nil))
         }
+    }
+
+    private var isExpanded: Binding<Bool> {
+        guard let compare else { return Binding { model.expandedFolders.contains(node.path) } set: { $0 ? model.expandedFolders.formUnion([node.path]) : model.expandedFolders.subtract([node.path]) } }
+
+        let folder = ReviewDocument(path: node.path, compare: compare)
+        return Binding { !model.collapsedChangeFolders.contains(folder) } set: { $0 ? model.collapsedChangeFolders.subtract([folder]) : model.collapsedChangeFolders.formUnion([folder]) }
     }
 
     private var label: some View {
@@ -620,10 +661,6 @@ private struct ReviewFileNode: View {
                 .foregroundStyle(theme.secondary)
         }
         .help(node.path)
-    }
-
-    private func toggle() {
-        if model.expandedFolders.remove(node.path) == nil { model.expandedFolders.insert(node.path) }
     }
 }
 
@@ -704,6 +741,7 @@ private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
         let filesHeight = min(max(height, 0), available)
         changes.frame = NSRect(x: 0, y: 0, width: bounds.width, height: available - filesHeight)
         files.frame = NSRect(x: 0, y: available - filesHeight + dividerThickness, width: bounds.width, height: filesHeight)
+        needsDisplay = true
     }
 
     func splitView(_: NSSplitView, constrainMinCoordinate _: CGFloat, ofSubviewAt _: Int) -> CGFloat {

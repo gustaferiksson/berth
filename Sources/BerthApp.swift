@@ -185,7 +185,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 textView?.performTextFinderAction(showFindInterface)
                 return nil
             }
-            if flags == .command, event.charactersIgnoringModifiers == "w", store.reviewModel?.selectedTab != nil, !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
+            if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w", AppAction.hideChanges.isAvailable(in: store) || store.reviewModel?.selectedTab != nil && !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
                 store.closeDiff()
                 return nil
             }

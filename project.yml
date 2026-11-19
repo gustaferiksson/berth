@@ -58,6 +58,8 @@ targets:
     sources:
       - path: Sources
       - path: Resources/AppIcon.icon
+      - path: Resources/highlights-typescript.scm
+        buildPhase: resources
     dependencies:
       - package: BerthCore
       - package: GhosttyKit
