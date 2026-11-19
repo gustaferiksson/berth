@@ -110,11 +110,46 @@ enum Snapshot {
         )
     }()
 
-    static let fixtureSessions = inboxFixtures?.sessions ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
+    private static let taskFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: [PullRequestBranch: PullRequest?], tasks: TaskState)? = {
+        guard UserDefaults.standard.bool(forKey: "snapshotTasks") else { return nil }
+
+        let code = NSTemporaryDirectory() + "berth-tasks"
+        for name in ["billing/.git", "web/.git", "infra/.git"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) }
+        let usage = IssueRef(repository: "acme/billing", number: 57)
+        let rounding = IssueRef(repository: "acme/billing", number: 58)
+        let cleanup = (212...217).map { PullRequestLink(repository: "acme/billing", number: $0) }
+        let sessions = [
+            SessionSummary(id: "task-usage-api", cwd: "\(code)/billing", title: "Add the usage export CSV endpoint", lastActivity: .now - 300, branch: "usage-export", issueRefs: [usage]),
+            SessionSummary(id: "task-usage-web", cwd: "\(code)/web", title: "Add the usage export button to the dashboard", lastActivity: .now - 1200, branch: "feat/export-button", issueRefs: [usage]),
+            SessionSummary(id: "task-rounding", cwd: "\(code)/billing", title: "Fix rounding in invoice totals", lastActivity: .now - 2400, branch: "fix/invoice-rounding", pullRequests: [cleanup[0]]),
+            SessionSummary(id: "task-rounding-web", cwd: "\(code)/web", title: "Show rounded totals on the invoice page", lastActivity: .now - 3600, branch: "feat/rounded-totals", pullRequests: [cleanup[0]]),
+            SessionSummary(id: "task-sweep", cwd: "\(code)/billing", title: "Close out the stale pull requests", lastActivity: .now - 4800, branch: "chore/cleanup", pullRequests: cleanup, issueRefs: [usage]),
+            SessionSummary(id: "task-polish", cwd: "\(code)/web", title: "Polish the export modal copy", lastActivity: .now - 7200, branch: "usage-export"),
+            SessionSummary(id: "task-removed", cwd: "\(code)/billing", title: "Retry the usage export on timeout", lastActivity: .now - 9000, issueRefs: [usage]),
+            SessionSummary(id: "task-infra", cwd: "\(code)/infra", title: "Tidy the CI pipeline", lastActivity: .now - 10_000),
+        ]
+        let url = { (repository: String, number: Int) in URL(string: "https://github.com/\(repository)/pull/\(number)")! }
+        return (
+            sessions,
+            [RepositoryRoot.resolve("\(code)/billing"): "acme/billing", RepositoryRoot.resolve("\(code)/web"): "acme/web", RepositoryRoot.resolve("\(code)/infra"): "acme/infra"],
+            [
+                PullRequestBranch(repository: "acme/billing", branch: "usage-export"): PullRequest(number: 61, url: url("acme/billing", 61), title: "Usage export endpoint", state: .open, closingIssues: [ClosingIssue(ref: usage, title: "Usage export for invoices")]),
+                PullRequestBranch(repository: "acme/billing", branch: "fix/invoice-rounding"): PullRequest(number: 212, url: url("acme/billing", 212), title: "Fix rounding in invoice totals", state: .open, closingIssues: [ClosingIssue(ref: rounding, title: "Invoice totals round the wrong way")]),
+                PullRequestBranch(repository: "acme/billing", branch: "chore/cleanup"): PullRequest?.none,
+                PullRequestBranch(repository: "acme/web", branch: "feat/export-button"): PullRequest?.none,
+                PullRequestBranch(repository: "acme/web", branch: "feat/rounded-totals"): PullRequest?.none,
+                PullRequestBranch(repository: "acme/web", branch: "usage-export"): PullRequest?.none,
+            ],
+            TaskState(tasks: [StoredTask(id: "task:fixture-usage", issue: usage, origin: .auto, sessionIDs: ["task-usage-api"], excluded: ["task-removed"])])
+        )
+    }()
+
+    static let fixtureTasks = taskFixtures?.tasks
+    static let fixtureSessions = inboxFixtures?.sessions ?? taskFixtures?.sessions ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
     private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
-    static let fixtureRepositories = inboxFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
+    static let fixtureRepositories = inboxFixtures?.repositories ?? taskFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
     private static let fixtureChecks = (UserDefaults.standard.string(forKey: "snapshotChecks") ?? "").split(separator: "|", omittingEmptySubsequences: false).map { PullRequestChecks.State(rawValue: String($0)) }
-    static let fixturePullRequests = inboxFixtures?.pullRequests ?? Dictionary(pullRequestFixtures.enumerated().compactMap { index, item in
+    static let fixturePullRequests = inboxFixtures?.pullRequests ?? taskFixtures?.pullRequests ?? Dictionary(pullRequestFixtures.enumerated().compactMap { index, item in
         item.session.branch.map { branch in
             var pullRequest = item.pullRequest
             pullRequest?.checks = index < fixtureChecks.count ? fixtureChecks[index] : nil
@@ -124,6 +159,7 @@ enum Snapshot {
     static let fixtureInbox = inboxFixtures?.inbox
     #else
     static let fixtureSessions: [SessionSummary]? = nil
+    static let fixtureTasks: TaskState? = nil
     static let launcherKeys: String? = nil
     static let fixtureRepositories: [String: String?] = [:]
     static let fixturePullRequests: [PullRequestBranch: PullRequest?] = [:]
@@ -208,6 +244,15 @@ enum Snapshot {
         let topSessions = store.groups.first { !$0.sessions.isEmpty }?.sessions ?? []
         if UserDefaults.standard.bool(forKey: "snapshotFlagged") {
             for session in topSessions.enumerated().filter({ [0, 2].contains($0.offset) }).map(\.element) { store.flag(session.id) }
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotTasks") {
+            try? await Task.sleep(for: .milliseconds(500))
+            for task in store.sessionTasks {
+                print("task \(task.title) | issue \(task.issue.map { "#\($0.number)" } ?? "none") | members \(task.sessions.map(\.id))")
+            }
+            print("stored: \(store.tasks.tasks.map { "\($0.id) \($0.sessionIDs) excluded \($0.excluded)" })")
+            print("suggestions: \(store.taskSuggestions.map { "\($0.key) -> \($0.value.key) task \($0.value.taskID ?? "new") sessions \($0.value.sessionIDs)" }.sorted())")
+            print("sidebar: \(store.sidebarGroups.map { "\($0.group.title) \($0.entries.map { "\($0)" })" })")
         }
         if UserDefaults.standard.bool(forKey: "snapshotUnread") {
             for session in topSessions.enumerated().filter({ [1, 3].contains($0.offset) }).map(\.element) { store.markUnread(session.id) }

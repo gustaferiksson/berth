@@ -35,6 +35,7 @@ extension Tab {
 enum SidebarItem: Hashable {
     case tab(Tab.ID)
     case session(String)
+    case task(String)
 }
 
 enum NewSessionCheckout {
@@ -156,6 +157,14 @@ final class Store {
         }
     }
 
+    private(set) var tasks = Snapshot.fixtureTasks ?? TaskState.stored(UserDefaults.standard.string(forKey: "tasks")).state {
+        didSet {
+            if persistsTabs { UserDefaults.standard.set(tasks.storage(keeping: unreadableTasks), forKey: "tasks") }
+        }
+    }
+
+    private(set) var sessionTasks: [SessionTask] = []
+    private(set) var taskSuggestions: [String: TaskSuggestion] = [:]
     private(set) var groups: [SessionGroup] = []
     private(set) var activeSessions: [SessionSummary] = []
     private(set) var archivedSessions: [SessionSummary] = []
@@ -205,6 +214,8 @@ final class Store {
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var themeWatcher: FileWatcher?
     @ObservationIgnored private var summaries: [SessionSummary] = []
+    @ObservationIgnored private var shownTasks: [StoredTask] = []
+    @ObservationIgnored private var unreadableTasks = TaskState.stored(UserDefaults.standard.string(forKey: "tasks")).unreadable
     @ObservationIgnored private var groupOrder: [String] = []
     @ObservationIgnored private var repositoryRoots: [String: String] = [:]
     @ObservationIgnored private var checkouts: [String: String] = [:]
@@ -287,6 +298,15 @@ final class Store {
         let pins = SessionPins.split(split.active, pinned: pinnedIDs)
         if hasScanned, pins.kept != pinnedIDs { pinnedIDs = pins.kept }
         if pins.pinned != pinnedSessions { pinnedSessions = pins.pinned }
+        let restByID = Dictionary(pins.rest.map { ($0.id, $0) }) { first, _ in first }
+        let issueTitles = Dictionary(pullRequests.values.compactMap(\.self).flatMap(\.closingIssues).map { ($0.ref, $0.title) }) { first, _ in first }
+        let rows = shownTasks.compactMap { task -> SessionTask? in
+            let members = task.sessionIDs.compactMap { restByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt }
+            guard let newest = members.first else { return nil }
+
+            return SessionTask(id: task.id, title: task.name ?? task.issue.flatMap { issueTitles[$0] } ?? newest.title, issue: task.issue, sessions: members)
+        }
+        if rows != sessionTasks { sessionTasks = rows }
         let fresh = grouping.groups(pins.rest)
         let folders = fresh.compactMap(\.folder)
         let known = Set(groupOrder)
@@ -301,6 +321,78 @@ final class Store {
             return SessionGroup(kind: group.kind, sessions: group.sessions.sorted { rank[$0.id, default: -1] < rank[$1.id, default: -1] })
         }
         if shownGroups != groups { groups = shownGroups }
+    }
+
+    func formTasks() {
+        guard hasScanned else { return }
+
+        let result = TaskFormation.form(tasks, sessions: summaries.map(taskSession))
+        if result.state != tasks { tasks = result.state }
+        shownTasks = result.shown
+        let suggestions = Dictionary(result.suggestions.flatMap { suggestion in suggestion.sessionIDs.map { ($0, suggestion) } }) { first, _ in first }
+        if suggestions != taskSuggestions { taskSuggestions = suggestions }
+        applyGroups()
+    }
+
+    private func taskSession(_ session: SessionSummary) -> TaskSession {
+        let root = repositoryRoots[session.checkout]
+        let repository = root.flatMap { repositories[$0] ?? nil }?.lowercased() ?? root
+        let looked = pullRequestBranches(of: session).lazy.compactMap { branch in (self.pullRequests[branch] ?? nil).map { (repository: branch.repository, pullRequest: $0) } }.first { $0.pullRequest.state != .closed }
+        let link = looked.map { PullRequestLink(repository: $0.repository, number: $0.pullRequest.number) }
+        let links = session.pullRequests + (link.flatMap { session.pullRequests.contains($0) ? nil : [$0] } ?? [])
+        return TaskSession(
+            id: session.id,
+            lastPrompt: session.lastPrompt,
+            repository: repository,
+            repositories: Set([repository].compactMap(\.self) + links.map { $0.repository.lowercased() }),
+            typedIssues: session.issueRefs,
+            closingIssues: looked?.pullRequest.closingIssues.map(\.ref) ?? [],
+            pullRequests: links,
+            branches: session.branches
+        )
+    }
+
+    func task(containing sessionID: String) -> StoredTask? {
+        shownTasks.first { $0.sessionIDs.contains(sessionID) }
+    }
+
+    func renameTask(_ id: String, to name: String) {
+        tasks.rename(id, to: name)
+        formTasks()
+    }
+
+    func removeFromTask(_ sessionID: String) {
+        guard let task = task(containing: sessionID) else { return }
+
+        tasks.remove(sessionID, from: task.id)
+        formTasks()
+    }
+
+    func deleteTask(_ id: String) {
+        guard let task = tasks.tasks.first(where: { $0.id == id }) else { return }
+
+        let keys = Set(summaries.filter { task.sessionIDs.contains($0.id) }.flatMap { taskSession($0).keys })
+        tasks.delete(id, dismissing: keys)
+        formTasks()
+    }
+
+    func accept(_ suggestion: TaskSuggestion) {
+        if let taskID = suggestion.taskID {
+            tasks.join(suggestion.sessionIDs, to: taskID)
+        } else {
+            tasks.makeTask(suggestion.sessionIDs, origin: .auto)
+        }
+        formTasks()
+    }
+
+    func dismiss(_ suggestion: TaskSuggestion) {
+        tasks.dismissed.insert(suggestion.key)
+        formTasks()
+    }
+
+    func newTask(from sessionIDs: [String]) {
+        tasks.makeTask(sessionIDs, origin: .local)
+        formTasks()
     }
 
     var grouping: SessionGrouping {
@@ -325,6 +417,7 @@ final class Store {
         let fetched = await Task.detached { await PullRequestStatus.fetch(branches) }.value
         let merged = pullRequests.merging(fetched) { $1 }
         if merged != pullRequests { pullRequests = merged }
+        formTasks()
     }
 
     func refreshInbox() {
@@ -363,6 +456,7 @@ final class Store {
         let unresolved = Set(summaries.compactMap { repositoryRoots[$0.checkout] }).filter { repositories[$0] == nil }
         Task {
             if !unresolved.isEmpty { await repositories.merge(Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
+            formTasks()
             if (pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) { refreshPullRequests() }
         }
     }
@@ -439,6 +533,9 @@ final class Store {
             if pins != pinnedIDs { pinnedIDs = pins }
             let flags = Set(flaggedIDs.map { continued[$0] ?? $0 })
             if flags != flaggedIDs { flaggedIDs = flags }
+            var followed = tasks
+            followed.continuing(continued)
+            if followed != tasks { tasks = followed }
             repositoryRoots = roots
             for index in tabs.indices {
                 guard let cwd = self.summaries.first(where: { $0.id == tabs[index].sessionID })?.cwd, cwd != tabs[index].cwd else { continue }
@@ -446,7 +543,7 @@ final class Store {
                 tabs[index].cwd = cwd
             }
             if !hasScanned { hasScanned = true }
-            applyGroups()
+            formTasks()
             refreshLive()
             if searchIndexTask != nil { updateSearchIndex() }
             resolvePullRequests()
@@ -587,6 +684,7 @@ final class Store {
 
     private func tab(activating item: SidebarItem?) -> Tab? {
         if case let .tab(id) = item { return tabs.first { $0.id == id } }
+        if case let .task(id) = item { return sessionTasks.first { $0.id == id }.flatMap { tab(activating: .session($0.sessions[0].id)) } }
         guard case let .session(id) = item,
               let session = (activeSessions + archivedSessions).first(where: { $0.id == id })
         else { return nil }
@@ -765,7 +863,7 @@ final class Store {
         if kind == .shell { newTerminal() }
     }
 
-    var sidebarGroups: [(group: SessionGroup, tabs: [Tab])] {
+    var sidebarGroups: [(group: SessionGroup, tabs: [Tab], entries: [GroupEntry])] {
         let listed = Set(activeSessions.map(\.id))
         let unlisted = tabs.filter { $0.kind == .claude && !($0.sessionID.map(listed.contains) ?? false) }
         let grouping = grouping
@@ -775,11 +873,20 @@ final class Store {
             .map { SessionGroup(kind: $0, sessions: []) }
             .filter { !known.contains($0.id) }
             .sorted { $0.id < $1.id }
-        return SessionGrouping.place(groups.filter { $0.custom != nil }, among: extra + groups.filter { $0.custom == nil }).map { ($0, placed[$0.id] ?? []) }
+        return SessionGrouping.place(groups.filter { $0.custom != nil }, among: extra + groups.filter { $0.custom == nil })
+            .map { group in (group, placed[group.id] ?? [], SessionTask.entries(of: group.sessions, tasks: sessionTasks)) }
+            .filter { $0.0.custom != nil || !$0.1.isEmpty || !$0.2.isEmpty }
     }
 
     var sidebarOrderedTabs: [Tab] {
-        terminals + pinnedSessions.compactMap { tab(forSession: $0.id) } + sidebarGroups.flatMap { $0.tabs + $0.group.sessions.compactMap { tab(forSession: $0.id) } }
+        terminals + pinnedSessions.compactMap { tab(forSession: $0.id) } + sidebarGroups.flatMap { group in
+            group.tabs + group.entries.flatMap { entry in
+                switch entry {
+                case let .session(id): [id]
+                case let .task(id): sessionTasks.first { $0.id == id }?.sessions.map(\.id) ?? []
+                }
+            }.compactMap { tab(forSession: $0) }
+        }
     }
 
     func selectTab(number: Int) {

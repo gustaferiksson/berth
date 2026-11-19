@@ -4,10 +4,33 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SidebarLayout: Equatable {
+    enum Entry: Equatable, Identifiable {
+        case session(String)
+        case task(id: String, memberIDs: [String])
+
+        var id: String {
+            switch self {
+            case let .session(id), let .task(id, _): id
+            }
+        }
+
+        var memberIDs: [String] {
+            guard case let .task(_, memberIDs) = self else { return [] }
+
+            return memberIDs
+        }
+
+        var sessionCount: Int {
+            guard case let .task(_, memberIDs) = self else { return 1 }
+
+            return memberIDs.count
+        }
+    }
+
     struct Group: Equatable, Identifiable {
         let source: SessionGroup
         let tabIDs: [Tab.ID]
-        let sessionIDs: [String]
+        let entries: [Entry]
         let folders: [String]
         var id: String { source.id }
     }
@@ -61,11 +84,16 @@ struct Sidebar: View, Equatable {
         SidebarLayout(
             terminalIDs: store.terminals.map(\.id),
             pinnedIDs: store.pinnedSessions.map(\.id),
-            groups: store.sidebarGroups.map { group, tabs in
+            groups: store.sidebarGroups.map { group, tabs, entries in
                 SidebarLayout.Group(
                     source: SessionGroup(kind: group.kind, sessions: []),
                     tabIDs: tabs.map(\.id),
-                    sessionIDs: group.sessions.map(\.id),
+                    entries: entries.map { entry in
+                        switch entry {
+                        case let .session(id): .session(id)
+                        case let .task(id): .task(id: id, memberIDs: store.sessionTasks.first { $0.id == id }?.sessions.map(\.id) ?? [])
+                        }
+                    },
                     folders: group.folder.map { Array(Set(group.sessions.map(\.checkout)).union([$0])).sorted() } ?? []
                 )
             },
@@ -83,6 +111,9 @@ private struct SidebarList: View, Equatable {
     @AppStorage("archivedExpanded") private var isArchiveExpanded = false
     @State private var expandedGroups = Snapshot.expandedGroups
     @State private var renaming: CustomGroup?
+    @State private var renamingTask: SessionTask?
+    @State private var taskName = ""
+    @State private var deletingTask: SessionTask?
     @State private var browseRoot: String?
     @FocusState private var isFocused: Bool
 
@@ -91,25 +122,46 @@ private struct SidebarList: View, Equatable {
 
     private struct Group {
         let layout: SidebarLayout.Group
-        let sessionIDs: [String]
+        let entries: [SidebarLayout.Entry]
         let hiddenSessions: Int
         var id: String { layout.id }
-        var count: Int { layout.tabIDs.count + layout.sessionIDs.count }
+        var count: Int { layout.tabIDs.count + layout.entries.reduce(0) { $0 + $1.sessionCount } }
+    }
+
+    private enum Row: Hashable {
+        case session(String)
+        case task(String)
+        case member(String)
+
+        var item: SidebarItem {
+            switch self {
+            case let .session(id), let .member(id): .session(id)
+            case let .task(id): .task(id)
+            }
+        }
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.layout == rhs.layout }
 
     private var groups: [Group] {
         layout.groups.map { group in
-            let sessionIDs = expandedGroups.contains(group.id) ? group.sessionIDs : Array(group.sessionIDs.prefix(Self.visibleSessions))
-            return Group(layout: group, sessionIDs: sessionIDs, hiddenSessions: group.sessionIDs.count - sessionIDs.count)
+            let entries = expandedGroups.contains(group.id) ? group.entries : Array(group.entries.prefix(Self.visibleSessions))
+            return Group(layout: group, entries: entries, hiddenSessions: group.entries.count - entries.count)
+        }
+    }
+
+    private func rows(of entries: [SidebarLayout.Entry]) -> [Row] {
+        entries.flatMap { entry -> [Row] in
+            guard case let .task(id, memberIDs) = entry else { return [.session(entry.id)] }
+
+            return [.task(id)] + (isCollapsed(id) ? [] : memberIDs.map(Row.member))
         }
     }
 
     private var items: [SidebarItem] {
         (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
             + (isCollapsed(Self.pinnedID) ? [] : layout.pinnedIDs).map(SidebarItem.session)
-            + groups.filter { !isCollapsed($0.id) }.flatMap { $0.layout.tabIDs.map(SidebarItem.tab) + $0.sessionIDs.map(SidebarItem.session) }
+            + groups.filter { !isCollapsed($0.id) }.flatMap { $0.layout.tabIDs.map(SidebarItem.tab) + rows(of: $0.entries).map(\.item) }
             + (isArchiveExpanded ? layout.archivedIDs : []).map(SidebarItem.session)
     }
 
@@ -169,6 +221,16 @@ private struct SidebarList: View, Equatable {
             store.multiSelection = []
             return .handled
         }
+        .alert("Rename Task", isPresented: Binding(get: { renamingTask != nil }, set: { if !$0 { renamingTask = nil } })) {
+            TextField("Task Name", text: $taskName)
+            Button("Rename") { if let task = renamingTask { store.renameTask(task.id, to: taskName) } }
+            Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog("Delete “\(deletingTask?.title ?? "")”?", isPresented: Binding(get: { deletingTask != nil }, set: { if !$0 { deletingTask = nil } }), presenting: deletingTask) { task in
+            Button("Delete Task", role: .destructive) { store.deleteTask(task.id) }
+        } message: { _ in
+            Text("Its sessions stay where they are and the task won’t form again from the same issue or pull request. No transcripts are deleted.")
+        }
         .onKeyPress(.leftArrow) { setExpanded(false, in: groups) }
         .onKeyPress(.rightArrow) { setExpanded(true, in: groups) }
         .onHover { store.isPointerInSidebar = $0 }
@@ -196,6 +258,7 @@ private struct SidebarList: View, Equatable {
         let tab: Tab? = switch next {
         case let .tab(id): store.tabs.first { $0.id == id }
         case let .session(id): store.tab(forSession: id)
+        case .task: nil
         }
         guard let tab else {
             store.sidebarCursor = next
@@ -224,8 +287,19 @@ private struct SidebarList: View, Equatable {
             expansion(of: Self.pinnedID).wrappedValue = expanded
             return .handled
         }
+        if case let .task(id) = item {
+            expansion(of: id).wrappedValue = expanded
+            return .handled
+        }
+        if !expanded, case let .session(sessionID) = item, let task = groups.flatMap(\.layout.entries).first(where: { $0.memberIDs.contains(sessionID) }) {
+            expansion(of: task.id).wrappedValue = false
+            store.sidebarCursor = .task(task.id)
+            return .handled
+        }
         guard let item, let group = groups.first(where: { group in
-            group.layout.tabIDs.contains { .tab($0) == item } || group.sessionIDs.contains { .session($0) == item }
+            group.layout.tabIDs.contains { .tab($0) == item } || group.layout.entries.contains { entry in
+                if case let .session(id) = item { entry.id == id || entry.memberIDs.contains(id) } else { false }
+            }
         }) else { return .ignored }
 
         expansion(of: group.id).wrappedValue = expanded
@@ -283,11 +357,22 @@ private struct SidebarList: View, Equatable {
                 TabItem(id: id, select: select)
                     .id(SidebarItem.tab(id))
             }
-            ForEach(group.sessionIDs, id: \.self) { id in
-                SessionItem(id: id, place: .group(folder: group.layout.source.folder), select: select)
-                    .id(SidebarItem.session(id))
+            ForEach(rows(of: group.entries), id: \.self) { row in
+                switch row {
+                case let .session(id):
+                    SessionItem(id: id, place: .group(folder: group.layout.source.folder), select: select)
+                        .id(SidebarItem.session(id))
+
+                case let .task(id):
+                    TaskItem(id: id, isExpanded: expansion(of: id), select: select, rename: { renamingTask = $0; taskName = $0.title }, delete: { deletingTask = $0 })
+                        .id(SidebarItem.task(id))
+
+                case let .member(id):
+                    SessionItem(id: id, place: .task, select: select)
+                        .id(SidebarItem.session(id))
+                }
             }
-            if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && group.sessionIDs.count > Self.visibleSessions {
+            if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && group.entries.count > Self.visibleSessions {
                 let isExpanded = expandedGroups.contains(group.id)
                 Button(isExpanded ? "Show Less" : "Show \(group.hiddenSessions) More") {
                     if isExpanded { expandedGroups.remove(group.id) } else { expandedGroups.insert(group.id) }
@@ -442,6 +527,7 @@ private struct SessionItem: View {
     enum Place: Equatable {
         case pinned
         case group(folder: String?)
+        case task
         case archived
     }
 
@@ -454,8 +540,9 @@ private struct SessionItem: View {
         let session = store.sessionsByID[id]
         let tab = store.tab(forSession: id)
         let live = store.liveBySession[id]
+        let suggestion = store.taskSuggestions[id]
         // A layout container makes the row one static view, so List builds only the visible rows.
-        HStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             if let session {
                 SessionRow(
                     session: session,
@@ -469,9 +556,14 @@ private struct SessionItem: View {
                     pullRequest: store.pullRequest(for: session),
                     showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
                 )
+                .padding(.leading, place == .task ? 16 : 0)
+                if let suggestion, let text = suggestionText(suggestion) {
+                    SuggestionLine(text: text, accept: { store.accept(suggestion) }, dismiss: { store.dismiss(suggestion) })
+                        .padding(.leading, place == .task ? 16 : 0)
+                }
             }
         }
-        .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: tab == nil && live.map { $0.attachID == nil } ?? false) {
+        .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: tab == nil && live.map { $0.attachID == nil } ?? false, indent: place == .task ? 16 : 0) {
             select(.session(id))
         })
         .contextMenu {
@@ -486,6 +578,12 @@ private struct SessionItem: View {
                 menu(session, tab: tab)
             }
         }
+    }
+
+    private func suggestionText(_ suggestion: TaskSuggestion) -> String? {
+        guard let taskID = suggestion.taskID else { return "Make a task from \(suggestion.sessionIDs.count + 1) sessions?" }
+
+        return store.sessionTasks.first { $0.id == taskID }.map { "Join “\($0.title)”?" }
     }
 
     @ViewBuilder
@@ -503,6 +601,14 @@ private struct SessionItem: View {
         }
         flagButton
         Button("Archive") { store.archive(id) }
+        if store.task(containing: id) != nil || store.taskSuggestions[id] != nil {
+            Divider()
+            if store.task(containing: id) != nil { Button("Remove from Task") { store.removeFromTask(id) } }
+            if let suggestion = store.taskSuggestions[id], let text = suggestionText(suggestion) {
+                Button(String(text.dropLast())) { store.accept(suggestion) }
+                Button("Not Related") { store.dismiss(suggestion) }
+            }
+        }
         Divider()
         CopySessionIDButton(sessionID: id)
     }
@@ -547,6 +653,7 @@ struct MultiSelectionMenu: View {
             ("Flag ^[\(unflagged.count) Session](inflect: true)", unflagged.count, { for session in unflagged { store.flag(session.id) } }),
             ("Unflag ^[\(flagged.count) Session](inflect: true)", flagged.count, { for session in flagged { store.unflag(session.id) } }),
             ("Archive ^[\(active.count) Session](inflect: true)", active.count, { for session in active { store.archive(session.id) } }),
+            ("New Task from ^[\(active.count) Session](inflect: true)", active.count > 1 ? active.count : 0, { store.newTask(from: active.map(\.id)) }),
         ]
         return actions.filter { $0.count > 0 }.map { (String(AttributedString(localized: $0.title).characters), $0.perform) }
     }
@@ -735,6 +842,7 @@ private struct RowChrome: ViewModifier {
     let item: SidebarItem
     let hoverID: String
     let isLocked: Bool
+    var indent = 0.0
     let select: () -> Void
     @State private var isHovering = false
     @Environment(Store.self) private var store
@@ -761,7 +869,8 @@ private struct RowChrome: ViewModifier {
             .listRowBackground(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(theme.foreground.opacity(fill))
-                    .padding(.horizontal, 8)
+                    .padding(.leading, 8 + indent)
+                    .padding(.trailing, 8)
                     .padding(.vertical, 2)
             )
     }
@@ -866,6 +975,139 @@ private struct SessionRow: View {
     }
 }
 
+private struct TaskItem: View {
+    let id: String
+    @Binding var isExpanded: Bool
+    let select: (SidebarItem) -> Void
+    let rename: (SessionTask) -> Void
+    let delete: (SessionTask) -> Void
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let task = store.sessionTasks.first { $0.id == id }
+        // A layout container makes the row one static view, so List builds only the visible rows.
+        HStack(spacing: 0) {
+            if let task {
+                TaskRow(
+                    task: task,
+                    isExpanded: isExpanded,
+                    state: states(of: task),
+                    isUnread: task.sessions.contains(where: store.isUnread)
+                )
+            }
+        }
+        .modifier(RowChrome(item: .task(id), hoverID: task?.title ?? id, isLocked: false) {
+            isExpanded.toggle()
+            if NSApp.currentEvent?.clickCount == 2 { store.activate(.task(id)) }
+        })
+        .contextMenu {
+            if let task {
+                Button("Rename Task…") { rename(task) }
+                Divider()
+                Button("Delete Task…", role: .destructive) { delete(task) }
+            }
+        }
+    }
+
+    private func states(of task: SessionTask) -> RowState? {
+        let states = task.sessions.compactMap { RowState(live: store.liveBySession[$0.id]) }
+        return states.contains(.working) ? .working : states.first
+    }
+}
+
+private struct TaskRow: View {
+    let task: SessionTask
+    let isExpanded: Bool
+    let state: RowState?
+    let isUnread: Bool
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        CardRow(
+            title: task.title,
+            state: state,
+            isLocked: false,
+            isLoaded: false,
+            modified: task.sessions[0].lastPrompt,
+            isUnread: isUnread,
+            chevron: isExpanded ? "chevron.down" : "chevron.right",
+            titleWeight: .semibold
+        ) {
+            HStack(spacing: 8) {
+                if let issue = task.issue { IssueTag(issue: issue).fixedSize() }
+                Text("^[\(task.sessions.count) session](inflect: true)")
+                    .font(.caption)
+                    .foregroundStyle(theme.secondary)
+            }
+            .padding(.leading, 16)
+        }
+        .help(task.title)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(isExpanded ? "expanded" : "collapsed")
+    }
+}
+
+private struct IssueTag: View {
+    let issue: IssueRef
+    @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.openURL) private var openURL
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            if let url = issue.url { openURL(url) }
+        } label: {
+            Label {
+                Text(verbatim: "#\(issue.number)")
+            } icon: {
+                Image(systemName: "smallcircle.filled.circle")
+            }
+            .labelStyle(CompactLabel())
+            .font(.caption.monospaced())
+            .foregroundStyle(theme.secondary)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(theme.secondary.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("Open issue \(issue.repository)#\(issue.number)")
+    }
+}
+
+private struct SuggestionLine: View {
+    let text: String
+    let accept: () -> Void
+    let dismiss: () -> Void
+    @State private var isHovering = false
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+            Group {
+                Button("Accept", systemImage: "checkmark", action: accept)
+                    .help("Accept")
+                Button("Not Related", systemImage: "xmark", action: dismiss)
+                    .help("Not related")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .opacity(isHovering || Snapshot.forcedHover.contains(text) ? 1 : 0)
+            .allowsHitTesting(isHovering)
+        }
+        .font(.caption)
+        .foregroundStyle(theme.secondary)
+        .padding(.leading, 8)
+        .padding(.top, -4)
+        .padding(.bottom, 8)
+        .onHover { isHovering = $0 }
+    }
+}
+
 private struct TabRow: View {
     let tab: Tab
     let live: LiveSession?
@@ -901,6 +1143,8 @@ private struct CardRow<Detail: View>: View {
     var isUnread = false
     var isFlagged = false
     var context: SessionContext?
+    var chevron: String?
+    var titleWeight = Font.Weight.regular
     var close: (() -> Void)?
     @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
@@ -910,7 +1154,15 @@ private struct CardRow<Detail: View>: View {
         let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 10 >= $0 * 6 && context.tokens <= $0 ? $0 : nil } }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if let chevron {
+                    Image(systemName: chevron)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(theme.secondary)
+                        .frame(width: 8)
+                        .accessibilityHidden(true)
+                }
                 Text(title)
+                    .fontWeight(titleWeight)
                     .foregroundStyle(theme.foreground)
                     .lineLimit(1)
                 Spacer(minLength: 0)
