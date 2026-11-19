@@ -1036,7 +1036,7 @@ private struct ContextFooter: View {
     var body: some View {
         let sessionID = store.tabs.first { $0.id == store.selectedTabID && $0.kind == .claude }?.sessionID
         if let sessionID, let context = store.sessionsByID[sessionID]?.context, let window = context.window, context.tokens <= window {
-            let parts = [("Cached prompt", context.cacheRead, theme.secondary), ("Written to cache", context.cacheWrite, theme.unread), ("New input", context.input, theme.working)]
+            let fill = Double(context.tokens) / Double(window)
             let compactions = store.selectedCompactions.flatMap { $0.sessionID == sessionID && $0.count > 0 ? $0 : nil }
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 4) {
@@ -1052,38 +1052,16 @@ private struct ContextFooter: View {
                     Text(tokenCount(context.tokens))
                         .font(.title2.weight(.semibold))
                         .foregroundStyle(theme.foreground)
-                    Text("of \(tokenCount(window)) · \(Int((Double(context.tokens) / Double(window) * 100).rounded()))%")
+                    Text("of \(tokenCount(window)) · \(Int((fill * 100).rounded()))%")
                         .foregroundStyle(theme.secondary)
                 }
                 .monospacedDigit()
                 Canvas { canvas, size in
-                    var x = 0.0
-                    for (_, tokens, color) in parts {
-                        let width = size.width * Double(tokens) / Double(window)
-                        canvas.fill(Path(CGRect(x: x, y: 0, width: width, height: size.height)), with: .color(color))
-                        x += width
-                    }
+                    canvas.fill(Path(CGRect(x: 0, y: 0, width: size.width * fill, height: size.height)), with: .color(fill >= 0.9 ? theme.closed : fill >= 0.7 ? theme.needsYou : theme.secondary))
                 }
                 .frame(height: 8)
                 .background(theme.foreground.opacity(0.1))
                 .clipShape(.rect(cornerRadius: 4))
-                Grid(horizontalSpacing: 8, verticalSpacing: 4) {
-                    ForEach(parts, id: \.0) { label, tokens, color in
-                        GridRow {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(color)
-                                .frame(width: 8, height: 8)
-                            Text(label)
-                                .foregroundStyle(theme.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(tokenCount(tokens))
-                                .monospacedDigit()
-                                .foregroundStyle(theme.foreground)
-                                .gridColumnAlignment(.trailing)
-                        }
-                    }
-                }
-                .font(.system(size: 11))
                 if let compactions, let last = compactions.last {
                     Text("\(compactions.count == 1 ? "Compacted once" : "Compacted \(compactions.count) times"), \(last, format: .relative(presentation: .named))")
                         .font(.system(size: 11))

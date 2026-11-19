@@ -168,7 +168,7 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotFakeContext") {
             let sessions = Array(topSessions.prefix(4))
             store.fakeContexts = Dictionary(uniqueKeysWithValues: zip(sessions, [68_000, 126_000, 162_000, 188_000]).map { session, tokens in
-                (session.id, SessionContext(model: "claude-opus-5-5", input: tokens * 8 / 100, cacheRead: tokens * 71 / 100, cacheWrite: tokens - tokens * 79 / 100, window: 200_000, modelName: "Opus 5.5"))
+                (session.id, SessionContext(model: "claude-opus-5-5", tokens: tokens, window: 200_000, modelName: "Opus 5.5"))
             })
             let opened = sessions.suffix(2)
             for _ in opened { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
