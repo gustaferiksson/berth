@@ -3,6 +3,25 @@ import GhosttyTerminal
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum SidebarDensity: String, CaseIterable {
+    case comfortable, cozy, compact
+
+    static let key = "sidebarDensity"
+
+    var title: String { rawValue.capitalized }
+    var isCompact: Bool { self == .compact }
+    var rowPadding: CGFloat { self == .comfortable ? 8 : 5 }
+    var headerHeight: CGFloat { self == .comfortable ? 24 : self == .cozy ? 22 : 20 }
+    var headerTopPadding: CGFloat { self == .comfortable ? 4 : self == .cozy ? 3 : 1 }
+    var headerBottomInset: CGFloat { self == .comfortable ? 4 : self == .cozy ? 3 : 1 }
+    var showMoreInset: CGFloat { self == .comfortable ? 4 : self == .cozy ? 3 : 1 }
+    var suggestionBottomPadding: CGFloat { self == .comfortable ? 8 : 5 }
+}
+
+extension EnvironmentValues {
+    @Entry var sidebarDensity = SidebarDensity.comfortable
+}
+
 struct SidebarLayout: Equatable {
     enum Entry: Equatable, Identifiable {
         case session(String)
@@ -109,6 +128,8 @@ private struct SidebarList: View, Equatable {
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedGroups") private var collapsedGroups = ""
     @AppStorage("archivedExpanded") private var isArchiveExpanded = false
+    @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
+    @Environment(\.sidebarRowSize) private var rowSize
     @State private var expandedGroups = Snapshot.expandedGroups
     @State private var renaming: CustomGroup?
     @State private var renamingTask: SessionTask?
@@ -204,6 +225,8 @@ private struct SidebarList: View, Equatable {
                 }
             }
         }
+        .environment(\.sidebarDensity, density)
+        .environment(\.sidebarRowSize, density.isCompact ? .small : rowSize)
         .focusable()
         .focused($isFocused)
         .focusEffectDisabled()
@@ -381,7 +404,7 @@ private struct SidebarList: View, Equatable {
                 .font(.subheadline)
                 .foregroundStyle(theme.secondary)
                 .padding(.leading, 8)
-                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
+                .listRowInsets(EdgeInsets(top: density.showMoreInset, leading: 8, bottom: density.showMoreInset, trailing: 8))
             }
         } header: {
             header(group, at: index, in: groups)
@@ -535,12 +558,14 @@ private struct SessionItem: View {
     let place: Place
     let select: (SidebarItem) -> Void
     @Environment(Store.self) private var store
+    @Environment(\.sidebarDensity) private var density
 
     var body: some View {
         let session = store.sessionsByID[id]
         let tab = store.tab(forSession: id)
         let live = store.liveBySession[id]
         let suggestion = store.taskSuggestions[id]
+        let suggestionLabel = suggestion.flatMap(suggestionText)
         // A layout container makes the row one static view, so List builds only the visible rows.
         VStack(alignment: .leading, spacing: 0) {
             if let session {
@@ -554,11 +579,12 @@ private struct SessionItem: View {
                     isFlagged: store.flaggedIDs.contains(id),
                     context: tab != nil || live != nil ? session.context : nil,
                     pullRequest: store.pullRequest(for: session),
+                    suggestion: suggestionLabel,
                     showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
                 )
                 .padding(.leading, place == .task ? 16 : 0)
-                if let suggestion, let text = suggestionText(suggestion) {
-                    SuggestionLine(text: text, accept: { store.accept(suggestion) }, dismiss: { store.dismiss(suggestion) })
+                if let suggestion, let suggestionLabel, !density.isCompact {
+                    SuggestionLine(text: suggestionLabel, accept: { store.accept(suggestion) }, dismiss: { store.dismiss(suggestion) })
                         .padding(.leading, place == .task ? 16 : 0)
                 }
             }
@@ -702,6 +728,7 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
     @State private var name = ""
     @FocusState private var isNameFocused: Bool
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.sidebarDensity) private var density
 
     var body: some View {
         Group {
@@ -712,11 +739,11 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
             }
         }
         .font(.system(size: 11))
-        .padding(.top, 4)
+        .padding(.top, density.headerTopPadding)
         .padding(.leading, -6)
         .padding(.trailing, 6)
         .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 0, drop: drop))
-        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
+        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: density.headerBottomInset, trailing: 8))
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
     }
@@ -752,7 +779,7 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
         }
         // While hovered, the system disclosure chevron takes this much of the header's trailing edge.
         .padding(.trailing, isHovering ? 2 : 25)
-        .frame(height: 24)
+        .frame(height: density.headerHeight)
         .contentShape([.interaction, .dragPreview], .rect(cornerRadius: 8))
         .contextMenu(menuItems: menu)
     }
@@ -901,8 +928,10 @@ private struct SessionRow: View {
     let isFlagged: Bool
     let context: SessionContext?
     let pullRequest: PullRequest?
+    let suggestion: String?
     @Binding var showsLockedNotice: Bool
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.sidebarDensity) private var density
 
     var body: some View {
         let isLocked = !isOpen && live.map { $0.attachID == nil } ?? false
@@ -918,7 +947,21 @@ private struct SessionRow: View {
             isFlagged: isFlagged,
             context: context,
             detail: {
-                if pullRequest != nil || session.branch != nil || projectName != nil {
+                if density.isCompact {
+                    HStack(spacing: 6) {
+                        if let suggestion {
+                            Image(systemName: "sparkle")
+                                .font(.caption)
+                                .foregroundStyle(theme.secondary)
+                                .help(suggestion)
+                                .accessibilityLabel(suggestion)
+                        }
+                        if let pullRequest {
+                            PullRequestTag(pullRequest: pullRequest)
+                                .fixedSize()
+                        }
+                    }
+                } else if pullRequest != nil || session.branch != nil || projectName != nil {
                     HStack(spacing: 8) {
                         HStack(spacing: 4) {
                             if let projectName {
@@ -1021,6 +1064,7 @@ private struct TaskRow: View {
     let state: RowState?
     let isUnread: Bool
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.sidebarDensity) private var density
 
     var body: some View {
         CardRow(
@@ -1035,11 +1079,20 @@ private struct TaskRow: View {
         ) {
             HStack(spacing: 8) {
                 if let issue = task.issue { IssueTag(issue: issue).fixedSize() }
-                Text("^[\(task.sessions.count) session](inflect: true)")
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
+                if density.isCompact {
+                    Text(task.sessions.count, format: .number)
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(theme.secondary)
+                        .help("^[\(task.sessions.count) session](inflect: true)")
+                } else {
+                    Text("^[\(task.sessions.count) session](inflect: true)")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
+                }
             }
-            .padding(.leading, 16)
+            .padding(.leading, density.isCompact ? 0 : 16)
+            .fixedSize(horizontal: density.isCompact, vertical: false)
         }
         .help(task.title)
         .accessibilityElement(children: .combine)
@@ -1081,6 +1134,7 @@ private struct SuggestionLine: View {
     let dismiss: () -> Void
     @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.sidebarDensity) private var density
 
     var body: some View {
         HStack(spacing: 4) {
@@ -1103,7 +1157,7 @@ private struct SuggestionLine: View {
         .foregroundStyle(theme.secondary)
         .padding(.leading, 8)
         .padding(.top, -4)
-        .padding(.bottom, 8)
+        .padding(.bottom, density.suggestionBottomPadding)
         .onHover { isHovering = $0 }
     }
 }
@@ -1114,19 +1168,28 @@ private struct TabRow: View {
     @ObservedObject var terminal: TerminalViewState
     var close: (() -> Void)?
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.sidebarDensity) private var density
 
     var body: some View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         if tab.kind == .claude {
             CardRow(title: title, state: RowState(live: live), isLocked: false, isLoaded: true, modified: nil) {
-                Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary)
+                if !density.isCompact { Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary) }
             }
         } else {
             CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, isLoaded: false, modified: nil, close: close) {
-                Text((tab.folder as NSString).abbreviatingWithTildeInPath)
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
-                    .truncationMode(.middle)
+                let folder = (tab.folder as NSString).abbreviatingWithTildeInPath
+                if density.isCompact {
+                    ViewThatFits(in: .horizontal) {
+                        Text(folder).font(.caption).foregroundStyle(theme.secondary).fixedSize()
+                        Color.clear.frame(width: 0)
+                    }
+                } else {
+                    Text(folder)
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
+                        .truncationMode(.middle)
+                }
             }
         }
     }
@@ -1148,6 +1211,7 @@ private struct CardRow<Detail: View>: View {
     var close: (() -> Void)?
     @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.sidebarDensity) private var density
 
     var body: some View {
         let hasActivityDot = hasBackgroundShell || isLoaded && lastActivity != nil
@@ -1165,7 +1229,12 @@ private struct CardRow<Detail: View>: View {
                     .fontWeight(titleWeight)
                     .foregroundStyle(theme.foreground)
                     .lineLimit(1)
+                    .layoutPriority(density.isCompact ? 1 : 0)
                 Spacer(minLength: 0)
+                if density.isCompact {
+                    detail
+                        .lineLimit(1)
+                }
                 if let close {
                     Button("Close Terminal", systemImage: "xmark", action: close)
                         .labelStyle(.iconOnly)
@@ -1224,19 +1293,22 @@ private struct CardRow<Detail: View>: View {
                     }
                 }
             }
-            ZStack(alignment: .leading) {
-                Color.clear
-                detail
+            .frame(height: density.isCompact ? 16 : nil)
+            if !density.isCompact {
+                ZStack(alignment: .leading) {
+                    Color.clear
+                    detail
+                }
+                .lineLimit(1)
+                .frame(height: 16)
             }
-            .lineLimit(1)
-            .frame(height: 16)
         }
         .opacity(isLocked ? 0.55 : 1)
         .padding(.leading, 8)
         .padding(.trailing, -8)
-        .padding(.vertical, 8)
+        .padding(.vertical, density.rowPadding)
         .overlay(alignment: .topLeading) {
-            StatusSlot(state: state, isUnread: isUnread).offset(x: -8, y: 8)
+            StatusSlot(state: state, isUnread: isUnread).offset(x: -8, y: density.rowPadding)
         }
     }
 }
