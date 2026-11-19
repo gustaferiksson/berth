@@ -218,10 +218,8 @@ extension ContentView {
     }
 
     private func setSessions(_ visibility: NavigationSplitViewVisibility) {
-        if sidebarYieldsToDiff {
-            sidebarYieldsToDiff = false
-            keepsSidebarForDiff = true
-        }
+        sidebarYieldsToDiff = false
+        if visibility != .detailOnly { keepsSidebarForDiff = true }
         if sidebarPosition == .right { showsTrailingSidebar = visibility != .detailOnly } else { columnVisibility = visibility }
     }
 
