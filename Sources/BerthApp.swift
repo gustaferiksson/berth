@@ -20,7 +20,7 @@ struct BerthApp: App {
         arguments["AppleShowScrollBars"] = "WhenScrolling"
         UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
 
-        guard Snapshot.output != nil, UserDefaults.standard.string(forKey: "snapshotReview") != nil else { return }
+        guard Snapshot.output != nil, UserDefaults.standard.string(forKey: "snapshotReview") != nil || UserDefaults.standard.bool(forKey: "snapshotTasksReview") else { return }
 
         UserDefaults.standard.register(defaults: [GeneralSettings.reviewKey: true])
     }

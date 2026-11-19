@@ -5,6 +5,7 @@ import SwiftUI
 struct ReviewDocument: Hashable {
     let path: String
     let compare: ReviewCompare?
+    var root: String?
 }
 
 struct ReviewTab: Identifiable {
@@ -45,6 +46,7 @@ final class ReviewModel {
     var movedFolder: String?
     var focusesEditor = false
     @ObservationIgnored var pullRequestBase: (branch: String, base: String)?
+    @ObservationIgnored var onOpen: () -> Void = {}
     var filesReveal: String?
     var expandedFolders: Set<String> = []
     var collapsedChangeFolders: Set<ReviewDocument> = []
@@ -144,6 +146,7 @@ final class ReviewModel {
     }
 
     func open(_ document: ReviewDocument) {
+        onOpen()
         if let shown = tabs.first(where: { $0.document == document }) {
             selectedTabID = shown.id
             return
@@ -281,7 +284,7 @@ struct ReviewPanel: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        if let model = store.reviewModel, let sessionID = store.tabs.first(where: { $0.id == store.selectedTabID })?.sessionID {
+        if let model = store.primaryReviewModel, let sessionID = store.selectedSessionID {
             ReviewFileList(sessionID: sessionID, model: model)
                 .id(ObjectIdentifier(model))
         } else {
@@ -313,8 +316,9 @@ private struct ReviewFileList: View {
                 model.pullRequestBase = base
                 await model.load()
             }
-            .onChange(of: model.hasUnsavedEdits || !model.comments.isEmpty) { store.prepareReviewModel() }
-            .task(id: model.selectedDocument) { await model.loadSelectedContents() }
+            .onChange(of: owners.contains { $0.model.hasUnsavedEdits || !$0.model.comments.isEmpty }) { store.prepareReviewModel() }
+            .task(id: selection) { await (store.reviewModel ?? model).loadSelectedContents() }
+            .task(id: extraStates) { for extra in extras { await prepare(extra.repository, extra.model) } }
             .task(id: pullRequest?.pullRequest?.number) { await loadPullRequestDetail() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
             } message: { notice in
@@ -334,19 +338,19 @@ private struct ReviewFileList: View {
                         .padding(.horizontal, 16)
                         .padding(.bottom, 6)
                 }
-                if let status = model.status {
-                    ReviewBranchCard(changes: changes, status: status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest)
+                if !isStacked, let status = model.status {
+                    branchCard(changes, status)
                         .padding(.horizontal, 10)
                         .padding(.bottom, 6)
                 }
                 ReviewFilesSplit(
-                    changes: list { changeSections(changes) }
-                        .id(changesAsTree ? [changes.uncommitted, changes.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } : nil)
+                    changes: list { if isStacked { stackedSections(changes) } else { changeSections(changes) } }
+                        .id(changesAsTree ? ([changes] + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
                         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
-                        .onChange(of: model.selectedDocument, initial: true) { _, document in
-                            guard let document, let compare = document.compare else { return }
+                        .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
+                            guard let document, let compare = document.compare, let active = store.reviewModel else { return }
 
-                            model.collapsedChangeFolders = model.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
+                            active.collapsedChangeFolders = active.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
                         }
                         .environment(\.ghosttyTheme, theme),
                     files: VStack(spacing: 0) {
@@ -368,12 +372,21 @@ private struct ReviewFileList: View {
                         }
                     }
                     .environment(\.ghosttyTheme, theme),
-                    layout: !expansion(of: "files").wrappedValue ? .filesCollapsed(filesHeaderHeight) : (changes.uncommitted.isEmpty || !expansion(of: "uncommitted").wrappedValue) && (changes.committed.isEmpty || !expansion(of: "committed").wrappedValue) ? .changesCollapsed(changesContentHeight) : .split,
+                    layout: !expansion(of: "files").wrappedValue ? .filesCollapsed(filesHeaderHeight) : areChangesCollapsed(changes) ? .changesCollapsed(changesContentHeight) : .split,
                     filesHeight: $filesPaneHeight,
                     divider: NSColor(theme.foreground.opacity(0.1))
                 )
 
-                if !model.comments.isEmpty {
+                if owners.contains(where: { !$0.model.comments.isEmpty }) {
+                    Hairline(axis: .horizontal)
+                    comments
+                }
+            }
+        } else if let error = model.error, case ReviewGitError.notARepository = error, !extras.isEmpty {
+            VStack(spacing: 0) {
+                list { stackedSections(nil) }
+                    .environment(\.ghosttyTheme, theme)
+                if owners.contains(where: { !$0.model.comments.isEmpty }) {
                     Hairline(axis: .horizontal)
                     comments
                 }
@@ -409,17 +422,30 @@ private struct ReviewFileList: View {
     }
 
     private func list(@ViewBuilder _ sections: () -> some View) -> some View {
-        List(selection: Binding(get: { model.selectedDocument }, set: { $0.map { model.open($0.compare == nil ? model.workingDocument($0.path) : $0) } }), content: sections)
+        List(selection: Binding(get: { selection }, set: { if let document = $0 { open(document) } }), content: sections)
             .contextMenu(forSelectionType: ReviewDocument.self) { _ in
             } primaryAction: { documents in
                 guard let document = documents.first else { return }
 
-                model.open(document.compare == nil ? model.workingDocument(document.path) : document)
-                model.selectedTabID.map(model.keep)
+                let target = open(document)
+                target.selectedTabID.map(target.keep)
             }
             .listStyle(.sidebar)
             .environment(\.sidebarRowSize, .small)
             .scrollContentBackground(.hidden)
+    }
+
+    @discardableResult
+    private func open(_ document: ReviewDocument) -> ReviewModel {
+        let target = document.root.flatMap { store.reviewModels[Store.reviewKey(sessionID, root: $0)] } ?? model
+        let plain = ReviewDocument(path: document.path, compare: document.compare)
+        target.open(plain.compare == nil ? target.workingDocument(plain.path) : plain)
+        return target
+    }
+
+    private var selection: ReviewDocument? {
+        let active = store.reviewModel ?? model
+        return active.selectedDocument.map { ReviewDocument(path: $0.path, compare: $0.compare, root: active === model ? nil : store.activeReviewRoots[sessionID]) }
     }
 
     @ViewBuilder
@@ -430,7 +456,7 @@ private struct ReviewFileList: View {
         }
         if !changes.uncommitted.isEmpty {
             Section(isExpanded: expansion(of: "uncommitted")) {
-                changeRows(changes.uncommitted, compare: .uncommitted, changes: changes)
+                changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: nil)
             } header: {
                 GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count) { EmptyView() } accessory: { _ in
                     Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
@@ -442,7 +468,7 @@ private struct ReviewFileList: View {
         }
         if !changes.committed.isEmpty {
             Section(isExpanded: expansion(of: "committed")) {
-                changeRows(changes.committed, compare: .committed, changes: changes)
+                changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: nil)
             } header: {
                 GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count) { EmptyView() } accessory: { _ in
                     Text("+\(changes.committed.compactMap(\.additions).reduce(0, +)) −\(changes.committed.compactMap(\.deletions).reduce(0, +))")
@@ -455,11 +481,133 @@ private struct ReviewFileList: View {
     }
 
     @ViewBuilder
-    private func changeRows(_ files: [ReviewFile], compare: ReviewCompare, changes: ReviewChanges) -> some View {
+    private func changeRows(_ files: [ReviewFile], compare: ReviewCompare, changes: ReviewChanges, in model: ReviewModel, root: String?) -> some View {
         if changesAsTree {
-            ForEach(ReviewFileTree.compactNodes(files.map(\.path))) { ReviewFileNode(node: $0, compare: compare, changes: changes, model: model) }
+            ForEach(ReviewFileTree.compactNodes(files.map(\.path))) { ReviewFileNode(node: $0, compare: compare, changes: changes, model: model, root: root) }
         } else {
-            ForEach(files, id: \.path) { ReviewChangeRow(file: $0, model: model).tag(ReviewDocument(path: $0.path, compare: compare)) }
+            ForEach(files, id: \.path) { ReviewChangeRow(file: $0, model: model).tag(ReviewDocument(path: $0.path, compare: compare, root: root)) }
+        }
+    }
+
+    private func branchCard(_ changes: ReviewChanges, _ status: ReviewBranchStatus) -> some View {
+        ReviewBranchCard(changes: changes, status: status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest)
+    }
+
+    private var allExtras: [(repository: ReviewRepository, model: ReviewModel)] {
+        (store.reviewRepositories[sessionID] ?? []).compactMap { repository in
+            store.reviewModels[Store.reviewKey(sessionID, root: repository.root)].map { (repository, $0) }
+        }
+    }
+
+    private var extras: [(repository: ReviewRepository, model: ReviewModel)] {
+        allExtras.filter { extra in
+            guard extra.repository.isEdited, let changes = extra.model.changes else { return true }
+
+            return !changes.uncommitted.isEmpty || !changes.committed.isEmpty || !extra.model.comments.isEmpty
+        }
+    }
+
+    private var owners: [(model: ReviewModel, repository: ReviewRepository?)] {
+        [(model, nil)] + allExtras.map { ($0.model, $0.repository) }
+    }
+
+    private var isStacked: Bool { store.task(containing: sessionID) != nil || !extras.isEmpty }
+
+    private var extraStates: [String] {
+        extras.map { "\($0.repository.root)|\($0.model.changes?.branch ?? "")|\(store.pullRequests(inRoot: $0.repository.root, of: sessionID, branch: $0.model.changes?.branch).map { "\($0.number)\($0.baseRefName ?? "")" })" }
+    }
+
+    private func prepare(_ repository: ReviewRepository, _ model: ReviewModel) async {
+        if model.changes == nil { await model.load() }
+        guard let branch = model.changes?.branch else { return }
+
+        let key = store.pullRequestBranch(inRoot: repository.root, branch: branch)
+        let found = key.flatMap { store.pullRequests[$0] ?? nil }
+        if let key, store.pullRequests[key] == nil, Snapshot.output == nil { await store.fetchPullRequests([key]) }
+        let base = found?.baseRefName.map { (branch: branch, base: $0) }
+        guard base?.branch != model.pullRequestBase?.branch || base?.base != model.pullRequestBase?.base else { return }
+
+        model.pullRequestBase = base
+        await model.load()
+    }
+
+    private func repositoryExpansion(_ key: String) -> Binding<Bool> {
+        Binding {
+            !store.collapsedReviewRepositories.contains(key)
+        } set: { expanded in
+            if expanded { store.collapsedReviewRepositories.remove(key) } else { store.collapsedReviewRepositories.insert(key) }
+        }
+    }
+
+    private func areChangesCollapsed(_ changes: ReviewChanges) -> Bool {
+        guard isStacked else { return (changes.uncommitted.isEmpty || !expansion(of: "uncommitted").wrappedValue) && (changes.committed.isEmpty || !expansion(of: "committed").wrappedValue) }
+
+        return !repositoryExpansion(store.repositoryRoot(ofSession: sessionID) ?? model.folder).wrappedValue && extras.allSatisfy { !repositoryExpansion($0.repository.root).wrappedValue }
+    }
+
+    @ViewBuilder
+    private func stackedSections(_ changes: ReviewChanges?) -> some View {
+        let ownRoot = store.repositoryRoot(ofSession: sessionID) ?? model.folder
+        let inset = changesAsTree ? 9.0 : 0.0
+        if let task = store.task(containing: sessionID) {
+            let members = task.sessionIDs.compactMap { store.sessionsByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt }
+            ReviewTaskCard(
+                title: store.title(of: task),
+                issue: task.issue,
+                members: members,
+                currentID: sessionID,
+                pullRequestCount: store.pullRequestCount(of: members),
+                repositoryCount: Set(members.compactMap { store.repositoryRoot(ofSession: $0.id) } + [ownRoot] + extras.map(\.repository.root)).count,
+                isExpanded: repositoryExpansion(task.id),
+                activate: { store.activate(.session($0)) }
+            )
+            .listRowInsets(EdgeInsets(top: 0, leading: -6 - inset, bottom: 4, trailing: -7))
+            .listRowSeparator(.hidden)
+            .selectionDisabled()
+        }
+        if let changes {
+            Section(isExpanded: repositoryExpansion(ownRoot)) {
+                if let status = model.status {
+                    branchCard(changes, status)
+                        .listRowInsets(EdgeInsets(top: 0, leading: -6 - inset, bottom: 6, trailing: -7))
+                        .selectionDisabled()
+                }
+                stackedRows(changes, in: model, root: nil, indent: inset)
+            } header: {
+                GroupHeader(title: URL(filePath: ownRoot).lastPathComponent, help: ownRoot, count: nil) { EmptyView() } accessory: { _ in
+                    ReviewRepositoryAccessory(branch: nil, base: nil, pullRequests: store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch))
+                }
+            }
+        }
+        ForEach(extras, id: \.repository.root) { extra in
+            Section(isExpanded: repositoryExpansion(extra.repository.root)) {
+                if let changes = extra.model.changes {
+                    stackedRows(changes, in: extra.model, root: extra.repository.root, indent: inset)
+                } else {
+                    Text(extra.model.error == nil ? "Loading changes…" : "Can’t read changes")
+                        .foregroundStyle(theme.secondary)
+                }
+            } header: {
+                GroupHeader(title: extra.repository.name, help: extra.repository.folder, count: nil) { EmptyView() } accessory: { _ in
+                    ReviewRepositoryAccessory(branch: extra.model.changes?.branch, base: extra.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base }, pullRequests: store.pullRequests(inRoot: extra.repository.root, of: sessionID, branch: extra.model.changes?.branch))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func stackedRows(_ changes: ReviewChanges, in model: ReviewModel, root: String?, indent: Double) -> some View {
+        if changes.uncommitted.isEmpty, changes.committed.isEmpty {
+            Text(changes.isDefaultBranch || changes.base == nil ? "No uncommitted changes on \(changes.branch)" : "No changes, \(changes.branch) matches \(changes.base ?? "")")
+                .foregroundStyle(theme.secondary)
+        }
+        if !changes.uncommitted.isEmpty {
+            ReviewSubheading(title: "Uncommitted", files: changes.uncommitted, indent: indent)
+            changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: root)
+        }
+        if !changes.committed.isEmpty {
+            ReviewSubheading(title: "Committed", files: changes.committed, indent: indent)
+            changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: root)
         }
     }
 
@@ -482,10 +630,10 @@ private struct ReviewFileList: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(model.comments) { comment in
+                    ForEach(owners.flatMap { owner in owner.model.comments.map { (owner: owner, comment: $0) } }, id: \.comment.id) { owner, comment in
                         HStack(alignment: .firstTextBaseline) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")\(comment.compare == .committed ? ", committed" : "")")
+                                Text("\(owner.repository.map { "\($0.name):" } ?? "")\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")\(comment.compare == .committed ? ", committed" : "")")
                                     .font(.caption)
                                     .foregroundStyle(theme.secondary)
                                 Text(comment.text)
@@ -493,12 +641,12 @@ private struct ReviewFileList: View {
                             }
                             .contentShape(.rect)
                             .onTapGesture(count: 2) {
-                                model.open(ReviewDocument(path: comment.path, compare: comment.compare))
-                                model.editingComment = comment.id
+                                owner.model.open(ReviewDocument(path: comment.path, compare: comment.compare))
+                                owner.model.editingComment = comment.id
                             }
                             Spacer(minLength: 4)
                             Button("Delete Comment", systemImage: "xmark") {
-                                model.comments.removeAll { $0.id == comment.id }
+                                owner.model.comments.removeAll { $0.id == comment.id }
                             }
                             .labelStyle(.iconOnly)
                             .buttonStyle(.borderless)
@@ -510,7 +658,8 @@ private struct ReviewFileList: View {
             .frame(maxHeight: 220)
             .fixedSize(horizontal: false, vertical: true)
 
-            Button("Send \(model.comments.count) \(model.comments.count == 1 ? "Comment" : "Comments")", action: sendComments)
+            let commentCount = owners.reduce(0) { $0 + $1.model.comments.count }
+            Button("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")", action: sendComments)
                 .frame(maxWidth: .infinity)
                 .padding(10)
         }
@@ -603,7 +752,7 @@ private struct ReviewFileList: View {
     private func refresh() {
         Task {
             await store.refreshReview()
-            guard store.reviewModel === model else { return }
+            guard store.primaryReviewModel === model else { return }
 
             if let repository = pullRequest?.repository, let branch = model.changes?.branch { await store.fetchPullRequests([PullRequestBranch(repository: repository, branch: branch)]) }
             await loadPullRequestDetail()
@@ -619,13 +768,15 @@ private struct ReviewFileList: View {
     }
 
     private func sendComments() {
-        let prompt = ReviewComment.prompt(for: model.comments, branch: model.changes?.branch ?? "HEAD", base: model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base } ?? "HEAD")
+        let prompt = owners.filter { !$0.model.comments.isEmpty }.map { owner in
+            ReviewComment.prompt(for: owner.model.comments, branch: owner.model.changes?.branch ?? "HEAD", base: owner.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base } ?? "HEAD", repository: owner.repository.map { ($0.name, $0.root) })
+        }.joined(separator: "\n\n")
         guard store.liveBySession[sessionID] != nil, let terminal = store.tab(forSession: sessionID)?.terminal, terminal.paste(text: prompt) else {
             model.notice = "Claude isn’t running in this tab; comments kept"
             return
         }
 
-        model.comments = []
+        for owner in owners { owner.model.comments = [] }
         terminal.requestFocus()
     }
 
@@ -687,12 +838,13 @@ private struct ReviewFileNode: View {
     let compare: ReviewCompare?
     let changes: ReviewChanges
     let model: ReviewModel
+    var root: String?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         if let children = node.children {
             DisclosureGroup(isExpanded: isExpanded) {
-                ForEach(children) { Self(node: $0, compare: compare, changes: changes, model: model) }
+                ForEach(children) { Self(node: $0, compare: compare, changes: changes, model: model, root: root) }
             } label: {
                 Button { isExpanded.wrappedValue.toggle() } label: {
                     label
@@ -708,7 +860,7 @@ private struct ReviewFileNode: View {
             ReviewChangeRow(file: file, model: model)
                 .padding(.vertical, 5)
                 .listRowInsets(.vertical, 0)
-                .tag(ReviewDocument(path: node.path, compare: compare))
+                .tag(ReviewDocument(path: node.path, compare: compare, root: root))
         } else {
             label.tag(ReviewDocument(path: node.path, compare: nil))
         }
@@ -1150,7 +1302,7 @@ struct ReviewDiffColumn: View {
                 model.selectedTabID = tab.id
                 model.filesReveal = document.path
             }
-            .disabled(!FileManager.default.fileExists(atPath: absolute ?? ""))
+            .disabled(model !== store.primaryReviewModel || !FileManager.default.fileExists(atPath: absolute ?? ""))
             Divider()
             Button("Close") { store.closeDiff(tab: tab.id) }
             Button("Close Others") {
