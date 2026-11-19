@@ -415,8 +415,10 @@ private struct ReviewFileList: View {
                 changeRows(changes.committed, compare: .committed, changes: changes)
             } header: {
                 GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count) { EmptyView() } accessory: { _ in
-                    Text(model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
+                    Text("+\(changes.committed.compactMap(\.additions).reduce(0, +)) −\(changes.committed.compactMap(\.deletions).reduce(0, +))")
+                        .monospacedDigit()
                         .foregroundStyle(theme.secondary)
+                        .padding(.trailing, 6)
                 }
             }
         }
@@ -813,36 +815,39 @@ private struct ReviewBranchCard: View {
                         .fontWeight(.semibold)
                         .lineLimit(2)
                         .help(found.title)
-                    if let detail {
-                        HStack(spacing: 10) {
-                            if let checks = detail.checks {
-                                let failed = checks.state == .failed
-                                let running = checks.state == .running
-                                Label(failed ? "\(checks.failed) failed" : running ? "\(checks.running) running" : "Checks passed", systemImage: failed ? "xmark" : running ? "clock" : "checkmark")
-                                    .foregroundStyle(failed ? theme.closed : running ? theme.needsYou : theme.working)
-                                    .help("Checks: \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
-                            }
-                            Label("\(detail.unresolvedThreads) open", systemImage: "bubble.left")
-                                .help("Unresolved review threads")
-                        }
-                        .labelStyle(CompactLabel())
-                        .font(.subheadline)
-                        .foregroundStyle(theme.secondary)
-                    }
                 } else {
                     Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits") ahead of \(changes.base ?? "")")
                         .fontWeight(.semibold)
-                    HStack(spacing: 10) {
+                }
+                HStack(spacing: 10) {
+                    if found == nil {
                         Text("↑\(status.ahead) ↓\(status.behind)")
                             .monospaced()
                             .help("\(status.ahead) ahead of \(changes.base ?? ""), \(status.behind) behind")
-                        if status.ahead > 0 {
-                            pushState
-                        }
                     }
-                    .font(.subheadline)
-                    .foregroundStyle(theme.secondary)
+                    if let total = changes.total {
+                        Text("+\(total.additions) −\(total.deletions)")
+                            .monospacedDigit()
+                            .help("Changes against \(changes.base ?? ""), uncommitted included")
+                    }
+                    if found == nil, status.ahead > 0 {
+                        pushState
+                    }
+                    if let checks = detail?.checks {
+                        let failed = checks.state == .failed
+                        let running = checks.state == .running
+                        Label(failed ? "\(checks.failed) failed" : running ? "\(checks.running) running" : "Checks passed", systemImage: failed ? "xmark" : running ? "clock" : "checkmark")
+                            .foregroundStyle(failed ? theme.closed : running ? theme.needsYou : theme.working)
+                            .help("Checks: \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
+                    }
+                    if let detail {
+                        Label("\(detail.unresolvedThreads) open", systemImage: "bubble.left")
+                            .help("Unresolved review threads")
+                    }
                 }
+                .labelStyle(CompactLabel())
+                .font(.subheadline)
+                .foregroundStyle(theme.secondary)
             }
             if (pullRequest ?? nil) == nil, !status.commits.isEmpty {
                 commits
