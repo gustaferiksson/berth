@@ -77,6 +77,8 @@ public struct ReviewBranchStatus: Sendable, Hashable {
     public let behind: Int
     public let upstream: ReviewUpstream?
     public let commits: [ReviewCommit]
+
+    public static let unknown = Self(ahead: 0, behind: 0, upstream: nil, commits: [])
 }
 
 public enum ReviewText: Sendable, Equatable {

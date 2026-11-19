@@ -517,12 +517,19 @@ private struct ReviewFileList: View {
         extras.map { "\($0.repository.root)|\($0.model.changes?.branch ?? "")|\(store.pullRequests(inRoot: $0.repository.root, of: sessionID, branch: $0.model.changes?.branch).map { "\($0.number)\($0.baseRefName ?? "")" })" }
     }
 
+    private func extraPullRequest(_ root: String, _ branch: String) -> (repository: String, pullRequest: PullRequest?)? {
+        guard let key = store.pullRequestBranch(inRoot: root, branch: branch), let found = store.pullRequests[key] else { return nil }
+
+        return (key.repository, found)
+    }
+
     private func prepare(_ repository: ReviewRepository, _ model: ReviewModel) async {
         if model.changes == nil { await model.load() }
         guard let branch = model.changes?.branch else { return }
 
         let key = store.pullRequestBranch(inRoot: repository.root, branch: branch)
         let found = key.flatMap { store.pullRequests[$0] ?? nil }
+        if let key, let found, model.pullRequestDetails[found.number] == nil { await model.loadPullRequestDetail(repository: key.repository, number: found.number) }
         if let key, store.pullRequests[key] == nil, Snapshot.output == nil { await store.fetchPullRequests([key]) }
         let base = found?.baseRefName.map { (branch: branch, base: $0) }
         guard base?.branch != model.pullRequestBase?.branch || base?.base != model.pullRequestBase?.base else { return }
@@ -567,21 +574,23 @@ private struct ReviewFileList: View {
         }
         if let changes {
             Section(isExpanded: repositoryExpansion(ownRoot)) {
-                if let status = model.status {
-                    branchCard(changes, status)
-                        .listRowInsets(EdgeInsets(top: 0, leading: -6 - inset, bottom: 6, trailing: -7))
-                        .selectionDisabled()
-                }
+                branchCard(changes, model.status ?? .unknown)
+                    .listRowInsets(EdgeInsets(top: 0, leading: -6 - inset, bottom: 6, trailing: -7))
+                    .selectionDisabled()
                 stackedRows(changes, in: model, root: nil, indent: inset)
             } header: {
                 GroupHeader(title: URL(filePath: ownRoot).lastPathComponent, help: ownRoot, count: nil) { EmptyView() } accessory: { _ in
-                    ReviewRepositoryAccessory(branch: nil, base: nil, pullRequests: store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch))
+                    ReviewRepositoryAccessory(branch: nil, base: nil, pullRequests: store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch).filter { !repositoryExpansion(ownRoot).wrappedValue || $0.number != pullRequest?.pullRequest?.number })
                 }
             }
         }
         ForEach(extras, id: \.repository.root) { extra in
             Section(isExpanded: repositoryExpansion(extra.repository.root)) {
                 if let changes = extra.model.changes {
+                    let found = extraPullRequest(extra.repository.root, changes.branch)
+                    ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil)
+                        .listRowInsets(EdgeInsets(top: 0, leading: -6 - inset, bottom: 6, trailing: -7))
+                        .selectionDisabled()
                     stackedRows(changes, in: extra.model, root: extra.repository.root, indent: inset)
                 } else {
                     Text(extra.model.error == nil ? "Loading changes…" : "Can’t read changes")
@@ -589,7 +598,7 @@ private struct ReviewFileList: View {
                 }
             } header: {
                 GroupHeader(title: extra.repository.name, help: extra.repository.folder, count: nil) { EmptyView() } accessory: { _ in
-                    ReviewRepositoryAccessory(branch: extra.model.changes?.branch, base: extra.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base }, pullRequests: store.pullRequests(inRoot: extra.repository.root, of: sessionID, branch: extra.model.changes?.branch))
+                    ReviewRepositoryAccessory(branch: extra.model.changes?.branch, base: extra.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base }, pullRequests: store.pullRequests(inRoot: extra.repository.root, of: sessionID, branch: extra.model.changes?.branch).filter { !repositoryExpansion(extra.repository.root).wrappedValue || $0.number != extra.model.changes.flatMap { extraPullRequest(extra.repository.root, $0.branch) }?.pullRequest?.number })
                 }
             }
         }
@@ -989,7 +998,7 @@ private struct ReviewBranchCard: View {
     let pullRequest: PullRequest??
     let detail: PullRequestDetail?
     let isClaudeLive: Bool
-    let createPullRequest: () -> Void
+    let createPullRequest: (() -> Void)?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -1068,7 +1077,7 @@ private struct ReviewBranchCard: View {
             if (pullRequest ?? nil) == nil, !status.commits.isEmpty {
                 commits
             }
-            if pullRequest != nil, (pullRequest ?? nil) == nil, !changes.isDefaultBranch, changes.base != nil, status.ahead > 0 {
+            if let createPullRequest, pullRequest != nil, (pullRequest ?? nil) == nil, !changes.isDefaultBranch, changes.base != nil, status.ahead > 0 {
                 Button("Create Pull Request…", action: createPullRequest)
                     .frame(maxWidth: .infinity)
                     .disabled(!isClaudeLive)
