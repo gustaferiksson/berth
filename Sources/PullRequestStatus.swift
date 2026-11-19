@@ -13,6 +13,7 @@ nonisolated struct PullRequest: Sendable, Hashable {
     let url: URL
     let title: String
     let state: PullRequestState
+    var baseRefName: String?
     var checks: PullRequestChecks.State?
 }
 
@@ -57,6 +58,7 @@ nonisolated enum PullRequestStatus {
             let title: String
             let state: String
             let isDraft: Bool
+            let baseRefName: String?
             let headRepository: Repository?
             let statusCheckRollup: Rollup?
         }
@@ -81,7 +83,7 @@ nonisolated enum PullRequestStatus {
 
         let target = "repository(owner: \"\(parts[0])\", name: \"\(parts[1])\")"
         let variables = branches.indices.map { "$b\($0): String!" }.joined(separator: ", ")
-        let fields = branches.indices.map { "b\($0): pullRequests(headRefName: $b\($0), first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number url title state isDraft headRepository { nameWithOwner } statusCheckRollup { state } } }" }.joined(separator: " ")
+        let fields = branches.indices.map { "b\($0): pullRequests(headRefName: $b\($0), first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number url title state isDraft baseRefName headRepository { nameWithOwner } statusCheckRollup { state } } }" }.joined(separator: " ")
         let query = "query(\(variables)) { info: \(target) { nameWithOwner defaultBranchRef { name } } branches: \(target) { \(fields) } }"
         let arguments = ["api", "graphql", "-f", "query=\(query)"] + branches.enumerated().flatMap { ["-f", "b\($0.offset)=\($0.element)"] }
         guard let output = run(gh, arguments: arguments),
@@ -96,7 +98,7 @@ nonisolated enum PullRequestStatus {
             let node = item.element == info.defaultBranchRef?.name ? nil : own.first { $0.state == "OPEN" } ?? own.first
             results[PullRequestBranch(repository: repository, branch: item.element)] = .some(node.map { node in
                 let state: PullRequestState = node.state == "MERGED" ? .merged : node.state == "CLOSED" ? .closed : node.isDraft ? .draft : .open
-                return PullRequest(number: node.number, url: node.url, title: node.title, state: state, checks: node.statusCheckRollup.map { PullRequestChecks.State($0.state) })
+                return PullRequest(number: node.number, url: node.url, title: node.title, state: state, baseRefName: node.baseRefName, checks: node.statusCheckRollup.map { PullRequestChecks.State($0.state) })
             })
         }
     }

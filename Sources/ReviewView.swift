@@ -44,6 +44,7 @@ final class ReviewModel {
     var notice: String?
     var movedFolder: String?
     var focusesEditor = false
+    @ObservationIgnored var pullRequestBase: (branch: String, base: String)?
     var filesReveal: String?
     var expandedFolders: Set<String> = []
     var collapsedChangeFolders: Set<ReviewDocument> = []
@@ -63,6 +64,8 @@ final class ReviewModel {
         let status = (compare == .committed ? changes?.committed : changes?.uncommitted)?.first { $0.path == document.path }?.status
         return status != nil && status != .added && status != .deleted
     }
+
+    static let baseBranchesKey = "reviewBaseBranches"
 
     init(folder: String) {
         self.folder = folder
@@ -86,7 +89,14 @@ final class ReviewModel {
     private func loadLists() async {
         loadCount += 1
         do {
-            let changes = try await ReviewGit.changes(in: folder)
+            let picks = UserDefaults.standard.dictionary(forKey: Self.baseBranchesKey) as? [String: [String: String]] ?? [:]
+            let pullRequestBase = pullRequestBase
+            let changes = try await ReviewGit.changes(in: folder) { root, branch in (picks[root]?[branch], pullRequestBase?.branch == branch ? pullRequestBase?.base : nil) }
+            if Store.shared.persistsTabs, picks[changes.root]?[changes.branch] != nil, changes.baseReason != .picked, changes.defaultBase != nil, !changes.isDefaultBranch {
+                var kept = picks
+                kept[changes.root]?[changes.branch] = nil
+                UserDefaults.standard.set(kept, forKey: Self.baseBranchesKey)
+            }
             let files = try await ReviewGit.files(in: changes.root)
             status = try? await ReviewGit.branchStatus(of: changes)
             self.changes = changes
@@ -122,6 +132,15 @@ final class ReviewModel {
             return
         }
         if let selectedDocument { await loadContents(of: selectedDocument) }
+    }
+
+    func pickBase(_ ref: String) {
+        guard let changes else { return }
+
+        var picks = UserDefaults.standard.dictionary(forKey: Self.baseBranchesKey) as? [String: [String: String]] ?? [:]
+        picks[changes.root, default: [:]][changes.branch] = ref
+        UserDefaults.standard.set(picks, forKey: Self.baseBranchesKey)
+        Task { await load() }
     }
 
     func open(_ document: ReviewDocument) {
@@ -287,6 +306,13 @@ private struct ReviewFileList: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .task { await model.load() }
+            .task(id: [model.changes?.branch, pullRequest?.pullRequest?.baseRefName]) {
+                let base = model.changes.flatMap { changes in pullRequest?.pullRequest?.baseRefName.map { (branch: changes.branch, base: $0) } }
+                guard base?.branch != model.pullRequestBase?.branch || base?.base != model.pullRequestBase?.base else { return }
+
+                model.pullRequestBase = base
+                await model.load()
+            }
             .onChange(of: model.hasUnsavedEdits || !model.comments.isEmpty) { store.prepareReviewModel() }
             .task(id: model.selectedDocument) { await model.loadSelectedContents() }
             .task(id: pullRequest?.pullRequest?.number) { await loadPullRequestDetail() }
@@ -502,16 +528,48 @@ private struct ReviewFileList: View {
 
     private func header(_ changes: ReviewChanges) -> some View {
         HStack(spacing: 8) {
-            Text(changes.isDefaultBranch || changes.base == nil ? "\(changes.branch), uncommitted only" : "\(changes.branch) → \(changes.base ?? "")")
-                .font(.caption.monospaced())
-                .foregroundStyle(theme.branch)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            HStack(spacing: 4) {
+                Text(changes.isDefaultBranch || changes.base == nil ? "\(changes.branch), uncommitted only" : changes.branch)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(minWidth: 48, alignment: .leading)
+                if !changes.isDefaultBranch, let base = changes.base {
+                    let pullRequestBase = pullRequest?.pullRequest?.baseRefName
+                    Menu {
+                        Picker("Compare Against", selection: Binding(get: { base }, set: { model.pickBase($0) })) {
+                            ForEach(changes.bases, id: \.ref) { candidate in
+                                let isPullRequestBase = pullRequestBase.map { candidate.ref == $0 || candidate.ref == "origin/\($0)" } ?? false
+                                Text("\(candidate.ref) · \(candidate.distance) \(candidate.distance == 1 ? "commit" : "commits")\(isPullRequestBase ? " · PR base" : "")")
+                                    .tag(candidate.ref)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text("→ \(base)")
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Image(systemName: "chevron.down")
+                                .imageScale(.small)
+                                .accessibilityHidden(true)
+                        }
+                        .contentShape(.rect)
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
+                    .layoutPriority(1)
+                    .help("Compare against…")
+                }
+            }
+            .font(.caption.monospaced())
+            .foregroundStyle(theme.branch)
             Spacer(minLength: 4)
             if let fetchError = changes.fetchError {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(theme.needsYou)
-                    .help("Couldn’t fetch \(changes.base ?? ""), comparing local refs: \(fetchError)")
+                    .help("Couldn’t fetch, comparing local refs: \(fetchError)")
                     .accessibilityLabel("Fetch failed")
             }
             if let error = model.error {
@@ -572,7 +630,9 @@ private struct ReviewFileList: View {
     }
 
     private func createPullRequest() {
-        guard store.liveBySession[sessionID] != nil, let terminal = store.tab(forSession: sessionID)?.terminal, terminal.paste(text: "Push this branch and open a pull request for it with gh.") else {
+        let base = model.changes.flatMap { $0.base == $0.defaultBase ? nil : $0.base }.map { $0.hasPrefix("origin/") ? String($0.dropFirst("origin/".count)) : $0 }
+        let prompt = base.map { "Push this branch and open a pull request for it against \($0) with gh (--base \($0))." } ?? "Push this branch and open a pull request for it with gh."
+        guard store.liveBySession[sessionID] != nil, let terminal = store.tab(forSession: sessionID)?.terminal, terminal.paste(text: prompt) else {
             model.notice = "Claude isn’t running in this tab"
             return
         }

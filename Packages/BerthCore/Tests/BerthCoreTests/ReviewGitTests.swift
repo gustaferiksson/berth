@@ -261,10 +261,59 @@ final class ReviewGitTests {
 
         let changes = try await ReviewGit.changes(in: repo.path)
         let status = try await ReviewGit.branchStatus(of: changes)
-        #expect(changes.base == "origin/main")
+        #expect(changes.defaultBase == "origin/main" && changes.base == "feature" && changes.baseReason == .nearest)
+        #expect(changes.bases.map(\.ref) == ["feature", "origin/feature", "origin/main"])
         #expect(status.upstream == nil)
-        #expect(status.commits.map(\.subject) == ["Spike", "Extend keep", "Add the feature"])
+        #expect(status.commits.map(\.subject) == ["Spike"])
         #expect(status.commits.allSatisfy { !$0.isPushed })
+    }
+
+    @Test func aStackedBranchComparesAgainstTheNearestBranchTowardsMain() async throws {
+        let repo = try await repo("stack")
+        try await git(repo, "checkout", "--quiet", "-b", "chore/merged")
+        try write(repo, "merged.txt", "merged\n")
+        try await git(repo, "add", ".")
+        try await git(repo, "commit", "--quiet", "-m", "Merged chore")
+        try await git(repo, "checkout", "--quiet", "main")
+        try await git(repo, "merge", "--quiet", "--ff-only", "chore/merged")
+        for (branch, names) in [("feat/a", ["a1", "a2"]), ("feat/b", ["b1", "b2", "b3"])] {
+            try await git(repo, "checkout", "--quiet", "-b", branch)
+            for name in names {
+                try write(repo, "\(name).txt", "\(name)\n")
+                try await git(repo, "add", ".")
+                try await git(repo, "commit", "--quiet", "-m", name)
+            }
+        }
+        try await git(repo, "branch", "feat/diverged", "main")
+        try await git(repo, "checkout", "--quiet", "feat/diverged")
+        try write(repo, "diverged.txt", "diverged\n")
+        try await git(repo, "add", ".")
+        try await git(repo, "commit", "--quiet", "-m", "Diverged")
+        try await git(repo, "checkout", "--quiet", "feat/b")
+        try await git(repo, "update-ref", "refs/remotes/origin/feat/b", "feat/b~1")
+        try await git(repo, "update-ref", "refs/remotes/origin/HEAD", "feat/b~1")
+
+        let nearest = try await ReviewGit.changes(in: repo.path)
+        #expect(nearest.bases == [ReviewBase(ref: "feat/a", distance: 3), ReviewBase(ref: "main", distance: 5)])
+        #expect(nearest.defaultBase == "main" && nearest.base == "feat/a" && nearest.baseReason == .nearest)
+        #expect(nearest.committed.map(\.path) == ["b1.txt", "b2.txt", "b3.txt"])
+        #expect(try await ReviewGit.branchStatus(of: nearest).commits.map(\.subject) == ["b3", "b2", "b1"])
+
+        let picked = try await ReviewGit.changes(in: repo.path) { _, _ in ("main", "feat/a") }
+        #expect(picked.base == "main" && picked.baseReason == .picked && picked.bases == nearest.bases)
+        #expect(picked.committed.map(\.path) == ["a1.txt", "a2.txt", "b1.txt", "b2.txt", "b3.txt"])
+        #expect(try await ReviewGit.branchStatus(of: picked).ahead == 5)
+
+        let pullRequest = try await ReviewGit.changes(in: repo.path) { root, branch in (root == repo.path && branch == "feat/b" ? "missing" : nil, "feat/a") }
+        #expect(pullRequest.base == "feat/a" && pullRequest.baseReason == .pullRequest)
+
+        try await git(repo, "update-ref", "refs/remotes/origin/feat/a", "feat/a")
+        let twins = try await ReviewGit.changes(in: repo.path) { _, _ in (nil, "feat/a") }
+        #expect(twins.bases.map(\.ref) == ["origin/feat/a", "main"] && twins.base == "origin/feat/a" && twins.baseReason == .pullRequest)
+
+        try await git(repo, "config", "branch.feat/b.gh-merge-base", "feat/a")
+        let configured = try await ReviewGit.changes(in: repo.path)
+        #expect(configured.bases.map(\.ref) == ["origin/feat/a", "main"] && configured.base == "origin/feat/a" && configured.baseReason == .configured)
     }
 
     @Test func withoutABaseChangesAreOnlyUncommitted() async throws {

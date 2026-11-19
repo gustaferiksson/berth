@@ -21,10 +21,23 @@ This is the slim first version; the rest is listed under Later.
   the default branch, or with no base, there is no Committed compare. A path can be in both.
   Plus the repository's files (`ReviewGit.files(in:)`, `git ls-files --cached --others
   --exclude-standard`), each openable as a plain file.
-- Base, first hit wins: `branch.<b>.gh-merge-base` (the key `gh` writes), `@{upstream}`
-  when it names a different branch, then `origin/HEAD`, `origin/main`, `origin/master`,
-  `main`, `master`; remote refs preferred.
-- A background `git fetch` of the base branch runs at most every 15 s per repository.
+- Configured base, first hit wins: `branch.<b>.gh-merge-base` (the key `gh` writes), then
+  `@{upstream}` when it names a different branch; remote refs preferred. Default branch, first hit
+  wins: `origin/HEAD`, `origin/main`, `origin/master`, `main`, `master`. Without a configured base
+  it is the default branch; the current branch is the default branch when it is the configured base.
+- Base candidates (`ReviewChanges.bases`, for stacked branches): local and `origin/` branches between
+  the merge base with the default branch and HEAD (`git for-each-ref --merged=HEAD --contains=<merge
+  base>`), without the current branch, its `origin/` twin and refs at HEAD or at the merge base; a
+  local branch at the same commit as its `origin/` twin shows once, as the remote. Each carries its
+  distance (`rev-list --count <ref>..HEAD`), nearest first, and the default branch always comes last.
+- Base, first hit wins (`ReviewChanges.baseReason`): the user's pick (`reviewBaseBranches`, per
+  repository root and branch), the PR's base branch (`baseRefName`, as `origin/<name>` else `<name>`),
+  the configured base when it isn't the default branch, each only while it shares history with HEAD,
+  then the nearest candidate, then the default branch. A pick that no longer resolves is removed.
+  Everything below that says base uses this one: the Committed compare, ahead and behind, the
+  commits, the branch total and Create Pull Request.
+- A background `git fetch` of the configured base (the default branch without one) runs at most
+  every 15 s per repository; other bases are compared as they are locally.
   A failure falls back to local refs and shows a warning icon in the header.
 - State lives in a `ReviewModel` per session (`Store.reviewModels`, created when the panel
   shows the session): changes, branch status, file tree, open tabs, loaded contents, unsaved
@@ -74,7 +87,9 @@ This is the slim first version; the rest is listed under Later.
   your edits and send or delete your comments to follow it." under the header, and swaps once
   both are gone; the notice clears if the session moves back.
 - Panel header: branch → base ("<branch>, uncommitted only" on the default branch or without a
-  base), a fetch warning when the fetch failed, Refresh. Below it the PR or branch card
+  base), a fetch warning when the fetch failed, Refresh. "→ base" is a pull-down menu (Compare
+  against…) listing the candidates as "<ref> · N commits", the PR's base marked "PR base" and the
+  current one checked; picking one stores it and reloads. Below it the PR or branch card
   (`design/review-panel.md`), from `ReviewGit.changes(in:)` and `branchStatus(of:)`, loaded with
   the lists; if the status fails there is no card. Which card, first match wins:
   - On the default branch, or with no base: "Uncommitted changes on <branch>" ("No uncommitted
@@ -223,7 +238,8 @@ This is the slim first version; the rest is listed under Later.
 ## Create Pull Request
 
 - The button does nothing outward itself: like Send, it pastes a prompt ("Push this branch and
-  open a pull request for it with gh.") into the session's claude prompt without submitting it and
+  open a pull request for it with gh.", or "… against <base> with gh (--base <base>)." when the base
+  isn't the default branch, without `origin/`) into the session's claude prompt without submitting it and
   focuses the terminal, so the user reads it and presses Return. Claude's own instructions decide
   the PR's wording. It is disabled, with a tooltip saying so, while Claude isn't running in the tab.
 - The new PR shows up through the sidebar's lookup (app activation or the 5 min poll, at most once a
