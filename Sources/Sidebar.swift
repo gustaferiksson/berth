@@ -1050,25 +1050,28 @@ private struct TaskRow: View {
 
 struct IssueTag: View {
     let issue: IssueRef
+    @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @State private var isHovering = false
 
     var body: some View {
+        let state = store.state(of: issue)
+        let color = state == .open ? theme.working : state == .completed ? theme.merged : theme.secondary
         Button {
             if let url = issue.url { openURL(url) }
         } label: {
             Label {
                 Text(verbatim: "#\(issue.number)")
             } icon: {
-                Image(systemName: "smallcircle.filled.circle")
+                Image(systemName: state == .completed ? "checkmark.circle" : state == .notPlanned ? "slash.circle" : "smallcircle.filled.circle")
             }
             .labelStyle(CompactLabel())
             .font(.caption.monospaced())
-            .foregroundStyle(theme.secondary)
+            .foregroundStyle(color)
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
-            .background(theme.secondary.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
+            .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
