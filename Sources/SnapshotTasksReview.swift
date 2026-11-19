@@ -2,6 +2,7 @@
 import AppKit
 import BerthCore
 import GhosttyTerminal
+import ObjectiveC
 
 extension Snapshot {
     private static let tasksReviewScript = """
@@ -128,6 +129,18 @@ extension Snapshot {
         let report = { (label: String) in
             let active = store.reviewModel
             print("\(label) -> active root \(store.activeReviewRoots[own].map { URL(filePath: $0).lastPathComponent } ?? "own"), \(active.map(describe) ?? "no model"), contents loaded \(active?.selectedDocument.flatMap { active?.contents[$0] } != nil), tabs per repository \(models.map { "\($0.0) \($0.1?.tabs.count ?? -1)" })")
+        }
+        if let point = points["hover"], point.count == 2 {
+            let location = NSPoint(x: point[0], y: (window.contentView?.frame.height ?? 0) - point[1])
+            let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
+            let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
+            method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
+            method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
+            window.becomeKey()
+            try? await Task.sleep(for: .milliseconds(300))
+            NSEvent.mouseEvent(with: .mouseMoved, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0).map(window.sendEvent)
+            try? await Task.sleep(for: .seconds(1))
+            save(".hover.png")
         }
         await click("web", 2)
         report("double-click on web's Committed ExportButton.tsx")
