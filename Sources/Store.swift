@@ -122,6 +122,7 @@ final class Store {
     var deletingGroup: CustomGroup?
     var launcherMode: LauncherMode? {
         didSet {
+            if launcherMode != .pullRequests { launcherRole = nil }
             guard oldValue != nil, launcherMode == nil else { return }
 
             DispatchQueue.main.async { [weak self] in
@@ -133,7 +134,7 @@ final class Store {
     }
 
     @ObservationIgnored var launcherQuery = Snapshot.launcherQuery
-    @ObservationIgnored var launcherRole: InboxPullRequest.Role?
+    var launcherRole: InboxPullRequest.Role?
     var groupingMode = GroupingMode(rawValue: UserDefaults.standard.string(forKey: "groupingMode") ?? "") ?? .project {
         didSet {
             if persistsTabs { UserDefaults.standard.set(groupingMode.rawValue, forKey: "groupingMode") }

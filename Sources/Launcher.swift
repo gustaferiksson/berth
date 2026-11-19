@@ -39,7 +39,6 @@ struct Launcher: View {
     @State private var searchedQuery = ""
     @State private var resultsHeight = 0.0
     @State private var isBrowsing = false
-    @State private var role: InboxPullRequest.Role?
     @State private var missingCheckout: InboxPullRequest?
     @FocusState private var isQueryFocused: Bool
 
@@ -50,7 +49,7 @@ struct Launcher: View {
         let rows = mode == .palette ? paletteRows : []
         let target = matches.indices.contains(highlighted) ? matches[highlighted] : nil
         let row = rows.indices.contains(highlighted) ? rows[highlighted] : nil
-        let ranked = mode == .pullRequests ? rankedPullRequests : (pullRequests: [], older: 0)
+        let ranked = mode == .pullRequests ? PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now) : (pullRequests: [], older: 0)
         let pullRequest = ranked.pullRequests.indices.contains(highlighted) ? ranked.pullRequests[highlighted] : nil
         let count = mode == .newSession ? matches.count : mode == .palette ? rows.count : mode == .pullRequests ? ranked.pullRequests.count : hits.count
         VStack(spacing: 0) {
@@ -72,7 +71,7 @@ struct Launcher: View {
                     .onKeyPress(.return, phases: .down) { press in
                         guard press.modifiers.contains(.option) else { return .ignored }
 
-                        let pullRequests = rankedPullRequests.pullRequests
+                        let pullRequests = PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now).pullRequests
                         if mode == .pullRequests, pullRequests.indices.contains(highlighted) {
                             openOnGitHub(pullRequests[highlighted])
                             return .handled
@@ -91,8 +90,8 @@ struct Launcher: View {
                         store.launcherQuery = String(query.dropFirst())
                         store.launcherMode = .pullRequests
                     }
-                if let role, mode == .pullRequests {
-                    Button { self.role = nil } label: {
+                if let role = store.launcherRole, mode == .pullRequests {
+                    Button { store.launcherRole = nil } label: {
                         Label(role.title, systemImage: "xmark")
                             .font(.subheadline)
                             .padding(.horizontal, 8)
@@ -200,8 +199,6 @@ struct Launcher: View {
         .onAppear {
             query = store.launcherQuery
             store.launcherQuery = ""
-            role = store.launcherRole
-            store.launcherRole = nil
             isQueryFocused = true
             if mode == .search { store.updateSearchIndex() }
             if mode == .pullRequests { store.refreshInbox() }
@@ -221,6 +218,7 @@ struct Launcher: View {
             await search()
         }
         .onChange(of: store.searchIndexVersion) { Task { await search() } }
+        .onChange(of: store.launcherRole) { highlighted = 0 }
         .fileImporter(isPresented: $isBrowsing, allowedContentTypes: [.folder]) { result in
             guard case let .success(url) = result else { return }
 
@@ -339,10 +337,6 @@ struct Launcher: View {
         .frame(minHeight: 44)
         .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
         .contentShape(.rect)
-    }
-
-    private var rankedPullRequests: (pullRequests: [InboxPullRequest], older: Int) {
-        PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { role == nil || $0.role == role }, now: .now)
     }
 
     private func pullRequestRow(_ pullRequest: InboxPullRequest, isHighlighted: Bool) -> some View {
@@ -492,7 +486,7 @@ struct Launcher: View {
 
     private func submit() {
         if mode == .pullRequests {
-            let pullRequests = rankedPullRequests.pullRequests
+            let pullRequests = PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now).pullRequests
             if pullRequests.indices.contains(highlighted) { open(pullRequests[highlighted]) }
             return
         }
