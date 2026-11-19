@@ -20,11 +20,12 @@ enum ReviewHighlighter {
         let language: Language
         let highlights: Query
 
-        nonisolated init?(_ language: OpaquePointer, queries: [(bundle: String, file: String)]) {
+        nonisolated init?(_ language: OpaquePointer, queries: [(bundle: String, file: String)], berthQueries: [String] = []) {
             guard let resources = Bundle.main.resourceURL else { return nil }
 
-            let sources = queries.compactMap { try? Data(contentsOf: resources.appending(path: "\($0.bundle).bundle/Contents/Resources/queries/\($0.file)")) }
-            guard sources.count == queries.count, let highlights = try? Query(language: Language(language), data: Data(sources.joined(separator: Data("\n".utf8)))) else { return nil }
+            let urls = queries.map { resources.appending(path: "\($0.bundle).bundle/Contents/Resources/queries/\($0.file)") } + berthQueries.map { resources.appending(path: $0) }
+            let sources = urls.compactMap { try? Data(contentsOf: $0) }
+            guard sources.count == urls.count, let highlights = try? Query(language: Language(language), data: Data(sources.joined(separator: Data("\n".utf8)))) else { return nil }
 
             self.language = Language(language)
             self.highlights = highlights
@@ -33,8 +34,8 @@ enum ReviewHighlighter {
 
     nonisolated private static let javascriptQueries: [(bundle: String, file: String)] = [("TreeSitterJavaScript_TreeSitterJavaScript", "highlights.scm"), ("TreeSitterJavaScript_TreeSitterJavaScript", "highlights-jsx.scm")]
     nonisolated private static let swift = Grammar(tree_sitter_swift(), queries: [("TreeSitterSwift_TreeSitterSwift", "highlights.scm")])
-    nonisolated private static let typescript = Grammar(tree_sitter_typescript(), queries: [("TreeSitterTypeScript_TreeSitterTypeScript", "highlights.scm"), javascriptQueries[0]])
-    nonisolated private static let tsx = Grammar(tree_sitter_tsx(), queries: [("TreeSitterTypeScript_TreeSitterTSX", "highlights.scm")] + javascriptQueries)
+    nonisolated private static let typescript = Grammar(tree_sitter_typescript(), queries: [("TreeSitterTypeScript_TreeSitterTypeScript", "highlights.scm"), javascriptQueries[0]], berthQueries: ["highlights-typescript.scm"])
+    nonisolated private static let tsx = Grammar(tree_sitter_tsx(), queries: [("TreeSitterTypeScript_TreeSitterTSX", "highlights.scm")] + javascriptQueries, berthQueries: ["highlights-typescript.scm"])
     nonisolated private static let javascript = Grammar(tree_sitter_javascript(), queries: javascriptQueries)
     nonisolated private static let json = Grammar(tree_sitter_json(), queries: [("TreeSitterJSON_TreeSitterJSON", "highlights.scm")])
     nonisolated private static let markdown = Grammar(tree_sitter_markdown(), queries: [("TreeSitterMarkdown_TreeSitterMarkdown", "highlights.scm")])
