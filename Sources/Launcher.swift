@@ -96,6 +96,7 @@ struct Launcher: View {
                     Button { store.launcherRole = nil } label: {
                         Label(role.title, systemImage: "xmark")
                             .font(.subheadline)
+                            .imageScale(.small)
                             .padding(.horizontal, 8)
                             .frame(height: 20)
                             .background(theme.foreground.opacity(0.1), in: .capsule)
