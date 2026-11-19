@@ -11,19 +11,20 @@ public struct ReviewFileTree: Sendable, Hashable, Identifiable {
         nodes(paths.map { $0.split(separator: "/").map(String.init) }, under: "")
     }
 
-    public static func compactNodes(_ paths: [String]) -> [ReviewFileTree] {
+    public static func compactNodes(_ paths: [String]) -> [Self] {
         nodes(paths).map(\.compacted)
     }
 
-    private var compacted: ReviewFileTree {
+    private var compacted: Self {
         guard let children else { return self }
+
         if children.count == 1, let only = children.first, only.children != nil {
-            return ReviewFileTree(path: only.path, name: name + "/" + only.name, children: only.children).compacted
+            return Self(path: only.path, name: name + "/" + only.name, children: only.children).compacted
         }
-        return ReviewFileTree(path: path, name: name, children: children.map(\.compacted))
+        return Self(path: path, name: name, children: children.map(\.compacted))
     }
 
-    private static func nodes(_ paths: [[String]], under folder: String) -> [ReviewFileTree] {
+    private static func nodes(_ paths: [[String]], under folder: String) -> [Self] {
         let nodes = Dictionary(grouping: paths.filter { !$0.isEmpty }, by: \.[0]).map { name, members in
             let path = folder + name
             let isFolder = members.contains { $0.count > 1 }
