@@ -18,9 +18,16 @@ nonisolated struct PullRequest: Sendable, Hashable {
     var closingIssues: [ClosingIssue] = []
 }
 
+nonisolated enum IssueState: Sendable {
+    case open
+    case completed
+    case notPlanned
+}
+
 nonisolated struct ClosingIssue: Sendable, Hashable {
     let ref: IssueRef
     let title: String
+    var state: IssueState?
 }
 
 nonisolated struct PullRequestBranch: Sendable, Hashable {
@@ -62,6 +69,8 @@ nonisolated enum PullRequestStatus {
             struct Issue: Decodable {
                 let number: Int
                 let title: String
+                let state: String?
+                let stateReason: String?
                 let repository: Repository
             }
 
@@ -100,7 +109,7 @@ nonisolated enum PullRequestStatus {
 
         let target = "repository(owner: \"\(parts[0])\", name: \"\(parts[1])\")"
         let variables = branches.indices.map { "$b\($0): String!" }.joined(separator: ", ")
-        let fields = branches.indices.map { "b\($0): pullRequests(headRefName: $b\($0), first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number url title state isDraft baseRefName headRepository { nameWithOwner } statusCheckRollup { state } closingIssuesReferences(first: 5) { nodes { number title repository { nameWithOwner } } } } }" }.joined(separator: " ")
+        let fields = branches.indices.map { "b\($0): pullRequests(headRefName: $b\($0), first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number url title state isDraft baseRefName headRepository { nameWithOwner } statusCheckRollup { state } closingIssuesReferences(first: 5) { nodes { number title state stateReason repository { nameWithOwner } } } } }" }.joined(separator: " ")
         let query = "query(\(variables)) { info: \(target) { nameWithOwner defaultBranchRef { name } } branches: \(target) { \(fields) } }"
         let arguments = ["api", "graphql", "-f", "query=\(query)"] + branches.enumerated().flatMap { ["-f", "b\($0.offset)=\($0.element)"] }
         guard let output = run(gh, arguments: arguments),
@@ -115,7 +124,7 @@ nonisolated enum PullRequestStatus {
             let node = item.element == info.defaultBranchRef?.name ? nil : own.first { $0.state == "OPEN" } ?? own.first
             results[PullRequestBranch(repository: repository, branch: item.element)] = .some(node.map { node in
                 let state: PullRequestState = node.state == "MERGED" ? .merged : node.state == "CLOSED" ? .closed : node.isDraft ? .draft : .open
-                return PullRequest(number: node.number, url: node.url, title: node.title, state: state, baseRefName: node.baseRefName, checks: node.statusCheckRollup.map { PullRequestChecks.State($0.state) }, closingIssues: node.closingIssuesReferences?.nodes.map { ClosingIssue(ref: IssueRef(repository: $0.repository.nameWithOwner, number: $0.number), title: $0.title) } ?? [])
+                return PullRequest(number: node.number, url: node.url, title: node.title, state: state, baseRefName: node.baseRefName, checks: node.statusCheckRollup.map { PullRequestChecks.State($0.state) }, closingIssues: node.closingIssuesReferences?.nodes.map { ClosingIssue(ref: IssueRef(repository: $0.repository.nameWithOwner, number: $0.number), title: $0.title, state: IssueState(state: $0.state, reason: $0.stateReason)) } ?? [])
             })
         }
     }
@@ -144,5 +153,11 @@ nonisolated enum PullRequestStatus {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return data
+    }
+}
+
+extension IssueState {
+    nonisolated init?(state: String?, reason: String?) {
+        if state == "OPEN" { self = .open } else if state == "CLOSED" { self = reason == "COMPLETED" ? .completed : .notPlanned } else { return nil }
     }
 }
