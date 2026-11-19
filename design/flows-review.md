@@ -41,7 +41,7 @@ This is the slim first version; the rest is listed under Later.
   the session's comments below it with a delete button each, and Send N Comments. Collapsed
   sections persist in `@AppStorage` `collapsedReviewSections` (comma-separated ids
   `uncommitted`, `committed`, `files`; default `files`).
-- Uncommitted (count, summed +/-) and Committed (count, "N commits") sections, each only when it
+- Uncommitted and Committed (count, summed +/-) sections, each only when it
   has files. Rows: status letter A/M/D/R in the theme's working, needs-you, closed and branch
   colours, file name, +/- counts. Each row opens its own compare. Nothing changed: "No
   uncommitted changes on <branch>" on the default branch or without a base, else "No changes,
@@ -83,17 +83,21 @@ This is the slim first version; the rest is listed under Later.
     upstream") and its last two commits.
   - With a PR (the sidebar's data, `Store.pullRequest(in:branch:)`): a state pill (Open, Draft,
     Merged, Closed in the sidebar tag's colours), `#number`, Open on GitHub, the title (two
-    lines), then the checks summary ("Checks passed", "N failed" or "N running", counts in the
-    tooltip) and "N open" unresolved review threads. Checks and threads are one `gh api graphql`
+    lines), then the branch total (below), the checks summary ("Checks passed", "N failed" or
+    "N running", counts in the tooltip) and "N open" unresolved review threads. Checks and threads are one `gh api graphql`
     call (`PullRequestDetail`) for this PR only, off the main thread, when the panel shows the
     session, when the PR first appears and on Refresh; kept per PR number, so a failed call
-    keeps the last result. Without `gh` the line is missing.
+    keeps the last result. Without `gh` only the total is left on the line.
   - Otherwise: a "No pull request" pill (only once the sidebar's lookup answered no PR; without
     `gh` or a GitHub remote there is no pill), "N commits ahead of <base>" ("No commits yet" at
-    0), ↑ahead ↓behind the base, the upstream state ("Not pushed, no upstream" without one),
-    and the branch's commits, at most 5 then "N more": short SHA, subject, age, and a dot,
+    0), ↑ahead ↓behind the base, the branch total, the upstream state ("Not pushed, no
+    upstream" without one), and the branch's commits, at most 5 then "N more": short SHA, subject, age, and a dot,
     filled when pushed to the upstream, hollow in the needs-you colour when not. With the pill and
     at least 1 commit ahead, a Create Pull Request… button ends the card (see Create Pull Request).
+  - The branch total (`ReviewChanges.total`) is `+N −M` of the working tree against the merge
+    base (what the PR would hold with everything committed), untracked files included and binary
+    files as 0, so a committed line reverted in the working tree counts nowhere, unlike the sum of
+    both sections. None on the default branch or without a base.
 - Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal): open
   whenever the panel shows, collapsed only while the panel is hidden or Harbor is shown, so the
   terminal's width doesn't change as files open and close. With no tab (or a terminal tab
