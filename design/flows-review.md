@@ -176,7 +176,8 @@ This is the slim first version; the rest is listed under Later.
 - The pencil or a double-click on a card swaps it for the comment box in its place, prefilled
   with the text, caret at the end, with Save instead of Add Comment. ↩ saves (same id, lines,
   side, compare and order), Esc or ↩ with the text cleared restores the card unchanged (×
-  deletes). It is the one box: a new selection or another edit replaces it.
+  deletes). It is the one box: a new selection or another edit replaces it. Double-clicking a
+  comment in the panel opens its document and starts the same edit.
 - Edits on the right become the file's draft; 300 ms after the last edit the diff and
   highlighting are recomputed off the main thread. Save (⌘S) appears in the header while
   there is a draft. Each file keeps its own undo history while Review's model lives (switching

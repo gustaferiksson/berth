@@ -14,6 +14,8 @@ struct ReviewDiffPane: View {
     let isUnified: Bool
     let takesFocus: Bool
     let onRevealed: () -> Void
+    let editsComment: String?
+    let onEditing: () -> Void
     let onDefinition: (LanguageServerLocation, LanguageServerRange) -> Void
     let workingText: () -> String?
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
@@ -52,6 +54,8 @@ struct ReviewDiffPane: View {
                 splitRatio: splitRatio,
                 takesFocus: takesFocus,
                 onRevealed: onRevealed,
+                editsComment: editsComment,
+                onEditing: onEditing,
                 onDefinition: onDefinition,
                 workingText: workingText,
                 onEdit: { draft = $0 == loaded ? nil : $0 },
@@ -125,6 +129,8 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let splitRatio: Double
     let takesFocus: Bool
     let onRevealed: () -> Void
+    let editsComment: String?
+    let onEditing: () -> Void
     let onDefinition: (LanguageServerLocation, LanguageServerRange) -> Void
     let workingText: () -> String?
     let onEdit: (String) -> Void
@@ -326,6 +332,10 @@ private struct ReviewDiffViews: NSViewRepresentable {
             if let reveal = view.reveal, applied?.modified == loadedModified {
                 right.reveal(NSRange(location: right.offset(of: reveal.start), length: max(right.offset(of: reveal.end) - right.offset(of: reveal.start), 0)))
                 Task { view.onRevealed() }
+            }
+            if let id = view.editsComment, applied != nil, let card = cards[id] {
+                if !card.isHidden { edit(id) }
+                Task { view.onEditing() }
             }
         }
 

@@ -39,6 +39,7 @@ final class ReviewModel {
     var reveal: (document: ReviewDocument, range: LanguageServerRange)?
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
+    var editingComment: String?
     var notice: String?
     var movedFolder: String?
     var focusesEditor = false
@@ -467,6 +468,11 @@ private struct ReviewFileList: View {
                                     .foregroundStyle(theme.secondary)
                                 Text(comment.text)
                                     .lineLimit(3)
+                            }
+                            .contentShape(.rect)
+                            .onTapGesture(count: 2) {
+                                model.open(ReviewDocument(path: comment.path, compare: comment.compare))
+                                model.editingComment = comment.id
                             }
                             Spacer(minLength: 4)
                             Button("Delete Comment", systemImage: "xmark") {
@@ -944,6 +950,8 @@ struct ReviewDiffColumn: View {
                             isUnified: isUnified || !model.selectedDocumentHasBothSides,
                             takesFocus: model.focusesEditor,
                             onRevealed: { model.reveal = nil },
+                            editsComment: model.editingComment,
+                            onEditing: { model.editingComment = nil },
                             onDefinition: model.goToDefinition,
                             workingText: { model.workingText(path) }
                         )

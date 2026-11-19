@@ -843,6 +843,22 @@ enum Snapshot {
                 state("gutter over edit")
                 type("\u{1B}")
                 try? await Task.sleep(for: .milliseconds(300))
+                store.closeDiff()
+                try? await Task.sleep(for: .milliseconds(500))
+                print("edit closed diff: \(describe(model))")
+                let row = NSPoint(x: 100, y: (window.contentView?.frame.height ?? 0) - 828)
+                for clicks in [1, 2] {
+                    let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: row, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
+                    event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
+                    event(.leftMouseDown).map(window.sendEvent)
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                try? await Task.sleep(for: .seconds(2))
+                print("edit panel double-click: \(describe(model)), request pending \(model.editingComment != nil)")
+                state("panel double-click")
+                save(".panel-edit.png")
+                type("\u{1B}")
+                try? await Task.sleep(for: .milliseconds(300))
                 await pencil()
                 let first = model.comments.first?.id
                 model.comments.removeAll { $0.id == first }

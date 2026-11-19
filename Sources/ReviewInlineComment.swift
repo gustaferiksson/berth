@@ -48,7 +48,7 @@ final class ReviewInlineComment: NSView {
         if case .card = kind { field.isEditable = false }
         field.textContainerInset = .zero
         field.textContainer?.lineFragmentPadding = 0
-        field.textContainer?.widthTracksTextView = true
+        field.textContainer?.widthTracksTextView = false
         field.onSubmit = { [weak self] in self?.add() }
         field.onCancel = { [weak self] in self?.cancel() }
         field.onChange = { [weak self] in self?.fieldDidChange() }
