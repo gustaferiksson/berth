@@ -99,7 +99,7 @@ struct ContentView: View {
                 }
                 .toolbar {
                     if reviewRequests > 0 {
-                        ToolbarItem(placement: isTrailing ? .navigation : .automatic) {
+                        ToolbarItem(placement: .automatic) {
                             Button {
                                 store.launcherRole = .reviewRequested
                                 store.launcherMode = .pullRequests
@@ -112,9 +112,9 @@ struct ContentView: View {
                         }
                     }
                     if reviewRequests > 0 {
-                        ToolbarSpacer(.fixed, placement: isTrailing ? .navigation : .automatic)
+                        ToolbarSpacer(.fixed, placement: .automatic)
                     }
-                    ToolbarItem(placement: isTrailing ? .navigation : .automatic) {
+                    ToolbarItem(placement: .automatic) {
                         Button(AppAction.switchTerminal.title, systemImage: AppAction.switchTerminal.symbol) {
                             AppAction.switchTerminal.perform(on: store)
                         }
