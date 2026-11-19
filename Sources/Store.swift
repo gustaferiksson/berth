@@ -149,6 +149,8 @@ final class Store {
         }
     }
 
+    var sidebarFilter = ""
+    var sidebarFilterFocusRequests = 0
     @ObservationIgnored var launcherQuery = Snapshot.launcherQuery
     var launcherRole: InboxPullRequest.Role?
     var groupingMode = GroupingMode(rawValue: UserDefaults.standard.string(forKey: "groupingMode") ?? "") ?? .project {

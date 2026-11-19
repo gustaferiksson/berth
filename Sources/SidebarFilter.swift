@@ -1,0 +1,51 @@
+import BerthCore
+import Foundation
+import GhosttyTerminal
+
+extension Store {
+    var sidebarLayout: SidebarLayout {
+        let words = sidebarFilter.split(whereSeparator: \.isWhitespace).map(String.init)
+        let matches = { (fields: [String]) in words.allSatisfy { word in fields.contains { $0.localizedStandardContains(word) } } }
+        let matchesSession = { (session: SessionSummary) in
+            words.isEmpty || matches([session.title, URL(filePath: session.checkout).lastPathComponent] + session.branches + (self.pullRequest(for: session).map { ["#\($0.number)"] } ?? []) + session.issueRefs.map { "#\($0.number)" })
+        }
+        let matchesTab = { (tab: Tab) in
+            words.isEmpty || matches([tab.title(terminalTitle: tab.terminal.title, sessionTitle: self.sessionTitle(of: tab)), URL(filePath: tab.folder).lastPathComponent])
+        }
+        let sidebarGroups = sidebarGroups.compactMap { group, tabs, entries -> SidebarLayout.Group? in
+            let tabs = tabs.filter(matchesTab)
+            let entries = entries.compactMap { entry -> SidebarLayout.Entry? in
+                switch entry {
+                case let .session(id):
+                    return sessionsByID[id].map(matchesSession) == false ? nil : .session(id)
+
+                case let .task(id):
+                    let task = sessionTasks.first { $0.id == id }
+                    let isTaskMatch = words.isEmpty || task.map { matches([$0.title] + ($0.issue.map { ["#\($0.number)"] } ?? [])) } == true
+                    let members = task?.sessions.filter { isTaskMatch || matchesSession($0) }.map(\.id) ?? []
+                    return members.isEmpty ? nil : .task(id: id, memberIDs: members)
+                }
+            }
+            guard words.isEmpty || !tabs.isEmpty || !entries.isEmpty else { return nil }
+
+            return SidebarLayout.Group(
+                source: SessionGroup(kind: group.kind, sessions: []),
+                tabIDs: tabs.map(\.id),
+                entries: entries,
+                folders: group.folder.map { Array(Set(group.sessions.map(\.checkout)).union([$0])).sorted() } ?? []
+            )
+        }
+        let terminalIDs = terminals.filter(matchesTab).map(\.id)
+        let pinnedIDs = pinnedSessions.filter(matchesSession).map(\.id)
+        let archivedIDs = archivedSessions.filter(matchesSession).map(\.id)
+        return SidebarLayout(
+            terminalIDs: terminalIDs,
+            pinnedIDs: pinnedIDs,
+            groups: sidebarGroups,
+            archivedIDs: archivedIDs,
+            isEmpty: hasScanned && groups.isEmpty && pinnedSessions.isEmpty && tabs.isEmpty,
+            filter: sidebarFilter,
+            hasNoMatches: !words.isEmpty && terminalIDs.isEmpty && pinnedIDs.isEmpty && sidebarGroups.isEmpty && archivedIDs.isEmpty
+        )
+    }
+}

@@ -39,6 +39,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     private(set) var layoutManagerRequests = 0
     private(set) var lineStarts = [0]
     private(set) var rowHeight: CGFloat = 15
+    private var lastChange: (index: Int, y: CGFloat)?
     private var rowPadding: CGFloat = 0
     private var paragraphStyle = NSParagraphStyle()
     private var isStale = false
@@ -510,6 +511,31 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
     func top(ofRow row: Int) -> CGFloat {
         textContainerOrigin.y + CGFloat(row) * rowHeight + reserved.filter { $0.key < row }.values.reduce(0, +)
+    }
+
+    func goToChange(by direction: Int) {
+        guard let side, let clip = enclosingScrollView?.contentView else { return }
+
+        let covered = Set(side.rows)
+        let changed = changedRows
+        let isChange = { (row: Int) in !covered.contains(row) || changed.contains(row) }
+        let starts = (0..<side.rowCount).filter { isChange($0) && ($0 == 0 || !isChange($0 - 1)) }
+        guard !starts.isEmpty else { return }
+
+        let tops = starts.map(top(ofRow:))
+        let anchor = clip.bounds.minY + clip.bounds.height / 3
+        let next: Int? = if let lastChange, abs(clip.bounds.minY - lastChange.y) < 0.5 {
+            starts.indices.contains(lastChange.index + direction) ? lastChange.index + direction : nil
+        } else if direction > 0 {
+            tops.firstIndex { $0 > anchor + 1 }
+        } else {
+            tops.lastIndex { $0 < anchor - 1 }
+        }
+        if next == nil { NSSound.beep() }
+
+        let index = next ?? (direction > 0 ? 0 : starts.count - 1)
+        scrollVertically(to: tops[index] - clip.bounds.height / 3)
+        lastChange = (index, clip.bounds.minY)
     }
 
     func scrollVertically(to y: CGFloat) {

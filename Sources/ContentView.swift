@@ -31,15 +31,13 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanel ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
                 ReviewPanel()
-                    .scrollContentBackground(.hidden)
-                    .background(store.theme.background ?? .clear)
+                    .glassSidebarTint(store.theme)
                     .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
                     .navigationSplitViewColumnWidth(min: 220, ideal: 272, max: 440)
             } else {
                 Sidebar()
-                    .scrollContentBackground(.hidden)
-                    .background(store.theme.background ?? .clear)
+                    .glassSidebarTint(store.theme)
                     .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
@@ -74,16 +72,14 @@ struct ContentView: View {
                     if isTrailing {
                         Sidebar()
                             .listStyle(.sidebar)
-                            .scrollContentBackground(.hidden)
-                            .background(store.theme.background ?? .clear)
+                            .glassSidebarTint(store.theme)
                             .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
                             .background(ScrollPocketSeparatorRemover())
                             .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs, $0 >= 220 { trailingSidebarWidth = $0 } }
                             .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
                     } else {
                         ReviewPanel()
-                            .scrollContentBackground(.hidden)
-                            .background(store.theme.background ?? .clear)
+                            .glassSidebarTint(store.theme)
                             .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
                             .background(ScrollPocketSeparatorRemover())
                             .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
@@ -375,6 +371,13 @@ struct Hairline: View {
         Rectangle()
             .fill(theme.foreground.opacity(0.1))
             .frame(width: axis == .vertical ? 1 / displayScale : nil, height: axis == .horizontal ? 1 / displayScale : nil)
+    }
+}
+
+private extension View {
+    // The column's own material is the glass; a low-opacity theme colour over it keeps dark custom themes reading right.
+    func glassSidebarTint(_ theme: GhosttyTheme) -> some View {
+        scrollContentBackground(.hidden).background((theme.background ?? .clear).opacity(0.4))
     }
 }
 

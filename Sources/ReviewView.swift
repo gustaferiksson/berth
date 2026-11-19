@@ -39,6 +39,7 @@ final class ReviewModel {
     private(set) var tabs: [ReviewTab] = []
     var selectedTabID: UUID?
     var reveal: (document: ReviewDocument, range: LanguageServerRange)?
+    var changeStep: Int?
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
     var editingComment: String?
@@ -441,6 +442,7 @@ private struct ReviewFileList: View {
                 .listStyle(.sidebar)
                 .environment(\.sidebarRowSize, .small)
                 .scrollContentBackground(.hidden)
+                .scrollEdgeEffectStyle(.soft, for: .top)
         }
     }
 
@@ -789,23 +791,21 @@ private struct ReviewFileList: View {
                     .help("Couldn’t refresh, showing the last changes: \(failure.detail ?? failure.description)")
                     .accessibilityLabel("Refresh failed")
             }
-            if !changes.uncommitted.isEmpty || !changes.committed.isEmpty {
-                Button(changesAsTree ? "View as List" : "View as Tree", systemImage: changesAsTree ? "list.bullet" : "list.bullet.indent") { changesAsTree.toggle() }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help(changesAsTree ? "View as List" : "View as Tree")
+            GlassCapsule {
+                if !changes.uncommitted.isEmpty || !changes.committed.isEmpty {
+                    Button(changesAsTree ? "View as List" : "View as Tree", systemImage: changesAsTree ? "list.bullet" : "list.bullet.indent") { changesAsTree.toggle() }
+                        .help(changesAsTree ? "View as List" : "View as Tree")
+                }
+                refreshButton
             }
-            refreshButton
-                .buttonStyle(.borderless)
         }
         .font(.callout)
         .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
     }
 
     private var refreshButton: some View {
         Button("Refresh", systemImage: "arrow.clockwise", action: refresh)
-            .labelStyle(.iconOnly)
             .disabled(model.isLoading)
             .help("Refresh")
     }
@@ -1229,6 +1229,30 @@ private struct ReviewBranchCard: View {
     }
 }
 
+struct GlassCapsule<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(spacing: 0, content: { content })
+            .labelStyle(.iconOnly)
+            .buttonStyle(GlassCapsuleButtonStyle())
+            .padding(.horizontal, 4)
+            .frame(height: 28)
+            .glassEffect(.regular, in: .capsule)
+    }
+}
+
+private struct GlassCapsuleButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: 28, height: 28)
+            .contentShape(.rect)
+            .opacity(!isEnabled ? 0.4 : configuration.isPressed ? 0.6 : 1)
+    }
+}
+
 struct ReviewDiffColumn: View {
     let store: Store
     @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.oneDark
@@ -1249,42 +1273,51 @@ struct ReviewDiffColumn: View {
                 let path = document.path
                 let isReadOnly = document.compare == .committed && model.changes?.uncommitted.contains { $0.path == path } != false
                 VStack(spacing: 0) {
-                    HStack {
+                    GlassEffectContainer {
                         HStack {
-                            Button(AppAction.goBack.title, systemImage: AppAction.goBack.symbol) { model.go(by: -1) }
-                                .disabled(tab.index == 0)
-                                .opacity(tab.index == 0 ? 0.4 : 1)
-                                .help("\(AppAction.goBack.title) (⌃-)")
-                            Button(AppAction.goForward.title, systemImage: AppAction.goForward.symbol) { model.go(by: 1) }
-                                .disabled(tab.index == tab.history.count - 1)
-                                .opacity(tab.index == tab.history.count - 1 ? 0.4 : 1)
-                                .help("\(AppAction.goForward.title) (⌃⇧-)")
-                        }
-                        .padding(.leading, 10)
-                        ScrollView(.horizontal) {
-                            HStack(spacing: 2) {
-                                ForEach(model.tabs) { tabButton($0, in: model, style: style) }
+                            GlassCapsule {
+                                Button(AppAction.goBack.title, systemImage: AppAction.goBack.symbol) { model.go(by: -1) }
+                                    .disabled(tab.index == 0)
+                                    .help("\(AppAction.goBack.title) (⌃-)")
+                                Button(AppAction.goForward.title, systemImage: AppAction.goForward.symbol) { model.go(by: 1) }
+                                    .disabled(tab.index == tab.history.count - 1)
+                                    .help("\(AppAction.goForward.title) (⌃⇧-)")
                             }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 4)
-                        }
-                        .scrollIndicators(.hidden)
-                        HStack {
-                            if model.selectedDocumentHasBothSides {
-                                Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
-                                    diffLayout = isUnified ? .sideBySide : .inline
+                            .padding(.leading, 10)
+                            ScrollView(.horizontal) {
+                                HStack(spacing: 2) {
+                                    ForEach(model.tabs) { tabButton($0, in: model, style: style) }
                                 }
-                                .help(isUnified ? "Show Side by Side" : "Show Inline")
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
                             }
-                            if AppAction.save.isAvailable(in: store) {
-                                Button(AppAction.save.title, systemImage: AppAction.save.symbol) { AppAction.save.perform(on: store) }
-                                    .help("\(AppAction.save.title) (⌘S)")
+                            .scrollIndicators(.hidden)
+                            if document.compare != nil {
+                                GlassCapsule {
+                                    Button("Previous Change", systemImage: "chevron.up") { model.changeStep = -1 }
+                                        .help("Previous Change (⌃⌥↑)")
+                                    Button("Next Change", systemImage: "chevron.down") { model.changeStep = 1 }
+                                        .help("Next Change (⌃⌥↓)")
+                                }
+                                .padding(.leading, 6)
+                            }
+                            if model.selectedDocumentHasBothSides || AppAction.save.isAvailable(in: store) {
+                                GlassCapsule {
+                                    if model.selectedDocumentHasBothSides {
+                                        Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
+                                            diffLayout = isUnified ? .sideBySide : .inline
+                                        }
+                                        .help(isUnified ? "Show Side by Side" : "Show Inline")
+                                    }
+                                    if AppAction.save.isAvailable(in: store) {
+                                        Button(AppAction.save.title, systemImage: AppAction.save.symbol) { AppAction.save.perform(on: store) }
+                                            .help("\(AppAction.save.title) (⌘S)")
+                                    }
+                                }
+                                .padding(.trailing, 10)
                             }
                         }
-                        .padding(.trailing, 10)
                     }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
                     .foregroundStyle(Color(nsColor: style.secondary))
                     .frame(height: 32)
                     Divider()
@@ -1304,7 +1337,9 @@ struct ReviewDiffColumn: View {
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
                             isUnified: isUnified || !model.selectedDocumentHasBothSides,
                             takesFocus: model.focusesEditor,
+                            changeStep: model.changeStep,
                             onRevealed: { model.reveal = nil },
+                            onChangeStepped: { model.changeStep = nil },
                             editsComment: model.editingComment,
                             onEditing: { model.editingComment = nil },
                             onDefinition: model.goToDefinition,
