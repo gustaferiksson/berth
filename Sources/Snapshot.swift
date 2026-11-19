@@ -536,7 +536,7 @@ enum Snapshot {
                     guard let (textView, clicked, target) = locate(spec) else { continue }
                     let name = spec.replacingOccurrences(of: ":", with: "-")
                     let menu = NSEvent.mouseEvent(with: .rightMouseDown, location: clicked.convert(target, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1).flatMap(clicked.menu(for:))
-                    print("references \(spec): writing tools off in diff views \(views().map { $0.writingToolsBehavior == .none }), comment field \(ReviewInlineComment(title: "", text: "", kind: .card(onDelete: {}), style: clicked.style).field.writingToolsBehavior == .none), context menu \(menu?.items.map(\.title) ?? [])")
+                    print("references \(spec): writing tools off in diff views \(views().map { $0.writingToolsBehavior == .none }), comment field \(ReviewInlineComment(title: "", text: "", kind: .card(onEdit: {}, onDelete: {}), style: clicked.style).field.writingToolsBehavior == .none), context menu \(menu?.items.map(\.title) ?? [])")
                     mouse(clicked, .leftMouseDown, target, .command)
                     await waitForPeek(true)
                     guard let shown = peek() else {
@@ -769,6 +769,85 @@ enum Snapshot {
                     try? await Task.sleep(for: .milliseconds(500))
                     print("model append then list delete: cards \(added) → \(cards()), reserved \(sides[1].reserved)")
                 }
+            }
+            if UserDefaults.standard.bool(forKey: "snapshotReviewEditComment"), sides.count == 2 {
+                let inline = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment } }
+                let box = { inline().first { $0.field.isEditable } }
+                let card = { inline().first { !$0.field.isEditable && !$0.isHidden } }
+                let state = { (label: String) in
+                    print("edit \(label): comments \(model.comments.enumerated().map { "\($0.offset) \($0.element.id) \($0.element.line)-\($0.element.endLine) \($0.element.side) \($0.element.compare.map { "\($0)" } ?? "file") \($0.element.text.debugDescription)" }), box \(box().map { "\($0.frame) \($0.header.stringValue) text \($0.field.string.debugDescription) caret \($0.field.selectedRange().location)+\($0.field.selectedRange().length) of \(($0.field.string as NSString).length), buttons \($0.subviews.compactMap { $0 as? NSButton }.map { "\($0.title) \($0.isEnabled ? "enabled" : "disabled")" })" } ?? "closed"), first responder is box field \(box().map { window.firstResponder === $0.field } ?? false), cards \(inline().filter { !$0.field.isEditable }.map { "\($0.isHidden ? "hidden" : "shown") \($0.frame) \($0.field.string.debugDescription)" }), reserved \(sides[1].reserved)")
+                    report("edit-\(label)")
+                }
+                let type = { (text: String) in
+                    for character in text {
+                        let keyCode: UInt16 = character == "\r" || character == "\n" ? 36 : character == "\u{1B}" ? 53 : 0
+                        let typed = character == "\n" ? "\r" : String(character)
+                        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: character == "\n" ? .shift : [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: typed, charactersIgnoringModifiers: typed, isARepeat: false, keyCode: keyCode) else { continue }
+                        window.sendEvent(event)
+                    }
+                }
+                let press = { (view: NSView, clicks: Int) in
+                    let location = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+                    let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
+                    event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
+                    event(.leftMouseDown).map(window.sendEvent)
+                }
+                let doubleClick = {
+                    guard let field = card()?.field else { return print("edit: no card to double-click") }
+                    press(field, 1)
+                    try? await Task.sleep(for: .milliseconds(100))
+                    press(field, 2)
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                let pencil = {
+                    card()?.subviews.compactMap { $0 as? NSButton }.first { $0.toolTip == "Edit Comment" }?.performClick(nil)
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                state("before")
+                await pencil()
+                state("pencil")
+                save(".editing.png")
+                type(" more\nx")
+                try? await Task.sleep(for: .milliseconds(300))
+                state("typed")
+                type("\u{1B}")
+                try? await Task.sleep(for: .milliseconds(300))
+                state("esc")
+                await doubleClick()
+                state("double-click")
+                type(" Edited")
+                type("\r")
+                try? await Task.sleep(for: .milliseconds(500))
+                state("saved")
+                save(".edited.png")
+                if let shown = card(), let event = NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil) {
+                    shown.mouseEntered(with: event)
+                    try? await Task.sleep(for: .milliseconds(300))
+                    print("edit hover: card buttons \(shown.subviews.compactMap { $0 as? NSButton }.map { "\($0.toolTip ?? "-") \($0.isHidden ? "hidden" : "shown") \($0.frame)" })")
+                    save(".card-hover.png")
+                    shown.mouseExited(with: event)
+                }
+                print("edit prompt: \(ReviewComment.prompt(for: model.comments, branch: "b", base: "main").debugDescription)")
+                await pencil()
+                box()?.field.selectAll(nil)
+                box()?.field.delete(nil)
+                type("\r")
+                try? await Task.sleep(for: .milliseconds(300))
+                state("emptied")
+                await pencil()
+                if let gutter = sides[1].gutter {
+                    let y = gutter.convert(sides[1].convert(NSPoint(x: 0, y: sides[1].top(ofRow: sides[1].side?.rows.first ?? 0) + sides[1].rowHeight / 2), to: nil), from: nil).y
+                    mouse(gutter, [y, y])
+                }
+                try? await Task.sleep(for: .milliseconds(300))
+                state("gutter over edit")
+                type("\u{1B}")
+                try? await Task.sleep(for: .milliseconds(300))
+                await pencil()
+                let first = model.comments.first?.id
+                model.comments.removeAll { $0.id == first }
+                try? await Task.sleep(for: .milliseconds(500))
+                state("deleted while editing")
             }
             let resize = UserDefaults.standard.double(forKey: "snapshotReviewResize")
             if resize > 0 {

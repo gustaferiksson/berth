@@ -187,7 +187,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         private var loadedModified: String?
         private var applied: ReviewDiffAnalysis?
         var cards: [String: ReviewInlineComment] = [:]
-        var draft: (view: ReviewInlineComment, numbered: ReviewTextView, line: Int)?
+        var draft: (view: ReviewInlineComment, numbered: ReviewTextView, line: Int, editing: String?)?
         var peek: (view: ReviewReferencesPeek, numbered: ReviewTextView, line: Int)?
 
         init(right: ReviewTextView) {
@@ -414,6 +414,10 @@ private struct ReviewDiffViews: NSViewRepresentable {
             for (id, card) in cards where !comments.contains(where: { $0.id == id }) {
                 card.removeFromSuperview()
                 cards[id] = nil
+                if draft?.editing == id {
+                    draft?.view.removeFromSuperview()
+                    draft = nil
+                }
             }
             let isUnified = right.unifiedOriginal != nil
             var placed: [(view: NSView, owner: ReviewTextView, row: Int)] = []
@@ -421,14 +425,20 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 let numbered = comment.side == .original ? left : right
                 let owner = isUnified ? right : numbered
                 let numbers = comment.endLine > comment.line ? "Lines \(comment.line)–\(comment.endLine)" : "Line \(comment.line)"
-                let card = cards[comment.id] ?? ReviewInlineComment(title: comment.side == .original ? "Removed \(numbers)" : numbers, text: comment.text, kind: .card(onDelete: { [weak self] in self?.parent?.comments.removeAll { $0.id == comment.id } }), style: owner.style)
+                let card = cards[comment.id] ?? ReviewInlineComment(title: comment.side == .original ? "Removed \(numbers)" : numbers, text: comment.text, kind: .card(
+                    onEdit: { [weak self] in self?.edit(comment.id) },
+                    onDelete: { [weak self] in self?.parent?.comments.removeAll { $0.id == comment.id } }
+                ), style: owner.style)
                 cards[comment.id] = card
-                if card.superview !== owner { owner.addSubview(card) }
+                if card.field.string != comment.text { card.field.string = comment.text }
+                let view = draft.flatMap { $0.editing == comment.id ? $0.view : nil } ?? card
+                card.isHidden = view !== card
+                if view.superview !== owner { owner.addSubview(view) }
                 let rows = numbered.side?.rows ?? []
-                card.isHidden = !rows.indices.contains(comment.endLine - 1)
-                if !card.isHidden { placed.append((card, owner, rows[comment.endLine - 1])) }
+                view.isHidden = !rows.indices.contains(comment.endLine - 1)
+                if !view.isHidden { placed.append((view, owner, rows[comment.endLine - 1])) }
             }
-            if let draft, let rows = draft.numbered.side?.rows, rows.indices.contains(draft.line) {
+            if let draft, draft.editing == nil, let rows = draft.numbered.side?.rows, rows.indices.contains(draft.line) {
                 let owner = isUnified ? right : draft.numbered
                 if draft.view.superview !== owner { owner.addSubview(draft.view) }
                 placed.append((draft.view, owner, rows[draft.line]))
@@ -482,13 +492,34 @@ private struct ReviewDiffViews: NSViewRepresentable {
             other.needsDisplay = true
             let view = ReviewInlineComment(title: isRemoval ? "Removed \(numbers)" : numbers, text: "", kind: .draft(
                 onAdd: { [weak self] text in
+                    guard !text.isEmpty else { return }
                     self?.parent?.comments.append(ReviewComment(id: UUID().uuidString, path: path, line: first + 1, endLine: last + 1, text: text, snippet: snippet, side: isRemoval ? .original : .modified, compare: compare))
                     self?.closeDraft()
                 },
                 onCancel: { [weak self] in self?.closeDraft() },
                 onResize: { [weak self] in self?.layoutInline() }
             ), style: owner.style)
-            draft = (view, numbered, last)
+            draft = (view, numbered, last, nil)
+            layoutInline()
+            owner.window?.makeFirstResponder(view.field)
+            owner.scrollToVisible(NSRect(x: owner.visibleRect.minX, y: view.frame.minY, width: 1, height: view.frame.height))
+        }
+
+        private func edit(_ id: String) {
+            guard let comment = parent?.comments.first(where: { $0.id == id }), let card = cards[id] else { return }
+
+            closeDraft()
+            let numbered = comment.side == .original ? left : right
+            let owner = right.unifiedOriginal != nil ? right : numbered
+            let view = ReviewInlineComment(title: card.header.stringValue, text: comment.text, kind: .draft(
+                onAdd: { [weak self] text in
+                    if !text.isEmpty, let index = self?.parent?.comments.firstIndex(where: { $0.id == id }) { self?.parent?.comments[index].text = text }
+                    self?.closeDraft()
+                },
+                onCancel: { [weak self] in self?.closeDraft() },
+                onResize: { [weak self] in self?.layoutInline() }
+            ), style: owner.style)
+            draft = (view, numbered, comment.endLine - 1, id)
             layoutInline()
             owner.window?.makeFirstResponder(view.field)
             owner.scrollToVisible(NSRect(x: owner.visibleRect.minX, y: view.frame.minY, width: 1, height: view.frame.height))
