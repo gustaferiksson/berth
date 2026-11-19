@@ -77,7 +77,7 @@ public struct TaskSession: Sendable {
         isSweep ? [] : Array(NSOrderedSet(array: typedIssues + closingIssues).array.compactMap { $0 as? IssueRef }.prefix(TaskFormation.maxIssues))
     }
 
-    var keys: [String] {
+    public var keys: [String] {
         isSweep ? [] : issues.map(\.key) + pullRequests.map(\.key)
     }
 }
@@ -115,6 +115,14 @@ public struct TaskState: Codable, Equatable, Sendable {
         let readable = tasks.compactMap { (try? encoder.encode($0)).map { String(decoding: $0, as: UTF8.self) } }
         let dismissedJSON = (try? encoder.encode(dismissed.sorted())).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
         return #"{"version":\#(version),"tasks":[\#((readable + unreadable).joined(separator: ","))],"dismissed":\#(dismissedJSON)}"#
+    }
+
+    public mutating func continuing(_ continued: [String: String]) {
+        let follow = { (ids: [String]) in ids.map { continued[$0] ?? $0 }.reduce(into: [String]()) { ids, id in if !ids.contains(id) { ids.append(id) } } }
+        for index in tasks.indices {
+            tasks[index].sessionIDs = follow(tasks[index].sessionIDs)
+            tasks[index].excluded = follow(tasks[index].excluded)
+        }
     }
 
     public mutating func rename(_ id: String, to name: String) {
@@ -173,7 +181,7 @@ public enum TaskFormation {
         for session in ordered where memberOf[session.id] == nil {
             let allowed = state.tasks.filter { !$0.excluded.contains(session.id) }
             let byIssue = session.issues.lazy.filter { !state.dismissed.contains($0.key) }.compactMap { issue in allowed.first { $0.issue == issue } }.first
-            let pullRequests = Set(session.pullRequests.map(\.key)).subtracting(state.dismissed)
+            let pullRequests = Set(session.keys).subtracting(state.dismissed)
             let byPullRequest = allowed.filter { task in task.sessionIDs.contains { id in !pullRequests.isDisjoint(with: byID[id]?.pullRequests.map(\.key) ?? []) } }
             let matches = Set((byIssue.map { [$0] } ?? []) + byPullRequest)
             guard matches.count == 1, let task = matches.first, let index = state.tasks.firstIndex(of: task) else { continue }

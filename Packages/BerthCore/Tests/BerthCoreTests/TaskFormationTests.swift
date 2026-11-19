@@ -60,6 +60,10 @@ struct TaskFormationTests {
 
         let stored = TaskState(tasks: [StoredTask(id: "t", issue: usage, origin: .auto, sessionIDs: ["a", "sweep"])])
         #expect(form([session("a", typed: [usage]), sweep], from: stored).shown.map(\.sessionIDs) == [["a", "sweep"]])
+
+        let holding = TaskState(tasks: [StoredTask(id: "t", origin: .auto, sessionIDs: ["a", "b"])])
+        let pair = [session("a", pullRequests: [rounding]), session("b", age: 1, pullRequests: [rounding])]
+        #expect(form(pair + [session("sweep", age: 2, typed: [usage], pullRequests: [rounding] + pullRequests)], from: holding).state.tasks.map(\.sessionIDs) == [["a", "b"]])
     }
 
     @Test func aJoinSurvivesTheEvidenceRollingOut() {
@@ -138,6 +142,8 @@ struct TaskFormationTests {
         #expect(state.tasks[1].excluded.isEmpty)
         state.makeTask(["b", "c"], origin: .local)
         #expect(state.tasks.map(\.sessionIDs) == [[], ["a"], ["b", "c"]])
+        state.continuing(["a": "c"])
+        #expect(state.tasks.map(\.sessionIDs) == [[], ["c"], ["b", "c"]])
     }
 
     @Test func aTaskGainsAnIssueWhenALaterLookupNamesIt() {
