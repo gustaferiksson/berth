@@ -175,7 +175,8 @@ Built (slice 1b, review part). Decided from the mock: card `fold`, repos `stack`
   Create Pull Request, base picker in the header) as its first row; other repos get the compact header
   only. Under each header, "Uncommitted" and "Committed" subheadings (count, +/-) over the existing rows,
   list or tree. They do not collapse: a `List` section cannot nest, so collapse is per repo.
-- The Files outline stays the own repo's.
+- The Files outline stays the own repo's. A session whose own folder is in no repository but that edited
+  repos shows just the stack (no header, card or Files) instead of No Git Repository.
 - Edited repos: `TranscriptEdits` reads Edit, Write, MultiEdit and NotebookEdit paths (`file_path`, else
   `notebook_path`) from the selected session's transcript only (not its subagent files), the first time in
   full, then appended bytes, cached per open session (`Store.editedRepositories`) and refreshed on scan,
@@ -204,8 +205,14 @@ Built (slice 1b, review part). Decided from the mock: card `fold`, repos `stack`
   (they are left out, not greyed), a repo switcher (the stack replaced it).
 - Snapshot: `-snapshotTasksReview YES` builds three scratch repos under `.build/tasks-review`
   (billing, web, infra; plain `git commit` with the user's identity) and the task fixtures on them;
-  `-snapshotTasksReviewSession task-infra` is the no-task variant. Pass `-collapsedReviewSections files
-  -reviewChangesAsTree NO|YES` and run with `GIT_CEILING_DIRECTORIES` set to `.build`.
+  `-snapshotTasksReviewSession task-infra` is the no-task variant and `task-parent` a session outside any
+  repository that edited two. `-snapshotTasksReviewPoints "web=x,y|infra=x,y|chevron=x,y|member=x,y|send=x,y"`
+  sends real double-clicks and clicks at those points (top-left origin), `-snapshotRemoteLog /abs/file`
+  fakes the session live over `tee -a` so Send's paste can be read back, and `-snapshotTasksReviewTranscript
+  YES` skips the seeded edited repositories so `CFFIXED_USER_HOME` with a compact-JSON transcript under the
+  fixture session id drives `TranscriptEdits` end to end. Pass `-collapsedReviewSections files
+  -reviewChangesAsTree NO|YES` and run with `GIT_CEILING_DIRECTORIES` set to `.build`. The cards' and
+  subheadings' list insets are tuned per mode (tree rows sit 9 pt further in).
 
 ## Data cost
 

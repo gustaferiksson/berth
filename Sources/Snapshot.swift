@@ -128,7 +128,10 @@ enum Snapshot {
             SessionSummary(id: "task-polish", cwd: "\(code)/web", title: "Polish the export modal copy", lastActivity: .now - 7200, branch: "usage-export"),
             SessionSummary(id: "task-removed", cwd: "\(code)/billing", title: "Retry the usage export on timeout", lastActivity: .now - 9000, issueRefs: [usage]),
             SessionSummary(id: "task-infra", cwd: "\(code)/infra", title: "Tidy the CI pipeline", lastActivity: .now - 10_000),
-        ] + (reviewing ? [SessionSummary(id: "task-usage-docs", cwd: "\(code)/billing", title: "Document the usage export columns", lastActivity: .now - 1800, branch: "usage-docs", issueRefs: [usage])] : [])
+        ] + (reviewing ? [
+            SessionSummary(id: "task-usage-docs", cwd: "\(code)/billing", title: "Document the usage export columns", lastActivity: .now - 1800, branch: "usage-docs", issueRefs: [usage]),
+            SessionSummary(id: "task-parent", cwd: tasksReviewParent, title: "Compare the export in both repositories", lastActivity: .now - 20_000),
+        ] : [])
         let url = { (repository: String, number: Int) in URL(string: "https://github.com/\(repository)/pull/\(number)")! }
         return (
             sessions,

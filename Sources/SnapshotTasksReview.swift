@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import BerthCore
+import GhosttyTerminal
 
 extension Snapshot {
     private static let tasksReviewScript = """
@@ -39,6 +40,7 @@ extension Snapshot {
     """
 
     static let tasksReviewFolder: String = {
+        try? FileManager.default.createDirectory(atPath: tasksReviewParent, withIntermediateDirectories: true)
         let folder = FileManager.default.currentDirectoryPath + "/.build/tasks-review"
         let process = Process()
         process.executableURL = URL(filePath: "/bin/sh")
@@ -48,17 +50,25 @@ extension Snapshot {
         return folder
     }()
 
+    static let tasksReviewParent = NSTemporaryDirectory() + "berth-tasks-review-parent"
+
     static let tasksReviewSession = UserDefaults.standard.string(forKey: "snapshotTasksReviewSession") ?? "task-usage-api"
 
     static func prepareTasksReview(store: Store) {
         let session = tasksReviewSession
         let folder = store.sessionsByID[session]?.cwd ?? tasksReviewFolder + "/billing"
-        store.openShell(cwd: folder)
+        store.openShell(cwd: folder, command: UserDefaults.standard.string(forKey: "snapshotRemoteLog").map { "/usr/bin/tee -a '\($0)'" })
         store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: folder, sessionID: session, terminal: $0.terminal) : $0 }
-        let edited = RepositoryRoot.resolve(tasksReviewFolder + (session == "task-usage-api" ? "/infra" : "/billing"))
-        store.editedRepositories[session] = [edited: edited]
+        let names = ["task-usage-api": ["infra"], "task-parent": ["billing", "web"]][session] ?? ["billing"]
+        let edited = names.map { RepositoryRoot.resolve(tasksReviewFolder + "/" + $0) }
+        if !UserDefaults.standard.bool(forKey: "snapshotTasksReviewTranscript") { store.editedRepositories[session] = Dictionary(uniqueKeysWithValues: edited.map { ($0, $0) }) }
+        if UserDefaults.standard.string(forKey: "snapshotRemoteLog") != nil, let live = try? JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":1,"sessionId":"\#(session)","cwd":"\#(folder)","status":"idle","startedAt":0}"#.utf8)) {
+            store.fakeLiveSessions = [live]
+            store.refreshLive()
+        }
         if AppAction.showChanges.isAvailable(in: store) { AppAction.showChanges.perform(on: store) }
         store.prepareReviewModel()
+        store.refreshEditedRepositories()
     }
 
     static func captureTasksReview(store: Store, window: NSWindow, output: URL) async {
@@ -71,6 +81,7 @@ extension Snapshot {
         let deadline = Date.now + 30
         while Date.now < deadline, store.sessionReviewModels.count < 3 || store.sessionReviewModels.contains(where: { $0.changes == nil && $0.error == nil }) { try? await Task.sleep(for: .milliseconds(100)) }
         try? await Task.sleep(for: .seconds(2))
+        print("transcript of \(own): \(store.index.url(ofSession: own)?.lastPathComponent ?? "not indexed") (claude directory \(Store.claudeDirectory.path)), edited repositories \(store.editedRepositories[own]?.keys.map { URL(filePath: $0).lastPathComponent } ?? [])")
         if own != "task-usage-api" {
             let title = store.task(containing: own).map(store.title(of:)) ?? "none"
             let repositories = store.reviewRepositories[own] ?? []
@@ -99,19 +110,34 @@ extension Snapshot {
         }
         describeRepositories("at start")
         save(".stack.png")
-        let open = { (name: String, path: String, compare: ReviewCompare?) async in
-            guard let model = models.first(where: { $0.0 == name })?.1 else { return }
+        let points = Dictionary(uniqueKeysWithValues: (UserDefaults.standard.string(forKey: "snapshotTasksReviewPoints") ?? "").split(separator: "|").compactMap { entry -> (String, [Double])? in
+            let parts = entry.split(separator: "=")
+            return parts.count == 2 ? (String(parts[0]), parts[1].split(separator: ",").compactMap { Double($0) }) : nil
+        })
+        let click = { (name: String, count: Int) async in
+            guard let point = points[name], point.count == 2 else { return }
 
-            model.open(ReviewDocument(path: path, compare: compare))
+            let location = NSPoint(x: point[0], y: (window.contentView?.frame.height ?? 0) - point[1])
+            for number in 1...count {
+                let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: number, pressure: type == .leftMouseDown ? 1 : 0) }
+                event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
+                event(.leftMouseDown).map(window.sendEvent)
+            }
             try? await Task.sleep(for: .seconds(2))
-            let active = store.reviewModel
-            print("opened \(name):\(path) -> active root \(store.activeReviewRoots[own] ?? "own"), active is \(active === model ? name : "another model"), \(active.map(describe) ?? "no model"), contents loaded \(active?.selectedDocument.flatMap { active?.contents[$0] } != nil)")
-            save(".\(name).png")
         }
-        await open("web", "src/ExportButton.tsx", .committed)
-        await open("infra", "cache.yml", .uncommitted)
-        await open("billing", "src/export.swift", .committed)
-        await open("web", "src/App.tsx", .uncommitted)
+        let report = { (label: String) in
+            let active = store.reviewModel
+            print("\(label) -> active root \(store.activeReviewRoots[own].map { URL(filePath: $0).lastPathComponent } ?? "own"), \(active.map(describe) ?? "no model"), contents loaded \(active?.selectedDocument.flatMap { active?.contents[$0] } != nil), tabs per repository \(models.map { "\($0.0) \($0.1?.tabs.count ?? -1)" })")
+        }
+        await click("web", 2)
+        report("double-click on web's Committed ExportButton.tsx")
+        save(".web.png")
+        await click("infra", 2)
+        report("double-click on infra's Uncommitted cache.yml")
+        save(".infra.png")
+        models.first { $0.0 == "billing" }?.1?.open(ReviewDocument(path: "src/export.swift", compare: .committed))
+        try? await Task.sleep(for: .seconds(2))
+        report("own repo's file opened through its model")
         let webRoot = RepositoryRoot.resolve(tasksReviewFolder + "/web")
         store.collapsedReviewRepositories.insert(webRoot)
         try? await Task.sleep(for: .seconds(1))
@@ -119,28 +145,29 @@ extension Snapshot {
         save(".web-collapsed.png")
         store.collapsedReviewRepositories.remove(webRoot)
         if let task = store.task(containing: own) {
-            store.collapsedReviewRepositories.insert(task.id)
-            try? await Task.sleep(for: .seconds(1))
+            await click("chevron", 1)
+            print("after clicking the card's chevron: folded \(store.collapsedReviewRepositories.contains(task.id))")
             save(".card-folded.png")
-            store.collapsedReviewRepositories.remove(task.id)
+            await click("chevron", 1)
+            print("after clicking it again: folded \(store.collapsedReviewRepositories.contains(task.id))")
+            await click("member", 1)
+            print("after clicking the current member's row: selected session \(store.selectedSessionID ?? "-"), tabs \(store.tabs.count)")
         }
         models.first { $0.0 == "infra" }?.1?.comments = [ReviewComment(id: "infra-comment", path: "cache.yml", line: 1, endLine: 1, text: "Pin the cache version.", snippet: "cache: v1")]
         models.first { $0.0 == "billing" }?.1?.comments = [ReviewComment(id: "billing-comment", path: "src/csv.swift", line: 1, endLine: 1, text: "Quote the header row.", snippet: "func csv() {}", compare: .committed)]
         try? await Task.sleep(for: .seconds(1))
         save(".comments.png")
-        for (name, model) in models {
-            guard let model, !model.comments.isEmpty, let changes = model.changes else { continue }
-
-            let repository = name == "billing" ? nil : (name: name, path: RepositoryRoot.resolve(tasksReviewFolder + "/" + name))
-            print("send prompt for \(name):\n" + ReviewComment.prompt(for: model.comments, branch: changes.branch, base: changes.base ?? "HEAD", repository: repository))
-        }
+        let log = { (try? String(contentsOfFile: UserDefaults.standard.string(forKey: "snapshotRemoteLog") ?? "", encoding: .utf8)).debugDescription }
+        await click("send", 1)
+        _ = store.tab(forSession: own)?.terminal.sendKey(.enter)
+        try? await Task.sleep(for: .seconds(1))
+        print("after clicking Send: comments left \(models.map { "\($0.0) \($0.1?.comments.count ?? -1)" }), log \(log())")
         let infraModel = models.first { $0.0 == "infra" }?.1
         let before = infraModel?.changes?.uncommitted.count ?? -1
         try? "watched\n".write(toFile: tasksReviewFolder + "/infra/watched.txt", atomically: true, encoding: .utf8)
         try? await Task.sleep(for: .seconds(5))
         print("infra uncommitted files before touching its folder \(before), after the watcher reloaded \(infraModel?.changes?.uncommitted.count ?? -1)")
         try? FileManager.default.removeItem(atPath: tasksReviewFolder + "/infra/watched.txt")
-        for member in store.task(containing: own)?.sessionIDs ?? [] { print("member row click activates \(member)") }
     }
 }
 #endif
