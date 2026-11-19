@@ -26,6 +26,7 @@ final class AppUpdater {
     private static let checkInterval: TimeInterval = 24 * 60 * 60
     static let restartDelay: TimeInterval = 15
     private nonisolated static let stagingPrefix = ".berth-update-"
+    private nonisolated static let swapFailureKey = "updateSwapFailure"
 
     private(set) var status = Status.idle
     private(set) var staged: (version: String, app: URL)?
@@ -36,7 +37,7 @@ final class AppUpdater {
     @ObservationIgnored private var wakeObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var swapping = false
     @ObservationIgnored private var idleTimer: Timer?
-    @ObservationIgnored var workingSessions: () -> Int = { 0 }
+    @ObservationIgnored var busySessions: () -> Int = { 0 }
     @ObservationIgnored var isIdle: () -> Bool = { false }
 
     var isBusy: Bool { status == .checking || status == .downloading }
@@ -64,7 +65,13 @@ final class AppUpdater {
         // build.sh stamps local builds "<describe>-local", which would otherwise compare older than every release.
         guard !Self.currentVersion.hasSuffix("-local") else { return }
 
-        check()
+        if let failure = UserDefaults.standard.string(forKey: Self.swapFailureKey) {
+            UserDefaults.standard.removeObject(forKey: Self.swapFailureKey)
+            isPostponed = true
+            status = .failed("The last update didn’t install: \(failure)")
+        } else {
+            check()
+        }
         timer = Timer.scheduledTimer(withTimeInterval: Self.checkInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.check() }
         }
@@ -150,12 +157,12 @@ final class AppUpdater {
     }
 
     func installAndRelaunch() {
-        let working = workingSessions()
-        if working > 0 {
+        let busy = busySessions()
+        if busy > 0 {
             let panel = NSAlert()
             panel.alertStyle = .warning
-            panel.messageText = working == 1 ? "1 session is working" : "\(working) sessions are working"
-            panel.informativeText = "Installing now stops \(working == 1 ? "it" : "them") mid-turn. Berth resumes \(working == 1 ? "it" : "them") after it relaunches, but the work in progress is lost."
+            panel.messageText = busy == 1 ? "1 session has work in progress" : "\(busy) sessions have work in progress"
+            panel.informativeText = "Installing now stops \(busy == 1 ? "it" : "them"). Berth resumes \(busy == 1 ? "it" : "them") after it relaunches, but the work in progress is lost."
             panel.addButton(withTitle: "Cancel")
             panel.addButton(withTitle: "Install and Relaunch").hasDestructiveAction = true
             NSApp.activate()
@@ -220,16 +227,20 @@ final class AppUpdater {
         guard FileManager.default.isWritableFile(atPath: Self.installDir.path) else {
             return "\(Self.installDir.path) isn’t writable."
         }
+        guard getuid() != 0 else { return "Berth doesn’t update itself while running as root." }
 
         let script = URL.temporaryDirectory.appending(path: "berth-update-\(UUID().uuidString).sh")
         guard (try? Self.swapScript.write(to: script, atomically: true, encoding: .utf8)) != nil else {
             return "Couldn’t prepare the update."
         }
 
-        let helper = Process()
-        helper.executableURL = URL(filePath: "/bin/sh")
-        helper.arguments = [script.path, "\(getpid())", staged.app.path, Bundle.main.bundleURL.path, after.rawValue, installed ?? ""]
-        guard (try? helper.run()) != nil else { return "Couldn’t start the update." }
+        // Backgrounded so it's orphaned to launchd: applicationWillTerminate hangs up every descendant.
+        let launcher = Process()
+        launcher.executableURL = URL(filePath: "/bin/sh")
+        launcher.arguments = ["-c", "/bin/sh \"$@\" &", "sh", script.path, "\(getpid())", staged.app.path, Bundle.main.bundleURL.path, after.rawValue, installed ?? "", Bundle.main.bundleIdentifier ?? ""]
+        guard (try? launcher.run()) != nil else { return "Couldn’t start the update." }
+
+        launcher.waitUntilExit()
 
         swapping = true
         return nil
@@ -330,23 +341,31 @@ final class AppUpdater {
     set -u
     trap '' HUP TERM
     [ "$(id -u)" = "0" ] && exit 1
-    pid=$1; staged=$2; target=$3; relaunch=$4; expected=$5
+    pid=$1; staged=$2; target=$3; relaunch=$4; expected=$5; domain=$6
+    reopen() {
+      if [ "$relaunch" = "open" ]; then open "$target"; elif [ "$relaunch" = "background" ]; then open -g "$target"; fi
+    }
+    fail() {
+      /usr/bin/defaults write "$domain" \(swapFailureKey) "$1"
+      kill -0 "$pid" 2>/dev/null || reopen
+      exit 1
+    }
     i=0
     while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 300 ]; do sleep 0.2; i=$((i+1)); done
-    kill -0 "$pid" 2>/dev/null && exit 1
-    [ -d "$staged" ] && [ -d "$target" ] || exit 1
+    kill -0 "$pid" 2>/dev/null && fail "Berth didn’t quit within a minute."
+    [ -d "$staged" ] && [ -d "$target" ] || fail "The update or the installed app went missing."
     now=$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$target/Contents/Info.plist" 2>/dev/null)
-    [ "$now" = "$expected" ] || exit 1
+    [ "$now" = "$expected" ] || fail "The installed app changed to version ${now:-unknown}."
     backup="$target.berth-old"
     rm -rf "$backup"
-    mv "$target" "$backup" || exit 1
+    mv "$target" "$backup" || fail "Couldn’t move the installed app aside."
     if ! mv "$staged" "$target"; then
-      mv "$backup" "$target"
-      exit 1
+      mv "$backup" "$target" || target=$backup
+      fail "Couldn’t move the update into place."
     fi
     rm -rf "$backup"
     rm -rf "$(dirname "$staged")"
-    if [ "$relaunch" = "open" ]; then open "$target"; elif [ "$relaunch" = "background" ]; then open -g "$target"; fi
+    reopen
     rm -f "$0"
     exit 0
     """
