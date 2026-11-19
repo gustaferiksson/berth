@@ -218,11 +218,14 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         let location = target?.range.location ?? 0
         let diagnostics = hoverDiagnostics
         guard onHover != nil || !diagnostics.isEmpty, let anchor = target?.segments.first?.rect ?? problems.first?.rect else { return }
+
         hoverTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
+
             let markdown = await onHover?(location)
             guard !Task.isCancelled, markdown != nil || !diagnostics.isEmpty else { return }
+
             self?.showHover(markdown, diagnostics: diagnostics, below: anchor)
         }
     }
@@ -367,9 +370,11 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         if let storage = textContentStorage, let manager = textLayoutManager {
             for span in changed {
                 guard let location = storage.location(storage.documentRange.location, offsetBy: span.location) else { continue }
+
                 manager.enumerateTextLayoutFragments(from: location) { fragment in
                     let start = storage.offset(from: storage.documentRange.location, to: fragment.rangeInElement.location)
                     guard start <= span.location || start < NSMaxRange(span) else { return false }
+
                     coloredParagraphs.remove(start)
                     colorSyntax(in: fragment)
                     return true
