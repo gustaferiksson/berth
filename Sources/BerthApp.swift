@@ -67,6 +67,7 @@ struct BerthApp: App {
             CommandGroup(after: .sidebar) {
                 AppAction.commandPalette.menuButton(appDelegate.store)
                 AppAction.switchTerminal.menuButton(appDelegate.store)
+                AppAction.filterSidebar.menuButton(appDelegate.store)
                 Divider()
                 Menu("Group By") { GroupingMenuItems(store: appDelegate.store) }
                 AppAction.collapseAllGroups.menuButton(appDelegate.store)

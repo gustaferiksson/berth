@@ -263,6 +263,16 @@ enum Snapshot {
             print("suggestions: \(store.taskSuggestions.map { "\($0.key) -> \($0.value.key) task \($0.value.taskID ?? "new") sessions \($0.value.sessionIDs)" }.sorted())")
             print("sidebar: \(store.sidebarGroups.map { "\($0.group.title) \($0.entries.map { "\($0)" })" })")
         }
+        if let filters = UserDefaults.standard.string(forKey: "snapshotSidebarFilter") {
+            for filter in filters.split(separator: "|", omittingEmptySubsequences: false).map(String.init) {
+                store.sidebarFilter = filter
+                let layout = store.sidebarLayout
+                let title = { (id: String) in store.sessionsByID[id]?.title ?? id }
+                let terminals = layout.terminalIDs.compactMap { id in store.tabs.first { $0.id == id }?.terminal.title }
+                let groups = layout.groups.map { group in "\(group.source.title): \(group.entries.map { entry in entry.memberIDs.isEmpty ? title(entry.id) : "task \(store.sessionTasks.first { $0.id == entry.id }?.title ?? "?") \(entry.memberIDs.map(title))" })" }
+                print("filter \(filter.debugDescription): terminals \(terminals), pinned \(layout.pinnedIDs.map(title)), groups \(groups), archived \(layout.archivedIDs.map(title)), no matches \(layout.hasNoMatches)")
+            }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotUnread") {
             for session in topSessions.enumerated().filter({ [1, 3].contains($0.offset) }).map(\.element) { store.markUnread(session.id) }
         }

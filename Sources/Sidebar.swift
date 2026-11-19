@@ -59,6 +59,8 @@ struct SidebarLayout: Equatable {
     let groups: [Group]
     let archivedIDs: [String]
     let isEmpty: Bool
+    let filter: String
+    let hasNoMatches: Bool
 }
 
 struct Sidebar: View, Equatable {
@@ -72,7 +74,7 @@ struct Sidebar: View, Equatable {
 
     var body: some View {
         ScrollViewReader { proxy in
-            SidebarList(layout: layout)
+            SidebarList(layout: store.sidebarLayout)
                 .equatable()
                 .onChange(of: store.selection, initial: true) { previous, selection in
                     if previous != selection, store.sidebarCursor != nil { store.sidebarCursor = nil }
@@ -96,28 +98,47 @@ struct Sidebar: View, Equatable {
                     withAnimation { proxy.scrollTo(cursor) }
                 }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { SidebarFilterField() }
     }
+}
 
-    private var layout: SidebarLayout {
-        SidebarLayout(
-            terminalIDs: store.terminals.map(\.id),
-            pinnedIDs: store.pinnedSessions.map(\.id),
-            groups: store.sidebarGroups.map { group, tabs, entries in
-                SidebarLayout.Group(
-                    source: SessionGroup(kind: group.kind, sessions: []),
-                    tabIDs: tabs.map(\.id),
-                    entries: entries.map { entry in
-                        switch entry {
-                        case let .session(id): .session(id)
-                        case let .task(id): .task(id: id, memberIDs: store.sessionTasks.first { $0.id == id }?.sessions.map(\.id) ?? [])
-                        }
-                    },
-                    folders: group.folder.map { Array(Set(group.sessions.map(\.checkout)).union([$0])).sorted() } ?? []
-                )
-            },
-            archivedIDs: store.archivedSessions.map(\.id),
-            isEmpty: store.hasScanned && store.groups.isEmpty && store.pinnedSessions.isEmpty && store.tabs.isEmpty
-        )
+private struct SidebarFilterField: View {
+    @Environment(Store.self) private var store
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        @Bindable var store = store
+        HStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Filter", text: $store.sidebarFilter)
+                .textFieldStyle(.plain)
+                .focused($isFocused)
+                .onKeyPress(.escape) {
+                    if store.sidebarFilter.isEmpty {
+                        isFocused = false
+                        store.focusedTerminal?.requestFocus()
+                    } else {
+                        store.sidebarFilter = ""
+                    }
+                    return .handled
+                }
+            if !store.sidebarFilter.isEmpty {
+                Button("Clear Filter", systemImage: "xmark.circle.fill") { store.sidebarFilter = "" }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .glassEffect(.regular, in: .capsule)
+        .padding(.horizontal, 10)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+        .onChange(of: store.sidebarFilterFocusRequests) { isFocused = true }
     }
 }
 
@@ -165,7 +186,7 @@ private struct SidebarList: View, Equatable {
 
     private var groups: [Group] {
         layout.groups.map { group in
-            let entries = expandedGroups.contains(group.id) ? group.entries : Array(group.entries.prefix(Self.visibleSessions))
+            let entries = expandedGroups.contains(group.id) || !layout.filter.isEmpty ? group.entries : Array(group.entries.prefix(Self.visibleSessions))
             return Group(layout: group, entries: entries, hiddenSessions: group.entries.count - entries.count)
         }
     }
@@ -264,7 +285,9 @@ private struct SidebarList: View, Equatable {
         }
         .fileDialogDefaultDirectory(browseRoot.map { URL(filePath: $0) })
         .overlay {
-            if layout.isEmpty {
+            if layout.hasNoMatches {
+                ContentUnavailableView.search(text: layout.filter)
+            } else if layout.isEmpty {
                 ContentUnavailableView("No Claude Sessions", systemImage: "bubble.left.and.text.bubble.right", description: Text("Sessions you start with claude show up here, grouped by project."))
             }
         }
@@ -502,7 +525,9 @@ private struct SidebarList: View, Equatable {
     }
 
     private func isCollapsed(_ id: String) -> Bool {
-        collapsedGroups.split(separator: "\n").contains { $0 == id } != Sidebar.collapsedByDefault.contains(id)
+        if !layout.filter.isEmpty { return false }
+
+        return collapsedGroups.split(separator: "\n").contains { $0 == id } != Sidebar.collapsedByDefault.contains(id)
     }
 
     private func expansion(of id: String) -> Binding<Bool> {

@@ -3,13 +3,13 @@ import GhosttyTerminal
 import SwiftUI
 
 enum AppAction: Hashable {
-    case commandPalette, newSession, pullRequests, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
+    case commandPalette, filterSidebar, newSession, pullRequests, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
     case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showSideBySide, showInline, save, settings, checkForUpdates
     case goBack, goForward
     case caret(CaretAction)
 
-    static let palette: [Self] = [.newSession, .pullRequests, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
+    static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
         + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showSideBySide, .showInline, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
@@ -18,6 +18,7 @@ enum AppAction: Hashable {
     var title: String {
         switch self {
         case .commandPalette: "Command Palette…"
+        case .filterSidebar: "Filter Sidebar"
         case .newSession: "New Session…"
         case .pullRequests: "Open Pull Request…"
         case .searchSessions: "Search Sessions…"
@@ -51,6 +52,7 @@ enum AppAction: Hashable {
         switch self {
         case .newSession: "claude start folder"
         case .pullRequests: "github pr review requested mine assigned checkout worktree"
+        case .filterSidebar: "search sessions tasks terminals narrow"
         case .searchSessions: "find transcripts"
         case .newTerminal: "shell tab"
         case .switchTerminal: "shell toggle jump"
@@ -72,6 +74,7 @@ enum AppAction: Hashable {
     var symbol: String {
         switch self {
         case .commandPalette: "command"
+        case .filterSidebar: "line.3.horizontal.decrease"
         case .newSession: "plus.bubble"
         case .pullRequests: "arrow.triangle.pull"
         case .searchSessions: "magnifyingglass"
@@ -103,6 +106,7 @@ enum AppAction: Hashable {
     var shortcut: KeyboardShortcut? {
         switch self {
         case .commandPalette: KeyboardShortcut("k")
+        case .filterSidebar: KeyboardShortcut("f", modifiers: [.command, .option])
         case .newSession: KeyboardShortcut("n")
         case .searchSessions: KeyboardShortcut("f", modifiers: [.command, .shift])
         case .newTerminal: KeyboardShortcut("t")
@@ -141,6 +145,11 @@ enum AppAction: Hashable {
     func perform(on store: Store) {
         switch self {
         case .commandPalette: store.launcherMode = store.launcherMode == .palette ? nil : .palette
+
+        case .filterSidebar:
+            store.launcherMode = nil
+            store.isHarborShown = false
+            store.sidebarFilterFocusRequests += 1
 
         case .newSession: store.launcherMode = .newSession
 
