@@ -1214,13 +1214,14 @@ enum Snapshot {
                     print("\(spec) (saves <out>.\(spec.dropFirst(5)).png):\n  \(state())")
                     continue
                 }
-                if let model = store.reviewModel, ["refresh", "keep", "save", "back", "forward"].contains(spec) || spec.hasPrefix("file") || spec.hasPrefix("open:") || spec.hasPrefix("dbl:") {
+                if let model = store.reviewModel, ["refresh", "keep", "save", "back", "forward", "reveal"].contains(spec) || spec.hasPrefix("file") || spec.hasPrefix("open:") || spec.hasPrefix("dbl:") {
                     let target = spec.split(separator: ":", maxSplits: 2).map(String.init)
                     let document = target.count == 3 ? ["u": ReviewDocument(path: target[2], compare: .uncommitted), "c": ReviewDocument(path: target[2], compare: .committed)][target[1]] ?? model.workingDocument(target[2]) : nil
                     if spec == "refresh" { await store.refreshReview() }
                     if spec == "keep" { model.selectedTabID.map(model.keep) }
                     if spec == "save", let path = model.selectedDocument?.path, let draft = model.drafts[path] { model.save(draft, to: path) }
                     if spec == "back" || spec == "forward" { model.go(by: spec == "back" ? -1 : 1) }
+                    if spec == "reveal" { model.filesReveal = model.selectedDocument?.path }
                     if spec.hasPrefix("file"), let index = Int(spec.dropFirst(4)), let file = model.changes.map({ $0.uncommitted.map { ReviewDocument(path: $0.path, compare: .uncommitted) } + $0.committed.map { ReviewDocument(path: $0.path, compare: .committed) } })?.dropFirst(index).first { model.open(file) }
                     if let document {
                         model.open(document)
