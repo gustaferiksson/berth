@@ -29,11 +29,26 @@ public enum ReviewCompare: Sendable, Hashable {
     case committed
 }
 
+public enum ReviewBaseReason: String, Sendable {
+    case picked
+    case pullRequest = "PR"
+    case nearest
+    case defaultBranch = "default"
+}
+
+public struct ReviewBase: Sendable, Hashable {
+    public let ref: String
+    public let distance: Int
+}
+
 public struct ReviewChanges: Sendable {
     public let root: String
     public let branch: String
     public let isDefaultBranch: Bool
+    public let defaultBase: String?
     public let base: String?
+    public let baseReason: ReviewBaseReason?
+    public let bases: [ReviewBase]
     public let head: String
     public let mergeBase: String
     public let uncommitted: [ReviewFile]
@@ -92,7 +107,8 @@ public enum ReviewGit {
     private static let binaryProbeBytes = 8000
     private static let fetches = FetchThrottle()
 
-    public static func changes(in folder: String) async throws -> ReviewChanges {
+    @preconcurrency
+    public static func changes(in folder: String, preferredBase: @Sendable (_ root: String, _ branch: String) -> (picked: String?, pullRequest: String?) = { _, _ in (nil, nil) }) async throws -> ReviewChanges {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else { throw ReviewGitError.folderNotFound }
 
@@ -107,19 +123,36 @@ public enum ReviewGit {
             throw error
         }
         let branch = await (try? line(["symbolic-ref", "--short", "HEAD"], in: root)) ?? "HEAD"
-        let base = await base(in: root)
-        let isDefaultBranch = base == branch || base == "origin/\(branch)"
-        let baseRefspecs = base.map { $0.hasPrefix("origin/") ? ["+refs/heads/\($0.dropFirst("origin/".count)):refs/remotes/\($0)"] : [] } ?? []
+        let defaultBase = await base(in: root)
+        let isDefaultBranch = defaultBase == branch || defaultBase == "origin/\(branch)"
+        let baseRefspecs = defaultBase.map { $0.hasPrefix("origin/") ? ["+refs/heads/\($0.dropFirst("origin/".count)):refs/remotes/\($0)"] : [] } ?? []
 
         let fetch = await (baseRefspecs.isEmpty ? nil : fetches.fetch(baseRefspecs, in: root))
         let head = if let head = try? await line(["rev-parse", "--verify", "--quiet", "HEAD"], in: root) { head } else { try await line(["hash-object", "-t", "tree", "/dev/null"], in: root) }
+        let comparableBase = isDefaultBranch ? nil : defaultBase
+        var bases = if let comparableBase { await bases(of: head, branch: branch, defaultBase: comparableBase, in: root) } else { [ReviewBase]() }
+
+        let preferred = comparableBase == nil ? (picked: nil, pullRequest: nil) : preferredBase(root, branch)
+        var chosen: (ref: String, reason: ReviewBaseReason)?
+        for case let (ref?, reason) in [(preferred.picked, ReviewBaseReason.picked), (preferred.pullRequest.map { "origin/\($0)" }, .pullRequest), (preferred.pullRequest, .pullRequest)] where !ref.hasPrefix("-") {
+            guard await (try? git(["merge-base", ref, head], in: root)) != nil else { continue }
+
+            chosen = (ref, reason)
+            break
+        }
+        if let chosen, !bases.contains(where: { $0.ref == chosen.ref }), let distance = try? await Int(line(["rev-list", "--count", "\(chosen.ref)..\(head)"], in: root)) {
+            bases.insert(ReviewBase(ref: chosen.ref, distance: distance), at: bases.firstIndex { $0.distance > distance } ?? bases.count)
+        }
+        let base = chosen?.ref ?? bases.first?.ref ?? defaultBase
+        let baseReason = chosen?.reason ?? (base == nil ? nil : base == defaultBase ? .defaultBranch : .nearest)
+
         let comparedBase = isDefaultBranch ? nil : base
         let mergeBase = if let comparedBase { try await line(["merge-base", comparedBase, head], in: root) } else { head }
 
         let committed = try await changes(git(["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", "--no-color", mergeBase, head], in: root)).sorted { $0.path < $1.path }
         let uncommitted = try await workingTreeChanges(from: head, in: root)
         let total = try await comparedBase == nil ? nil : workingTreeChanges(from: mergeBase, in: root).reduce((additions: 0, deletions: 0)) { ($0.additions + ($1.additions ?? 0), $0.deletions + ($1.deletions ?? 0)) }
-        return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, base: base, head: head, mergeBase: mergeBase, uncommitted: uncommitted, committed: committed, total: total, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
+        return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, defaultBase: defaultBase, base: base, baseReason: baseReason, bases: bases, head: head, mergeBase: mergeBase, uncommitted: uncommitted, committed: committed, total: total, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
     }
 
     public static func branchStatus(of changes: ReviewChanges) async throws -> ReviewBranchStatus {
@@ -183,6 +216,32 @@ public enum ReviewGit {
             if await (try? git(["rev-parse", "--verify", "--quiet", "\(candidate)^{commit}"], in: root)) != nil { return candidate }
         }
         return nil
+    }
+
+    private static func bases(of head: String, branch: String, defaultBase: String, in root: String) async -> [ReviewBase] {
+        guard let mergeBase = try? await line(["merge-base", defaultBase, head], in: root),
+              let distance = try? await Int(line(["rev-list", "--count", "\(mergeBase)..\(head)"], in: root)),
+              let refs = try? await line(["for-each-ref", "--merged=\(head)", "--contains=\(mergeBase)", "--format=%(objectname) %(refname)", "refs/heads", "refs/remotes/origin"], in: root)
+        else { return [] }
+
+        let upstream = try? await line(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: root)
+        let excluded = Set([branch, "origin/\(branch)", "origin/HEAD", defaultBase, upstream].compactMap(\.self))
+        let named = refs.split(separator: "\n").compactMap { entry -> (sha: Substring, name: String)? in
+            let parts = entry.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2, parts[0] != head, parts[0] != mergeBase else { return nil }
+
+            let name = String(parts[1].hasPrefix("refs/heads/") ? parts[1].dropFirst("refs/heads/".count) : parts[1].dropFirst("refs/remotes/".count))
+            return excluded.contains(name) ? nil : (parts[0], name)
+        }
+        let remotes = Set(named.filter { $0.name.hasPrefix("origin/") }.map { "\($0.sha) \($0.name.dropFirst("origin/".count))" })
+
+        var bases: [ReviewBase] = []
+        for ref in named where ref.name.hasPrefix("origin/") || !remotes.contains("\(ref.sha) \(ref.name)") {
+            guard let distance = try? await Int(line(["rev-list", "--count", "\(ref.sha)..\(head)"], in: root)) else { continue }
+
+            bases.append(ReviewBase(ref: ref.name, distance: distance))
+        }
+        return bases.sorted { ($0.distance, $0.ref) < ($1.distance, $1.ref) } + [ReviewBase(ref: defaultBase, distance: distance)]
     }
 
     public static func contents(of file: ReviewFile, compare: ReviewCompare, in changes: ReviewChanges) async throws -> ReviewContents {

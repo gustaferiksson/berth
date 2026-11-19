@@ -44,7 +44,7 @@ enum Snapshot {
 
         let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch)
         let state = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestState") ?? "Open"
-        return [(session, PullRequestState(rawValue: state.capitalized).map { PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries against settlement exports and flag every mismatch", state: $0) })]
+        return [(session, PullRequestState(rawValue: state.capitalized).map { PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries against settlement exports and flag every mismatch", state: $0, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase")) })]
     }()
 
     static let fixturePullRequestDetail: PullRequestDetail? = {
@@ -277,9 +277,15 @@ enum Snapshot {
                 }
                 try? await Task.sleep(for: .milliseconds(100))
             }
+            if let ref = UserDefaults.standard.string(forKey: "snapshotReviewBase"), let changes = model.changes {
+                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                arguments[ReviewModel.baseBranchesKey] = [changes.root: [changes.branch: ref]]
+                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                await model.load()
+            }
             try? await Task.sleep(for: .seconds(1))
             print("review \(model.changes.map { "\($0.branch) → \($0.base ?? "-"), fetch error \($0.fetchError ?? "-")" } ?? "error \(model.error.map(ReviewModel.describe) ?? "timed out")")")
-            print("review card \(model.status.map { "base \(model.changes?.base ?? "-"), default branch \(model.changes?.isDefaultBranch == true), ahead \($0.ahead), behind \($0.behind), upstream \($0.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" }), total \(model.changes?.total.map { "+\($0.additions) -\($0.deletions)" } ?? "-")" } ?? "none"), pull request details \(model.pullRequestDetails)")
+            print("review card \(model.status.map { "base \(model.changes?.base ?? "-") (\(model.changes?.baseReason?.rawValue ?? "-")), bases \(model.changes?.bases.map { "\($0.ref) \($0.distance)" } ?? []), default branch \(model.changes?.isDefaultBranch == true), ahead \($0.ahead), behind \($0.behind), upstream \($0.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" }), total \(model.changes?.total.map { "+\($0.additions) -\($0.deletions)" } ?? "-")" } ?? "none"), pull request details \(model.pullRequestDetails)")
             for (section, files) in [("uncommitted", model.changes?.uncommitted ?? []), ("committed", model.changes?.committed ?? [])] {
                 for file in files { print("  \(section) \(file.status.rawValue) \(file.path) +\(file.additions.map(String.init) ?? "?") -\(file.deletions.map(String.init) ?? "?")") }
             }

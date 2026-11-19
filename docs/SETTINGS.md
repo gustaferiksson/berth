@@ -32,6 +32,7 @@ Changes apply to a running Berth without a relaunch, except where the table says
 | `reviewShowsMinimap` | `-bool` | `true` | Show the diff minimap. |
 | `reviewDiffLayout` | `-string` | `auto` | `auto` (side by side from 760 pt of diff column), `sideBySide` or `inline`. |
 | `reviewChangesAsTree` | `-bool` | `false` | Show Uncommitted and Committed as a folder tree instead of a list. |
+| `reviewBaseBranches` | `-dict` | unset | The base picked in Review's header, per repository root: `{"<root>" = {"<branch>" = "<ref>";};}`. Unset branches use the PR's base, else the nearest branch towards the default branch. |
 | `remoteEnabled` | `-bool` | `false` | Berth Remote. Turn it on in Settings, which creates the token; a `defaults write` alone does nothing. |
 
 Remove a key with `defaults delete $ID <key>` to go back to its default.
