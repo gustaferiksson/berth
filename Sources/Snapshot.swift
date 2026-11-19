@@ -111,10 +111,11 @@ enum Snapshot {
     }()
 
     private static let taskFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: [PullRequestBranch: PullRequest?], tasks: TaskState)? = {
-        guard UserDefaults.standard.bool(forKey: "snapshotTasks") else { return nil }
+        let reviewing = UserDefaults.standard.bool(forKey: "snapshotTasksReview")
+        guard UserDefaults.standard.bool(forKey: "snapshotTasks") || reviewing else { return nil }
 
-        let code = NSTemporaryDirectory() + "berth-tasks"
-        for name in ["billing/.git", "web/.git", "infra/.git"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) }
+        let code = reviewing ? tasksReviewFolder : NSTemporaryDirectory() + "berth-tasks"
+        if !reviewing { for name in ["billing/.git", "web/.git", "infra/.git"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) } }
         let usage = IssueRef(repository: "acme/billing", number: 57)
         let rounding = IssueRef(repository: "acme/billing", number: 58)
         let cleanup = (212...217).map { PullRequestLink(repository: "acme/billing", number: $0) }
@@ -127,7 +128,7 @@ enum Snapshot {
             SessionSummary(id: "task-polish", cwd: "\(code)/web", title: "Polish the export modal copy", lastActivity: .now - 7200, branch: "usage-export"),
             SessionSummary(id: "task-removed", cwd: "\(code)/billing", title: "Retry the usage export on timeout", lastActivity: .now - 9000, issueRefs: [usage]),
             SessionSummary(id: "task-infra", cwd: "\(code)/infra", title: "Tidy the CI pipeline", lastActivity: .now - 10_000),
-        ]
+        ] + (reviewing ? [SessionSummary(id: "task-usage-docs", cwd: "\(code)/billing", title: "Document the usage export columns", lastActivity: .now - 1800, branch: "usage-docs", issueRefs: [usage])] : [])
         let url = { (repository: String, number: Int) in URL(string: "https://github.com/\(repository)/pull/\(number)")! }
         return (
             sessions,
@@ -139,7 +140,12 @@ enum Snapshot {
                 PullRequestBranch(repository: "acme/web", branch: "feat/export-button"): PullRequest?.none,
                 PullRequestBranch(repository: "acme/web", branch: "feat/rounded-totals"): PullRequest?.none,
                 PullRequestBranch(repository: "acme/web", branch: "usage-export"): PullRequest?.none,
-            ],
+            ].merging(reviewing ? [
+                PullRequestBranch(repository: "acme/billing", branch: "usage-export"): PullRequest(number: 61, url: url("acme/billing", 61), title: "Usage export endpoint", state: .open, checks: .passed, closingIssues: [ClosingIssue(ref: usage, title: "Usage export for invoices")]),
+                PullRequestBranch(repository: "acme/billing", branch: "usage-docs"): PullRequest(number: 62, url: url("acme/billing", 62), title: "Document the usage export", state: .draft, checks: .running),
+                PullRequestBranch(repository: "acme/web", branch: "feat/export-button"): PullRequest(number: 89, url: url("acme/web", 89), title: "Usage export in dashboard", state: .open, checks: .failed),
+                PullRequestBranch(repository: "acme/infra", branch: "ci-cache"): PullRequest?.none,
+            ] : [:]) { $1 },
             TaskState(tasks: [StoredTask(id: "task:fixture-usage", issue: usage, origin: .auto, sessionIDs: ["task-usage-api"], excluded: ["task-removed"])])
         )
     }()
@@ -328,6 +334,7 @@ enum Snapshot {
             if AppAction.showChanges.isAvailable(in: store) { AppAction.showChanges.perform(on: store) }
             store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")]
         }
+        if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { prepareTasksReview(store: store) }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
             store.openClaude(cwd: cwd, checkout: .main)
         }
@@ -365,9 +372,10 @@ enum Snapshot {
         hosting.sceneBridgingOptions = .all
         let window = UnconstrainedWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.setContentSize(editedGroup != nil || editedServer != nil ? hosting.view.fittingSize : showsStats ? NSSize(width: 960, height: 800) : reviewFolder != nil ? NSSize(width: UserDefaults.standard.object(forKey: "snapshotReviewWidth") == nil ? 1600 : UserDefaults.standard.double(forKey: "snapshotReviewWidth"), height: 900) : NSSize(width: 1200, height: 760))
+        window.setContentSize(editedGroup != nil || editedServer != nil ? hosting.view.fittingSize : showsStats ? NSSize(width: 960, height: 800) : reviewFolder != nil || UserDefaults.standard.bool(forKey: "snapshotTasksReview") ? NSSize(width: UserDefaults.standard.object(forKey: "snapshotReviewWidth") == nil ? 1600 : UserDefaults.standard.double(forKey: "snapshotReviewWidth"), height: 900) : NSSize(width: 1200, height: 760))
         window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
         window.orderFrontRegardless()
+        if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { await captureTasksReview(store: store, window: window, output: output) }
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30
             while Date.now < deadline, model.error == nil, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
@@ -1467,7 +1475,7 @@ enum Snapshot {
     }
     #endif
 
-    private static func describe(_ model: ReviewModel) -> String {
+    static func describe(_ model: ReviewModel) -> String {
         guard !model.tabs.isEmpty else { return "closed" }
 
         return "tabs " + model.tabs.map { tab in
@@ -1500,7 +1508,7 @@ enum Snapshot {
     }
 
     // cacheDisplay skips Liquid Glass and Metal; CGWindowListCreateImage is SDK-obsoleted but still exported and captures own windows without Screen Recording.
-    private static func image(of window: NSWindow) -> CGImage? {
+    static func image(of window: NSWindow) -> CGImage? {
         typealias CreateImage = @convention(c) (CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
 

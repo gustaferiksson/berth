@@ -4,7 +4,7 @@ A task groups the sessions working toward one goal, across folders, repos, branc
 Berth owns the model; a GitHub issue is an optional link on it. The first slice
 is built in two steps. Slice 1a (done): store, automatic forming, branch-name suggestions, task rows
 inside the sidebar's groups, rename, Remove from Task, Delete Task and New Task from Selection.
-Slice 1b (not built): the task card in Review with a repo switcher, Add to Task, Link Issue, merge.
+Slice 1b: the task card in Review with stacked repo sections (built), Add to Task, Link Issue, merge (not built).
 Board, Open Diff in New Window and Harbor are under Later.
 
 Numbers below were measured over 60 days of the author's transcripts (253 sessions, 105 PRs,
@@ -152,25 +152,60 @@ Decided from the mock (`place` groups, `row` nested, `keep` move, `sugg` inline)
 - Per-group cap: a group shows 5 rows, a task row with its members counting as one; the header
   counts sessions.
 
-## Review: task card and repo switcher
+## Review: task card and stacked repos
 
-- A session in a task gets a task card at the top of the Review panel: title, issue chip with Open on
-  GitHub, a line "N sessions · M PRs · K repos", and the repo switcher. A session in no task shows the
-  panel exactly as today. Position of the card is undecided (mock: `card`).
-- Repos in the switcher: the checkouts of the task's sessions (worktrees merge into their repo, as in
-  Grouping), plus repos the selected session edited outside its own folder. The edited set comes from
-  Edit, Write and MultiEdit `file_path`s in the transcript, resolved with `RepositoryRoot`; the first read is
-  the whole file (like `TranscriptActivity`, 0.35 s Release for 92 MB), then appended bytes, only for the selected
-  tab. Repos without a folder on disk are listed greyed (their PR from the lookup, nothing to diff).
-  Edited-only repos carry a dot.
-- Each repo entry shows its name and the task's PR count there. Choosing one switches `ReviewModel` to that repo's
-  folder: the selected session's own folder for its own repo, else the newest member's folder in that repo,
-  else the repo root where the session edited. In-memory per session (`Store.reviewRepo`).
-- The model key changes from session id to (session id, repo root) so drafts, tabs and comments survive a
-  switch. A comment sent from another repo's diff goes into the selected session's terminal and carries
-  its repo (`ReviewComment.repo`; the prompt names it).
-- Branch and PR card, base picker, Refresh and Create Pull Request… act on the chosen repo. Switcher
-  look is undecided (mock: `repos`).
+Built (slice 1b, review part). Decided from the mock: card `fold`, repos `stack`.
+
+- A session in a task gets a collapsible task card as the first row of the Changes list: a chevron, the
+  issue chip (opens the issue), the title and "N repos" while folded; open, a line "N sessions · M PRs · K
+  repos" and the members (at most 6, then "N more") as buttons that run `Store.activate(.session)`, the
+  current one semibold, each with its project name. The fold state is in memory
+  (`Store.collapsedReviewRepositories`, key `task:<id>`). The title is `Store.title(of:)`, the sidebar
+  row's chain over all members.
+- Below it, one section per repo, in the same list: the session's own repo first, then the repos of the
+  task's other members (newest member's folder per repo; worktrees merge into their repo, as in
+  Grouping), then repos the session edited outside its own. A session in no task with edits elsewhere
+  gets the sections and no card; a session in no task and no outside edits shows the panel exactly as
+  before (pixel-identical, checked against `-snapshotReview`).
+- Each section is a `Section(isExpanded:)` under the sidebar's `GroupHeader`: the repo name, and on the
+  right the branch → base (not for the own repo, whose branch and base stay in the panel header) and one
+  `PullRequestTag` per PR with its checks. A repo's PRs are those of the task members in that repo plus
+  the section branch's (`Store.pullRequests(inRoot:of:branch:)`, deduped by number). Collapsed state is per
+  repo root, in memory. The own repo's section also carries today's full branch card (PR card, commits,
+  Create Pull Request, base picker in the header) as its first row; other repos get the compact header
+  only. Under each header, "Uncommitted" and "Committed" subheadings (count, +/-) over the existing rows,
+  list or tree. They do not collapse: a `List` section cannot nest, so collapse is per repo.
+- The Files outline stays the own repo's.
+- Edited repos: `TranscriptEdits` reads Edit, Write, MultiEdit and NotebookEdit paths (`file_path`, else
+  `notebook_path`) from the selected session's transcript only (not its subagent files), the first time in
+  full, then appended bytes, cached per open session (`Store.editedRepositories`) and refreshed on scan,
+  on selection and when the panel shows. Each path's folder resolves to its repository: the identity is
+  the main checkout (`RepositoryRoot`), the folder to diff is the enclosing worktree root. Paths in no
+  repository and relative paths are ignored. An edited-only repo with no changes and no comments is
+  hidden (sessions that edited and committed to the default branch would otherwise keep an empty
+  section); a task member's repo always shows.
+- Models: `Store.reviewModels[sessionID]` stays the own repo's model; other repos are
+  `reviewModels["<session id>\n<root>"]`, listed in `Store.reviewRepositories[sessionID]`, created and
+  dropped by `prepareReviewModel` (kept while they hold drafts or comments). `Store.activeReviewRoots`
+  names the model the diff column shows; every `ReviewModel.open` sets it (`onOpen`), so any row, Open File
+  button or comment opens its file in its own repo and the column follows. Tabs, history and editors
+  therefore live per repo: the tab strip shows the active repo's tabs only. Closing the last tab of another
+  repo falls back to the own repo. `ReviewDocument.root` (nil: the own model's) tags rows in the one
+  `List`, so the same path in two repos never collides.
+- Comments live in the model of the file they are on. The panel lists all of them (another repo's prefixed
+  `repo:`) and Send pastes one prompt into the selected session: the own repo's block as before, then one
+  block per other repo whose heading names the repo and its path and whose comment paths are prefixed
+  `repo:`. A successful send clears every model's comments.
+- Watching: one `FileWatcher` per shown repo root (`Store.watchReview(_:)`), each reloading every shown
+  model through `refreshReview`. The PR lookup for another repo's branch runs from the panel
+  (`Store.fetchPullRequests`, once per unknown branch) and its base follows the PR's `baseRefName` like
+  the own repo's.
+- Not built: Link Issue, Add to Task and Merge (still slice 1b leftovers), repos without a folder on disk
+  (they are left out, not greyed), a repo switcher (the stack replaced it).
+- Snapshot: `-snapshotTasksReview YES` builds three scratch repos under `.build/tasks-review`
+  (billing, web, infra; plain `git commit` with the user's identity) and the task fixtures on them;
+  `-snapshotTasksReviewSession task-infra` is the no-task variant. Pass `-collapsedReviewSections files
+  -reviewChangesAsTree NO|YES` and run with `GIT_CEILING_DIRECTORIES` set to `.build`.
 
 ## Data cost
 
@@ -203,8 +238,8 @@ Decided from the mock (`place` groups, `row` nested, `keep` move, `sugg` inline)
 - Task with a merged or closed issue and all PRs merged: nothing special in the first slice
   (the PR tags turn merged purple).
 - Without `gh` or an `origin` remote: task from pr-link and typed URLs only.
-- A repo in the switcher that no longer exists: greyed, not selectable.
-- Review off: no task card, no switcher; the sidebar's task rows stay.
+- A repo whose folder no longer exists: left out of the stack.
+- Review off: no task card, no repo sections; the sidebar's task rows stay.
 - Snapshots: `-snapshotTasks`, plus `-snapshotTaskIssues "<json>"` for the fixture's closing refs
   (snapshot mode never calls `gh`).
 
@@ -214,7 +249,7 @@ Decided from the mock (`place` groups, `row` nested, `keep` move, `sugg` inline)
 2. Typed issue refs in the transcript scan, `closingIssuesReferences` in the PR batch.
 3. Task rows in the groups, rename, Remove from Task, Delete Task, New Task from Selection (Add to Task in slice 1b).
 4. Suggestions UI.
-5. Review task card, repo switcher, (session, repo) model key, edited-repos read.
+5. Review task card, stacked repo sections, (session, repo) models, edited-repos read (done).
 
 ## Later
 
@@ -242,4 +277,4 @@ Still open:
   (`main`, `master`, `develop`, `dev`, `trunk`, `wip`, `fix`, `test`, `tmp`, `HEAD`).
 - Closing refs come from the branch lookup only: a PR known just from a `pr-link` record joins by
   its number but carries no closing refs.
-- Review's task card, its position and the repo switcher form (slice 1b).
+- Review's task card (decided: collapsible, first row of the Changes list) and repo form (decided: stacked sections).
