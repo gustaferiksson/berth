@@ -24,6 +24,7 @@ public struct LanguageServerRange: Sendable, Hashable {
               let start = range["start"] as? [String: Any], let startLine = start["line"] as? Int, let startCharacter = start["character"] as? Int,
               let end = range["end"] as? [String: Any], let endLine = end["line"] as? Int, let endCharacter = end["character"] as? Int
         else { return nil }
+
         self.start = LanguageServerPosition(line: startLine, character: startCharacter)
         self.end = LanguageServerPosition(line: endLine, character: endCharacter)
     }
@@ -82,6 +83,7 @@ struct LanguageServerFraming {
             let length = header.split(separator: "\r\n").compactMap { line -> Int? in
                 let parts = line.split(separator: ":", maxSplits: 1)
                 guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "content-length" else { return nil }
+
                 return Int(parts[1].trimmingCharacters(in: .whitespaces))
             }.first
 
@@ -110,7 +112,7 @@ public actor LanguageServer {
     private let process = Process()
     private let input = Pipe()
     private var nextID = 0
-    private var pending: [Int: CheckedContinuation<Data, Error>] = [:]
+    private var pending: [Int: CheckedContinuation<Data, any Error>] = [:]
     private var versions: [URL: Int] = [:]
     private var hasExited = false
     private var pullsDiagnostics = false
@@ -185,9 +187,11 @@ public actor LanguageServer {
         guard versions[url] == nil else { return try change(url, text: text) }
 
         versions[url] = 1
-        try send(["jsonrpc": "2.0", "method": "textDocument/didOpen", "params": [
-            "textDocument": ["uri": url.absoluteString, "languageId": languageID, "version": 1, "text": text],
-        ]])
+        try send([
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": ["textDocument": ["uri": url.absoluteString, "languageId": languageID, "version": 1, "text": text]],
+        ])
         if pullsDiagnostics { Task { await pullDiagnostics(url) } }
     }
 
@@ -195,10 +199,11 @@ public actor LanguageServer {
         guard let version = versions[url].map({ $0 + 1 }) else { return }
 
         versions[url] = version
-        try send(["jsonrpc": "2.0", "method": "textDocument/didChange", "params": [
-            "textDocument": ["uri": url.absoluteString, "version": version],
-            "contentChanges": [["text": text]],
-        ]])
+        try send([
+            "jsonrpc": "2.0",
+            "method": "textDocument/didChange",
+            "params": ["textDocument": ["uri": url.absoluteString, "version": version], "contentChanges": [["text": text]]],
+        ])
         if pullsDiagnostics { Task { await pullDiagnostics(url) } }
     }
 
@@ -219,6 +224,7 @@ public actor LanguageServer {
             guard let uri = (item["targetUri"] ?? item["uri"]) as? String, let url = URL(string: uri),
                   let range = LanguageServerRange(json: item["targetSelectionRange"] ?? item["range"])
             else { return nil }
+
             return LanguageServerLocation(url: url, range: range)
         }
     }
@@ -232,6 +238,7 @@ public actor LanguageServer {
 
         return (result as? [[String: Any]] ?? []).compactMap { item in
             guard let uri = item["uri"] as? String, let url = URL(string: uri), let range = LanguageServerRange(json: item["range"]) else { return nil }
+
             return LanguageServerLocation(url: url, range: range)
         }
     }
@@ -247,9 +254,11 @@ public actor LanguageServer {
             if let text = piece as? String { return text }
             guard let object = piece as? [String: Any], let value = object["value"] as? String else { return nil }
             guard let language = object["language"] as? String else { return value }
+
             return "```\(language)\n\(value)\n```"
         }.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !markdown.isEmpty else { return nil }
+
         return LanguageServerHover(markdown: markdown, range: LanguageServerRange(json: hover["range"]))
     }
 
@@ -322,6 +331,7 @@ public actor LanguageServer {
 
     private func receive(_ message: Data) {
         guard let object = try? JSONSerialization.jsonObject(with: message) as? [String: Any] else { return }
+
         let method = object["method"] as? String
 
         if let method, let id = object["id"] {
@@ -333,6 +343,7 @@ public actor LanguageServer {
         }
 
         guard method == nil, let id = object["id"] as? Int, let continuation = pending.removeValue(forKey: id) else { return }
+
         continuation.resume(returning: message)
     }
 
@@ -351,7 +362,7 @@ public actor LanguageServer {
             return
         }
 
-        try? send(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "Method not found: \(method)"]])
+        try? send(["jsonrpc": "2.0", "id": id, "error": ["code": -32_601, "message": "Method not found: \(method)"]])
     }
 
     private func publishDiagnostics(_ params: [String: Any]?) {
@@ -359,6 +370,7 @@ public actor LanguageServer {
 
         let diagnostics = (params?["diagnostics"] as? [[String: Any]] ?? []).compactMap { diagnostic -> LanguageServerDiagnostic? in
             guard let range = LanguageServerRange(json: diagnostic["range"]), let message = diagnostic["message"] as? String else { return nil }
+
             let severity = (diagnostic["severity"] as? Int).flatMap(LanguageServerDiagnostic.Severity.init(rawValue:))
             return LanguageServerDiagnostic(range: range, severity: severity, message: message, source: diagnostic["source"] as? String)
         }

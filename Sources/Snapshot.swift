@@ -1,5 +1,6 @@
-import BerthCore
 import AppKit
+import BerthCore
+import GhosttyTerminal
 import SwiftUI
 
 enum Snapshot {
@@ -40,6 +41,7 @@ enum Snapshot {
 
     private static let reviewPullRequest: [(session: SessionSummary, pullRequest: PullRequest?)] = {
         guard let folder = UserDefaults.standard.string(forKey: "snapshotReview"), let branch = UserDefaults.standard.string(forKey: "snapshotReviewPullRequest") else { return [] }
+
         let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch)
         let state = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestState") ?? "Open"
         return [(session, PullRequestState(rawValue: state.capitalized).map { PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries against settlement exports and flag every mismatch", state: $0) })]
@@ -48,6 +50,7 @@ enum Snapshot {
     static let fixturePullRequestDetail: PullRequestDetail? = {
         let counts = (UserDefaults.standard.string(forKey: "snapshotReviewChecks") ?? "").split(separator: ":").compactMap { Int($0) }
         guard counts.count == 4 else { return nil }
+
         let state = counts[1] > 0 ? "FAILURE" : counts[2] > 0 ? "PENDING" : "SUCCESS"
         let threads = Array(repeating: #"{"isResolved":false}"#, count: counts[3]) + [#"{"isResolved":true}"#]
         let response = #"{"data":{"repository":{"pullRequest":{"statusCheckRollup":{"state":"\#(state)","contexts":{"checkRunCountsByState":[{"state":"SUCCESS","count":\#(counts[0])},{"state":"FAILURE","count":\#(counts[1])},{"state":"IN_PROGRESS","count":\#(counts[2])}]}},"reviewThreads":{"nodes":[\#(threads.joined(separator: ","))]}}}}}"#
@@ -90,6 +93,7 @@ enum Snapshot {
         #if DEBUG
         let index = UserDefaults.standard.integer(forKey: "snapshotSelectRow")
         guard index > 0, let sessions = groups.first(where: { !$0.sessions.isEmpty })?.sessions, index <= sessions.count else { return nil }
+
         return .session(sessions[index - 1].id)
         #else
         return nil
@@ -257,7 +261,7 @@ enum Snapshot {
         let window = UnconstrainedWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.setContentSize(editedGroup != nil || editedServer != nil ? hosting.view.fittingSize : showsStats ? NSSize(width: 960, height: 800) : reviewFolder != nil ? NSSize(width: UserDefaults.standard.object(forKey: "snapshotReviewWidth") == nil ? 1600 : UserDefaults.standard.double(forKey: "snapshotReviewWidth"), height: 900) : NSSize(width: 1200, height: 760))
-        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
         window.orderFrontRegardless()
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30
@@ -266,6 +270,7 @@ enum Snapshot {
                     if UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
                     let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
                     guard let document = requested ?? changes.uncommitted.first.map({ ReviewDocument(path: $0.path, compare: .uncommitted) }) ?? changes.committed.first.map({ ReviewDocument(path: $0.path, compare: .committed) }) else { break }
+
                     model.open(document)
                 }
                 try? await Task.sleep(for: .milliseconds(100))
@@ -292,6 +297,7 @@ enum Snapshot {
             let clips = { sides.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }.joined(separator: "/") }
             let save = { (suffix: String) in
                 guard let image = image(of: window) else { return }
+
                 try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
             }
             let click = { (point: [Double]) in
@@ -327,12 +333,14 @@ enum Snapshot {
                     let offFragment = lineViews.filter { frame in
                         let origin = side.textContainerOrigin
                         guard let fragment = side.textLayoutManager?.textLayoutFragment(for: CGPoint(x: 0, y: frame.midY - origin.y)) else { return true }
+
                         return frame != fragment.renderingSurfaceBounds.offsetBy(dx: fragment.layoutFragmentFrame.minX + origin.x, dy: fragment.layoutFragmentFrame.minY + origin.y)
                     }
                     print("\(label) \(index == 0 ? "left" : "right") line views: \(lineViews.count) on screen, \(offFragment.count) off their layout fragment\(offFragment.prefix(3).map { " \($0)" }.joined())")
                     print("\(label) \(index == 0 ? "left" : "right"): TextKit 2 \(side.textLayoutManager != nil), layoutManager requests \(side.layoutManagerRequests), height \(side.frame.height), usage \(side.textLayoutManager?.usageBoundsForTextContainer.height ?? -1), clip y \(side.enclosingScrollView?.contentView.bounds.minY ?? -1), reserved \(side.reserved), inline \(side.subviews.compactMap { $0 as? ReviewInlineComment }.filter { !$0.isHidden }.map { "\($0.frame)" })")
                 }
                 guard sides.count == 2 else { return }
+
                 let rows = sides.map { side in
                     var tops: [Int: CGFloat] = [:]
                     side.enumerateRows(in: side.bounds) { line, row, _, startsLine in if startsLine { tops[line] = row.minY } }
@@ -341,9 +349,9 @@ enum Snapshot {
                 let diff = ReviewDiff(original: sides[0].string, modified: sides[1].string)
                 let checks = diff.hunks.compactMap { hunk in rows[0][hunk.originalLines.upperBound].flatMap { left in rows[1][hunk.modifiedLines.upperBound].map { (hunk, left, $0) } } }
                 let unchanged = zip((0..<diff.original.lineCount).filter { !diff.original.changedLines.contains($0) }, (0..<diff.modified.lineCount).filter { !diff.modified.changedLines.contains($0) })
-                let shifted = unchanged.filter { pair in rows[0][pair.0].flatMap { left in rows[1][pair.1].map { left != $0 } } ?? false }.count
-                let arithmetic = unchanged.filter { pair in rows[1][pair.1].map { $0 != sides[1].top(ofRow: (sides[1].side ?? diff.modified).rows[pair.1]) } ?? false }.count
-                print("\(label) \(sides[1].unifiedOriginal == nil ? "side by side" : "unified, width \(sides[1].frame.width) for \(sides[1].minimumWidth), text is the file \(sides[1].string == model.drafts[model.selectedDocument?.path ?? ""] ?? model.selectedDocument.flatMap { model.contents[$0]?.modified }.flatMap { if case let .text(text) = $0 { text } else { nil } } ?? "")"), height \(sides[1].frame.height) for top(ofRow: rowCount) \(sides[1].top(ofRow: sides[1].side?.rowCount ?? 0)), pane \(sides[1].enclosingScrollView?.superview?.frame.width ?? -1) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.filter { $0.1 != $0.2 }.count), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
+                let shifted = unchanged.count(where: { pair in rows[0][pair.0].flatMap { left in rows[1][pair.1].map { left != $0 } } ?? false })
+                let arithmetic = unchanged.count(where: { pair in rows[1][pair.1].map { $0 != sides[1].top(ofRow: (sides[1].side ?? diff.modified).rows[pair.1]) } ?? false })
+                print("\(label) \(sides[1].unifiedOriginal == nil ? "side by side" : "unified, width \(sides[1].frame.width) for \(sides[1].minimumWidth), text is the file \(sides[1].string == model.drafts[model.selectedDocument?.path ?? ""] ?? model.selectedDocument.flatMap { model.contents[$0]?.modified }.flatMap { if case let .text(text) = $0 { text } else { nil } } ?? "")"), height \(sides[1].frame.height) for top(ofRow: rowCount) \(sides[1].top(ofRow: sides[1].side?.rowCount ?? 0)), pane \(sides[1].enclosingScrollView?.superview?.frame.width ?? -1) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.count(where: { $0.1 != $0.2 })), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
             }
             report("review")
             if let ratio = UserDefaults.standard.string(forKey: "snapshotReviewSplit").flatMap(Double.init), let file = model.selectedDocument {
@@ -351,6 +359,7 @@ enum Snapshot {
                 let split = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last?.enclosingScrollView?.superview?.superview as? NSSplitView }
                 let press = { (x: CGFloat?, clickCount: Int) in
                     guard let split = split() else { return }
+
                     let divider = split.subviews[0].frame.maxX + split.dividerThickness / 2
                     let event = { (type: NSEvent.EventType, x: CGFloat) in NSEvent.mouseEvent(with: type, location: split.convert(NSPoint(x: x, y: split.bounds.midY), to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: type == .leftMouseUp ? 0 : 1) }
                     event(.leftMouseDragged, x ?? divider).map { NSApp.postEvent($0, atStart: false) }
@@ -397,21 +406,25 @@ enum Snapshot {
                 let point = { (textView: ReviewTextView, spec: String) -> NSPoint? in
                     let numbers = spec.split(separator: ":").compactMap { Int($0) }
                     guard numbers.count == 2 else { return nil }
+
                     let offset = textView.offset(of: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1))
                     return textView.segments(of: NSRange(location: offset, length: 1)).first.map { NSPoint(x: $0.rect.midX, y: $0.rect.midY) }
                 }
                 let mouse = { (textView: ReviewTextView, type: NSEvent.EventType, location: NSPoint, flags: NSEvent.ModifierFlags) in
                     guard let event = NSEvent.mouseEvent(with: type, location: textView.convert(location, to: nil), modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .mouseMoved ? 0 : 1) else { return }
                     guard type == .leftMouseDown else { return textView.mouseMoved(with: event) }
+
                     NSEvent.mouseEvent(with: .leftMouseUp, location: event.locationInWindow, modifierFlags: flags, timestamp: event.timestamp, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0).map { NSApp.postEvent($0, atStart: false) }
                     textView.mouseDown(with: event)
                 }
                 let crop = { (suffix: String, view: NSView, rect: NSRect) in
                     guard let image = image(of: window) else { return }
+
                     let scale = CGFloat(image.width) / window.frame.width
                     let inWindow = view.convert(rect, to: nil)
                     let pixels = CGRect(x: inWindow.minX * scale, y: (window.frame.height - inWindow.maxY) * scale, width: inWindow.width * scale, height: inWindow.height * scale)
                     guard let cropped = image.cropping(to: pixels.integral) else { return }
+
                     try? NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
                 }
                 let clock = ContinuousClock.now
@@ -472,6 +485,7 @@ enum Snapshot {
                 let locate = { (spec: String) -> (textView: ReviewTextView, clicked: ReviewTextView, point: NSPoint)? in
                     let isLeft = spec.hasPrefix("left:")
                     guard let textView = isLeft ? right()?.unifiedOriginal ?? views().first : right(), let clicked = textView.window == nil || textView.enclosingScrollView?.isHidden == true ? right() : textView, let point = point(textView, isLeft ? String(spec.dropFirst(5)) : spec) else { return nil }
+
                     return (textView, clicked, point)
                 }
                 if let spec = UserDefaults.standard.string(forKey: "snapshotReviewHover"), let (_, textView, target) = locate(spec) {
@@ -494,12 +508,13 @@ enum Snapshot {
                         try? await Task.sleep(for: .seconds(2))
                     }
                     guard let (textView, clicked, target) = locate(spec) else { continue }
+
                     let requests = textView.layoutManagerRequests
                     let before = views().map { $0.selectedRange() }
                     let clipsBefore = clipYs()
                     mouse(clicked, .mouseMoved, target, .command)
                     try? await Task.sleep(for: .milliseconds(300))
-                    crop(".link-\(spec.replacingOccurrences(of: ":", with: "-")).png", clicked, NSRect(x: target.x - 120, y: target.y - 20, width: 240, height: 40))
+                    crop(".link-\(spec.replacing(":", with: "-")).png", clicked, NSRect(x: target.x - 120, y: target.y - 20, width: 240, height: 40))
                     mouse(clicked, .leftMouseDown, target, .command)
                     let started = ContinuousClock.now
                     let isUnchanged = { model.selectedDocument == file && views().map { $0.selectedRange() } == before && peek() == nil && clipYs() == clipsBefore }
@@ -516,10 +531,11 @@ enum Snapshot {
                         print("definition \(spec): no landing after \(ContinuousClock.now - started) (outside the repository or no answer), selected \(model.selectedDocument?.path ?? "-")")
                         continue
                     }
+
                     let selection = landed.selectedRange()
                     let position = landed.position(ofOffset: selection.location)
                     print("definition \(spec): landed in \(describe(model)) on the \(landed === views().first ? "left" : "right") at \(position.line + 1):\(position.character + 1) selecting \((landed.string as NSString).substring(with: selection).debugDescription), clip y left/right \(descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }), first responder is right \(window.firstResponder === landed), layoutManager requests \(requests) → \(landed.layoutManagerRequests), TextKit 2 \(landed.textLayoutManager != nil)")
-                    save(".definition-\(spec.replacingOccurrences(of: ":", with: "-")).png")
+                    save(".definition-\(spec.replacing(":", with: "-")).png")
                     let landedDocument = model.selectedDocument
                     await model.load()
                     try? await Task.sleep(for: .seconds(1))
@@ -542,7 +558,8 @@ enum Snapshot {
                         try? await Task.sleep(for: .seconds(2))
                     }
                     guard let (textView, clicked, target) = locate(spec) else { continue }
-                    let name = spec.replacingOccurrences(of: ":", with: "-")
+
+                    let name = spec.replacing(":", with: "-")
                     let menu = NSEvent.mouseEvent(with: .rightMouseDown, location: clicked.convert(target, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1).flatMap(clicked.menu(for:))
                     print("references \(spec): writing tools off in diff views \(views().map { $0.writingToolsBehavior == .none }), comment field \(ReviewInlineComment(title: "", text: "", kind: .card(onDelete: {}), style: clicked.style).field.writingToolsBehavior == .none), context menu \(menu?.items.map(\.title) ?? [])")
                     mouse(clicked, .leftMouseDown, target, .command)
@@ -551,6 +568,7 @@ enum Snapshot {
                         print("references \(spec): no peek after ⌘-click, \(describe(model))")
                         continue
                     }
+
                     print("references \(spec) after ⌘-click: \(describePeek(shown))")
                     for group in shown.outline { print("  \(group)") }
                     report("references \(spec)")
@@ -619,6 +637,7 @@ enum Snapshot {
                     let numbers = spec.split(separator: ":").compactMap { Int($0) }
                     let reopen = {
                         guard let (textView, clicked, target) = locate(spec) else { return }
+
                         let menu = NSEvent.mouseEvent(with: .rightMouseDown, location: clicked.convert(target, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1).flatMap(clicked.menu(for:))
                         if clicked === textView, numbers.count == 2 {
                             window.makeFirstResponder(textView)
@@ -634,6 +653,7 @@ enum Snapshot {
                         print("references \(spec): no peek after \(clicked === textView ? "⇧F12" : "the context menu")")
                         continue
                     }
+
                     print("references \(spec) after \(clicked === textView ? "⇧F12" : "the context menu's Find References"): \(describePeek(reopened))")
                     press(reopened, NSPoint(x: reopened.bounds.width - 18, y: 13), 1)
                     await waitForPeek(false)
@@ -662,7 +682,7 @@ enum Snapshot {
                     await reopen()
                     if let again = peek() {
                         again.list.selectRowIndexes(IndexSet(integer: again.list.numberOfRows - 1), byExtendingSelection: false)
-                        again.list.doubleAction.map { NSApp.sendAction($0, to: again.list.target, from: again.list) }
+                        if let action = again.list.doubleAction { NSApp.sendAction(action, to: again.list.target, from: again.list) }
                         await land("the list's double-click action", again.selectedReference)
                     }
                 }
@@ -697,6 +717,7 @@ enum Snapshot {
                 for (index, y) in ys.enumerated() {
                     let type: NSEvent.EventType = index == 0 ? .leftMouseDown : index == ys.count - 1 ? .leftMouseUp : .leftMouseDragged
                     guard let event = NSEvent.mouseEvent(with: type, location: view.convert(NSPoint(x: view.bounds.midX, y: y), to: nil), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+
                     if type == .leftMouseDown { view.mouseDown(with: event) } else if type == .leftMouseDragged { view.mouseDragged(with: event) } else { view.mouseUp(with: event) }
                 }
             }
@@ -724,9 +745,10 @@ enum Snapshot {
                     }
                     if let gutter = host.gutter { mouse(gutter, ys + [ys.last ?? 0]) }
                 }
-                let draft = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.first { $0.field.isEditable } }
+                let draft = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.first(where: \.field.isEditable) }
                 let type = { (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) in
                     guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { return }
+
                     window.sendEvent(event)
                 }
                 let clock = ContinuousClock.now
@@ -829,7 +851,7 @@ enum Snapshot {
                     try? await Task.sleep(for: .seconds(1.5))
                     let now = ProcessAncestry.descendants()
                     print("\(label): sidebar \(UserDefaults.standard.string(forKey: "sidebarPosition") ?? "left"), text clip x \(descendantViews(window.contentView ?? NSView()).compactMap { ($0 as? ReviewTextView)?.enclosingScrollView?.contentView.bounds.minX }), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), panel \(store.showsReviewPanel ? "shown" : "hidden"), harbor \(store.isHarborShown), diff \(store.reviewModel?.selectedDocument?.path ?? "closed"), split \(split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" }), same views \(mounted() == views), in window \(windows()), lost \(processes.subtracting(now).count), new \(now.subtracting(processes).count), ptys \(ptys()), shell starts \(starts())")
-                    save(".\(label.replacingOccurrences(of: " ", with: "-")).png")
+                    save(".\(label.replacing(" ", with: "-")).png")
                 }
             }
         }
@@ -845,10 +867,12 @@ enum Snapshot {
                 let index = row(token)
                 if token.hasPrefix("term"), store.terminals.indices.contains(index) { store.toggleMultiSelection(.tab(store.terminals[index].id)) }
                 guard !token.hasPrefix("term"), order.indices.contains(index) else { continue }
+
                 if token == rows.first { store.activate(order[index]) } else if token.hasPrefix("shift") { store.extendMultiSelection(to: order[index], in: order) } else { store.toggleMultiSelection(order[index]) }
             }
             let name = { (item: SidebarItem?) in
                 guard let item else { return "none" }
+
                 if case let .tab(id) = item { return store.terminals.firstIndex { $0.id == id }.map { "term\($0 + 1)" } ?? "tab" }
                 return order.firstIndex(of: item).map { "row\($0 + 1)" } ?? "other"
             }
@@ -898,7 +922,7 @@ enum Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
             for tab in [store.tabs.first { $0.id != store.selectedTabID }, store.tabs.first { $0.id == store.selectedTabID }].compactMap(\.self) {
-                weak var view = tab.terminal.attachedPlatformView
+                weak let view = tab.terminal.attachedPlatformView
                 let kind = tab.id == store.selectedTabID ? "selected" : "background"
                 if let view { window.makeFirstResponder(view) }
                 try? await Task.sleep(for: .seconds(1))
@@ -917,6 +941,7 @@ enum Snapshot {
                 store.tabs = store.tabs.map { Tab(id: $0.id, kind: .claude, cwd: $0.cwd, sessionID: nil, terminal: $0.terminal) }
                 if step == "open tab" { try? await Task.sleep(for: .seconds(2)) }
                 guard let target = store.tabs.last else { continue }
+
                 window.makeFirstResponder(hosting.view)
                 print("\(step) before activate: first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
                 store.activate(.tab(target.id))
@@ -935,6 +960,7 @@ enum Snapshot {
             try? await Task.sleep(for: .seconds(1))
             let press = { (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) in
                 guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { return }
+
                 window.sendEvent(event)
             }
             let responder = { store.focusedTerminal?.attachedPlatformView === window.firstResponder ? "terminal surface" : window.firstResponder.map { "\(type(of: $0))" } ?? "nil" }
@@ -975,7 +1001,7 @@ enum Snapshot {
                 let split = (descendantViews(window.contentView ?? NSView()).first { $0.identifier?.rawValue == "terminalSplit" } as? NSSplitView).map { split in split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" } } ?? []
                 let layout = "layout \(UserDefaults.standard.string(forKey: ReviewDiffLayout.key) ?? "unset"), shown \((descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last?.unifiedOriginal).map { _ in "unified" } ?? "side by side"), offered \([AppAction.showSideBySide, .showInline].filter { $0.isAvailable(in: store) }.map(\.title))"
                 let review = store.reviewModel.map { "review \($0.folder) \($0.changes.map { "\($0.branch) uncommitted \($0.uncommitted.map { "\($0.path) +\($0.additions ?? 0) -\($0.deletions ?? 0)" }) committed \($0.committed.map(\.path))" } ?? "not loaded"), loads \($0.loadCount)\($0.error.map { ", error \($0)" } ?? "")\($0.movedFolder.map { ", movedFolder \($0)" } ?? "")" } ?? "no review"
-                return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), expanded folders \(store.reviewModel.map { $0.expandedFolders.sorted() } ?? []), collapsed change folders \(store.reviewModel.map { $0.collapsedChangeFolders.map { "\($0.compare.map { "\($0) " } ?? "")\($0.path)" }.sorted() } ?? []), unsaved \(store.reviewModels.values.contains { $0.hasUnsavedEdits }), review text focused \(store.isReviewTextFocused), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { textView in ", text \(textView.string.prefix(16).debugDescription) (\(textView.string.count) characters), can undo \(textView.undoManager?.canUndo == true), can redo \(textView.undoManager?.canRedo == true), carets \(textView.carets.ranges.map { "\(textView.position(ofOffset: $0.location).line + 1):\(textView.position(ofOffset: $0.location).character + 1)+\($0.length)" }) primary #\(textView.carets.primary), layoutManager requests \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)" } ?? "") + ", occurrences \(descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.occurrences.count) on \($0.occurrenceRows.count) rows" })" + ((window.firstResponder as? NSTextView).flatMap { $0 is ReviewTextView ? nil : ", find field \($0.string.debugDescription)" } ?? "")
+                return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), expanded folders \(store.reviewModel.map { $0.expandedFolders.sorted() } ?? []), collapsed change folders \(store.reviewModel.map { $0.collapsedChangeFolders.map { "\($0.compare.map { "\($0) " } ?? "")\($0.path)" }.sorted() } ?? []), unsaved \(store.reviewModels.values.contains(where: \.hasUnsavedEdits)), review text focused \(store.isReviewTextFocused), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { textView in ", text \(textView.string.prefix(16).debugDescription) (\(textView.string.count) characters), can undo \(textView.undoManager?.canUndo == true), can redo \(textView.undoManager?.canRedo == true), carets \(textView.carets.ranges.map { "\(textView.position(ofOffset: $0.location).line + 1):\(textView.position(ofOffset: $0.location).character + 1)+\($0.length)" }) primary #\(textView.carets.primary), layoutManager requests \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)" } ?? "") + ", occurrences \(descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.occurrences.count) on \($0.occurrenceRows.count) rows" })" + ((window.firstResponder as? NSTextView).flatMap { $0 is ReviewTextView ? nil : ", find field \($0.string.debugDescription)" } ?? "")
             }
             let savedLayout = UserDefaults.standard.object(forKey: ReviewDiffLayout.key)
             let savedPasteboard = NSPasteboard.general.string(forType: .string)
@@ -1024,6 +1050,7 @@ enum Snapshot {
                         if position.hasPrefix("row"), let row = Int(position.dropFirst(3)) { return right.convert(NSPoint(x: 60, y: right.top(ofRow: row) + right.rowHeight / 2), to: nil) }
                         let numbers = position.split(separator: ":").compactMap { Int($0) }
                         guard numbers.count == 2, let rect = right.segments(of: NSRange(location: right.offset(of: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1)), length: 0)).first?.rect else { return nil }
+
                         return right.convert(NSPoint(x: rect.minX + 1, y: rect.midY), to: nil)
                     } ?? []
                     let flags: NSEvent.ModifierFlags = spec.hasPrefix("altdrag:") ? [.option, .shift] : .option
@@ -1072,7 +1099,7 @@ enum Snapshot {
                     continue
                 }
                 if spec.hasPrefix("select:"), let right = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewTextView }).last {
-                    let range = (right.string as NSString).range(of: spec.dropFirst(7).replacingOccurrences(of: "\\n", with: "\n").replacingOccurrences(of: "\\s", with: " "))
+                    let range = (right.string as NSString).range(of: String(spec.dropFirst(7)).replacing("\\n", with: "\n").replacing("\\s", with: " "))
                     let before = right.occurrences
                     window.makeFirstResponder(right)
                     right.setSelectedRange(range.location == NSNotFound ? NSRange(location: 0, length: 0) : range)
@@ -1111,6 +1138,7 @@ enum Snapshot {
                 }
                 let parts = spec.split(separator: "+").map(String.init)
                 guard let key = parts.last, let keyCode = keyCodes[key] else { continue }
+
                 let flags = NSEvent.ModifierFlags(parts.dropLast().compactMap { flagNames[$0] })
                 let characters = ["enter": "\r", "tab": "\t", "esc": "\u{1B}", "up": "\u{F700}", "down": "\u{F701}", "left": "\u{F702}", "right": "\u{F703}", "delete": "\u{7F}"][key] ?? key
                 print("\(spec):")
@@ -1152,6 +1180,7 @@ enum Snapshot {
                 for stroke in strokes {
                     let flags: NSEvent.ModifierFlags = spec == "alt-enter" ? .option : special[spec] != nil && spec != "enter" ? [.function, .numericPad] : []
                     guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: stroke.characters, charactersIgnoringModifiers: stroke.characters, isARepeat: false, keyCode: stroke.keyCode) else { continue }
+
                     window.sendEvent(event)
                     try? await Task.sleep(for: .milliseconds(300))
                 }
@@ -1181,6 +1210,7 @@ enum Snapshot {
         guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
               (try? png.write(to: output)) != nil
         else { fail("could not write \(output.path)") }
+
         ProcessAncestry.hangUpDescendants()
         exit(0)
         #endif
@@ -1203,6 +1233,7 @@ enum Snapshot {
             try? await Task.sleep(for: .seconds(1))
             let label = "\(names[index]) selected"
             guard let view = terminals[index].attachedPlatformView, let frameView = window.contentView?.superview else { continue }
+
             for (kind, files) in [("files", files), ("group", [])] {
                 let pasteboard = NSPasteboard(name: NSPasteboard.Name("berth-drop-\(UUID().uuidString)"))
                 pasteboard.clearContents()
@@ -1228,6 +1259,7 @@ enum Snapshot {
 
     private static func describe(_ model: ReviewModel) -> String {
         guard !model.tabs.isEmpty else { return "closed" }
+
         return "tabs " + model.tabs.map { tab in
             "\(tab.id == model.selectedTabID ? "[" : "")\(tab.document.path)\(tab.document.compare.map { " \($0)" } ?? " file") \(tab.isPreview ? "preview" : "kept") \(tab.index + 1)/\(tab.history.count)\(tab.id == model.selectedTabID ? "]" : "")"
         }.joined(separator: ", ")
@@ -1248,7 +1280,7 @@ enum Snapshot {
         lsof.standardOutput = pipe
         try? lsof.run()
         let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        return output.split(separator: "\n").filter { $0.contains("/dev/ptmx") }.count
+        return output.split(separator: "\n").count(where: { $0.contains("/dev/ptmx") })
     }
 
     private static func fail(_ message: String) -> Never {
@@ -1261,13 +1293,14 @@ enum Snapshot {
     private static func image(of window: NSWindow) -> CGImage? {
         typealias CreateImage = @convention(c) (CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
+
         let create = unsafeBitCast(symbol, to: CreateImage.self)
         return create(.null, .optionIncludingWindow, CGWindowID(window.windowNumber), [.boundsIgnoreFraming, .bestResolution])?.takeRetainedValue()
     }
 }
 
 private final class UnconstrainedWindow: NSWindow {
-    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+    override func constrainFrameRect(_ frameRect: NSRect, to _: NSScreen?) -> NSRect { frameRect }
 }
 
 #if DEBUG
@@ -1291,8 +1324,8 @@ private final class FakeDrag: NSObject, NSDraggingInfo {
         draggingDestinationWindow = window
     }
 
-    func slideDraggedImage(to screenPoint: NSPoint) {}
-    func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?, classes classArray: [AnyClass], searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:], using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
+    func slideDraggedImage(to _: NSPoint) {}
+    func enumerateDraggingItems(options _: NSDraggingItemEnumerationOptions = [], for _: NSView?, classes _: [AnyClass], searchOptions _: [NSPasteboard.ReadingOptionKey: Any] = [:], using _: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
     func resetSpringLoading() {}
 }
 #endif

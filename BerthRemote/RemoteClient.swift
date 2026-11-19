@@ -23,16 +23,19 @@ final class RemoteClient {
     static var savedToken: String? {
         var result: CFTypeRef?
         guard SecItemCopyMatching(tokenQuery.merging([kSecReturnData as String: true]) { $1 } as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+
         return String(decoding: data, as: UTF8.self)
     }
 
     private(set) var state = State.disconnected(nil) {
         didSet {
             guard state != .connected else { return }
+
             activity = [:]
             for (id, upload) in uploads where upload == .uploading { uploads[id] = .failed("The connection dropped") }
         }
     }
+
     private(set) var groups: [RemoteGroup] = []
     private(set) var folders: [String] = []
     private(set) var entries: [String: [RemoteEntry]] = [:]
@@ -56,6 +59,7 @@ final class RemoteClient {
 
     static func url(from address: String) -> URL? {
         guard let url = URL(string: address), url.host()?.isEmpty == false else { return nil }
+
         #if DEBUG
         if url.scheme == "ws", url.host() == "127.0.0.1" || url.host() == "localhost" { return url }
         #endif
@@ -67,6 +71,7 @@ final class RemoteClient {
             state = .disconnected("Couldn’t save the token in the Keychain.")
             return
         }
+
         UserDefaults.standard.set(url.absoluteString, forKey: "remoteURL")
         state = .connecting
         open(url, token: token)
@@ -74,11 +79,13 @@ final class RemoteClient {
 
     func resume() {
         guard state == .reconnecting, task == nil, let url = UserDefaults.standard.string(forKey: "remoteURL").flatMap(Self.url(from:)), let token = Self.savedToken else { return }
+
         open(url, token: token)
     }
 
     func suspend() {
         guard state == .connected || state == .reconnecting else { return }
+
         retry?.cancel()
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
@@ -99,6 +106,7 @@ final class RemoteClient {
 
     func send(_ message: RemoteClientMessage) {
         guard let task, state == .connected, let data = try? JSONEncoder().encode(message) else { return }
+
         Task { try? await task.send(.string(String(decoding: data, as: UTF8.self))) }
     }
 
@@ -113,7 +121,7 @@ final class RemoteClient {
             for offset in stride(from: 0, to: max(data.count, 1), by: RemoteUpload.chunkBytes) {
                 let end = min(offset + RemoteUpload.chunkBytes, data.count)
                 let message = RemoteClientMessage.upload(id: id, name: name, offset: offset, chunk: data.subdata(in: offset..<end), isLast: end == data.count)
-                try await task.send(.string(String(decoding: try JSONEncoder().encode(message), as: UTF8.self)))
+                try await task.send(.string(String(decoding: JSONEncoder().encode(message), as: UTF8.self)))
             }
         } catch {
             uploads[id] = .failed("The upload was interrupted")
@@ -141,16 +149,19 @@ final class RemoteClient {
             while true {
                 guard case let .string(text) = try await task.receive() else { continue }
                 guard self.task === task else { return }
+
                 let message = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(text.utf8))
                 guard case let .challenge(nonce) = message else {
                     apply(message)
                     continue
                 }
+
                 let hmac = Data(HMAC<SHA256>.authenticationCode(for: nonce, using: SymmetricKey(data: Data(token.utf8))))
-                try await task.send(.string(String(decoding: try JSONEncoder().encode(RemoteClientMessage.auth(hmac: hmac)), as: UTF8.self)))
+                try await task.send(.string(String(decoding: JSONEncoder().encode(RemoteClientMessage.auth(hmac: hmac)), as: UTF8.self)))
             }
         } catch {
             guard self.task === task else { return }
+
             self.task = nil
             if task.closeCode == .policyViolation {
                 state = .disconnected("Berth rejected the token.")
@@ -167,6 +178,7 @@ final class RemoteClient {
             retry = Task {
                 try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
+
                 resume()
             }
         }
@@ -179,19 +191,25 @@ final class RemoteClient {
             self.folders = folders
             self.features = features ?? []
             guard state != .connected else { return }
+
             state = .connected
             failures = 0
             if let subscribedSessionID { send(.subscribe(sessionID: subscribedSessionID)) }
+
         case let .transcript(sessionID, chunk, isContinuation, queued, activity):
             entries[sessionID] = (isContinuation ? entries[sessionID] ?? [] : []) + chunk
             self.queued[sessionID] = queued ?? []
             self.activity[sessionID] = activity
+
         case let .opened(sessionID):
             openedSessionID = sessionID
+
         case let .notice(message):
             notice = message
+
         case let .uploaded(id, error):
             uploads[id] = error.map(UploadState.failed) ?? .done
+
         case .challenge:
             return
         }

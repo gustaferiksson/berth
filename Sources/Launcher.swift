@@ -1,5 +1,7 @@
 import BerthCore
+import GhosttyTerminal
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum LauncherMode {
     case newSession, search, palette
@@ -59,6 +61,7 @@ struct Launcher: View {
                     .onKeyPress(.return, phases: .down) { press in
                         let matches = self.matches
                         guard mode == .newSession, press.modifiers.contains(.option), matches.indices.contains(highlighted) else { return .ignored }
+
                         start(in: matches[highlighted].path, checkout: .main)
                         return .handled
                     }
@@ -120,6 +123,7 @@ struct Launcher: View {
             isQueryFocused = true
             if mode == .search { store.updateSearchIndex() }
             guard mode == .newSession else { return }
+
             let known = store.knownFolders
             let current = RepositoryRoot.checkout(store.currentCwd)
             let promoted = current == FileManager.default.homeDirectoryForCurrentUser.path ? [] : [known.first { $0.path == current } ?? (path: current, sessions: 0, lastActivity: .distantPast)]
@@ -130,11 +134,13 @@ struct Launcher: View {
         .task(id: query) {
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled else { return }
+
             await search()
         }
         .onChange(of: store.searchIndexVersion) { Task { await search() } }
         .fileImporter(isPresented: $isBrowsing, allowedContentTypes: [.folder]) { result in
             guard case let .success(url) = result else { return }
+
             start(in: url.path)
         }
     }
@@ -265,6 +271,7 @@ struct Launcher: View {
         let ranked = CommandPalette.rank(query, items: all.map(\.item), limit: 12).compactMap { byID[$0.id] }
         let typed = query.trimmingCharacters(in: .whitespaces)
         guard !typed.isEmpty, let search = actions.first(where: { $0.item.id == AppAction.searchSessions.title }) else { return ranked }
+
         let searchRow = PaletteRow(item: PaletteItem(id: search.item.id, section: .action, title: "Search Sessions for “\(typed)”", detail: ""), target: search.target, symbol: search.symbol, trailing: search.trailing)
         return ranked.map { $0.item.id == searchRow.item.id ? searchRow : $0 } + (ranked.contains { $0.item.id == searchRow.item.id } ? [] : [searchRow])
     }
@@ -304,6 +311,7 @@ struct Launcher: View {
             ForEach(hit.snippets, id: \.self) { snippet in
                 Text(snippet.highlights.reduce(into: AttributedString(snippet.text)) { text, range in
                     guard let range = Range(range, in: text) else { return }
+
                     text[range].foregroundColor = theme.foreground
                     text[range].font = .caption.weight(.semibold)
                 })
@@ -335,6 +343,7 @@ struct Launcher: View {
 
     private func move(by offset: Int, in count: Int) -> KeyPress.Result {
         guard count > 0 else { return .ignored }
+
         highlighted = min(max(highlighted + offset, 0), count - 1)
         return .handled
     }
@@ -355,12 +364,14 @@ struct Launcher: View {
 
     private func search() async {
         guard mode == .search else { return }
+
         let query = query
         let index = store.searchIndex
         let version = store.searchIndexVersion
         let sessions = store.activeSessions + store.archivedSessions
         let found = await Task.detached { index.search(query, in: sessions) }.value
         guard query == self.query, version == store.searchIndexVersion else { return }
+
         hits = found
         searchedQuery = query
         highlighted = min(highlighted, max(found.count - 1, 0))
@@ -371,9 +382,11 @@ struct Launcher: View {
         case let .item(item):
             store.activate(item)
             store.launcherMode = nil
+
         case .action(.searchSessions):
             store.launcherQuery = query.trimmingCharacters(in: .whitespaces)
             store.launcherMode = .search
+
         case let .action(action):
             action.perform(on: store)
             if store.launcherMode == .palette { store.launcherMode = nil }

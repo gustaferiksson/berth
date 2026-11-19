@@ -1,6 +1,6 @@
+@testable import BerthCore
 import Foundation
 import Testing
-@testable import BerthCore
 
 struct SplitMix64: RandomNumberGenerator {
     var state: UInt64
@@ -14,12 +14,12 @@ struct SplitMix64: RandomNumberGenerator {
 }
 
 struct ReviewDiffTests {
-    func startRow(_ lines: Range<Int>, _ side: ReviewDiff.Side) -> Int {
+    private func startRow(_ lines: Range<Int>, _ side: ReviewDiff.Side) -> Int {
         if !lines.isEmpty { return side.rows[lines.lowerBound] }
         return lines.lowerBound == 0 ? 0 : side.rows[lines.lowerBound - 1] + 1
     }
 
-    func assertAligned(_ original: String, _ modified: String, sourceLocation: SourceLocation = #_sourceLocation) -> ReviewDiff {
+    private func assertAligned(_ original: String, _ modified: String, sourceLocation: SourceLocation = #_sourceLocation) -> ReviewDiff {
         let diff = ReviewDiff(original: original, modified: modified)
         let oldLines = original.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false).map { String(String.UnicodeScalarView($0)).replacing(/\r$/, with: "") }
         let newLines = modified.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false).map { String(String.UnicodeScalarView($0)).replacing(/\r$/, with: "") }
@@ -54,7 +54,7 @@ struct ReviewDiffTests {
         return diff
     }
 
-    func words(_ text: String, _ ranges: [NSRange]) -> [String] {
+    private func words(_ text: String, _ ranges: [NSRange]) -> [String] {
         ranges.map { (text as NSString).substring(with: $0) }
     }
 

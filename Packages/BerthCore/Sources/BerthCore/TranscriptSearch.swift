@@ -51,6 +51,7 @@ public struct TranscriptSearchIndex: Sendable {
     public func stale(_ sources: [Source]) -> [Source] {
         sources.filter { source in
             guard let document = documents[source.url.path] else { return true }
+
             return document.sessionID != source.sessionID || document.modified != source.modified || document.size != source.size
         }
     }
@@ -87,11 +88,13 @@ public struct TranscriptSearchIndex: Sendable {
     public func search(_ query: String, in sessions: [SessionSummary], limit: Int = 50) -> [SearchHit] {
         let words = query.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).split(whereSeparator: \.isWhitespace).map(String.init)
         guard !words.isEmpty else { return [] }
+
         let needles = words.map { Array($0.utf8) }
         let contains = { (text: Substring, needle: [UInt8]) in text.utf8.withContiguousStorageIfAvailable { memmem($0.baseAddress, $0.count, needle, needle.count) != nil } ?? false }
         let transcripts = Dictionary(documents.values.filter { !$0.text.isEmpty }.map { ($0.sessionID, $0) }) { first, _ in first }
         let matching = sessions.sorted { $0.lastActivity > $1.lastActivity }.lazy.compactMap { session -> (SessionSummary, Document)? in
             guard let document = transcripts[session.id], needles.allSatisfy({ contains(Substring(document.folded), $0) }) else { return nil }
+
             return (session, document)
         }
         return matching.prefix(limit).map { session, document in
@@ -107,6 +110,7 @@ public struct TranscriptSearchIndex: Sendable {
     static func snippet(of message: String, words: [String]) -> SearchSnippet? {
         let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
         guard let first = words.lazy.compactMap({ message.range(of: $0, options: options) }).min(by: { $0.lowerBound < $1.lowerBound }) else { return nil }
+
         let start = message.index(first.lowerBound, offsetBy: -snippetLead, limitedBy: message.startIndex) ?? message.startIndex
         let end = message.index(start, offsetBy: snippetLength, limitedBy: message.endIndex) ?? message.endIndex
         let window = message[start..<end].replacing(/\s+/, with: " ").replacing(/\*\*|`/, with: "")
@@ -125,6 +129,7 @@ public struct TranscriptSearchIndex: Sendable {
 
     static func scan(_ url: URL, from offset: UInt64, budget: Int, lastMessageID: String?) -> (messages: [String], activity: SessionActivity, lastMessageID: String?, offset: UInt64) {
         guard let handle = try? FileHandle(forReadingFrom: url), (try? handle.seek(toOffset: offset)) != nil else { return ([], SessionActivity(), lastMessageID, offset) }
+
         defer { try? handle.close() }
         var messages: [String] = []
         var activity = SessionActivity()
@@ -138,6 +143,7 @@ public struct TranscriptSearchIndex: Sendable {
             pending.append(chunk)
             let (lines, complete) = pending.withUnsafeBytes { buffer -> ([Data], Int) in
                 guard let base = buffer.baseAddress else { return ([], 0) }
+
                 var lines: [Data] = []
                 var start = 0
                 while start < buffer.count, let newline = memchr(base + start, 0x0A, buffer.count - start) {
@@ -152,6 +158,7 @@ public struct TranscriptSearchIndex: Sendable {
             pending = Data(pending.dropFirst(complete))
             for line in lines {
                 guard let record = try? decoder.decode(Record.self, from: line) else { continue }
+
                 let messageID = record.message?.id
                 if let usage = record.message?.usage, record.type == "assistant", messageID == nil || messageID != lastMessageID,
                    let date = record.timestamp.flatMap({ try? timestamps.parse($0) }) {
@@ -160,6 +167,7 @@ public struct TranscriptSearchIndex: Sendable {
                 }
                 if record.typedPrompt != nil, let date = record.timestamp.flatMap({ try? timestamps.parse($0) }) { activity.prompts.append(date) }
                 guard record.isSidechain != true else { continue }
+
                 let texts = record.typedPrompt.map { [$0] } ?? (record.type == "assistant" ? (record.message?.content ?? []).compactMap { $0.type == "text" ? $0.text : nil } : [])
                 for text in texts where !text.allSatisfy(\.isWhitespace) && used < budget {
                     let kept = String(decoding: text.utf8.prefix(budget - used), as: UTF8.self)
@@ -175,6 +183,7 @@ public struct TranscriptSearchIndex: Sendable {
         let has = { (pattern: StaticString) in memmem(line.baseAddress, line.count, pattern.utf8Start, pattern.utf8CodeUnitCount) != nil }
         if has(#""type":"user""#) { return !has(#""type":"tool_result""#) && !has(#""isSidechain":true"#) && !has(#""isMeta":true"#) }
         guard has(#""type":"assistant""#) else { return false }
+
         return has(#""usage":{"#) || has(#""type":"text""#) && !has(#""isSidechain":true"#)
     }
 }

@@ -8,6 +8,7 @@ struct RunningSummary: View {
         let byKind = Dictionary(grouping: tasks, by: \.kind)
         let counts = [(RemoteTask.agent, "agent", "agents"), (RemoteTask.shell, "shell", "shells"), (RemoteTask.monitor, "monitor", "monitors")].compactMap { kind, one, many -> String? in
             guard let count = byKind[kind]?.count else { return nil }
+
             return "\(count) \(count == 1 ? one : many)"
         }
 

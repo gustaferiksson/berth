@@ -1,4 +1,5 @@
 import AppKit
+import BerthCore
 
 final class ReviewMinimap: NSView {
     weak var original: ReviewTextView?
@@ -26,7 +27,7 @@ final class ReviewMinimap: NSView {
         needsDisplay = true
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    override func draw(_: NSRect) {
         guard let modified, let mapping else { return }
 
         modified.style.background.setFill()
@@ -60,10 +61,11 @@ final class ReviewMinimap: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let grab, let mapping else { return }
+
         modified?.scrollVertically(to: (convert(event.locationInWindow, from: nil).y - grab) / mapping.slope)
     }
 
-    override func mouseUp(with event: NSEvent) {
+    override func mouseUp(with _: NSEvent) {
         grab = nil
     }
 
@@ -130,7 +132,7 @@ final class ReviewOverviewRuler: NSView {
         NSSize(width: 10, height: NSView.noIntrinsicMetric)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    override func draw(_: NSRect) {
         guard let modified, let original, let clip = modified.enclosingScrollView?.contentView.bounds, modified.frame.height > 0 else { return }
 
         modified.style.background.setFill()
@@ -167,6 +169,7 @@ final class ReviewOverviewRuler: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard let modified, let clip = modified.enclosingScrollView?.contentView.bounds, bounds.height > 0 else { return }
+
         modified.scrollVertically(to: convert(event.locationInWindow, from: nil).y / bounds.height * modified.frame.height - clip.height / 2)
     }
 

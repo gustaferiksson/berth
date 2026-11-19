@@ -1,4 +1,5 @@
 import BerthCore
+import GhosttyTerminal
 import SwiftUI
 
 struct ReviewDocument: Hashable {
@@ -101,6 +102,7 @@ final class ReviewModel {
             }
             tabs = tabs.compactMap { tab in
                 guard existing(tab.document) != nil else { return nil }
+
                 let history = tab.history.compactMap { entry in existing(entry.document).map { (document: $0, range: entry.range) } }
                 return ReviewTab(id: tab.id, history: history, index: tab.history[..<tab.index].compactMap { existing($0.document) }.count, isPreview: tab.isPreview)
             }
@@ -139,11 +141,13 @@ final class ReviewModel {
 
     func keep(_ id: ReviewTab.ID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+
         tabs[index].isPreview = false
     }
 
     func go(by offset: Int) {
         guard let index = tabs.firstIndex(where: { $0.id == selectedTabID }), tabs[index].history.indices.contains(tabs[index].index + offset) else { return }
+
         tabs[index].index += offset
         reveal = tabs[index].history[tabs[index].index].range.map { (tabs[index].document, $0) }
         focusesEditor = true
@@ -151,6 +155,7 @@ final class ReviewModel {
 
     func close(_ id: ReviewTab.ID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+
         tabs.remove(at: index)
         if selectedTabID == id { selectedTabID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id }
     }
@@ -166,6 +171,7 @@ final class ReviewModel {
 
     func loadSelectedContents() async {
         guard let document = selectedDocument, contents[document] == nil else { return }
+
         await loadContents(of: document)
     }
 
@@ -211,6 +217,7 @@ final class ReviewModel {
     func workingText(_ path: String) -> String? {
         if let editor = editors[path] { return editor.string }
         guard let root = changes?.root, case let .text(text)? = try? ReviewGit.workingTreeText(path, in: root) else { return nil }
+
         return text
     }
 
@@ -244,6 +251,7 @@ final class ReviewModel {
 
     static func describe(_ error: any Error) -> String {
         guard case let ReviewGitError.git(_, message) = error else { return String(describing: error) }
+
         return message
     }
 }
@@ -286,8 +294,7 @@ private struct ReviewFileList: View {
             }
     }
 
-    @ViewBuilder
-    private var content: some View {
+    @ViewBuilder private var content: some View {
         if let changes = model.changes {
             VStack(spacing: 0) {
                 header(changes)
@@ -309,6 +316,7 @@ private struct ReviewFileList: View {
                         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
                         .onChange(of: model.selectedDocument, initial: true) { _, document in
                             guard let document, let compare = document.compare else { return }
+
                             model.collapsedChangeFolders = model.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
                         }
                         .environment(\.ghosttyTheme, theme),
@@ -322,6 +330,7 @@ private struct ReviewFileList: View {
                             list { ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) } }
                                 .onChange(of: model.selectedDocument?.path, initial: true) { _, path in
                                     guard let path else { return }
+
                                     model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
                                     Task { proxy.scrollTo(path) }
                                 }
@@ -373,6 +382,7 @@ private struct ReviewFileList: View {
             .contextMenu(forSelectionType: ReviewDocument.self) { _ in
             } primaryAction: { documents in
                 guard let document = documents.first else { return }
+
                 model.open(document.compare == nil ? model.workingDocument(document.path) : document)
                 model.selectedTabID.map(model.keep)
             }
@@ -391,7 +401,7 @@ private struct ReviewFileList: View {
             Section(isExpanded: expansion(of: "uncommitted")) {
                 changeRows(changes.uncommitted, compare: .uncommitted, changes: changes)
             } header: {
-                GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count, menu: { EmptyView() }) { _ in
+                GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count) { EmptyView() } accessory: { _ in
                     Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
                         .monospacedDigit()
                         .foregroundStyle(theme.secondary)
@@ -403,7 +413,7 @@ private struct ReviewFileList: View {
             Section(isExpanded: expansion(of: "committed")) {
                 changeRows(changes.committed, compare: .committed, changes: changes)
             } header: {
-                GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count, menu: { EmptyView() }) { _ in
+                GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count) { EmptyView() } accessory: { _ in
                     Text(model.status.map { "\($0.commits.count) \($0.commits.count == 1 ? "commit" : "commits")" } ?? "")
                         .foregroundStyle(theme.secondary)
                 }
@@ -421,9 +431,8 @@ private struct ReviewFileList: View {
     }
 
     private var filesHeader: some View {
-        Section(isExpanded: expansion(of: "files")) {
-        } header: {
-            GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }
+        Section(isExpanded: expansion(of: "files")) {} header: {
+            GroupHeader(title: "Files", help: "The repository’s files", count: nil) { EmptyView() } accessory: { _ in EmptyView() }
         }
     }
 
@@ -475,6 +484,7 @@ private struct ReviewFileList: View {
 
     private func loadPullRequestDetail() async {
         guard let pullRequest, let number = pullRequest.pullRequest?.number else { return }
+
         await model.loadPullRequestDetail(repository: pullRequest.repository, number: number)
     }
 
@@ -490,12 +500,14 @@ private struct ReviewFileList: View {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(theme.needsYou)
                     .help("Couldn’t fetch \(changes.base ?? ""), comparing local refs: \(fetchError)")
+                    .accessibilityLabel("Fetch failed")
             }
             if let error = model.error {
                 let failure = failure(error)
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(theme.needsYou)
                     .help("Couldn’t refresh, showing the last changes: \(failure.detail ?? failure.description)")
+                    .accessibilityLabel("Refresh failed")
             }
             if !changes.uncommitted.isEmpty || !changes.committed.isEmpty {
                 Button(changesAsTree ? "View as List" : "View as Tree", systemImage: changesAsTree ? "list.bullet" : "list.bullet.indent") { changesAsTree.toggle() }
@@ -522,6 +534,7 @@ private struct ReviewFileList: View {
         Task {
             await store.refreshReview()
             guard store.reviewModel === model else { return }
+
             if let repository = pullRequest?.repository, let branch = model.changes?.branch { await store.fetchPullRequests([PullRequestBranch(repository: repository, branch: branch)]) }
             await loadPullRequestDetail()
         }
@@ -607,7 +620,7 @@ private struct ReviewFileNode: View {
     var body: some View {
         if let children = node.children {
             DisclosureGroup(isExpanded: isExpanded) {
-                ForEach(children) { ReviewFileNode(node: $0, compare: compare, changes: changes, model: model) }
+                ForEach(children) { Self(node: $0, compare: compare, changes: changes, model: model) }
             } label: {
                 Button { isExpanded.wrappedValue.toggle() } label: {
                     label
@@ -659,7 +672,7 @@ private struct ReviewFilesSplit<Changes: View, Files: View>: NSViewRepresentable
     @Binding var filesHeight: Double
     let divider: NSColor
 
-    func makeNSView(context: Context) -> ReviewFilesSplitView {
+    func makeNSView(context _: Context) -> ReviewFilesSplitView {
         let split = ReviewFilesSplitView()
         split.isVertical = false
         split.dividerStyle = .thin
@@ -673,11 +686,11 @@ private struct ReviewFilesSplit<Changes: View, Files: View>: NSViewRepresentable
         return split
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReviewFilesSplitView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView _: ReviewFilesSplitView, context _: Context) -> CGSize? {
         proposal.replacingUnspecifiedDimensions()
     }
 
-    func updateNSView(_ split: ReviewFilesSplitView, context: Context) {
+    func updateNSView(_ split: ReviewFilesSplitView, context _: Context) {
         (split.subviews.first as? NSHostingView<Changes>)?.rootView = changes
         (split.subviews.last as? NSHostingView<Files>)?.rootView = files
         split.divider = divider
@@ -704,6 +717,7 @@ private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
     var divider = NSColor.separatorColor {
         didSet { needsDisplay = true }
     }
+
     var dragged: (Double) -> Void = { _ in }
 
     override var dividerColor: NSColor { divider }
@@ -716,7 +730,7 @@ private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
         dragged(after)
     }
 
-    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+    func splitView(_: NSSplitView, resizeSubviewsWithOldSize _: NSSize) {
         guard let changes = subviews.first, let files = subviews.last else { return }
 
         let available = max(bounds.height - dividerThickness, 0)
@@ -731,15 +745,15 @@ private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
         needsDisplay = true
     }
 
-    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+    func splitView(_: NSSplitView, constrainMinCoordinate _: CGFloat, ofSubviewAt _: Int) -> CGFloat {
         Self.minimum
     }
 
-    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+    func splitView(_: NSSplitView, constrainMaxCoordinate _: CGFloat, ofSubviewAt _: Int) -> CGFloat {
         bounds.height - dividerThickness - Self.minimum
     }
 
-    func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
+    func splitView(_: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect _: NSRect, ofDividerAt _: Int) -> NSRect {
         layout == .split ? proposedEffectiveRect.insetBy(dx: 0, dy: -3) : .zero
     }
 }
@@ -1022,6 +1036,7 @@ struct ReviewDiffColumn: View {
         return HStack(spacing: 6) {
             Image(systemName: document.compare == nil ? "doc" : "plus.forwardslash.minus")
                 .font(.caption)
+                .accessibilityHidden(true)
             Text((document.path as NSString).lastPathComponent)
                 .italic(tab.isPreview)
                 .lineLimit(1)

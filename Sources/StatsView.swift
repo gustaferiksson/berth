@@ -28,6 +28,7 @@ struct StatsView: View {
         .onAppear { store.updateSearchIndex() }
         .task(id: store.searchIndexVersion) {
             guard store.searchIndexVersion > 0, store.searchIndexing == nil else { return }
+
             stats = await Task.detached { [index = store.searchIndex, sessions = store.activeSessions + store.archivedSessions] in
                 let activities = index.activities
                 return UsageStats(sessions: sessions.compactMap { summary in activities[summary.id].map { (summary: summary, activity: $0) } })

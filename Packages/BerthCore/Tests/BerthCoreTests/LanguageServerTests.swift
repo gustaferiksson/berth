@@ -1,9 +1,9 @@
+@testable import BerthCore
 import Foundation
 import Testing
-@testable import BerthCore
 
 struct LanguageServerFramingTests {
-    func frame(_ body: String) -> Data {
+    private func frame(_ body: String) -> Data {
         Data("Content-Length: \(Data(body.utf8).count)\r\n\r\n\(body)".utf8)
     }
 
@@ -43,14 +43,14 @@ struct LanguageServerFramingTests {
 }
 
 final class LanguageServersTests {
-    let root = FileManager.default.temporaryDirectory.appending(path: "berth-lsp-\(UUID().uuidString)").resolvingSymlinksInPath()
+    private let root = FileManager.default.temporaryDirectory.appending(path: "berth-lsp-\(UUID().uuidString)").resolvingSymlinksInPath()
 
     deinit {
         try? FileManager.default.removeItem(at: root)
     }
 
     @discardableResult
-    func executable(_ path: String, contents: String = "#!/bin/sh\n") throws -> String {
+    private func executable(_ path: String, contents: String = "#!/bin/sh\n") throws -> String {
         let url = root.appending(path: path)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try contents.write(to: url, atomically: true, encoding: .utf8)
@@ -100,7 +100,7 @@ final class LanguageServersTests {
         let reread = LanguageServerEntry.stored(written)
         #expect(reread.entries == edited)
         let elements = try #require(JSONSerialization.jsonObject(with: Data(written.utf8)) as? [NSDictionary])
-        #expect(elements.last == (try JSONSerialization.jsonObject(with: Data(broken.utf8)) as? NSDictionary))
+        #expect(try elements.last == (JSONSerialization.jsonObject(with: Data(broken.utf8)) as? NSDictionary))
         #expect(LanguageServerEntry.storage(reread.entries, keeping: reread.unreadable) == written)
     }
 

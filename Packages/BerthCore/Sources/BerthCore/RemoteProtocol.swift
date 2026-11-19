@@ -146,7 +146,7 @@ public enum RemoteSessionAction: String, Codable, Sendable {
     case show, pin, unpin, markRead, markUnread, archive, interrupt
 }
 
-nonisolated public enum RemoteUpload {
+public nonisolated enum RemoteUpload {
     public static let feature = "upload"
     public static let maxBytes = 20 << 20
     public static let chunkBytes = 512 << 10

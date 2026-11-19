@@ -48,9 +48,9 @@ public struct ReviewDiff: Sendable, Equatable {
         let isTooDifferent = lineBalance.reduce(0) { $0 + abs($1) } > Self.maxLineEditDistance
 
         let difference = isTooDifferent ? nil : newMiddle.difference(from: oldMiddle)
-        let removed = difference.map { IndexSet($0.removals.compactMap { if case .remove(let offset, _, _) = $0 { prefix + offset } else { nil } }) }
+        let removed = difference.map { IndexSet($0.removals.compactMap { if case let .remove(offset, _, _) = $0 { prefix + offset } else { nil } }) }
             ?? IndexSet(integersIn: prefix..<(prefix + oldMiddle.count))
-        let inserted = difference.map { IndexSet($0.insertions.compactMap { if case .insert(let offset, _, _) = $0 { prefix + offset } else { nil } }) }
+        let inserted = difference.map { IndexSet($0.insertions.compactMap { if case let .insert(offset, _, _) = $0 { prefix + offset } else { nil } }) }
             ?? IndexSet(integersIn: prefix..<(prefix + newMiddle.count))
 
         var original = Side(lineCount: oldLines.count)
@@ -92,6 +92,7 @@ public struct ReviewDiff: Sendable, Equatable {
             unifiedRow += i - oldStart + j - newStart
 
             guard !isTooDifferent else { continue }
+
             for pair in 0..<min(i - oldStart, j - newStart) {
                 let words = Self.changedWords(oldLines[oldStart + pair], newLines[newStart + pair])
                 oldWords.formUnion(words.old)
@@ -139,6 +140,7 @@ public struct ReviewDiff: Sendable, Equatable {
         for token in newTokens where token.kind != .space {
             newSolidLength += token.range.count
             guard let count = unmatchedOld[new[token.range]], count > 0 else { continue }
+
             unmatchedOld[new[token.range]] = count - 1
             matchableLength += token.range.count
         }
@@ -147,8 +149,8 @@ public struct ReviewDiff: Sendable, Equatable {
         var oldChanged = IndexSet()
         var newChanged = IndexSet()
         for change in newTokens.map({ new[$0.range] }).difference(from: oldTokens.map { old[$0.range] }) {
-            if case .remove(let offset, _, _) = change { oldChanged.insert(integersIn: oldTokens[offset].range) }
-            if case .insert(let offset, _, _) = change { newChanged.insert(integersIn: newTokens[offset].range) }
+            if case let .remove(offset, _, _) = change { oldChanged.insert(integersIn: oldTokens[offset].range) }
+            if case let .insert(offset, _, _) = change { newChanged.insert(integersIn: newTokens[offset].range) }
         }
         return (oldChanged, newChanged)
     }

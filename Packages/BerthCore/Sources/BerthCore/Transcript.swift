@@ -54,9 +54,11 @@ public enum Transcript {
               let modified = attributes[.modificationDate] as? Date,
               let handle = try? FileHandle(forReadingFrom: url)
         else { return nil }
+
         defer { try? handle.close() }
         let head = (try? handle.read(upToCount: headBytes)) ?? Data()
         guard let (tailOffset, firstLineEnd, tailRecords) = tail(of: handle, size: size) else { return nil }
+
         let known = known.flatMap { $0.size <= size ? $0 : nil }
         let earlierPrompt = tailOffset == 0 || lastPrompt(in: tailRecords) != nil ? nil : lastPrompt(
             in: handle,
@@ -85,9 +87,11 @@ public enum Transcript {
             return String(decoding: slug, as: UTF16.self) == folder
         }
         guard let cwd = relocated ?? worktree ?? inFolder ?? head.first(where: { $0.cwd != nil })?.cwd ?? tail.first(where: { $0.cwd != nil })?.cwd else { return nil }
+
         let titleKeys: [KeyPath<Record, String?>] = [\.customTitle, \.aiTitle, \.summary, \.agentName]
         let recordedTitle = titleKeys.lazy.compactMap { key in tail.last { $0[keyPath: key] != nil }?[keyPath: key] }.first
         guard let title = recordedTitle ?? head.lazy.compactMap(\.promptText).first else { return nil }
+
         let oneLine = title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
         let branch = tail.last { $0.gitBranch != nil }?.gitBranch
         let continuedAt = tail.lastIndex { $0.continuedInSessionId != nil }
@@ -127,6 +131,7 @@ public enum Transcript {
         while true {
             let offset = max(0, size - window)
             guard (try? handle.seek(toOffset: UInt64(offset))) != nil else { return nil }
+
             let data = (try? handle.readToEnd()) ?? Data()
             let records = records(in: data, dropFirst: offset > 0, dropLast: false)
             let hasTitle = records.contains { $0.customTitle != nil || $0.aiTitle != nil || $0.summary != nil || $0.agentName != nil }
@@ -153,6 +158,7 @@ public enum Transcript {
         while end > floor {
             let start = max(floor, end - tailBytes)
             guard (try? handle.seek(toOffset: UInt64(start))) != nil, let chunk = try? handle.read(upToCount: end - start) else { return nil }
+
             let lines = (chunk + carry).split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false)
             carry = start > floor ? Data(lines.first ?? Data()) : Data()
             let candidates = lines.dropFirst(start > floor ? 1 : 0).filter { line in
@@ -171,6 +177,7 @@ public enum Transcript {
         let decoder = JSONDecoder()
         return data.withUnsafeBytes { buffer in
             guard let base = buffer.baseAddress else { return [] }
+
             var lines: [UnsafeRawBufferPointer] = []
             var start = 0
             while start < buffer.count {
@@ -181,6 +188,7 @@ public enum Transcript {
             return lines.dropFirst(dropFirst ? 1 : 0).dropLast(dropLast ? 1 : 0).compactMap { line in
                 let has = { (pattern: StaticString) in memmem(line.baseAddress, line.count, pattern.utf8Start, pattern.utf8CodeUnitCount) != nil }
                 guard !line.starts(with: #"{"type":"api-request"#.utf8), !has(#""type":"tool_result""#), !has(#""type":"attachment""#) || has(#""type":"queued_command""#) else { return nil }
+
                 return try? decoder.decode(Record.self, from: Data(line))
             }
         }
@@ -284,6 +292,7 @@ struct Record: Decodable {
               let text = message?.content.first(where: { $0.type == "text" })?.text,
               !text.contains("<command-name>"), !text.contains("<local-command"), !text.contains("<bash-stdout>"), !text.hasPrefix("Caveat:")
         else { return nil }
+
         let stripped = text.replacing(/<[^>]*>/, with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         return stripped.isEmpty ? nil : stripped
     }

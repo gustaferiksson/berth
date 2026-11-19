@@ -10,6 +10,7 @@ final class FileWatcher {
         var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(), retain: nil, release: nil, copyDescription: nil)
         let callback: FSEventStreamCallback = { _, info, count, paths, _, _ in
             guard let info else { return }
+
             let watcher = Unmanaged<FileWatcher>.fromOpaque(info).takeUnretainedValue()
             let changed = (unsafeBitCast(paths, to: NSArray.self) as? [String]) ?? []
             MainActor.assumeIsolated { watcher.onChange(Array(changed.prefix(count))) }
@@ -20,12 +21,14 @@ final class FileWatcher {
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagFileEvents)
         )
         guard let stream else { return }
+
         FSEventStreamSetDispatchQueue(stream, .main)
         FSEventStreamStart(stream)
     }
 
     isolated deinit {
         guard let stream else { return }
+
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)

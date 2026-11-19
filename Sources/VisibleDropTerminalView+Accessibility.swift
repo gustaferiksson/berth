@@ -1,4 +1,5 @@
 import AppKit
+import GhosttyTerminal
 
 // AX clients (VoiceOver, caret-anchored overlays) read the caret via kAXSelectedTextRange + kAXBoundsForRange.
 extension VisibleDropTerminalView {

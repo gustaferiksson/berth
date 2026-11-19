@@ -157,6 +157,7 @@ private struct Composer: View {
         .task { await attachForSnapshot() }
         .task {
             guard focusesAndExpands else { return }
+
             try? await Task.sleep(for: .seconds(4))
             isFocused = true
         }
@@ -169,6 +170,7 @@ private struct Composer: View {
                 client.notice = "That photo couldn’t be loaded"
                 continue
             }
+
             await attach(data, name: "Photo", isImage: true)
         }
     }
@@ -181,6 +183,7 @@ private struct Composer: View {
                 client.notice = "\(url.lastPathComponent) is over \(RemoteUpload.maxBytes >> 20) MB or couldn’t be read"
                 continue
             }
+
             await attach(data, name: url.lastPathComponent, isImage: UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true)
         }
     }
@@ -190,6 +193,7 @@ private struct Composer: View {
             client.notice = isImage ? "\(name) couldn’t be read as an image or is over \(RemoteUpload.maxBytes >> 20) MB" : "\(name) is over \(RemoteUpload.maxBytes >> 20) MB"
             return
         }
+
         attachments.append(prepared.attachment)
         await client.upload(prepared.data, id: prepared.attachment.id, name: prepared.attachment.name)
     }
@@ -197,14 +201,18 @@ private struct Composer: View {
     #if DEBUG
     private func attachForSnapshot() async {
         guard attachments.isEmpty, let paths = UserDefaults.standard.string(forKey: "snapshotAttachments") else { return }
+
         try? await Task.sleep(for: .seconds(1))
         for path in paths.split(separator: "|").map(String.init) {
             guard let data = FileManager.default.contents(atPath: path) else { continue }
+
             await attach(data, name: URL(filePath: path).lastPathComponent, isImage: UTType(filenameExtension: URL(filePath: path).pathExtension)?.conforms(to: .image) == true)
         }
         guard let text = UserDefaults.standard.string(forKey: "snapshotDraft") else { return }
+
         draft = text
         guard UserDefaults.standard.bool(forKey: "snapshotSend") else { return }
+
         while !attachments.allSatisfy({ client.uploads[$0.id] == .done }) { try? await Task.sleep(for: .milliseconds(200)) }
         send()
     }

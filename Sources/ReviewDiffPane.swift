@@ -64,6 +64,7 @@ struct ReviewDiffPane: View {
                 let base = compare == nil ? modified : original
                 let computed = await Task.detached { ReviewDiffAnalysis(original: original, modified: modified, base: base, path: path) }.value
                 guard !Task.isCancelled else { return }
+
                 analysis = computed
                 if contents.modified != nil, let text = editor == nil && compare == .committed ? workingText() : modified { await language?.sync(path, text: text) }
             }
@@ -161,9 +162,10 @@ private struct ReviewDiffViews: NSViewRepresentable {
         context.coordinator.update(self)
     }
 
-    static func dismantleNSView(_ stack: NSStackView, coordinator: Coordinator) {
+    static func dismantleNSView(_: NSStackView, coordinator: Coordinator) {
         (Array(coordinator.cards.values) + [coordinator.draft?.view, coordinator.peek?.view].compactMap(\.self)).forEach { $0.removeFromSuperview() }
         guard coordinator.right.delegate === coordinator else { return }
+
         coordinator.right.selectedLines = nil
         coordinator.right.unifiedOriginal = nil
         coordinator.right.minimumWidth = 0
@@ -314,6 +316,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             for textView in [left, right] {
                 textView.onHover = view.language == nil ? nil : { [weak self, weak textView] offset in
                     guard let textView else { return nil }
+
                     return await self?.hover(in: textView, at: offset)
                 }
                 textView.onDefinition = view.language == nil ? nil : { [weak self, weak textView] offset in
@@ -331,6 +334,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? ReviewTextView, textView === right else { return }
+
             loadedModified = textView.string
             closePeek()
             parent?.onEdit(textView.string)
@@ -344,7 +348,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             }
         }
 
-        func undoManager(for view: NSTextView) -> UndoManager? {
+        func undoManager(for _: NSTextView) -> UndoManager? {
             right.history
         }
 
@@ -362,7 +366,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             target.reflectScrolledClipView(target.contentView)
         }
 
-        func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize _: NSSize) {
             let available = splitView.bounds.width - splitView.dividerThickness
             guard splitView.subviews.count == 2, available > 0 else { return splitView.adjustSubviews() }
 
@@ -373,16 +377,16 @@ private struct ReviewDiffViews: NSViewRepresentable {
             splitView.subviews[1].frame = NSRect(x: position + splitView.dividerThickness, y: 0, width: available - position, height: height)
         }
 
-        func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt _: Int) -> CGFloat {
             max(proposedMinimumPosition, min(200, (splitView.bounds.width - splitView.dividerThickness) / 2))
         }
 
-        func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt _: Int) -> CGFloat {
             let available = splitView.bounds.width - splitView.dividerThickness
             return min(proposedMaximumPosition, available - min(200, available / 2))
         }
 
-        @objc private func clipViewDidResize(_ notification: Notification) {
+        @objc private func clipViewDidResize(_: Notification) {
             minimap.needsDisplay = true
             ruler.needsDisplay = true
             layoutInline()
@@ -568,6 +572,7 @@ extension ReviewDiffViews.Coordinator {
 
     func hover(in textView: ReviewTextView, at offset: Int) async -> String? {
         guard let question = await question(textView, at: offset) else { return nil }
+
         return await question.language.hover(question.path, text: question.working, base: question.base, at: question.position)
     }
 
@@ -591,6 +596,7 @@ extension ReviewDiffViews.Coordinator {
     func references(in textView: ReviewTextView, at offset: Int) {
         Task {
             guard let question = await question(textView, at: offset) else { return }
+
             await showReferences(question, in: textView, at: offset)
         }
     }
@@ -637,6 +643,7 @@ extension ReviewDiffViews.Coordinator {
         guard right.unifiedOriginal === textView, let rows = textView.side?.rows, rows.indices.contains(range.start.line) else {
             return textView.reveal(NSRange(location: textView.offset(of: range.start), length: max(textView.offset(of: range.end) - textView.offset(of: range.start), 0)))
         }
+
         right.scrollVertically(to: right.top(ofRow: rows[range.start.line]) - right.visibleRect.height / 3)
     }
 

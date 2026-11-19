@@ -85,6 +85,7 @@ public struct SessionGroup: Identifiable, Sendable, Equatable {
 
     public var folder: String? {
         guard case let .folder(folder) = kind else { return nil }
+
         return folder
     }
 
@@ -92,6 +93,7 @@ public struct SessionGroup: Identifiable, Sendable, Equatable {
 
     public var custom: CustomGroup? {
         guard case let .custom(group) = kind else { return nil }
+
         return group
     }
 }
@@ -125,6 +127,7 @@ public struct SessionGrouping: Sendable {
             .map { SessionGroup(kind: $0.key, sessions: $0.value) }
             .sorted { lhs, rhs in
                 guard case let .recent(left) = lhs.kind, case let .recent(right) = rhs.kind else { return lhs.lastPrompt > rhs.lastPrompt }
+
                 return RecentBucket.allCases.firstIndex(of: left)! < RecentBucket.allCases.firstIndex(of: right)!
             }
         return Self.place(custom, among: automatic)
@@ -146,6 +149,7 @@ public struct SessionGrouping: Sendable {
         order.insert(order.remove(at: source), at: destination > source ? destination - 1 : destination)
         return order.enumerated().compactMap { index, group in
             guard var custom = group.custom else { return nil }
+
             custom.slot = index
             return custom
         }
