@@ -37,7 +37,7 @@ struct BerthApp: App {
                 AppAction.checkForUpdates.menuButton(appDelegate.store)
             }
             CommandGroup(after: .newItem) {
-                ForEach([AppAction.newSession, .searchSessions, .newTerminal, .newGroup], id: \.self) { $0.menuButton(appDelegate.store) }
+                ForEach([AppAction.newSession, .pullRequests, .searchSessions, .newTerminal, .newGroup], id: \.self) { $0.menuButton(appDelegate.store) }
             }
             CommandGroup(before: .saveItem) {
                 if isReviewEnabled {

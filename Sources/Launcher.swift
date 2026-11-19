@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum LauncherMode {
-    case newSession, search, palette
+    case newSession, search, palette, pullRequests
 }
 
 struct Launcher: View {
@@ -30,6 +30,7 @@ struct Launcher: View {
 
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.openURL) private var openURL
     @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
     @State private var query = ""
     @State private var highlighted = 0
@@ -38,6 +39,7 @@ struct Launcher: View {
     @State private var searchedQuery = ""
     @State private var resultsHeight = 0.0
     @State private var isBrowsing = false
+    @State private var missingCheckout: InboxPullRequest?
     @FocusState private var isQueryFocused: Bool
 
     private static let visibleMatches = 6
@@ -47,26 +49,70 @@ struct Launcher: View {
         let rows = mode == .palette ? paletteRows : []
         let target = matches.indices.contains(highlighted) ? matches[highlighted] : nil
         let row = rows.indices.contains(highlighted) ? rows[highlighted] : nil
-        let count = mode == .newSession ? matches.count : mode == .palette ? rows.count : hits.count
+        let ranked = mode == .pullRequests ? PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now) : (pullRequests: [], older: 0)
+        let pullRequest = ranked.pullRequests.indices.contains(highlighted) ? ranked.pullRequests[highlighted] : nil
+        let count = mode == .newSession ? matches.count : mode == .palette ? rows.count : mode == .pullRequests ? ranked.pullRequests.count : hits.count
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: mode == .newSession ? "chevron.right" : mode == .palette ? "command" : "magnifyingglass")
+                Image(systemName: [LauncherMode.newSession: "chevron.right", .palette: "command", .pullRequests: "arrow.triangle.pull"][mode] ?? "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Query", text: $query, prompt: Text(mode == .newSession ? "Search folders or type a path" : mode == .palette ? "Type a command or session" : "Search all sessions"))
+                TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests"][mode] ?? "Search all sessions"))
                     .textFieldStyle(.plain)
                     .font(.title3)
                     .focused($isQueryFocused)
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
+                    .onKeyPress(.tab) {
+                        guard [.newSession, .pullRequests].contains(mode) else { return .ignored }
+
+                        switchScope(to: mode == .newSession ? .pullRequests : .newSession)
+                        return .handled
+                    }
                     .onKeyPress(.return, phases: .down) { press in
+                        guard press.modifiers.contains(.option) else { return .ignored }
+
+                        let pullRequests = PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now).pullRequests
+                        if mode == .pullRequests, pullRequests.indices.contains(highlighted) {
+                            openOnGitHub(pullRequests[highlighted])
+                            return .handled
+                        }
                         let matches = self.matches
-                        guard mode == .newSession, press.modifiers.contains(.option), matches.indices.contains(highlighted) else { return .ignored }
+                        guard mode == .newSession, matches.indices.contains(highlighted) else { return .ignored }
 
                         start(in: matches[highlighted].path, checkout: .main)
                         return .handled
                     }
                     .onSubmit(submit)
-                    .onChange(of: query) { highlighted = 0 }
+                    .onChange(of: query) {
+                        highlighted = 0
+                        guard mode == .newSession, query.hasPrefix("#") else { return }
+
+                        store.launcherQuery = String(query.dropFirst())
+                        store.launcherMode = .pullRequests
+                    }
+                if let role = store.launcherRole, mode == .pullRequests {
+                    Button { store.launcherRole = nil } label: {
+                        Label(role.title, systemImage: "xmark")
+                            .font(.subheadline)
+                            .padding(.horizontal, 8)
+                            .frame(height: 20)
+                            .background(theme.foreground.opacity(0.1), in: .capsule)
+                            .contentShape(.capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show all pull requests")
+                }
+                if [.newSession, .pullRequests].contains(mode) {
+                    Picker("Scope", selection: Binding(get: { mode }, set: switchScope)) {
+                        Text("Folders").tag(LauncherMode.newSession)
+                        Text("Pull Requests").tag(LauncherMode.pullRequests)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .fixedSize()
+                    .help("Switch between folders and pull requests (⇥)")
+                }
                 if mode == .newSession {
                     Button { isBrowsing = true } label: {
                         Text("Browse…")
@@ -86,7 +132,20 @@ struct Launcher: View {
             if mode == .newSession {
                 folderList(matches)
             } else {
-                results(rows)
+                results(rows, pullRequests: ranked.pullRequests)
+            }
+            if let pullRequest, missingCheckout == pullRequest {
+                Divider()
+                HStack(spacing: 8) {
+                    Image(systemName: "folder.badge.questionmark")
+                        .foregroundStyle(.secondary)
+                    Text("No local checkout of \(pullRequest.repository)")
+                    Spacer(minLength: 8)
+                    Button("Open on GitHub") { openOnGitHub(pullRequest) }
+                }
+                .font(.callout)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
             Divider()
             HStack(spacing: 16) {
@@ -94,6 +153,21 @@ struct Launcher: View {
                     hint("↩", target.map { "Start in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start")
                     if startsInWorktree { hint("⌥↩", "Main Checkout") }
                     hint("↑↓", "Folder")
+                    hint("⇥", "Pull Requests")
+                } else if mode == .pullRequests {
+                    let opening = pullRequest.map(store.opening)
+                    let label = if case let .session(session)? = opening {
+                        store.tab(forSession: session.id) == nil ? "Resume Session" : "Switch To Session"
+                    } else if case let .worktree(folder)? = opening {
+                        "New Worktree in \(URL(filePath: folder).lastPathComponent)"
+                    } else if case .noCheckout? = opening {
+                        "No Local Checkout"
+                    } else {
+                        "Open"
+                    }
+                    hint("↩", label)
+                    hint("⌥↩", "Open on GitHub")
+                    hint("⇥", "Folders")
                 } else if mode == .palette {
                     hint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
                     hint("↑↓", "Select")
@@ -102,6 +176,11 @@ struct Launcher: View {
                     hint("↑↓", "Session")
                 }
                 Spacer()
+                if mode == .pullRequests, ranked.older > 0 {
+                    Text("^[\(ranked.older) older pull request](inflect: true): type to search")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if mode == .search, let indexing = store.searchIndexing {
                     Text("Indexing \(indexing.done)/\(indexing.total)")
                         .font(.caption)
@@ -122,6 +201,7 @@ struct Launcher: View {
             store.launcherQuery = ""
             isQueryFocused = true
             if mode == .search { store.updateSearchIndex() }
+            if mode == .pullRequests { store.refreshInbox() }
             guard mode == .newSession else { return }
 
             let known = store.knownFolders
@@ -138,6 +218,7 @@ struct Launcher: View {
             await search()
         }
         .onChange(of: store.searchIndexVersion) { Task { await search() } }
+        .onChange(of: store.launcherRole) { highlighted = 0 }
         .fileImporter(isPresented: $isBrowsing, allowedContentTypes: [.folder]) { result in
             guard case let .success(url) = result else { return }
 
@@ -160,11 +241,31 @@ struct Launcher: View {
         .padding(8)
     }
 
-    private func results(_ rows: [PaletteRow]) -> some View {
+    private func results(_ rows: [PaletteRow], pullRequests: [InboxPullRequest]) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
-                    if mode == .palette {
+                    if mode == .pullRequests {
+                        ForEach(Array(pullRequests.enumerated()), id: \.element.id) { index, pullRequest in
+                            if index == 0 || pullRequests[index - 1].role != pullRequest.role {
+                                Text(pullRequest.role.title)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 8)
+                                    .padding(.top, index == 0 ? 4 : 12)
+                                    .padding(.bottom, 4)
+                            }
+                            pullRequestRow(pullRequest, isHighlighted: index == highlighted)
+                                .id(index)
+                                .onTapGesture { open(pullRequest) }
+                        }
+                        if pullRequests.isEmpty {
+                            Text(store.inbox == nil ? store.isInboxLoading ? "Loading pull requests…" : "Couldn’t list pull requests with the GitHub CLI (gh)" : query.allSatisfy(\.isWhitespace) ? "No open pull requests need you" : "No matching pull requests")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                        }
+                    } else if mode == .palette {
                         ForEach(Array(rows.enumerated()), id: \.element.item) { index, row in
                             if query.allSatisfy(\.isWhitespace), index == 0 || rows[index - 1].item.section != row.item.section {
                                 Text(row.item.section == .openTab ? "Sessions" : "Actions")
@@ -230,6 +331,41 @@ struct Launcher: View {
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .frame(minHeight: 44)
+        .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
+        .contentShape(.rect)
+    }
+
+    private func pullRequestRow(_ pullRequest: InboxPullRequest, isHighlighted: Bool) -> some View {
+        let sessions = store.sessions(for: pullRequest)
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pullRequest.title)
+                    .fontWeight(.medium)
+                HStack(spacing: 6) {
+                    Text((pullRequest.repository as NSString).lastPathComponent)
+                    PullRequestTag(pullRequest: PullRequest(number: pullRequest.number, url: pullRequest.url, title: pullRequest.title, state: pullRequest.isDraft ? .draft : .open, checks: pullRequest.checks))
+                    if pullRequest.isDraft { Text("Draft") }
+                    if pullRequest.reviewDecision == .approved { Text("Approved") }
+                    if pullRequest.reviewDecision == .changesRequested { Text("Changes requested") }
+                    if let author = pullRequest.author, pullRequest.role != .mine { Text(verbatim: "@\(author)") }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .lineLimit(1)
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 2) {
+                (sessions.first.map { Text("^[\(sessions.count) session](inflect: true) · \(age(since: $0.lastActivity))") } ?? Text("No session"))
+                    .foregroundStyle(sessions.isEmpty ? theme.secondary : theme.foreground)
+                Text("Updated \(age(since: pullRequest.updatedAt))")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+            .monospacedDigit()
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -349,6 +485,11 @@ struct Launcher: View {
     }
 
     private func submit() {
+        if mode == .pullRequests {
+            let pullRequests = PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now).pullRequests
+            if pullRequests.indices.contains(highlighted) { open(pullRequests[highlighted]) }
+            return
+        }
         if mode == .search {
             if hits.indices.contains(highlighted) { open(hits[highlighted]) }
             return
@@ -396,6 +537,30 @@ struct Launcher: View {
     private func open(_ hit: SearchHit) {
         store.activate(.session(hit.id))
         store.launcherMode = nil
+    }
+
+    private func switchScope(to scope: LauncherMode) {
+        store.launcherQuery = query
+        store.launcherMode = scope
+    }
+
+    private func open(_ pullRequest: InboxPullRequest) {
+        let opening = store.opening(of: pullRequest)
+        if case .noCheckout = opening { return missingCheckout = pullRequest }
+
+        if case let .session(session) = opening { store.activate(.session(session.id)) }
+        if case let .worktree(folder) = opening {
+            store.openClaude(cwd: folder, checkout: .worktree, pasting: "Check out PR #\(pullRequest.number) (\(pullRequest.url.absoluteString)) with gh pr checkout \(pullRequest.number) in this worktree, then summarize it.")
+        }
+        store.launcherMode = nil
+    }
+
+    private func openOnGitHub(_ pullRequest: InboxPullRequest) {
+        store.launcherMode = nil
+        #if DEBUG
+        if Snapshot.launcherKeys != nil { return store.probeOpenedURLs.append(pullRequest.url) }
+        #endif
+        openURL(pullRequest.url)
     }
 
     private func start(in path: String, checkout: NewSessionCheckout = .preferred) {
