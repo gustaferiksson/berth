@@ -46,6 +46,8 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
     }
 
     static let height: CGFloat = 260
+    static let stackedHeight: CGFloat = 360
+    static let stackedBelowWidth: CGFloat = 560
     let list = ReviewReferencesList()
     private let header = NSTextField(labelWithString: "")
     private let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close") ?? NSImage(), target: nil, action: nil)
@@ -168,31 +170,38 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
         header.frame = NSRect(x: 10, y: (headerHeight - 16) / 2, width: bounds.width - 44, height: 16)
         close.frame = NSRect(x: bounds.width - 26, y: (headerHeight - 16) / 2, width: 16, height: 16)
         split.frame = NSRect(x: 1, y: headerHeight, width: bounds.width - 2, height: bounds.height - headerHeight - 1)
+        let isVertical = bounds.width >= Self.stackedBelowWidth
+        if split.isVertical != isVertical {
+            split.isVertical = isVertical
+            split.resizeSubviews(withOldSize: split.frame.size)
+        }
         scrollPreview()
     }
 
     func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
-        let available = splitView.bounds.width - splitView.dividerThickness
+        let available = (splitView.isVertical ? splitView.bounds.width : splitView.bounds.height) - splitView.dividerThickness
         guard available > 0 else { return splitView.adjustSubviews() }
 
-        let minimum = min(100, (available / 2).rounded(.down))
+        let minimum = min(splitView.isVertical ? 100 : 60, (available / 2).rounded(.down))
         let position = min(max((1 - listRatio) * available, minimum), available - minimum).rounded()
-        let height = splitView.bounds.height
-        previewScroll.frame = NSRect(x: 0, y: 0, width: position, height: height)
-        listScroll.frame = NSRect(x: position + splitView.dividerThickness, y: 0, width: available - position, height: height)
+        let edge: CGRectEdge = splitView.isVertical ? .minXEdge : .minYEdge
+        let (preview, rest) = splitView.bounds.divided(atDistance: position, from: edge)
+        previewScroll.frame = preview
+        listScroll.frame = rest.divided(atDistance: splitView.dividerThickness, from: edge).remainder
     }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        max(proposedMinimumPosition, min(100, ((splitView.bounds.width - splitView.dividerThickness) / 2).rounded(.down)))
+        let available = (splitView.isVertical ? splitView.bounds.width : splitView.bounds.height) - splitView.dividerThickness
+        return max(proposedMinimumPosition, min(splitView.isVertical ? 100 : 60, (available / 2).rounded(.down)))
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        let available = splitView.bounds.width - splitView.dividerThickness
-        return min(proposedMaximumPosition, available - min(100, (available / 2).rounded(.down)))
+        let available = (splitView.isVertical ? splitView.bounds.width : splitView.bounds.height) - splitView.dividerThickness
+        return min(proposedMaximumPosition, available - min(splitView.isVertical ? 100 : 60, (available / 2).rounded(.down)))
     }
 
     func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
-        drawnRect.insetBy(dx: -3, dy: 0)
+        splitView.isVertical ? drawnRect.insetBy(dx: -3, dy: 0) : drawnRect.insetBy(dx: 0, dy: -3)
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
@@ -203,10 +212,12 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
     override func mouseDown(with event: NSEvent) {}
 
     override func resetCursorRects() {
-        let divider = convert(NSRect(x: previewScroll.frame.maxX, y: 0, width: split.dividerThickness, height: split.bounds.height), from: split).insetBy(dx: -3, dy: 0)
+        let drawn = split.isVertical ? NSRect(x: previewScroll.frame.maxX, y: 0, width: split.dividerThickness, height: split.bounds.height) : NSRect(x: 0, y: previewScroll.frame.maxY, width: split.bounds.width, height: split.dividerThickness)
+        let divider = convert(splitView(split, effectiveRect: drawn, forDrawnRect: drawn, ofDividerAt: 0), from: split)
         addCursorRect(NSRect(x: 0, y: 0, width: bounds.width, height: divider.minY), cursor: .arrow)
-        addCursorRect(NSRect(x: 0, y: divider.minY, width: divider.minX, height: bounds.height - divider.minY), cursor: .arrow)
-        addCursorRect(NSRect(x: divider.maxX, y: divider.minY, width: bounds.width - divider.maxX, height: bounds.height - divider.minY), cursor: .arrow)
+        addCursorRect(NSRect(x: 0, y: divider.minY, width: divider.minX, height: divider.height), cursor: .arrow)
+        addCursorRect(NSRect(x: divider.maxX, y: divider.minY, width: bounds.width - divider.maxX, height: divider.height), cursor: .arrow)
+        addCursorRect(NSRect(x: 0, y: divider.maxY, width: bounds.width, height: bounds.height - divider.maxY), cursor: .arrow)
     }
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
