@@ -189,6 +189,19 @@ final class ReviewGitTests {
         #expect(changes.committed.map { [$0.additions, $0.deletions] } == [[1, 0], [1, 0]])
     }
 
+    @Test func totalCountsEachPathAgainstTheMergeBaseWithUncommittedWork() async throws {
+        let repo = try await pushedFeatureRepo()
+        try FileManager.default.removeItem(at: repo.appending(path: "feature.txt"))
+        try write(repo, "keep.txt", "one\ntwo\n")
+        let changes = try await ReviewGit.changes(in: repo.path)
+        #expect(changes.uncommitted.map { [$0.additions, $0.deletions] } == [[0, 1], [0, 1], [0, 1], [1, 0]])
+        #expect(changes.committed.map { [$0.additions, $0.deletions] } == [[1, 0], [1, 0]])
+        #expect(changes.total.map { [$0.additions, $0.deletions] } == [1, 1])
+
+        let feature = try await ReviewGit.changes(in: featureRepo().path)
+        #expect(feature.base == "main" && feature.total.map { [$0.additions, $0.deletions] } == [6, 1])
+    }
+
     @Test func contentsFollowTheirCompareAndTheListedHead() async throws {
         let repo = try await pushedFeatureRepo()
         let changes = try await ReviewGit.changes(in: repo.path)
@@ -230,7 +243,7 @@ final class ReviewGitTests {
 
         let changes = try await ReviewGit.changes(in: repo.path)
         #expect(changes.isDefaultBranch && changes.base == "origin/main")
-        #expect(changes.mergeBase == changes.head && changes.committed.isEmpty)
+        #expect(changes.mergeBase == changes.head && changes.committed.isEmpty && changes.total == nil)
         #expect(changes.uncommitted.map(\.path) == ["notes.txt"])
 
         let status = try await ReviewGit.branchStatus(of: changes)
@@ -263,7 +276,7 @@ final class ReviewGitTests {
 
         let changes = try await ReviewGit.changes(in: repo.path)
         let status = try await ReviewGit.branchStatus(of: changes)
-        #expect(changes.base == nil && !changes.isDefaultBranch && changes.committed.isEmpty)
+        #expect(changes.base == nil && !changes.isDefaultBranch && changes.committed.isEmpty && changes.total == nil)
         #expect(changes.uncommitted.map(\.path) == ["keep.txt"])
         #expect(status.ahead == 0 && status.behind == 0 && status.upstream == nil)
         #expect(status.commits.map(\.subject) == ["Second", "init"])

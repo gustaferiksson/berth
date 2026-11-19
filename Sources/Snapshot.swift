@@ -179,6 +179,7 @@ enum Snapshot {
                 print("fake first session waiting: \(waiting), in a Berth tab: \(step >= 2)")
                 store.fakeWaiting = waiting
                 store.refreshLive()
+                print("busy sessions: \(store.busySessionCount)")
             }
         }
         if UserDefaults.standard.bool(forKey: "snapshotShell") {
@@ -235,6 +236,7 @@ enum Snapshot {
             store.tabs = zip(store.tabs, faked).map { Tab(id: $0.id, kind: .claude, cwd: $1.cwd, sessionID: $1.sessionId, terminal: $0.terminal) }
             store.selectedTabID = store.tabs.first?.id
             store.isHarborShown = true
+            print("harbor tabs: \(store.tabs.compactMap(\.sessionID).compactMap { store.liveBySession[$0]?.status }), busy sessions \(store.busySessionCount)")
         }
         if UserDefaults.standard.bool(forKey: "snapshotUnloadIdle") {
             let labels = ["idle", "touched", "selected", "pinned", "busy", "waiting", "attach", "dead"]
@@ -335,7 +337,7 @@ enum Snapshot {
             }
             try? await Task.sleep(for: .seconds(1))
             print("review \(model.changes.map { "\($0.branch) → \($0.base ?? "-"), fetch error \($0.fetchError ?? "-")" } ?? "error \(model.error.map(ReviewModel.describe) ?? "timed out")")")
-            print("review card \(model.status.map { "base \(model.changes?.base ?? "-"), default branch \(model.changes?.isDefaultBranch == true), ahead \($0.ahead), behind \($0.behind), upstream \($0.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" })" } ?? "none"), pull request details \(model.pullRequestDetails)")
+            print("review card \(model.status.map { "base \(model.changes?.base ?? "-"), default branch \(model.changes?.isDefaultBranch == true), ahead \($0.ahead), behind \($0.behind), upstream \($0.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" }), total \(model.changes?.total.map { "+\($0.additions) -\($0.deletions)" } ?? "-")" } ?? "none"), pull request details \(model.pullRequestDetails)")
             for (section, files) in [("uncommitted", model.changes?.uncommitted ?? []), ("committed", model.changes?.committed ?? [])] {
                 for file in files { print("  \(section) \(file.status.rawValue) \(file.path) +\(file.additions.map(String.init) ?? "?") -\(file.deletions.map(String.init) ?? "?")") }
             }
@@ -1272,13 +1274,14 @@ enum Snapshot {
                     print("\(spec) (saves <out>.\(spec.dropFirst(5)).png):\n  \(state())")
                     continue
                 }
-                if let model = store.reviewModel, ["refresh", "keep", "save", "back", "forward"].contains(spec) || spec.hasPrefix("file") || spec.hasPrefix("open:") || spec.hasPrefix("dbl:") {
+                if let model = store.reviewModel, ["refresh", "keep", "save", "back", "forward", "reveal"].contains(spec) || spec.hasPrefix("file") || spec.hasPrefix("open:") || spec.hasPrefix("dbl:") {
                     let target = spec.split(separator: ":", maxSplits: 2).map(String.init)
                     let document = target.count == 3 ? ["u": ReviewDocument(path: target[2], compare: .uncommitted), "c": ReviewDocument(path: target[2], compare: .committed)][target[1]] ?? model.workingDocument(target[2]) : nil
                     if spec == "refresh" { await store.refreshReview() }
                     if spec == "keep" { model.selectedTabID.map(model.keep) }
                     if spec == "save", let path = model.selectedDocument?.path, let draft = model.drafts[path] { model.save(draft, to: path) }
                     if spec == "back" || spec == "forward" { model.go(by: spec == "back" ? -1 : 1) }
+                    if spec == "reveal" { model.filesReveal = model.selectedDocument?.path }
                     if spec.hasPrefix("file"), let index = Int(spec.dropFirst(4)), let file = model.changes.map({ $0.uncommitted.map { ReviewDocument(path: $0.path, compare: .uncommitted) } + $0.committed.map { ReviewDocument(path: $0.path, compare: .committed) } })?.dropFirst(index).first { model.open(file) }
                     if let document {
                         model.open(document)

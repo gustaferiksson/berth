@@ -236,7 +236,7 @@ final class Store {
     #endif
 
     func start(restoringTabs: Bool) {
-        updater.workingSessions = { [weak self] in self?.workingSessionCount ?? 0 }
+        updater.busySessions = { [weak self] in self?.busySessionCount ?? 0 }
         updater.isIdle = { [weak self] in self?.isIdle ?? false }
         let sessions = Self.claudeDirectory.appending(path: "sessions").path
         watcher = FileWatcher(paths: [sessions, Self.claudeDirectory.appending(path: "projects").path], latency: 1) { [weak self] paths in
@@ -554,12 +554,12 @@ final class Store {
         tabs.first { $0.sessionID == id }
     }
 
-    var workingSessionCount: Int {
-        tabs.compactMap(\.sessionID).count(where: { liveBySession[$0]?.activity == .working })
+    var busySessionCount: Int {
+        tabs.compactMap(\.sessionID).count { (liveBySession[$0]?.activity ?? .idle) != .idle }
     }
 
     var isIdle: Bool {
-        workingSessionCount == 0
+        busySessionCount == 0
             && lastKeyInput.timeIntervalSinceNow < -30
             && !terminals.contains { $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
             && !reviewModels.values.contains(where: \.hasUnsavedEdits)

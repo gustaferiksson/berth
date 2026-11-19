@@ -41,7 +41,7 @@ This is the slim first version; the rest is listed under Later.
   the session's comments below it with a delete button each, and Send N Comments. Collapsed
   sections persist in `@AppStorage` `collapsedReviewSections` (comma-separated ids
   `uncommitted`, `committed`, `files`; default `files`).
-- Uncommitted (count, summed +/-) and Committed (count, "N commits") sections, each only when it
+- Uncommitted and Committed (count, summed +/-) sections, each only when it
   has files. Rows: status letter A/M/D/R in the theme's working, needs-you, closed and branch
   colours, file name, +/- counts. Each row opens its own compare. Nothing changed: "No
   uncommitted changes on <branch>" on the default branch or without a base, else "No changes,
@@ -83,17 +83,21 @@ This is the slim first version; the rest is listed under Later.
     upstream") and its last two commits.
   - With a PR (the sidebar's data, `Store.pullRequest(in:branch:)`): a state pill (Open, Draft,
     Merged, Closed in the sidebar tag's colours), `#number`, Open on GitHub, the title (two
-    lines), then the checks summary ("Checks passed", "N failed" or "N running", counts in the
-    tooltip) and "N open" unresolved review threads. Checks and threads are one `gh api graphql`
+    lines), then the branch total (below), the checks summary ("Checks passed", "N failed" or
+    "N running", counts in the tooltip) and "N open" unresolved review threads. Checks and threads are one `gh api graphql`
     call (`PullRequestDetail`) for this PR only, off the main thread, when the panel shows the
     session, when the PR first appears and on Refresh; kept per PR number, so a failed call
-    keeps the last result. Without `gh` the line is missing.
+    keeps the last result. Without `gh` only the total is left on the line.
   - Otherwise: a "No pull request" pill (only once the sidebar's lookup answered no PR; without
     `gh` or a GitHub remote there is no pill), "N commits ahead of <base>" ("No commits yet" at
-    0), ↑ahead ↓behind the base, the upstream state ("Not pushed, no upstream" without one),
-    and the branch's commits, at most 5 then "N more": short SHA, subject, age, and a dot,
+    0), ↑ahead ↓behind the base, the branch total, the upstream state ("Not pushed, no
+    upstream" without one), and the branch's commits, at most 5 then "N more": short SHA, subject, age, and a dot,
     filled when pushed to the upstream, hollow in the needs-you colour when not. With the pill and
     at least 1 commit ahead, a Create Pull Request… button ends the card (see Create Pull Request).
+  - The branch total (`ReviewChanges.total`) is `+N −M` of the working tree against the merge
+    base (what the PR would hold with everything committed), untracked files included and binary
+    files as 0, so a committed line reverted in the working tree counts nowhere, unlike the sum of
+    both sections. None on the default branch or without a base.
 - Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal): open
   whenever the panel shows, collapsed only while the panel is hidden or Harbor is shown, so the
   terminal's width doesn't change as files open and close. With no tab (or a terminal tab
@@ -110,9 +114,13 @@ This is the slim first version; the rest is listed under Later.
   tall as the diff's tab strip, so the hairline under both crosses the diff | terminal divider,
   as in Xcode's split editor. The divider starts under the toolbar; a full-height one cut
   through the window title.
-- Tabs (`ReviewModel.tabs`, VS Code preview semantics): a tab strip (file name, a diff or file
-  icon, ×), then a header with back and forward, the path, an Uncommitted or Committed chip and
-  Save while there is a draft. A click on a row (or a ⌘-clicked definition) opens a preview tab,
+- Tabs (`ReviewModel.tabs`, VS Code preview semantics): one tab strip row with back and forward,
+  the scrolling tabs (file name, a diff or file icon, ×), then the layout toggle and Save (icon,
+  while the current document's path has a draft); the diff starts under it. Tabs whose file names
+  collide show their shortest distinguishing parent folders dimmed after the name; the tooltip is
+  the repo-relative path, plus (Committed) or (Uncommitted) for a compare. A tab's context menu
+  has Copy Path, Copy Relative Path, Reveal in Files (selects it, expands Files and its parent
+  folders and scrolls to the row), Close and Close Others. A click on a row (or a ⌘-clicked definition) opens a preview tab,
   title in italics: at most one exists, and the next open replaces its document in place,
   dropping its forward history, so back and forward walk that tab's history. A document already
   open in a tab selects that tab. Double-clicking the row or the tab, or editing the file, keeps
@@ -139,7 +147,7 @@ This is the slim first version; the rest is listed under Later.
   files too. Added and deleted files show the missing side as filler; a binary or too large
   side is a `ContentUnavailableView`.
 - Layout: `@AppStorage` `reviewDiffLayout` is `auto` (default), `sideBySide` or `inline`. A
-  toggle after the compare chip in the diff header (`rectangle.split.2x1` "Show Side by Side"
+  toggle at the tab strip's trailing edge (`rectangle.split.2x1` "Show Side by Side"
   while unified, `rectangle` "Show Inline" while side by side, hidden for a plain file and for an
   added or deleted file, which are always unified) sets an
   explicit value; View ▸ Show Side by Side / Show Inline and the palette run the same
@@ -179,7 +187,7 @@ This is the slim first version; the rest is listed under Later.
   deletes). It is the one box: a new selection or another edit replaces it. Double-clicking a
   comment in the panel opens its document and starts the same edit.
 - Edits on the right become the file's draft; 300 ms after the last edit the diff and
-  highlighting are recomputed off the main thread. Save (⌘S) appears in the header while
+  highlighting are recomputed off the main thread. Save (⌘S) appears in the tab strip while
   there is a draft. Each file keeps its own undo history while Review's model lives (switching
   files and Refresh keep it); reloading a file whose text changed on disk clears it.
 - Loading, no changes and errors (not a git repository, git failures) are
@@ -191,8 +199,8 @@ This is the slim first version; the rest is listed under Later.
 |---|---|---|
 | ⇧⌘R, View ▸ Show / Hide Changes, palette, toolbar button | anywhere | Shows or hides the panel (showing leaves Harbor) |
 | ⌘W, a tab's × | a tab is open, focus outside a terminal | Closes the current tab; closing the last leaves "No File Open" and focuses the terminal |
-| View ▸ Show Side by Side / Show Inline, palette, the header toggle | a compare of a file that is neither added nor deleted is shown | Sets `reviewDiffLayout` |
-| ⌘S, Save in the header | Review, the file has a draft | Saves it through `ReviewGit.save` |
+| View ▸ Show Side by Side / Show Inline, palette, the tab strip toggle | a compare of a file that is neither added nor deleted is shown | Sets `reviewDiffLayout` |
+| ⌘S, Save in the tab strip | Review, the file has a draft | Saves it through `ReviewGit.save` |
 | ⌘F | the diff | The focused side's find bar |
 | ⌘-click | an identifier on the right side, language servers on | Goes to its definition |
 | Send N Comments | the panel | See Comments |
