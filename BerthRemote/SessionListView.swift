@@ -71,6 +71,7 @@ struct SessionListView: View {
             }
             .onChange(of: client.openedSessionID) {
                 guard let id = client.openedSessionID else { return }
+
                 client.openedSessionID = nil
                 path = [id]
             }
@@ -192,7 +193,7 @@ private struct SessionStatus: View {
         if seconds < 3600 { return "\(Int(seconds / 60))m" }
         if seconds < 6 * 3600 || Calendar.current.isDateInToday(session.lastActivity) { return "\(Int(seconds / 3600))h" }
         if Calendar.current.isDateInYesterday(session.lastActivity) { return "Yesterday" }
-        if seconds < 6 * 86400 { return session.lastActivity.formatted(.dateTime.weekday(.wide)) }
+        if seconds < 6 * 86_400 { return session.lastActivity.formatted(.dateTime.weekday(.wide)) }
         return session.lastActivity.formatted(.dateTime.day().month(.abbreviated))
     }
 }

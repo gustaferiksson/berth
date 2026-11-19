@@ -47,11 +47,13 @@ extension ReviewTextView {
             columnSelect(anchor: index, focus: index)
             return true
         }
+
         let existing = carets.ranges.firstIndex { $0.length == 0 && $0.location == index }
         guard let existing, carets.ranges.count > 1 else {
             applyCarets(carets.ranges + [NSRange(location: index, length: 0)], primaryAt: index)
             return true
         }
+
         let remaining = carets.ranges.enumerated().filter { $0.offset != existing }.map(\.element)
         applyCarets(remaining, primaryAt: remaining.last?.location)
         return true
@@ -84,6 +86,7 @@ extension ReviewTextView {
 
     override func scrollRangeToVisible(_ range: NSRange) {
         guard !carets.isFanningOut else { return }
+
         super.scrollRangeToVisible(range)
     }
 
@@ -112,6 +115,7 @@ extension ReviewTextView {
     override func insertText(_ string: Any, replacementRange: NSRange) {
         guard carets.ranges.count > 1, !carets.isFanningOut else { return super.insertText(string, replacementRange: replacementRange) }
         guard !hasMarkedText() else { return commitComposition(string) }
+
         fanOutEdit { _ in super.insertText(string, replacementRange: NSRange(location: NSNotFound, length: 0)) }
     }
 
@@ -156,16 +160,19 @@ extension ReviewTextView {
 
     override func paste(_ sender: Any?) {
         guard carets.ranges.count > 1, let clipboard = NSPasteboard.general.string(forType: .string) else { return super.paste(sender) }
+
         pasteAtCarets(clipboard)
     }
 
     override func pasteAsPlainText(_ sender: Any?) {
         guard carets.ranges.count > 1, let clipboard = NSPasteboard.general.string(forType: .string) else { return super.pasteAsPlainText(sender) }
+
         pasteAtCarets(clipboard)
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let column = carets.column else { return super.mouseDragged(with: event) }
+
         columnSelect(anchor: column.anchor, focus: characterIndexForInsertion(at: convert(event.locationInWindow, from: nil)))
     }
 
@@ -298,6 +305,7 @@ extension ReviewTextView {
         let primary = carets.ranges[carets.primary]
         guard primary.length == 0 else { return (text.substring(with: primary), .substringIgnoreCase, nil) }
         guard let word = ReviewCarets.wordRange(touching: primary.location, in: text) else { return nil }
+
         return (text.substring(with: word), carets.ranges.count == 1 ? .wholeWordMatchCase : .substringIgnoreCase, word)
     }
 

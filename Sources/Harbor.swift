@@ -171,6 +171,7 @@ struct Harbor: View {
             let x = (Double(index * 383 % 997) / 997) * size.width
             let y = (Double(index * 211 % 503) / 503) * size.height
             guard x > Self.shore + 12 else { continue }
+
             var wave = Path()
             wave.move(to: CGPoint(x: x, y: y))
             wave.addQuadCurve(to: CGPoint(x: x + 8, y: y), control: CGPoint(x: x + 4, y: y - 3))
@@ -223,6 +224,7 @@ struct Harbor: View {
         context.fill(jib, with: .color(ink.opacity(0.45)))
         context.fill(Path(CGRect(x: -2.5, y: -44, width: 1.25, height: 37)), with: .color(ink))
         guard case .needsYou = boat.mooring else { return }
+
         var flag = Path()
         flag.move(to: CGPoint(x: -1.5, y: -44))
         flag.addQuadCurve(to: CGPoint(x: 10, y: -41), control: CGPoint(x: 4, y: -45))
@@ -247,19 +249,21 @@ private struct Bobbing: NSViewRepresentable {
     let boat: Boat
     let theme: GhosttyTheme
 
-    func makeNSView(context: Context) -> NSHostingView<BoatSprite> {
+    func makeNSView(context _: Context) -> NSHostingView<BoatSprite> {
         let view = NSHostingView(rootView: BoatSprite(boat: boat, theme: theme))
         view.sizingOptions = []
         view.wantsLayer = true
         return view
     }
 
-    func updateNSView(_ view: NSHostingView<BoatSprite>, context: Context) {
+    func updateNSView(_ view: NSHostingView<BoatSprite>, context _: Context) {
         view.rootView = BoatSprite(boat: boat, theme: theme)
         guard let layer = view.layer else { return }
+
         let motions = [("transform.translation.y", boat.mooring.bob, 2 * .pi / 1.6), ("transform.translation.x", boat.mooring == .anchored ? 8 : 0, 2 * .pi / 0.2)]
         let running = motions.map { keyPath, amplitude, _ in (layer.animation(forKey: keyPath) as? CABasicAnimation)?.toValue as? Double ?? 0 == amplitude }
         guard running.contains(false) else { return }
+
         layer.removeAllAnimations()
         for (keyPath, amplitude, period) in motions where amplitude > 0 {
             let animation = CABasicAnimation(keyPath: keyPath)

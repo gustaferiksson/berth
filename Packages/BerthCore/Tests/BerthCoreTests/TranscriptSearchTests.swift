@@ -1,11 +1,11 @@
+@testable import BerthCore
 import Foundation
 import Testing
-@testable import BerthCore
 
 struct TranscriptSearchTests {
-    let directory = FileManager.default.temporaryDirectory.appending(path: "berth-search-\(UUID().uuidString)")
+    private let directory = FileManager.default.temporaryDirectory.appending(path: "berth-search-\(UUID().uuidString)")
 
-    func source(_ id: String, _ lines: [String]) throws -> TranscriptSearchIndex.Source {
+    private func source(_ id: String, _ lines: [String]) throws -> TranscriptSearchIndex.Source {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "\(id).jsonl")
         try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
@@ -13,21 +13,21 @@ struct TranscriptSearchTests {
         return TranscriptSearchIndex.Source(sessionID: id, url: url, modified: values.contentModificationDate ?? .now, size: values.fileSize ?? 0)
     }
 
-    func session(_ id: String, minutesAgo: Double) -> SessionSummary {
+    private func session(_ id: String, minutesAgo: Double) -> SessionSummary {
         SessionSummary(id: id, cwd: "/Users/example/Repos/\(id)", title: id, lastActivity: Date(timeIntervalSinceNow: -minutesAgo * 60))
     }
 
-    func prompt(_ text: String) -> String {
+    private func prompt(_ text: String) -> String {
         #"{"type":"user","message":{"role":"user","content":"\#(text)"},"cwd":"/x"}"#
     }
 
-    func reply(_ text: String) -> String {
+    private func reply(_ text: String) -> String {
         #"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"\#(text)"},{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}"#
     }
 
     @Test func indexesTypedPromptsAndRepliesOnly() throws {
         var index = TranscriptSearchIndex()
-        index.index(try source("a", [
+        try index.index(source("a", [
             prompt("typed walrus"),
             reply("assistant pelican"),
             #"{"type":"user","isMeta":true,"message":{"content":"meta heron"}}"#,
@@ -48,7 +48,7 @@ struct TranscriptSearchTests {
 
     @Test func matchesCaseAndDiacriticInsensitiveAndOfWords() throws {
         var index = TranscriptSearchIndex()
-        index.index(try source("a", [prompt("Fix the Café menu"), reply("ÅSA approved it")]))
+        try index.index(source("a", [prompt("Fix the Café menu"), reply("ÅSA approved it")]))
         let sessions = [session("a", minutesAgo: 1)]
         #expect(index.search("cafe asa", in: sessions).count == 1)
         #expect(index.search("CAFÉ", in: sessions).count == 1)
@@ -58,7 +58,7 @@ struct TranscriptSearchTests {
 
     @Test func newestSessionsFirstAndCapped() throws {
         var index = TranscriptSearchIndex()
-        for id in ["old", "new", "mid", "unlisted"] { index.index(try source(id, [prompt("shared kestrel")])) }
+        for id in ["old", "new", "mid", "unlisted"] { try index.index(source(id, [prompt("shared kestrel")])) }
         let sessions = [session("old", minutesAgo: 30), session("new", minutesAgo: 1), session("mid", minutesAgo: 10)]
         #expect(index.search("kestrel", in: sessions).map(\.id) == ["new", "mid", "old"])
         #expect(index.search("kestrel", in: sessions, limit: 2).map(\.id) == ["new", "mid"])
@@ -67,7 +67,7 @@ struct TranscriptSearchTests {
     @Test func snippetsPreferNewestMessagesWithAllWordsAndHighlightMatches() throws {
         var index = TranscriptSearchIndex()
         let padding = String(repeating: "lorem ", count: 20)
-        index.index(try source("a", [prompt("first parser note"), reply("\(padding)the Parser   streams now"), prompt("only parser here"), reply("streams alone")]))
+        try index.index(source("a", [prompt("first parser note"), reply("\(padding)the Parser   streams now"), prompt("only parser here"), reply("streams alone")]))
         let snippets = try #require(index.search("parser streams", in: [session("a", minutesAgo: 1)]).first?.snippets)
         #expect(snippets.count == 2)
         #expect(snippets[0].text.hasPrefix("…"))
@@ -98,20 +98,20 @@ struct TranscriptSearchTests {
 
     @Test func textPerSessionIsCapped() throws {
         var index = TranscriptSearchIndex(maxTextPerSession: 40)
-        index.index(try source("a", [prompt(String(repeating: "a", count: 30) + " curlew"), prompt("ignored ibis")]))
+        try index.index(source("a", [prompt(String(repeating: "a", count: 30) + " curlew"), prompt("ignored ibis")]))
         let sessions = [session("a", minutesAgo: 1)]
         #expect(index.search("curlew", in: sessions).isEmpty == false)
         #expect(index.search("ibis", in: sessions).isEmpty)
         #expect(index.textBytes <= 2 * 41)
     }
 
-    func usage(_ id: String, at time: String, output: Int, sidechain: Bool = false) -> String {
+    private func usage(_ id: String, at time: String, output: Int, sidechain: Bool = false) -> String {
         #"{"type":"assistant","isSidechain":\#(sidechain),"timestamp":"2026-03-04T\#(time)Z","message":{"model":"claude-x","id":"\#(id)","content":[{"type":"tool_use","name":"Bash","input":{}}],"usage":{"input_tokens":1,"cache_creation_input_tokens":10,"cache_read_input_tokens":100,"output_tokens":\#(output)}}}"#
     }
 
     @Test func collectsPromptTimesAndUsageOncePerMessage() throws {
         var index = TranscriptSearchIndex(maxTextPerSession: 4)
-        index.index(try source("a", [
+        try index.index(source("a", [
             #"{"type":"user","timestamp":"2026-03-04T10:00:00.000Z","message":{"content":"typed prompt beyond the text cap"}}"#,
             #"{"type":"user","isMeta":true,"timestamp":"2026-03-04T10:00:01.000Z","message":{"content":"meta"}}"#,
             usage("m1", at: "10:00:02.000", output: 5),
@@ -127,7 +127,7 @@ struct TranscriptSearchTests {
 
     @Test func subagentUsageCountsTowardsItsSessionButIsNotSearchable() throws {
         var index = TranscriptSearchIndex()
-        index.index(try source("a", [prompt("main grebe"), usage("m1", at: "10:00:00.000", output: 3)]))
+        try index.index(source("a", [prompt("main grebe"), usage("m1", at: "10:00:00.000", output: 3)]))
         let subagent = try source("agent-1", [
             #"{"type":"user","isSidechain":true,"timestamp":"2026-03-04T10:00:01.000Z","message":{"content":"delegated tern"}}"#,
             usage("s1", at: "10:00:02.000", output: 4, sidechain: true),

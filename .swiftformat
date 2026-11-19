@@ -8,14 +8,17 @@
 --ranges no-space
 --test-case-name-format standard-identifiers
 --decimal-grouping 3,5
---hex-grouping none
+--hex-grouping ignore
+--trailing-commas collections-only
 
---enable blankLineAfterSwitchCase,blankLinesAfterGuardStatements,blockComments,commonTypos,emptyExtensions,forWhere,ifExpressions,isEmpty,noExplicitOwnership,noGuardInTests,preferContains,preferCountWhere,preferFinalClasses,preferFirstWhere,preferFlatMap,preferMinOverSorted,preferStructSwiftTestingSuites,preferSwiftStringAPI,preferSwiftTesting,privateSwiftUIDynamicProperties,redundantExtendedLifetime,redundantOverload,singlePropertyPerLine,sortSwitchCases,testSuiteAccessControl,unusedPrivateDeclarations,validateTestCases,wrapMultilineConditionalAssignment
+--enable blankLineAfterSwitchCase,blankLinesAfterGuardStatements,blockComments,commonTypos,emptyExtensions,forWhere,noExplicitOwnership,noGuardInTests,preferCountWhere,preferFinalClasses,preferFirstWhere,preferFlatMap,preferMinOverSorted,preferStructSwiftTestingSuites,preferSwiftStringAPI,preferSwiftTesting,redundantExtendedLifetime,redundantOverload,singlePropertyPerLine,testSuiteAccessControl,unusedPrivateDeclarations,validateTestCases
 
 # One-line early exits and bodies (guard ... else { return }, if x { return y }) are the house style.
 --disable wrapIfStatementBodies,wrapLoopBodies,wrapIfExpressionBodies,wrapPropertyBodies,wrapFunctionBodies
 # The house style is zero comments: no doc comment conversion.
 --disable docComments
+# SwiftLint's opening_brace owns brace placement and keeps it on the condition line.
+--disable wrapMultilineStatementBraces
 # Explicit Sendable is kept: inference differs under the app's default MainActor isolation.
 --disable redundantSendable
 
@@ -24,7 +27,13 @@
 # acronyms renames Codable properties such as sessionId, which are JSON keys.
 # propertyTypes rewrites `let x: [K: V] = [:]` as `[K: V]()` either way; the repo mixes both on purpose.
 # preferExplicitFalse writes `x == false` instead of the idiomatic `!x`.
+# preferContains swaps Data.range(of:), the fast byte search on transcript prefilters, for generic contains.
+# isEmpty rewrites `count > 0` on types whose count is a field, not a collection (compactions, menu actions).
 # preferLazyMap adds `.lazy` noise to small collections.
+# ifExpressions turns one-line ternaries into nested if/else expressions.
+# privateSwiftUIDynamicProperties also privatizes @ObservedObject inputs (SwiftLint's private_swiftui_state covers @State).
+# sortSwitchCases reorders case patterns that follow menu order.
+# wrapMultilineConditionalAssignment splits `let x = switch` across lines.
 # wrapGuardStatementBodies, wrapCaseBodies, wrapClosureBodies, wrapDoBodies, wrapSwitchCases, wrapEnumCases,
 # wrapMultilineFunctionChains and wrapSingleLineStrings undo one-line bodies, cases and SwiftUI modifier chains.
 # urlMacro needs a #URL macro the project doesn't define.

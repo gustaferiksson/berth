@@ -1,8 +1,8 @@
 import AppKit
 import SwiftTreeSitter
 import TreeSitterCSS
-import TreeSitterJSON
 import TreeSitterJavaScript
+import TreeSitterJSON
 import TreeSitterMarkdown
 import TreeSitterMarkdownInline
 import TreeSitterSwift
@@ -31,17 +31,17 @@ enum ReviewHighlighter {
         }
     }
 
-    nonisolated private static let javascriptQueries: [(bundle: String, file: String)] = [("TreeSitterJavaScript_TreeSitterJavaScript", "highlights.scm"), ("TreeSitterJavaScript_TreeSitterJavaScript", "highlights-jsx.scm")]
-    nonisolated private static let swift = Grammar(tree_sitter_swift(), queries: [("TreeSitterSwift_TreeSitterSwift", "highlights.scm")])
-    nonisolated private static let typescript = Grammar(tree_sitter_typescript(), queries: [("TreeSitterTypeScript_TreeSitterTypeScript", "highlights.scm"), javascriptQueries[0]])
-    nonisolated private static let tsx = Grammar(tree_sitter_tsx(), queries: [("TreeSitterTypeScript_TreeSitterTSX", "highlights.scm")] + javascriptQueries)
-    nonisolated private static let javascript = Grammar(tree_sitter_javascript(), queries: javascriptQueries)
-    nonisolated private static let json = Grammar(tree_sitter_json(), queries: [("TreeSitterJSON_TreeSitterJSON", "highlights.scm")])
-    nonisolated private static let markdown = Grammar(tree_sitter_markdown(), queries: [("TreeSitterMarkdown_TreeSitterMarkdown", "highlights.scm")])
-    nonisolated private static let markdownInline = Grammar(tree_sitter_markdown_inline(), queries: [("TreeSitterMarkdown_TreeSitterMarkdownInline", "highlights.scm")])
-    nonisolated private static let markdownInlineNodes = try? Query(language: Language(tree_sitter_markdown()), data: Data("(inline) @inline".utf8))
-    nonisolated private static let yaml = Grammar(tree_sitter_yaml(), queries: [("TreeSitterYAML_TreeSitterYAML", "highlights.scm")])
-    nonisolated private static let css = Grammar(tree_sitter_css(), queries: [("TreeSitterCSS_TreeSitterCSS", "highlights.scm")])
+    private nonisolated static let javascriptQueries: [(bundle: String, file: String)] = [("TreeSitterJavaScript_TreeSitterJavaScript", "highlights.scm"), ("TreeSitterJavaScript_TreeSitterJavaScript", "highlights-jsx.scm")]
+    private nonisolated static let swift = Grammar(tree_sitter_swift(), queries: [("TreeSitterSwift_TreeSitterSwift", "highlights.scm")])
+    private nonisolated static let typescript = Grammar(tree_sitter_typescript(), queries: [("TreeSitterTypeScript_TreeSitterTypeScript", "highlights.scm"), javascriptQueries[0]])
+    private nonisolated static let tsx = Grammar(tree_sitter_tsx(), queries: [("TreeSitterTypeScript_TreeSitterTSX", "highlights.scm")] + javascriptQueries)
+    private nonisolated static let javascript = Grammar(tree_sitter_javascript(), queries: javascriptQueries)
+    private nonisolated static let json = Grammar(tree_sitter_json(), queries: [("TreeSitterJSON_TreeSitterJSON", "highlights.scm")])
+    private nonisolated static let markdown = Grammar(tree_sitter_markdown(), queries: [("TreeSitterMarkdown_TreeSitterMarkdown", "highlights.scm")])
+    private nonisolated static let markdownInline = Grammar(tree_sitter_markdown_inline(), queries: [("TreeSitterMarkdown_TreeSitterMarkdownInline", "highlights.scm")])
+    private nonisolated static let markdownInlineNodes = try? Query(language: Language(tree_sitter_markdown()), data: Data("(inline) @inline".utf8))
+    private nonisolated static let yaml = Grammar(tree_sitter_yaml(), queries: [("TreeSitterYAML_TreeSitterYAML", "highlights.scm")])
+    private nonisolated static let css = Grammar(tree_sitter_css(), queries: [("TreeSitterCSS_TreeSitterCSS", "highlights.scm")])
 
     nonisolated static func spans(in text: String, path: String) -> [Span] {
         let pathExtension = (path as NSString).pathExtension.lowercased()
@@ -60,7 +60,7 @@ enum ReviewHighlighter {
         return spans + markdownInline.highlights.execute(in: inlineTree).resolve(with: .init(string: text)).highlights().compactMap { $0.range.length > 0 && $0.name != "spell" ? Span(range: $0.range, capture: $0.name) : nil }
     }
 
-    nonisolated private static func grammar(forExtension pathExtension: String) -> Grammar? {
+    private nonisolated static func grammar(forExtension pathExtension: String) -> Grammar? {
         if pathExtension == "swift" { return swift }
         if ["ts", "mts", "cts"].contains(pathExtension) { return typescript }
         if pathExtension == "tsx" { return tsx }

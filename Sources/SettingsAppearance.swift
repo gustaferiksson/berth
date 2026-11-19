@@ -62,13 +62,13 @@ private struct ReviewStylePreview: View {
     let style: ReviewStyle
 
     private static let sample = #"""
-        func greet(_ name: String) -> String {
-            // Say hello
-            let greeting = "Hi"
-            let greeting = "Hello, \(name)!"
-            return greeting.uppercased()
-        }
-        """#
+    func greet(_ name: String) -> String {
+        // Say hello
+        let greeting = "Hi"
+        let greeting = "Hello, \(name)!"
+        return greeting.uppercased()
+    }
+    """#
     private static let lines = sample.split(separator: "\n").map { NSRange($0.startIndex..<$0.endIndex, in: sample) }
     private static let numbers = ["1", "2", "3", "3", "4", "5"]
     private static let spans = ReviewHighlighter.spans(in: sample, path: "preview.swift")
@@ -79,11 +79,13 @@ private struct ReviewStylePreview: View {
         code.foregroundColor = Color(nsColor: style.foreground)
         for span in Self.spans {
             guard let range = Range(span.range, in: code) else { continue }
+
             code[range].foregroundColor = Color(nsColor: style.color(forCapture: span.capture))
             code[range].font = Font(style.font(forCapture: span.capture))
         }
         for (word, color) in [("\"Hi\"", style.removedWord), (#""Hello, \(name)!""#, style.addedWord)] {
             guard let range = code.range(of: word) else { continue }
+
             code[range].backgroundColor = Color(nsColor: color)
         }
 

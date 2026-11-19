@@ -10,6 +10,7 @@ public enum SessionPins {
 
     public static func moving(_ pinned: [String], _ id: String, onto index: Int) -> [String] {
         guard let source = pinned.firstIndex(of: id) else { return pinned }
+
         var order = pinned
         order.remove(at: source)
         order.insert(id, at: min(max(index, 0), order.count))

@@ -72,10 +72,11 @@ public struct PullRequestDetail: Sendable, Hashable {
     public static func arguments(repository: String, number: Int) -> [String]? {
         let parts = repository.split(separator: "/").map(String.init)
         guard parts.count == 2 else { return nil }
+
         return ["api", "graphql", "-f", "query=\(query)", "-f", "owner=\(parts[0])", "-f", "name=\(parts[1])", "-F", "number=\(number)"]
     }
 
-    public static func parse(_ output: Data) -> PullRequestDetail? {
+    public static func parse(_ output: Data) -> Self? {
         guard let pullRequest = (try? JSONDecoder().decode(Response.self, from: output))?.data?.repository?.pullRequest else { return nil }
 
         let checks = pullRequest.statusCheckRollup.map { rollup in
@@ -83,6 +84,6 @@ public struct PullRequestDetail: Sendable, Hashable {
             return PullRequestChecks(state: PullRequestChecks.State(rollup.state), passed: counts[.passed] ?? 0, failed: counts[.failed] ?? 0, running: counts[.running] ?? 0)
         }
 
-        return PullRequestDetail(checks: checks, unresolvedThreads: pullRequest.reviewThreads.nodes.filter { $0?.isResolved == false }.count)
+        return Self(checks: checks, unresolvedThreads: pullRequest.reviewThreads.nodes.count(where: { $0?.isResolved == false }))
     }
 }

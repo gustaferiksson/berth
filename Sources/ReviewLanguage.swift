@@ -86,7 +86,7 @@ final class ReviewLanguage {
             guard let command = LanguageServers.command(for: key.server, root: key.folder) else { return nil }
 
             let server = LanguageServer(command: command, root: key.folder, settings: key.server.settings)
-            let isStarted = (try? await server.start()) != nil
+            let isStarted = await (try? server.start()) != nil
             guard isStarted, let self, self.generation == generation else {
                 await server.stop()
                 if !isStarted, self?.generation == generation { self?.servers[key] = nil }
@@ -140,7 +140,7 @@ final class ReviewLanguage {
                 do {
                     answer = try await question(running.server, url)
                     if answer != nil || ContinuousClock.now - running.startedAt >= .seconds(10) { break attempts }
-                } catch let LanguageServerError.response(code, _) where code == -32801 {
+                } catch let LanguageServerError.response(code, _) where code == -32_801 {
                     continue
                 } catch {
                     break attempts

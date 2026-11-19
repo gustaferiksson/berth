@@ -46,13 +46,13 @@ struct AboutSettings: View {
             Text("Checking for updates…").foregroundStyle(.secondary)
         } else if status == .downloading {
             Text("Downloading the update…").foregroundStyle(.secondary)
-        } else if case .upToDate(let version) = status {
+        } else if case let .upToDate(version) = status {
             Text("Berth \(version) is the latest version.").foregroundStyle(.secondary)
-        } else if case .ready(let version) = status {
+        } else if case let .ready(version) = status {
             Text(store.updater.isPostponed ? "Berth \(version) will be installed when you quit." : "Berth \(version) will be installed when sessions are idle.")
-        } else if case .blocked(let message) = status {
+        } else if case let .blocked(message) = status {
             Text(message).foregroundStyle(.orange)
-        } else if case .failed(let message) = status {
+        } else if case let .failed(message) = status {
             Text(message).foregroundStyle(.red)
         } else {
             Text(" ")

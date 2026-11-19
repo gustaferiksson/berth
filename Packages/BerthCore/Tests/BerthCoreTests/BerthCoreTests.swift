@@ -1,11 +1,11 @@
+@testable import BerthCore
 import Foundation
 import Testing
-@testable import BerthCore
 
 struct TranscriptTests {
-    let fixtures = Bundle.module.url(forResource: "Fixtures", withExtension: nil)!
+    private let fixtures = Bundle.module.url(forResource: "Fixtures", withExtension: nil)!
 
-    func summary(_ name: String) -> SessionSummary? {
+    private func summary(_ name: String) -> SessionSummary? {
         Transcript.summary(of: fixtures.appending(path: "\(name).jsonl"))
     }
 
@@ -87,7 +87,7 @@ struct TranscriptTests {
         #expect(summary("no-prompt") == nil)
     }
 
-    @Test func tailWindowDropsPartialFirstLine() throws {
+    @Test func tailWindowDropsPartialFirstLine() {
         let line = #"{"type":"ai-title","aiTitle":"Tail title","cwd":"/x"}"#
         let data = Data(("garbage partial line\n" + line + "\n").utf8)
         let records = Transcript.records(in: data, dropFirst: true, dropLast: false)
@@ -138,8 +138,8 @@ struct TranscriptTests {
         let replied = resumed + Transcript.records(in: Data(#"{"type":"user","timestamp":"2026-10-28T09:01:00.000Z","message":{"content":"and the tests"}}"#.utf8), dropFirst: false, dropLast: false)
         let resumedActivity = try #require(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: resumed)?.lastActivity)
         let repliedActivity = try #require(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: replied)?.lastActivity)
-        #expect(resumedActivity == (try Date("2026-10-01T10:05:00.000Z", strategy: .iso8601)))
-        #expect(repliedActivity == (try Date("2026-10-28T09:01:00.000Z", strategy: .iso8601)))
+        #expect(try resumedActivity == Date("2026-10-01T10:05:00.000Z", strategy: .iso8601))
+        #expect(try repliedActivity == Date("2026-10-28T09:01:00.000Z", strategy: .iso8601))
     }
 
     @Test func backgroundedSessionNamesItsContinuationUntilResumed() {
@@ -154,7 +154,7 @@ struct TranscriptTests {
         #expect(Transcript.summary(id: "a", folder: "-x", modified: .now, head: records, tail: resumed)?.continuedIn == nil)
     }
 
-    func records(_ lines: String) -> [Record] {
+    private func records(_ lines: String) -> [Record] {
         Transcript.records(in: Data(lines.utf8), dropFirst: false, dropLast: false)
     }
 
@@ -182,14 +182,14 @@ struct TranscriptTests {
         #expect(try order(alpha + streaming, beta + streaming) == ["beta", "alpha"])
         #expect(try order(alpha + streaming + prompt, beta + streaming) == ["alpha", "beta"])
         let alphaPrompt = try #require(Transcript.summary(id: "alpha", folder: "-x", modified: .now, head: head, tail: alpha + streaming)?.lastPrompt)
-        #expect(alphaPrompt == (try Date("2026-10-29T10:00:00.000Z", strategy: .iso8601)))
+        #expect(try alphaPrompt == Date("2026-10-29T10:00:00.000Z", strategy: .iso8601))
     }
 
     @Test func lastPromptFallsBackToEarlierPromptThenFirstRecord() throws {
         let head = records(#"{"type":"system","cwd":"/x","timestamp":"2026-10-29T08:00:00.000Z"}"#)
         let tail = records(#"{"type":"custom-title","customTitle":"Untouched"}"#)
         let earlier = try Date("2026-10-29T09:30:00.000Z", strategy: .iso8601)
-        #expect(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail)?.lastPrompt == (try Date("2026-10-29T08:00:00.000Z", strategy: .iso8601)))
+        #expect(try Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail)?.lastPrompt == Date("2026-10-29T08:00:00.000Z", strategy: .iso8601))
         #expect(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail, earlierPrompt: earlier)?.lastPrompt == earlier)
     }
 
@@ -263,11 +263,11 @@ struct TranscriptTests {
         {"type":"attachment","timestamp":"2026-10-29T10:05:00.000Z","attachment":{"type":"hook_success","content":"ok"}}
         """)
         let summary = try #require(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail))
-        #expect(summary.lastPrompt == (try Date("2026-10-29T10:01:00.000Z", strategy: .iso8601)))
-        #expect(summary.lastActivity == (try Date("2026-10-29T10:01:00.000Z", strategy: .iso8601)))
+        #expect(try summary.lastPrompt == Date("2026-10-29T10:01:00.000Z", strategy: .iso8601))
+        #expect(try summary.lastActivity == Date("2026-10-29T10:01:00.000Z", strategy: .iso8601))
     }
 
-    func transcript(withPrompt prompt: String, followedByToolResults count: Int) throws -> URL {
+    private func transcript(withPrompt prompt: String, followedByToolResults count: Int) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "berth-\(UUID().uuidString)/-x/far.jsonl")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let toolResult = #"{"type":"user","timestamp":"2026-10-29T10:05:00.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"\#(String(repeating: "x", count: 4000))"}]}}"#
@@ -283,16 +283,16 @@ struct TranscriptTests {
     @Test func queuedPromptBeyondTheTailIsFound() throws {
         let url = try transcript(withPrompt: #"{"type":"attachment","timestamp":"2026-10-29T10:00:00.000Z","attachment":{"type":"queued_command","prompt":"and the docs","commandMode":"prompt","origin":{"kind":"human"},"humanTurn":true}}"#, followedByToolResults: 40)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
-        #expect(Transcript.summary(of: url)?.lastPrompt == (try Date("2026-10-29T10:00:00.000Z", strategy: .iso8601)))
+        #expect(try Transcript.summary(of: url)?.lastPrompt == Date("2026-10-29T10:00:00.000Z", strategy: .iso8601))
     }
 
     @Test func promptMoreThanAMegabyteBeforeTheEndIsFoundOnTheFirstRead() throws {
         let url = try transcript(withPrompt: #"{"type":"user","timestamp":"2026-10-29T10:00:00.000Z","message":{"content":"long task"}}"#, followedByToolResults: 300)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent().deletingLastPathComponent()) }
-        #expect(Transcript.summary(of: url)?.lastPrompt == (try Date("2026-10-29T10:00:00.000Z", strategy: .iso8601)))
+        #expect(try Transcript.summary(of: url)?.lastPrompt == Date("2026-10-29T10:00:00.000Z", strategy: .iso8601))
     }
 
-    func transcriptBehindHugeLines(junkBytes: Int) throws -> URL {
+    private func transcriptBehindHugeLines(junkBytes: Int) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "berth-\(UUID().uuidString)/-Users-example-Repos-delta/huge.jsonl")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let image = String(repeating: "A", count: 40_000)
@@ -315,8 +315,8 @@ struct TranscriptTests {
         #expect(summary.title == "Fix the card parser")
         #expect(summary.cwd == "/Users/example/Repos/delta")
         #expect(summary.branch == "feat/cards")
-        #expect(summary.lastPrompt == (try Date("2026-10-29T10:00:00.000Z", strategy: .iso8601)))
-        #expect(summary.lastActivity == (try Date("2026-10-29T10:01:00.000Z", strategy: .iso8601)))
+        #expect(try summary.lastPrompt == Date("2026-10-29T10:00:00.000Z", strategy: .iso8601))
+        #expect(try summary.lastActivity == Date("2026-10-29T10:01:00.000Z", strategy: .iso8601))
     }
 
     @Test func indexKeepsTheLastSummaryWhenTheTailIsOutOfReach() throws {
@@ -376,7 +376,7 @@ struct TranscriptTests {
 }
 
 struct LiveSessionTests {
-    let directory = Bundle.module.url(forResource: "Fixtures", withExtension: nil)!.appending(path: "sessions")
+    private let directory = Bundle.module.url(forResource: "Fixtures", withExtension: nil)!.appending(path: "sessions")
 
     @Test func joinsAliveSessionsNewestFirst() {
         let live = LiveSession.load(from: directory) { $0 != 103 }
@@ -409,10 +409,10 @@ struct LiveSessionTests {
 }
 
 struct GroupingTests {
-    let now = Date(timeIntervalSince1970: 1_800_000_000)
-    let calendar = { var calendar = Calendar(identifier: .gregorian); calendar.timeZone = .gmt; return calendar }()
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private let calendar = { var calendar = Calendar(identifier: .gregorian); calendar.timeZone = .gmt; return calendar }()
 
-    func session(_ id: String, _ cwd: String, ago: TimeInterval = 0) -> SessionSummary {
+    private func session(_ id: String, _ cwd: String, ago: TimeInterval = 0) -> SessionSummary {
         SessionSummary(id: id, cwd: cwd, title: id, lastActivity: now.addingTimeInterval(-ago))
     }
 
@@ -473,7 +473,7 @@ struct GroupingTests {
     }
 
     @Test func recentBucketsFillAroundCustomSlots() {
-        let day: TimeInterval = 86400
+        let day: TimeInterval = 86_400
         let custom = CustomGroup(name: "Acme", rules: [FolderRule(path: "/r/acme", includesSubfolders: true)], slot: 1)
         let groups = SessionGrouping(mode: .recent, customGroups: [custom], repositoryRoots: [:], now: now, calendar: calendar).groups([
             session("old", "/a", ago: 30 * day), session("today", "/b"), session("acme", "/r/acme/web"),
@@ -518,7 +518,7 @@ struct GroupingTests {
     }
 
     @Test func recentModeBucketsInFixedOrderAndSkipsEmptyOnes() {
-        let day: TimeInterval = 86400
+        let day: TimeInterval = 86_400
         let groups = SessionGrouping(mode: .recent, customGroups: [], repositoryRoots: [:], now: now, calendar: calendar).groups([
             session("old", "/a", ago: 30 * day), session("today", "/b"), session("week", "/a", ago: 3 * day),
         ])
@@ -530,8 +530,8 @@ struct GroupingTests {
         let midnight = calendar.startOfDay(for: now)
         #expect(RecentBucket(date: midnight, now: now, calendar: calendar) == .today)
         #expect(RecentBucket(date: midnight.addingTimeInterval(-1), now: now, calendar: calendar) == .yesterday)
-        #expect(RecentBucket(date: midnight.addingTimeInterval(-6 * 86400), now: now, calendar: calendar) == .thisWeek)
-        #expect(RecentBucket(date: midnight.addingTimeInterval(-6 * 86400 - 1), now: now, calendar: calendar) == .older)
+        #expect(RecentBucket(date: midnight.addingTimeInterval(-6 * 86_400), now: now, calendar: calendar) == .thisWeek)
+        #expect(RecentBucket(date: midnight.addingTimeInterval(-6 * 86_400 - 1), now: now, calendar: calendar) == .older)
     }
 }
 
@@ -627,7 +627,7 @@ struct ClaudeLaunchTests {
 }
 
 struct NeedsYouTests {
-    func live(_ id: String, _ status: String) -> LiveSession {
+    private func live(_ id: String, _ status: String) -> LiveSession {
         LiveSession(pid: 1, sessionId: id, cwd: "/Users/example/Repos/alpha", kind: nil, jobId: nil, status: status, waitingFor: nil, statusUpdatedAt: nil, startedAt: nil)
     }
 
@@ -677,7 +677,7 @@ struct NeedsYouTests {
 }
 
 struct CommandPaletteTests {
-    let items = [
+    private let items = [
         PaletteItem(id: "recent", section: .recentSession, title: "Settings migration", detail: "/r/alpha"),
         PaletteItem(id: "settings", section: .action, title: "Settings…", detail: "preferences"),
         PaletteItem(id: "tab", section: .openTab, title: "Fix login", detail: "/r/beta"),
@@ -685,7 +685,7 @@ struct CommandPaletteTests {
         PaletteItem(id: "tab2", section: .openTab, title: "Set up CI", detail: "/r/gamma"),
     ]
 
-    func ranked(_ query: String) -> [String] {
+    private func ranked(_ query: String) -> [String] {
         CommandPalette.rank(query, items: items).map(\.id)
     }
 
@@ -717,14 +717,14 @@ struct CommandPaletteTests {
 }
 
 struct IdleTabsTests {
-    let now = Date(timeIntervalSince1970: 1_800_000_000)
-    let hour: TimeInterval = 3600
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private let hour: TimeInterval = 3600
 
-    func live(_ id: String, _ status: String = "idle", updated: TimeInterval = 5 * 3600, kind: String? = nil) -> LiveSession {
+    private func live(_ id: String, _ status: String = "idle", updated: TimeInterval = 5 * 3600, kind: String? = nil) -> LiveSession {
         LiveSession(pid: 1, sessionId: id, cwd: "/Users/example/Repos/alpha", kind: kind, jobId: kind == "bg" ? "job-1" : nil, status: status, waitingFor: nil, statusUpdatedAt: (now.timeIntervalSince1970 - updated) * 1000, startedAt: nil)
     }
 
-    func unloadable(_ live: LiveSession, touched: TimeInterval = 5 * 3600, lastActivity: TimeInterval = 5 * 3600, pinned: Set<String> = [], selected: Int? = nil, threshold: TimeInterval = 4 * 3600) -> Bool {
+    private func unloadable(_ live: LiveSession, touched: TimeInterval = 5 * 3600, lastActivity: TimeInterval = 5 * 3600, pinned: Set<String> = [], selected: Int? = nil, threshold: TimeInterval = 4 * 3600) -> Bool {
         !IdleTabs.unloadable([(id: 1, sessionID: live.sessionId, touched: now - touched)], live: [live.sessionId: live], lastActivity: [live.sessionId: now - lastActivity], pinned: pinned, selected: selected, now: now, threshold: threshold).isEmpty
     }
 

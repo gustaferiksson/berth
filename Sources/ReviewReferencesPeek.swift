@@ -36,6 +36,7 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
             let column = min(start.character, text.length)
             let wordEnd = (column..<text.length).first { index in
                 guard let scalar = UnicodeScalar(text.character(at: index)) else { return true }
+
                 return !(scalar == "_" || scalar == "$" || CharacterSet.alphanumerics.contains(scalar))
             } ?? text.length
             let indent = line.prefix { $0 == " " || $0 == "\t" }
@@ -136,6 +137,7 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
         split.resetRatio = 1 - 0.38
         split.onDrag = { [weak self] ratio in
             guard let self else { return }
+
             listRatio = 1 - ratio
             split.resizeSubviews(withOldSize: split.frame.size)
         }
@@ -150,7 +152,7 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    required init?(coder _: NSCoder) {
         fatalError()
     }
 
@@ -178,7 +180,7 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
         scrollPreview()
     }
 
-    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize _: NSSize) {
         let available = (splitView.isVertical ? splitView.bounds.width : splitView.bounds.height) - splitView.dividerThickness
         guard available > 0 else { return splitView.adjustSubviews() }
 
@@ -190,26 +192,26 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
         listScroll.frame = rest.divided(atDistance: splitView.dividerThickness, from: edge).remainder
     }
 
-    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt _: Int) -> CGFloat {
         let available = (splitView.isVertical ? splitView.bounds.width : splitView.bounds.height) - splitView.dividerThickness
         return max(proposedMinimumPosition, min(splitView.isVertical ? 100 : 60, (available / 2).rounded(.down)))
     }
 
-    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt _: Int) -> CGFloat {
         let available = (splitView.isVertical ? splitView.bounds.width : splitView.bounds.height) - splitView.dividerThickness
         return min(proposedMaximumPosition, available - min(splitView.isVertical ? 100 : 60, (available / 2).rounded(.down)))
     }
 
-    func splitView(_ splitView: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt dividerIndex: Int) -> NSRect {
+    func splitView(_ splitView: NSSplitView, effectiveRect _: NSRect, forDrawnRect drawnRect: NSRect, ofDividerAt _: Int) -> NSRect {
         splitView.isVertical ? drawnRect.insetBy(dx: -3, dy: 0) : drawnRect.insetBy(dx: 0, dy: -3)
     }
 
-    func splitViewDidResizeSubviews(_ notification: Notification) {
+    func splitViewDidResizeSubviews(_: Notification) {
         list.tableColumns.first?.width = listScroll.frame.width - 23
         window?.invalidateCursorRects(for: self)
     }
 
-    override func mouseDown(with event: NSEvent) {}
+    override func mouseDown(with _: NSEvent) {}
 
     override func resetCursorRects() {
         let drawn = split.isVertical ? NSRect(x: previewScroll.frame.maxX, y: 0, width: split.dividerThickness, height: split.bounds.height) : NSRect(x: 0, y: previewScroll.frame.maxY, width: split.bounds.width, height: split.dividerThickness)
@@ -220,25 +222,27 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
         addCursorRect(NSRect(x: 0, y: divider.maxY, width: bounds.width, height: bounds.height - divider.maxY), cursor: .arrow)
     }
 
-    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+    func outlineView(_: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
         guard let group = item as? Group else { return item == nil ? groups.count : 0 }
+
         return group.rows.count
     }
 
-    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+    func outlineView(_: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
         guard let group = item as? Group else { return groups[index] }
+
         return group.rows[index]
     }
 
-    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+    func outlineView(_: NSOutlineView, isItemExpandable item: Any) -> Bool {
         item is Group
     }
 
-    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+    func outlineView(_: NSOutlineView, rowViewForItem _: Any) -> NSTableRowView? {
         ReviewReferencesRowView()
     }
 
-    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
+    func outlineView(_: NSOutlineView, viewFor _: NSTableColumn?, item: Any) -> NSView? {
         let label = NSTextField(labelWithString: "")
         label.lineBreakMode = .byTruncatingTail
         if let group = item as? Group {
@@ -261,7 +265,7 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
         return label
     }
 
-    func outlineViewSelectionDidChange(_ notification: Notification) {
+    func outlineViewSelectionDidChange(_: Notification) {
         updateHeader()
         guard let row = selectedRow else { return }
 
@@ -285,12 +289,14 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
         guard let manager = preview.textLayoutManager, let storage = preview.textContentStorage, let location = storage.location(storage.documentRange.location, offsetBy: range.location),
               let y = manager.textLayoutFragment(for: location)?.layoutFragmentFrame.minY
         else { return }
+
         previewScroll.contentView.scroll(to: NSPoint(x: 0, y: max(y + preview.textContainerInset.height - previewScroll.contentSize.height / 3, 0)))
         previewScroll.reflectScrolledClipView(previewScroll.contentView)
     }
 
-    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+    func textView(_: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         guard commandSelector == #selector(cancelOperation(_:)) else { return false }
+
         onClose()
         return true
     }
@@ -306,6 +312,7 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
 
     @objc private func openSelected() {
         guard let row = selectedRow else { return }
+
         onOpen(row.reference)
     }
 

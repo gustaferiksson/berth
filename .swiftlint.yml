@@ -43,6 +43,8 @@ disabled_rules:
   # Case order is menu and settings order, and synthesized raw values are the persisted values.
   - sorted_enum_cases
   - explicit_enum_raw_value
+  # Mutually exclusive with extension_access_modifier, which agrees with SwiftFormat's extensionAccessControl.
+  - no_extension_access_modifier
   # SwiftFormat owns these (sortImports, modifierOrder, indent, redundantSelf) and they disagree on details.
   - sorted_imports
   - modifier_order
@@ -69,6 +71,12 @@ disabled_rules:
   - legacy_objc_type
   # Remaining force unwraps are of compile-time-known values: literal URLs, allCases lookups, DEBUG runtime swizzles.
   - force_unwrapping
+  # Data.range(of:) is the fast byte search on the transcript prefilter paths; generic contains is not.
+  - contains_over_range_nil_comparison
+  # Its autocorrect rewrites `count > 0` on types whose count is a field, not a collection (compactions, menu actions).
+  - empty_count
+  # Its autocorrect turns `xs[i { ... }...]` into `} ...]`, which no longer parses as a postfix range.
+  - closure_spacing
   # `dict[key] ?? nil` flattens a double optional; removing it changes the type.
   - redundant_nil_coalescing
   # Default parameters and their order are part of the call-site reading.
@@ -114,6 +122,9 @@ number_separator:
 
 trailing_comma:
   mandatory_comma: true
+
+trailing_closure:
+  only_single_muted_parameter: true
 
 function_parameter_count:
   warning: 7

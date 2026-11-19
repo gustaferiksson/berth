@@ -45,6 +45,7 @@ struct ConnectView: View {
 
     private func connect() {
         guard let url = RemoteClient.url(from: address) else { return }
+
         client.connect(to: url, token: token)
     }
 }

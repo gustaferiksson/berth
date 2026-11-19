@@ -100,11 +100,12 @@ public enum ReviewGit {
             root = try await line(["rev-parse", "--show-toplevel"], in: folder)
         } catch {
             guard case let ReviewGitError.git(_, message) = error else { throw error }
-            if (try? await git(["--version"], in: folder)) == nil { throw ReviewGitError.gitNotFound(message: message) }
+
+            if await (try? git(["--version"], in: folder)) == nil { throw ReviewGitError.gitNotFound(message: message) }
             if RepositoryRoot.enclosingRepository(folder) == nil { throw ReviewGitError.notARepository }
             throw error
         }
-        let branch = (try? await line(["symbolic-ref", "--short", "HEAD"], in: root)) ?? "HEAD"
+        let branch = await (try? line(["symbolic-ref", "--short", "HEAD"], in: root)) ?? "HEAD"
         let base = await base(in: root)
         let isDefaultBranch = base == branch || base == "origin/\(branch)"
         let baseRefspecs = base.map { $0.hasPrefix("origin/") ? ["+refs/heads/\($0.dropFirst("origin/".count)):refs/remotes/\($0)"] : [] } ?? []
@@ -114,7 +115,7 @@ public enum ReviewGit {
         let comparedBase = isDefaultBranch ? nil : base
         let mergeBase = if let comparedBase { try await line(["merge-base", comparedBase, head], in: root) } else { head }
 
-        let committed = changes(try await git(["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", "--no-color", mergeBase, head], in: root)).sorted { $0.path < $1.path }
+        let committed = try await changes(git(["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", "--no-color", mergeBase, head], in: root)).sorted { $0.path < $1.path }
         let uncommitted = try await workingTreeChanges(from: head, in: root)
         return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, base: base, head: head, mergeBase: mergeBase, uncommitted: uncommitted, committed: committed, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
     }
@@ -135,6 +136,7 @@ public enum ReviewGit {
         let commits = log.split(separator: 0).compactMap { record -> ReviewCommit? in
             let fields = record.split(separator: 0x1F, maxSplits: 3, omittingEmptySubsequences: false).map { String(decoding: $0, as: UTF8.self) }
             guard fields.count == 4, let time = TimeInterval(fields[2]) else { return nil }
+
             return ReviewCommit(sha: fields[1], subject: fields[3], date: Date(timeIntervalSince1970: time), isPushed: ownUpstream != nil && !unpushed.contains(Substring(fields[0])))
         }
 
@@ -149,6 +151,7 @@ public enum ReviewGit {
     public static func gitDirectories(in root: String) async throws -> (directory: String, common: String) {
         let lines = try await line(["rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir"], in: root).split(separator: "\n").map(String.init)
         guard lines.count == 2 else { throw ReviewGitError.git(arguments: ["rev-parse"], message: "unexpected git directories \(lines)") }
+
         return (lines[0], lines[1])
     }
 
@@ -161,21 +164,21 @@ public enum ReviewGit {
 
     public static func files(in root: String) async throws -> [String] {
         let listed = try await git(["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z"], in: root)
-        let deleted = Set(try await git(["ls-files", "--deleted", "-z"], in: root).split(separator: 0))
+        let deleted = try await Set(git(["ls-files", "--deleted", "-z"], in: root).split(separator: 0))
         return listed.split(separator: 0).filter { !deleted.contains($0) && $0.last != UInt8(ascii: "/") }.map { String(decoding: $0, as: UTF8.self) }.sorted()
     }
 
     public static func base(in root: String) async -> String? {
-        let branch = (try? await line(["rev-parse", "--abbrev-ref", "HEAD"], in: root)) ?? "HEAD"
+        let branch = await (try? line(["rev-parse", "--abbrev-ref", "HEAD"], in: root)) ?? "HEAD"
         let configured = try? await line(["config", "--get", "branch.\(branch).gh-merge-base"], in: root)
         let merge = try? await line(["config", "--get", "branch.\(branch).merge"], in: root)
         let upstream = try? await line(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: root)
         let originHead = try? await line(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], in: root)
         let otherUpstream = merge == "refs/heads/\(branch)" ? nil : upstream
-        let candidates = [configured.map { "origin/\($0)" }, configured, otherUpstream, originHead, "origin/main", "origin/master", "main", "master"].compactMap { $0 }
+        let candidates = [configured.map { "origin/\($0)" }, configured, otherUpstream, originHead, "origin/main", "origin/master", "main", "master"].compactMap(\.self)
 
         for candidate in candidates where !candidate.hasPrefix("-") {
-            if (try? await git(["rev-parse", "--verify", "--quiet", "\(candidate)^{commit}"], in: root)) != nil { return candidate }
+            if await (try? git(["rev-parse", "--verify", "--quiet", "\(candidate)^{commit}"], in: root)) != nil { return candidate }
         }
         return nil
     }
@@ -184,20 +187,21 @@ public enum ReviewGit {
         let original = try await (file.status == .added ? nil : blob(compare == .committed ? changes.mergeBase : changes.head, path: file.oldPath ?? file.path, in: changes.root))
 
         if file.status == .deleted { return ReviewContents(original: original, modified: nil) }
-        if compare == .committed { return ReviewContents(original: original, modified: try await blob(changes.head, path: file.path, in: changes.root)) }
-        return ReviewContents(original: original, modified: try workingTreeText(file.path, in: changes.root))
+        if compare == .committed { return try await ReviewContents(original: original, modified: blob(changes.head, path: file.path, in: changes.root)) }
+        return try ReviewContents(original: original, modified: workingTreeText(file.path, in: changes.root))
     }
 
     public static func workingTreeText(_ path: String, in root: String) throws -> ReviewText {
         let url = try contained(path, in: root)
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        if attributes[.type] as? FileAttributeType == .typeSymbolicLink { return .text(try FileManager.default.destinationOfSymbolicLink(atPath: url.path)) }
+        if attributes[.type] as? FileAttributeType == .typeSymbolicLink { return try .text(FileManager.default.destinationOfSymbolicLink(atPath: url.path)) }
 
         let size = attributes[.size] as? Int ?? 0
         guard size <= maxBytes else { return .tooLarge(bytes: size) }
 
         let data = try Data(contentsOf: url)
         guard !data.prefix(binaryProbeBytes).contains(0), let text = String(data: data, encoding: .utf8) else { return .binary }
+
         return .text(text)
     }
 
@@ -208,6 +212,7 @@ public enum ReviewGit {
 
         try Data(text.utf8).write(to: url, options: .atomic)
         guard let permissions = attributes?[.posixPermissions] else { return }
+
         try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
     }
 
@@ -255,11 +260,12 @@ public enum ReviewGit {
         if let timeout, timedOut { throw ReviewGitError.git(arguments: arguments, message: "timed out after \(Int(timeout)) s") }
         let message = String(decoding: errorData.withLock { $0 }, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard process.terminationStatus == 0 else { throw ReviewGitError.git(arguments: arguments, message: message) }
+
         return data
     }
 
     private static func line(_ arguments: [String], in root: String) async throws -> String {
-        String(decoding: try await git(arguments, in: root), as: UTF8.self).trimmingCharacters(in: .newlines)
+        try await String(decoding: git(arguments, in: root), as: UTF8.self).trimmingCharacters(in: .newlines)
     }
 
     private static func contained(_ path: String, in root: String) throws -> URL {
@@ -286,6 +292,7 @@ public enum ReviewGit {
             let data = try? Data(contentsOf: URL(filePath: root).appending(path: path), options: .alwaysMapped)
             let isCountable = data.map { $0.count <= maxBytes && !$0.prefix(binaryProbeBytes).contains(0) } ?? false
             guard let data, isCountable else { return ReviewFile(path: path, oldPath: nil, status: .added, additions: nil, deletions: nil) }
+
             let lines = data.reduce(0) { $1 == 10 ? $0 + 1 : $0 } + (data.last == nil || data.last == 10 ? 0 : 1)
             return ReviewFile(path: path, oldPath: nil, status: .added, additions: lines, deletions: 0)
         }
@@ -305,6 +312,7 @@ public enum ReviewGit {
                 let status: ReviewFile.Status = letter == "A" ? .added : letter == "D" ? .deleted : letter == "R" ? .renamed : .modified
                 let isPair = letter == "R" || letter == "C"
                 guard index + (isPair ? 2 : 1) < fields.count else { break }
+
                 entries.append(isPair ? (status, fields[index + 1], fields[index + 2]) : (status, nil, fields[index + 1]))
                 index += isPair ? 3 : 2
                 continue
@@ -316,6 +324,7 @@ public enum ReviewGit {
                 index += 1
                 continue
             }
+
             counts[isPair ? fields[index + 2] : String(parts[2])] = (Int(parts[0]), Int(parts[1]))
             index += isPair ? 3 : 1
         }
@@ -324,11 +333,12 @@ public enum ReviewGit {
 
     private static func blob(_ revision: String, path: String, in root: String) async throws -> ReviewText {
         let object = "\(revision):\(path)"
-        let size = Int(try await line(["cat-file", "-s", object], in: root)) ?? 0
+        let size = try await Int(line(["cat-file", "-s", object], in: root)) ?? 0
         guard size <= maxBytes else { return .tooLarge(bytes: size) }
 
         let data = try await git(["cat-file", "blob", object], in: root)
         guard !data.prefix(binaryProbeBytes).contains(0), let text = String(data: data, encoding: .utf8) else { return .binary }
+
         return .text(text)
     }
 }
@@ -355,7 +365,7 @@ actor FetchThrottle {
         do {
             _ = try await ReviewGit.git(["fetch", "--quiet", "--no-tags", "--no-auto-gc", "origin"] + refspecs, in: root, timeout: Self.timeout)
             outcome = Outcome(attemptedAt: now, fetchedAt: .now, error: nil)
-        } catch ReviewGitError.git(_, let message) {
+        } catch let ReviewGitError.git(_, message) {
             outcome = Outcome(attemptedAt: now, fetchedAt: previous?.fetchedAt, error: message)
         } catch {
             outcome = Outcome(attemptedAt: now, fetchedAt: previous?.fetchedAt, error: error.localizedDescription)

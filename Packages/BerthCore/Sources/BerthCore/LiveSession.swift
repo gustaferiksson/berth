@@ -29,16 +29,16 @@ public struct LiveSession: Sendable, Hashable, Decodable {
         kind == "bg" ? jobId : nil
     }
 
-    public static func load(from directory: URL, isAlive: (Int32) -> Bool) -> [LiveSession] {
+    public static func load(from directory: URL, isAlive: (Int32) -> Bool) -> [Self] {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         let decoder = JSONDecoder()
         let sessions = files
             .filter { $0.pathExtension == "json" }
-            .compactMap { try? decoder.decode(LiveSession.self, from: Data(contentsOf: $0)) }
+            .compactMap { try? decoder.decode(Self.self, from: Data(contentsOf: $0)) }
         return newestPerSession(sessions.filter { isAlive($0.pid) })
     }
 
-    static func newestPerSession(_ sessions: [LiveSession]) -> [LiveSession] {
+    static func newestPerSession(_ sessions: [Self]) -> [Self] {
         Dictionary(grouping: sessions, by: \.sessionId).values.compactMap { group in
             group.max { ($0.statusUpdatedAt ?? 0) < ($1.statusUpdatedAt ?? 0) }
         }

@@ -36,18 +36,22 @@ struct Sidebar: View, Equatable {
                 .onChange(of: store.selection, initial: true) { previous, selection in
                     if previous != selection, store.sidebarCursor != nil { store.sidebarCursor = nil }
                     guard let selection else { return }
+
                     Task { withAnimation { proxy.scrollTo(selection) } }
                 }
                 .onChange(of: store.lockedSessionID) { _, id in
                     guard let id else { return }
+
                     Task { withAnimation { proxy.scrollTo(SidebarItem.session(id)) } }
                 }
                 .onChange(of: store.archivedSessions.last?.id, initial: true) { _, id in
                     guard Snapshot.scrollsToArchive, let id else { return }
+
                     Task { proxy.scrollTo(SidebarItem.session(id)) }
                 }
                 .onChange(of: store.sidebarCursor) { _, cursor in
                     guard let cursor else { return }
+
                     withAnimation { proxy.scrollTo(cursor) }
                 }
         }
@@ -155,11 +159,13 @@ private struct SidebarList: View, Equatable {
         .onKeyPress(.upArrow, phases: [.down, .repeat]) { $0.modifiers.contains(.shift) ? extend(by: -1, in: items) : move(by: -1, in: items) }
         .onKeyPress(.return) {
             guard let item = store.sidebarCursor ?? store.selection else { return .ignored }
+
             store.activate(item)
             return .handled
         }
         .onKeyPress(.escape) {
             guard !store.multiSelection.isEmpty else { return .ignored }
+
             store.multiSelection = []
             return .handled
         }
@@ -169,6 +175,7 @@ private struct SidebarList: View, Equatable {
         .scrollEdgeEffectStyle(.soft, for: .top)
         .fileImporter(isPresented: Binding(get: { browseRoot != nil }, set: { if !$0 { browseRoot = nil } }), allowedContentTypes: [.folder]) { result in
             guard case let .success(url) = result else { return }
+
             store.openClaude(cwd: url.path)
         }
         .fileDialogDefaultDirectory(browseRoot.map { URL(filePath: $0) })
@@ -244,6 +251,7 @@ private struct SidebarList: View, Equatable {
 
     private func moveGroup(_ id: String, to destination: Int, in groups: [Group]) -> Bool {
         guard let source = groups.firstIndex(where: { $0.id == id && $0.layout.source.custom != nil }) else { return false }
+
         withAnimation(.snappy) { store.moveGroup(from: source, to: destination) }
         return true
     }
@@ -765,6 +773,7 @@ private enum RowState: Equatable {
 
     init?(live: LiveSession?) {
         guard let live else { return nil }
+
         switch live.activity {
         case .working: self = .working
         case let .needsInput(reason): self = .needsYou(reason)
@@ -1169,6 +1178,7 @@ private struct BranchText: View {
         .help("Copy branch name")
         .task(id: isCopied) {
             guard isCopied else { return }
+
             try? await Task.sleep(for: .seconds(1))
             isCopied = false
         }
@@ -1188,7 +1198,7 @@ func age(since date: Date) -> String {
     let seconds = max(0, Int(Date.now.timeIntervalSince(date)))
     if seconds < 60 { return "now" }
     if seconds < 3600 { return "\(seconds / 60)m" }
-    if seconds < 86400 { return "\(seconds / 3600)h" }
-    if seconds < 7 * 86400 { return "\(seconds / 86400)d" }
-    return "\(seconds / (7 * 86400))w"
+    if seconds < 86_400 { return "\(seconds / 3600)h" }
+    if seconds < 7 * 86_400 { return "\(seconds / 86_400)d" }
+    return "\(seconds / (7 * 86_400))w"
 }

@@ -60,7 +60,7 @@ final class ReviewInlineComment: NSView {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
+    required init?(coder _: NSCoder) {
         fatalError()
     }
 
@@ -102,7 +102,7 @@ final class ReviewInlineComment: NSView {
         buttons[0].frame = NSRect(origin: NSPoint(x: buttons[1].frame.minX - 8 - cancel.width, y: bounds.height - padding - cancel.height), size: cancel)
     }
 
-    override func mouseDown(with event: NSEvent) {
+    override func mouseDown(with _: NSEvent) {
         window?.makeFirstResponder(field)
     }
 
@@ -110,11 +110,11 @@ final class ReviewInlineComment: NSView {
         addCursorRect(bounds, cursor: .arrow)
     }
 
-    override func mouseEntered(with event: NSEvent) {
+    override func mouseEntered(with _: NSEvent) {
         if case .card = kind { buttons[0].isHidden = false }
     }
 
-    override func mouseExited(with event: NSEvent) {
+    override func mouseExited(with _: NSEvent) {
         if case .card = kind { buttons[0].isHidden = true }
     }
 
@@ -128,6 +128,7 @@ final class ReviewInlineComment: NSView {
 
     private func fieldDidChange() {
         guard case let .draft(_, _, onResize) = kind else { return }
+
         buttons[1].isEnabled = !field.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         onResize()
     }
@@ -135,16 +136,19 @@ final class ReviewInlineComment: NSView {
     @objc private func add() {
         let text = field.string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard case let .draft(onAdd, _, _) = kind, !text.isEmpty else { return }
+
         onAdd(text)
     }
 
     @objc private func cancel() {
         guard case let .draft(_, onCancel, _) = kind else { return }
+
         onCancel()
     }
 
     @objc private func delete() {
         guard case let .card(onDelete) = kind else { return }
+
         onDelete()
     }
 }
@@ -177,6 +181,7 @@ final class ReviewCommentField: NSTextView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard string.isEmpty, isEditable, let placeholder else { return }
+
         placeholder.draw(at: textContainerOrigin)
     }
 }

@@ -39,6 +39,7 @@ enum GhosttyConfig {
                 values[setting.key] = setting.value
                 return
             }
+
             let entry = setting.value.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             if entry.count == 2 { values["palette-\(entry[0])"] = entry[1] }
         }
@@ -63,6 +64,7 @@ enum GhosttyConfig {
         lines.compactMap { line in
             let parts = line.split(separator: "=", maxSplits: 1)
             guard parts.count == 2, !line.trimmingCharacters(in: .whitespaces).hasPrefix("#") else { return nil }
+
             return (parts[0].trimmingCharacters(in: .whitespaces), parts[1].trimmingCharacters(in: .whitespaces))
         }
     }
@@ -98,6 +100,7 @@ struct GhosttyTheme: Equatable {
         let surface = background ?? RGB(red: 1, green: 1, blue: 1)
         let readable = { (key: String, fallback: Color, minimum: Double) -> Color in
             guard let rgb = values[key].flatMap(RGB.init(hex:)), rgb.contrast(with: surface) >= minimum else { return fallback }
+
             return rgb.color
         }
         isDark = surface.luminance < 0.18
@@ -134,6 +137,7 @@ private struct RGB {
     init?(hex: String) {
         let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
         guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
+
         self.init(red: Double(value >> 16 & 0xFF) / 255, green: Double(value >> 8 & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
     }
 
@@ -144,8 +148,9 @@ private struct RGB {
         return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
     }
 
-    func contrast(with other: RGB) -> Double {
-        let (light, dark) = (max(luminance, other.luminance), min(luminance, other.luminance))
+    func contrast(with other: Self) -> Double {
+        let light = max(luminance, other.luminance)
+        let dark = min(luminance, other.luminance)
         return (light + 0.05) / (dark + 0.05)
     }
 }

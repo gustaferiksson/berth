@@ -2,8 +2,8 @@ import AppKit
 import BerthCore
 
 // TextKit 2's viewport layout flushes fragments outside the viewport: they come back at estimated positions (rows off `top(ofRow:)`), and NSTextView's `textContainerOrigin` lays out the whole document again on the next pass.
-nonisolated final class ReviewTextLayoutManager: NSTextLayoutManager {
-    @objc(flushTextLayoutFragmentsFromLocation:direction:) func keepTextLayoutFragments(from location: NSTextLocation, direction: Int) {}
+final nonisolated class ReviewTextLayoutManager: NSTextLayoutManager {
+    @objc(flushTextLayoutFragmentsFromLocation:direction:) func keepTextLayoutFragments(from _: NSTextLocation, direction _: Int) {}
 }
 
 final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewToolTipOwner {
@@ -17,6 +17,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     var reserved: [Int: CGFloat] = [:] {
         didSet { reloadParagraphs(changedFrom: oldValue) }
     }
+
     var selectedLines: ClosedRange<Int>?
     weak var unifiedOriginal: ReviewTextView?
     var minimumWidth: CGFloat = 0
@@ -24,12 +25,14 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     var diagnostics: [LanguageServerDiagnostic] = [] {
         didSet { if diagnostics != oldValue { placeDiagnostics() } }
     }
+
     var onHover: ((Int) async -> String?)?
     var onDefinition: ((Int) -> Void)?
     var onReferences: ((Int) -> Void)?
     var focusesInWindow = false {
         didSet { if focusesInWindow, window != nil { focusInWindow() } }
     }
+
     weak var gutter: ReviewGutter?
     let history = UndoManager()
     var carets = CaretState()
@@ -49,6 +52,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     private(set) var occurrences: [NSRange] = [] {
         didSet { if occurrences != oldValue { needsDisplay = true } }
     }
+
     private var occurrenceSearch: Task<Void, Never>?
     private lazy var pointerTracking = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
 
@@ -102,6 +106,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
 
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             guard let self, let window else { return event }
+
             pointerMoved(to: convert(window.mouseLocationOutsideOfEventStream, from: nil), modifiers: event.modifierFlags)
             return event
         }
@@ -124,6 +129,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         dismissHover()
         if caretMouseDown(event) { return }
         guard event.modifierFlags.contains(.command), onDefinition != nil, let target = pointerTarget(at: convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
+
         link = nil
         needsDisplay = true
         target.textView.onDefinition?(target.range.location)
@@ -131,6 +137,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
 
     override func keyDown(with event: NSEvent) {
         guard event.keyCode == 111, event.modifierFlags.intersection([.shift, .command, .option, .control]) == .shift, onReferences != nil else { return super.keyDown(with: event) }
+
         findReferences(nil)
     }
 
@@ -152,15 +159,16 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
 
         let caret = selectedRange().location
         guard let onReferences, let identifier = identifierRange(at: caret) ?? identifierRange(at: caret - 1) else { return }
+
         onReferences(identifier.location)
     }
 
     // NSTextView maps Esc to word completion (complete:).
-    override func cancelOperation(_ sender: Any?) {
+    override func cancelOperation(_: Any?) {
         dismissHover()
     }
 
-    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+    func view(_: NSView, stringForToolTip _: NSView.ToolTipTag, point: NSPoint, userData _: UnsafeMutableRawPointer?) -> String {
         diagnosticSegments.filter { $0.rect.contains(point) }.map { $0.diagnostic.message + ($0.diagnostic.source.map { " (\($0))" } ?? "") }.joined(separator: "\n")
     }
 
@@ -206,9 +214,11 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         dismissHover()
         hoverTarget = target
         guard let target, let onHover = target.textView.onHover, let anchor = target.segments.first?.rect else { return }
+
         hoverTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, let markdown = await onHover(target.range.location), !Task.isCancelled else { return }
+
             self?.showHover(markdown, below: anchor)
         }
     }
@@ -222,6 +232,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         guard originalSide.rows.indices.contains(line), originalSide.rows[line] == row, originalSide.changedLines.contains(line), point.y < top(ofRow: row) + rowHeight,
               let found = original.identifier(onLine: line, atX: point.x - textContainerOrigin.x)
         else { return nil }
+
         let rect = NSRect(x: found.x.lowerBound + textContainerOrigin.x, y: top(ofRow: row), width: found.x.upperBound - found.x.lowerBound, height: rowHeight - rowPadding)
         return (original, found.range, [(rect, rect.maxY + style.font.descender)])
     }
@@ -233,6 +244,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
 
         manager.ensureLayout(for: lineRange)
         guard let fragment = manager.textLayoutFragment(for: location), let first = fragment.textLineFragments.first else { return nil }
+
         let offset = fragment.layoutFragmentFrame.minX + first.typographicBounds.minX
         let index = lineStarts[line] + first.characterIndex(for: CGPoint(x: x - offset, y: first.typographicBounds.midY))
         for range in [identifierRange(at: index), identifierRange(at: index - 1)].compactMap(\.self) {
@@ -244,7 +256,6 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
     }
 
     private func showHover(_ markdown: String, below anchor: NSRect) {
-
         let text = NSMutableAttributedString()
         var isCode = false
         for line in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -291,6 +302,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         let text = string as NSString
         let isIdentifier = { (index: Int) in
             guard index >= 0, index < text.length, let scalar = UnicodeScalar(text.character(at: index)) else { return false }
+
             return scalar == "_" || scalar == "$" || CharacterSet.alphanumerics.contains(scalar)
         }
         guard isIdentifier(offset) else { return nil }
@@ -448,6 +460,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
 
     var changedRows: IndexSet {
         guard let side else { return IndexSet() }
+
         return IndexSet(side.changedLines.compactMap { side.rows.indices.contains($0) ? side.rows[$0] : nil })
     }
 
@@ -457,6 +470,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
 
     func scrollVertically(to y: CGFloat) {
         guard let scrollView = enclosingScrollView else { return }
+
         let clip = scrollView.contentView
         clip.scroll(to: NSPoint(x: clip.bounds.minX, y: min(max(y, 0), max(frame.height - clip.bounds.height, 0))))
         scrollView.reflectScrolledClipView(clip)
@@ -482,6 +496,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
             let lower = max(span.location, start)
             let upper = min(NSMaxRange(span), end)
             guard lower < upper, let from = storage.location(range.location, offsetBy: lower - start), let to = storage.location(range.location, offsetBy: upper - start), let textRange = NSTextRange(location: from, end: to) else { return }
+
             manager.addRenderingAttribute(key, value: value, for: textRange)
         }
 
@@ -495,7 +510,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
         }
     }
 
-    func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
+    func textContentStorage(_: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
         guard let side, let textStorage else { return nil }
 
         let line = lineStarts.partitioningIndex { $0 > range.location } - 1
@@ -617,6 +632,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate, NSViewTool
 
     private func fragmentTop(atOffset offset: Int) -> CGFloat? {
         guard let storage = textContentStorage, let location = storage.location(storage.documentRange.location, offsetBy: offset) else { return nil }
+
         return textLayoutManager?.textLayoutFragment(for: location)?.layoutFragmentFrame.minY
     }
 }
@@ -627,6 +643,7 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
     var thickness: CGFloat = 40 {
         didSet { invalidateIntrinsicContentSize() }
     }
+
     var onSelect: (ReviewTextView, ClosedRange<Int>) -> Void = { _, _ in }
     private var anchor: Int?
     private var target: ReviewTextView?
@@ -637,7 +654,7 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
         NSSize(width: thickness, height: NSView.noIntrinsicMetric)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    override func draw(_: NSRect) {
         guard let textView else { return }
 
         textView.backgroundColor.setFill()
@@ -673,6 +690,7 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
         }
 
         guard let original = textView.unifiedOriginal, let side = original.side, textView.side?.lineCount == textView.lineStarts.count else { return }
+
         let removed = style.removedWord.withAlphaComponent(1)
         for line in side.rows.partitioningIndex(where: { textView.top(ofRow: $0 + 1) > textView.visibleRect.minY })..<side.rows.count {
             let rect = convert(NSRect(x: 0, y: textView.top(ofRow: side.rows[line]), width: 1, height: textView.rowHeight), from: textView)
@@ -683,6 +701,7 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
                 NSRect(x: 0, y: rect.minY, width: bounds.width, height: rect.height).fill(using: .sourceOver)
             }
             guard side.changedLines.contains(line) else { continue }
+
             let label = NSAttributedString(string: "\(line + 1)", attributes: [.font: style.font, .foregroundColor: removed])
             let size = label.size()
             label.draw(at: NSPoint(x: bounds.width - size.width - 8, y: rect.minY + (rect.height - size.height) / 2))
@@ -705,11 +724,13 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
 
     override func mouseDragged(with event: NSEvent) {
         guard let anchor, let line = line(at: event) else { return }
+
         select(min(anchor, line)...max(anchor, line))
     }
 
-    override func mouseUp(with event: NSEvent) {
+    override func mouseUp(with _: NSEvent) {
         guard anchor != nil, let target, let selection = target.selectedLines else { return }
+
         anchor = nil
         onSelect(target, selection)
     }
@@ -718,8 +739,9 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
         textView?.enclosingScrollView?.scrollWheel(with: event)
     }
 
-    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData data: UnsafeMutableRawPointer?) -> String {
+    func view(_: NSView, stringForToolTip _: NSView.ToolTipTag, point: NSPoint, userData _: UnsafeMutableRawPointer?) -> String {
         guard let textView, let line = textView.line(atY: textView.convert(point, from: self).y) else { return "" }
+
         return textView.diagnostics.filter { $0.range.start.line == line }.map { $0.message + ($0.source.map { " (\($0))" } ?? "") }.joined(separator: "\n")
     }
 
@@ -731,6 +753,7 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
 
     private func line(at event: NSEvent) -> Int? {
         guard let textView, let rows = target?.side?.rows else { return nil }
+
         let y = textView.convert(event.locationInWindow, from: nil).y
         let row = (0..<(textView.side?.rowCount ?? 0)).partitioningIndex { textView.top(ofRow: $0) > y } - 1
         return max(rows.partitioningIndex { $0 > row } - 1, 0)

@@ -8,10 +8,10 @@ enum AppAction: Hashable {
     case goBack, goForward
     case caret(CaretAction)
 
-    static let palette: [AppAction] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
-        + GroupingMode.allCases.map(AppAction.groupBy)
+    static let palette: [Self] = [.newSession, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
+        + GroupingMode.allCases.map(Self.groupBy)
         + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showSideBySide, .showInline, .save, .settings, .checkForUpdates]
-    static let carets = CaretAction.allCases.map(AppAction.caret)
+    static let carets = CaretAction.allCases.map(Self.caret)
     static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward]).filter { $0.shortcut != nil }
 
     var title: String {
@@ -126,8 +126,8 @@ enum AppAction: Hashable {
         case .showChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && (!store.showsReviewPanel || store.isHarborShown)
         case .hideChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.showsReviewPanel && !store.isHarborShown
         case .showSideBySide, .showInline:
-            AppAction.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocumentHasBothSides == true && store.isReviewDiffUnified == (self == .showSideBySide)
-        case .save: AppAction.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { model.drafts[$0.path] } } != nil
+            Self.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocumentHasBothSides == true && store.isReviewDiffUnified == (self == .showSideBySide)
+        case .save: Self.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { model.drafts[$0.path] } } != nil
         case .goBack, .goForward: store.isReviewTextFocused && store.reviewModel?.selectedTab.map { $0.history.indices.contains($0.index + (self == .goBack ? -1 : 1)) } == true
         case .caret: store.isReviewTextFocused
         default: true
@@ -137,38 +137,63 @@ enum AppAction: Hashable {
     func perform(on store: Store) {
         switch self {
         case .commandPalette: store.launcherMode = store.launcherMode == .palette ? nil : .palette
+
         case .newSession: store.launcherMode = .newSession
+
         case .searchSessions: store.launcherMode = .search
+
         case .newTerminal: store.newTerminal()
+
         case .switchTerminal: store.switchTerminal()
+
         case .findInTerminal: if isAvailable(in: store) { store.focusedTerminal?.performBindingAction("start_search") }
+
         case .clearTerminal: store.focusedTerminal?.performBindingAction("clear_screen")
+
         case .archiveCurrentSession: for id in sessionIDs(in: store) { store.archive(id) }
+
         case .flagCurrentSession: for id in sessionIDs(in: store) { store.flag(id) }
+
         case .unflagCurrentSession: for id in sessionIDs(in: store) { store.unflag(id) }
+
         case let .groupBy(mode): store.groupingMode = mode
+
         case .newGroup: store.editingGroup = CustomGroup(name: "", rules: [])
+
         case .collapseAllGroups: store.setGroupsExpanded(false)
+
         case .expandAllGroups: store.setGroupsExpanded(true)
+
         case .showStats: store.isStatsRequested = true
+
         case .harbor: store.isHarborShown.toggle()
+
         case .showChanges:
             store.showsReviewPanel = true
             store.isHarborShown = false
+
         case .hideChanges: store.showsReviewPanel = false
+
         case .showSideBySide: UserDefaults.standard.set(ReviewDiffLayout.sideBySide.rawValue, forKey: ReviewDiffLayout.key)
+
         case .showInline: UserDefaults.standard.set(ReviewDiffLayout.inline.rawValue, forKey: ReviewDiffLayout.key)
+
         case .save:
             if isAvailable(in: store), let model = store.reviewModel, let path = model.selectedDocument?.path, let text = model.editors[path]?.string { model.save(text, to: path) }
+
         case .settings: store.isSettingsRequested = true
+
         case .checkForUpdates: store.updater.check(.manual)
+
         case .goBack, .goForward: if isAvailable(in: store) { store.reviewModel?.go(by: self == .goBack ? -1 : 1) }
+
         case let .caret(action): (NSApp.keyWindow?.firstResponder as? ReviewTextView)?.performCaretAction(action)
         }
     }
 
     func title(in store: Store) -> String {
         guard !store.multiSelection.isEmpty, [.archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession].contains(self) else { return title }
+
         return title.replacing("Current Session", with: String(AttributedString(localized: "^[\(sessionIDs(in: store).count) Session](inflect: true)").characters))
     }
 

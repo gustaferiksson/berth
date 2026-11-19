@@ -54,6 +54,7 @@ struct GroupEditor: View {
         .frame(width: 560)
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.folder], allowsMultipleSelection: true) { result in
             guard case let .success(urls) = result else { return }
+
             add(urls)
         }
         .onAppear { isNameFocused = group.name.isEmpty }
@@ -141,7 +142,7 @@ struct GroupEditor: View {
 
     private func add(_ urls: [URL]) {
         let known = Set(group.rules.map(\.path))
-        let folders = urls.filter(\.hasDirectoryPath).map { $0.standardizedFileURL.path }.filter { !known.contains($0) }
+        let folders = urls.filter(\.hasDirectoryPath).map(\.standardizedFileURL.path).filter { !known.contains($0) }
         group.rules += Array(NSOrderedSet(array: folders)).compactMap { $0 as? String }.map { FolderRule(path: $0, includesSubfolders: false) }
     }
 }

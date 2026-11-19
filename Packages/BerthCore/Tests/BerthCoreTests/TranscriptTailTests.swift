@@ -1,9 +1,9 @@
+@testable import BerthCore
 import Foundation
 import Testing
-@testable import BerthCore
 
 struct TranscriptTailTests {
-    let lines = [
+    private let lines = [
         #"{"type":"user","uuid":"u1","message":{"role":"user","content":"Rename the widget"}}"#,
         #"{"type":"assistant","uuid":"a1","message":{"content":[{"type":"thinking","thinking":"hm"},{"type":"text","text":"On it."},{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/w.swift","old_string":"old","new_string":"new"}}]}}"#,
         #"{"type":"user","uuid":"u2","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"\#(String(repeating: "x", count: 5000))"}]}]}}"#,
@@ -73,12 +73,15 @@ struct TranscriptTailTests {
 struct RemoteProtocolTests {
     @Test func decodesMessagesFromTheReleasedApps() throws {
         guard case let .prompt(sessionID, text, attachments) = try JSONDecoder().decode(RemoteClientMessage.self, from: Data(#"{"prompt":{"sessionID":"s","text":"hi"}}"#.utf8)) else { throw CancellationError() }
+
         #expect(sessionID == "s" && text == "hi" && attachments == nil)
 
         guard case let .sessions(groups, folders, features) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"sessions":{"groups":[],"folders":["/f"]}}"#.utf8)) else { throw CancellationError() }
+
         #expect(groups.isEmpty && folders == ["/f"] && features == nil)
 
         guard case let .transcript(_, entries, _, queued, _) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"transcript":{"sessionID":"s","entries":[],"isContinuation":true}}"#.utf8)) else { throw CancellationError() }
+
         #expect(entries.isEmpty && queued == nil)
     }
 }
