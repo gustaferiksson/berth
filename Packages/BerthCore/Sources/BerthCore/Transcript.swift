@@ -2,23 +2,15 @@ import Foundation
 
 public struct SessionContext: Sendable, Hashable {
     public let model: String
-    public let input: Int
-    public let cacheRead: Int
-    public let cacheWrite: Int
+    public let tokens: Int
     public var window: Int?
     public var modelName: String?
 
-    public init(model: String, input: Int, cacheRead: Int, cacheWrite: Int, window: Int? = nil, modelName: String? = nil) {
+    public init(model: String, tokens: Int, window: Int? = nil, modelName: String? = nil) {
         self.model = model
-        self.input = input
-        self.cacheRead = cacheRead
-        self.cacheWrite = cacheWrite
+        self.tokens = tokens
         self.window = window
         self.modelName = modelName
-    }
-
-    public var tokens: Int {
-        input + cacheRead + cacheWrite
     }
 }
 
@@ -109,7 +101,7 @@ public enum Transcript {
         let context: SessionContext? = if let compaction, compaction > reply ?? -1 {
             nil
         } else if let reply, let message = tail[reply].message, let model = message.model {
-            SessionContext(model: model, input: message.usage?.input ?? 0, cacheRead: message.usage?.cacheRead ?? 0, cacheWrite: message.usage?.cacheWrite ?? 0)
+            SessionContext(model: model, tokens: (message.usage?.input ?? 0) + (message.usage?.cacheRead ?? 0) + (message.usage?.cacheWrite ?? 0))
         } else {
             earlierContext
         }

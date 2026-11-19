@@ -171,9 +171,9 @@ struct TranscriptActivityTests {
             let context = try #require(summary(lines, nil))
             #expect(context.model == activity(lines).model && context.tokens == activity(lines).context(window: nil)?.tokens)
         }
-        #expect(summary(launches + [sidechain, synthetic], nil) == SessionContext(model: "claude-test-1", input: 10, cacheRead: 3000, cacheWrite: 0))
+        #expect(summary(launches + [sidechain, synthetic], nil) == SessionContext(model: "claude-test-1", tokens: 3010))
 
-        let earlier = SessionContext(model: "claude-test-1", input: 1, cacheRead: 2, cacheWrite: 3)
+        let earlier = SessionContext(model: "claude-test-1", tokens: 6)
         #expect(summary(launches + [boundary], earlier) == nil && activity(launches + [boundary]).context(window: nil)?.tokens == nil)
         #expect(summary([#"{"type":"ai-title","aiTitle":"Cards"}"#], earlier) == earlier)
     }
