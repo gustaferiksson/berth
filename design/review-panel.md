@@ -28,7 +28,7 @@ nopr=commits`). `flows-review.md` describes what has landed; each layer below up
   so one hairline crosses the divider. A full-height divider was tried and rejected: it cut
   through the window title at 1200 and 1600 pt.
 - The diff is side by side when its pane is at least 760 pt wide, unified below that, unless a
-  side by side / inline toggle in the diff header picked one (`reviewDiffLayout`).
+  side by side / inline toggle in the tab strip picked one (`reviewDiffLayout`).
 
 ## Toolbar, menu, keys
 
