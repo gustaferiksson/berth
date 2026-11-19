@@ -36,8 +36,8 @@ This is the slim first version; the rest is listed under Later.
   then the nearest candidate, then the default branch. A pick that no longer resolves is removed.
   Everything below that says base uses this one: the Committed compare, ahead and behind, the
   commits, the branch total and Create Pull Request.
-- A background `git fetch` of the configured base and the default branch runs at most every 15 s per
-  repository; a picked, PR or nearest base is compared as it is locally.
+- A background `git fetch` of the configured base (the default branch without one) runs at most
+  every 15 s per repository; other bases are compared as they are locally.
   A failure falls back to local refs and shows a warning icon in the header.
 - State lives in a `ReviewModel` per session (`Store.reviewModels`, created when the panel
   shows the session): changes, branch status, file tree, open tabs, loaded contents, unsaved

@@ -127,7 +127,7 @@ public enum ReviewGit {
         let configuredBase = await base(in: root)
         let defaultBase = await defaultBranch(in: root) ?? configuredBase
         let isDefaultBranch = configuredBase == branch || configuredBase == "origin/\(branch)"
-        let baseRefspecs = Set([configuredBase, defaultBase].compactMap(\.self)).sorted().filter { $0.hasPrefix("origin/") }.map { "+refs/heads/\($0.dropFirst("origin/".count)):refs/remotes/\($0)" }
+        let baseRefspecs = configuredBase.map { $0.hasPrefix("origin/") ? ["+refs/heads/\($0.dropFirst("origin/".count)):refs/remotes/\($0)"] : [] } ?? []
 
         let fetch = await (baseRefspecs.isEmpty ? nil : fetches.fetch(baseRefspecs, in: root))
         let head = if let head = try? await line(["rev-parse", "--verify", "--quiet", "HEAD"], in: root) { head } else { try await line(["hash-object", "-t", "tree", "/dev/null"], in: root) }

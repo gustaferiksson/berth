@@ -531,6 +531,7 @@ private struct ReviewFileList: View {
                 Text(changes.isDefaultBranch || changes.base == nil ? "\(changes.branch), uncommitted only" : changes.branch)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .frame(minWidth: 48, alignment: .leading)
                 if !changes.isDefaultBranch, let base = changes.base {
                     let pullRequestBase = pullRequest?.pullRequest?.baseRefName
                     Menu {
@@ -557,6 +558,7 @@ private struct ReviewFileList: View {
                     .menuStyle(.button)
                     .buttonStyle(.plain)
                     .menuIndicator(.hidden)
+                    .layoutPriority(1)
                     .help("Compare against…")
                 }
             }
@@ -566,7 +568,7 @@ private struct ReviewFileList: View {
             if let fetchError = changes.fetchError {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(theme.needsYou)
-                    .help("Couldn’t fetch \(changes.defaultBase ?? ""), comparing local refs: \(fetchError)")
+                    .help("Couldn’t fetch, comparing local refs: \(fetchError)")
                     .accessibilityLabel("Fetch failed")
             }
             if let error = model.error {
