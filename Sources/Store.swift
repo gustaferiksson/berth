@@ -48,6 +48,14 @@ enum PullRequestOpening {
     case noCheckout
 }
 
+struct ReviewRepository: Hashable {
+    let root: String
+    let folder: String
+    let isEdited: Bool
+
+    var name: String { URL(filePath: root).lastPathComponent }
+}
+
 @Observable
 final class Store {
     static let shared = Store()
@@ -70,6 +78,7 @@ final class Store {
             if selectedTabID != oldValue {
                 endTerminalSearch()
                 refreshCompactions()
+                refreshEditedRepositories()
             }
             saveOpenTabs()
             prepareReviewModel()
@@ -97,15 +106,22 @@ final class Store {
         didSet {
             if persistsTabs { UserDefaults.standard.set(showsReviewPanel, forKey: "showsReviewPanel") }
             prepareReviewModel()
+            refreshEditedRepositories()
         }
     }
 
     var isReviewDiffUnified = false
     var isReviewTextFocused = false
-    @ObservationIgnored private var reviewWatcher: FileWatcher?
+    @ObservationIgnored private var reviewWatchers: [FileWatcher] = []
     @ObservationIgnored private var repositoryWatcher: FileWatcher?
     @ObservationIgnored private var reviewReload: Task<Void, Never>?
-    @ObservationIgnored private var reviewIgnored: [String] = []
+    @ObservationIgnored private var reviewIgnored: [String: [String]] = [:]
+    @ObservationIgnored private var editedTask: Task<Void, Never>?
+    @ObservationIgnored private var editedTranscripts: [String: (url: URL, edits: TranscriptEdits)] = [:]
+    var editedRepositories: [String: [String: String]] = [:]
+    private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
+    var activeReviewRoots: [String: String] = [:]
+    var collapsedReviewRepositories: Set<String> = []
     var reviewModels: [String: ReviewModel] = [:] {
         didSet {
             for (id, model) in oldValue where reviewModels[id] !== model { model.language?.stop() }
@@ -332,6 +348,7 @@ final class Store {
         let suggestions = Dictionary(result.suggestions.flatMap { suggestion in suggestion.sessionIDs.map { ($0, suggestion) } }) { first, _ in first }
         if suggestions != taskSuggestions { taskSuggestions = suggestions }
         applyGroups()
+        prepareReviewModel()
     }
 
     private func taskSession(_ session: SessionSummary) -> TaskSession {
@@ -453,7 +470,7 @@ final class Store {
     }
 
     private func resolvePullRequests() {
-        let unresolved = Set(summaries.compactMap { repositoryRoots[$0.checkout] }).filter { repositories[$0] == nil }
+        let unresolved = Set(summaries.compactMap { repositoryRoots[$0.checkout] } + reviewRepositories.values.flatMap { $0.map(\.root) }).filter { repositories[$0] == nil }
         Task {
             if !unresolved.isEmpty { await repositories.merge(Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
             formTasks()
@@ -548,6 +565,7 @@ final class Store {
             if searchIndexTask != nil { updateSearchIndex() }
             resolvePullRequests()
             refreshCompactions()
+            refreshEditedRepositories()
         }
     }
 
@@ -765,10 +783,28 @@ final class Store {
         activate(selectedTabID.map(SidebarItem.tab))
     }
 
-    var reviewModel: ReviewModel? {
-        guard let tab = tabs.first(where: { $0.id == selectedTabID }), tab.kind == .claude, let sessionID = tab.sessionID else { return nil }
+    static func reviewKey(_ sessionID: String, root: String?) -> String {
+        root.map { "\(sessionID)\n\($0)" } ?? sessionID
+    }
 
-        return reviewModels[sessionID]
+    var selectedSessionID: String? {
+        tabs.first { $0.id == selectedTabID && $0.kind == .claude }?.sessionID
+    }
+
+    var primaryReviewModel: ReviewModel? {
+        selectedSessionID.flatMap { reviewModels[$0] }
+    }
+
+    var reviewModel: ReviewModel? {
+        guard let sessionID = selectedSessionID else { return nil }
+
+        return activeReviewRoots[sessionID].flatMap { reviewModels[Self.reviewKey(sessionID, root: $0)] } ?? reviewModels[sessionID]
+    }
+
+    var sessionReviewModels: [ReviewModel] {
+        guard let sessionID = selectedSessionID else { return [] }
+
+        return ([reviewModels[sessionID]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
     }
 
     func prepareReviewModel() {
@@ -780,46 +816,125 @@ final class Store {
         if let model = reviewModels[sessionID], model.folder == tab.cwd || model.hasUnsavedEdits || !model.comments.isEmpty {
             let moved = model.folder == tab.cwd ? nil : tab.cwd
             if model.movedFolder != moved { model.movedFolder = moved }
-            return
+        } else {
+            let model = ReviewModel(folder: tab.cwd)
+            model.onOpen = { [weak self] in self?.activeReviewRoots[sessionID] = nil }
+            reviewModels[sessionID] = model
         }
-        reviewModels[sessionID] = ReviewModel(folder: tab.cwd)
+        prepareRepositoryModels(of: sessionID, folder: tab.cwd)
+    }
+
+    private func prepareRepositoryModels(of sessionID: String, folder: String) {
+        let wanted = reviewRepositories(of: sessionID, folder: folder)
+        let kept = (reviewRepositories[sessionID] ?? []).filter { repository in
+            guard let model = reviewModels[Self.reviewKey(sessionID, root: repository.root)] else { return false }
+
+            return model.hasUnsavedEdits || !model.comments.isEmpty
+        }
+        let shown = wanted + kept.filter { kept in !wanted.contains { $0.root == kept.root } }
+        for repository in shown {
+            let key = Self.reviewKey(sessionID, root: repository.root)
+            if let model = reviewModels[key], model.folder == repository.folder || model.hasUnsavedEdits || !model.comments.isEmpty { continue }
+
+            let model = ReviewModel(folder: repository.folder)
+            model.onOpen = { [weak self] in self?.activeReviewRoots[sessionID] = repository.root }
+            reviewModels[key] = model
+        }
+        let prefix = sessionID + "\n"
+        for key in reviewModels.keys where key.hasPrefix(prefix) && !shown.contains(where: { Self.reviewKey(sessionID, root: $0.root) == key }) { reviewModels[key] = nil }
+        if reviewRepositories[sessionID] ?? [] != shown { reviewRepositories[sessionID] = shown }
+    }
+
+    private func reviewRepositories(of sessionID: String, folder: String) -> [ReviewRepository] {
+        let own = sessionsByID[sessionID].flatMap { repositoryRoots[$0.checkout] } ?? RepositoryRoot.resolve(folder)
+        let members = task(containing: sessionID)?.sessionIDs.compactMap { sessionsByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt } ?? []
+        let tasked = members.compactMap { member -> ReviewRepository? in
+            guard member.id != sessionID, let root = repositoryRoots[member.checkout], FileManager.default.fileExists(atPath: member.cwd) else { return nil }
+
+            return ReviewRepository(root: root, folder: member.cwd, isEdited: false)
+        }
+        let edited = (editedRepositories[sessionID] ?? [:]).sorted { $0.key < $1.key }.map { ReviewRepository(root: $0.key, folder: $0.value, isEdited: true) }
+        var seen: Set<String> = [own]
+        return (tasked + edited).filter { seen.insert($0.root).inserted }
+    }
+
+    func loadReviewModels() async {
+        for model in sessionReviewModels { await model.load() }
     }
 
     func refreshReview() async {
         refresh()
         await waitForScan()
         prepareReviewModel()
-        await reviewModel?.load()
+        await loadReviewModels()
     }
 
-    func watchReview(_ root: String?) async {
-        reviewWatcher = nil
-        reviewReload?.cancel()
-        guard let root, let git = try? await ReviewGit.gitDirectories(in: root) else { return }
+    func pullRequests(inRoot root: String?, of sessionID: String, branch: String?) -> [PullRequest] {
+        let own = root ?? sessionsByID[sessionID].flatMap { repositoryRoots[$0.checkout] }
+        let members = task(containing: sessionID)?.sessionIDs.compactMap { sessionsByID[$0] } ?? []
+        let fromMembers = members.filter { repositoryRoots[$0.checkout] == own }.compactMap(pullRequest(for:))
+        let fromBranch = own.flatMap { repositories[$0] ?? nil }.flatMap { repository in branch.flatMap { pullRequests[PullRequestBranch(repository: repository, branch: $0)] ?? nil } }
+        var seen: Set<Int> = []
+        return (fromMembers + [fromBranch].compactMap(\.self)).filter { seen.insert($0.number).inserted }.sorted { $0.number < $1.number }
+    }
 
-        let ignored = await (try? ReviewGit.ignoredDirectories(in: root)) ?? []
+    func pullRequestBranch(inRoot root: String, branch: String) -> PullRequestBranch? {
+        (repositories[root] ?? nil).map { PullRequestBranch(repository: $0, branch: branch) }
+    }
+
+    func refreshEditedRepositories() {
+        guard showsReviewPanel, UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey), let sessionID = selectedSessionID, let url = index.url(ofSession: sessionID) else { return }
+
+        editedTask = Task { [previous = editedTask] in
+            await previous?.value
+            let cached = editedTranscripts[sessionID].flatMap { $0.url == url ? $0.edits : nil } ?? TranscriptEdits()
+            let edits = await Task.detached {
+                var edits = cached
+                edits.read(url)
+                return edits
+            }.value
+            let open = Set(tabs.compactMap(\.sessionID))
+            editedTranscripts = editedTranscripts.filter { open.contains($0.key) }.merging([sessionID: (url, edits)]) { $1 }
+            guard editedRepositories[sessionID] ?? [:] != edits.repositories else { return }
+
+            editedRepositories[sessionID] = edits.repositories
+            prepareReviewModel()
+            resolvePullRequests()
+        }
+    }
+
+    func watchReview(_ roots: [String]) async {
+        reviewWatchers = []
+        reviewReload?.cancel()
+        reviewIgnored = [:]
+        var watchers: [FileWatcher] = []
+        for root in roots {
+            guard let location = try? await ReviewGit.gitDirectories(in: root) else { continue }
+
+            reviewIgnored[root] = await (try? ReviewGit.ignoredDirectories(in: root)) ?? []
+            let watched = [location.directory + "/HEAD", location.directory + "/index", location.common + "/packed-refs"]
+            watchers.append(FileWatcher(paths: [root, location.common], latency: 0.5) { [weak self] paths in
+                guard let self else { return }
+
+                let isRelevant = paths.contains { path in
+                    path.hasPrefix(location.common + "/") || path.hasPrefix(location.directory + "/")
+                        ? watched.contains(path) || path.hasPrefix(location.common + "/refs/") && !path.hasSuffix(".lock")
+                        : !(reviewIgnored[root] ?? []).contains(where: (path + "/").hasPrefix)
+                }
+                guard isRelevant else { return }
+
+                reviewReload?.cancel()
+                reviewReload = Task {
+                    guard await (try? Task.sleep(for: .milliseconds(500))) != nil else { return }
+
+                    reviewIgnored[root] = await (try? ReviewGit.ignoredDirectories(in: root)) ?? reviewIgnored[root]
+                    await refreshReview()
+                }
+            })
+        }
         guard !Task.isCancelled else { return }
 
-        reviewIgnored = ignored
-        let watched = [git.directory + "/HEAD", git.directory + "/index", git.common + "/packed-refs"]
-        reviewWatcher = FileWatcher(paths: [root, git.common], latency: 0.5) { [weak self] paths in
-            guard let self else { return }
-
-            let isRelevant = paths.contains { path in
-                path.hasPrefix(git.common + "/") || path.hasPrefix(git.directory + "/")
-                    ? watched.contains(path) || path.hasPrefix(git.common + "/refs/") && !path.hasSuffix(".lock")
-                    : !reviewIgnored.contains(where: (path + "/").hasPrefix)
-            }
-            guard isRelevant else { return }
-
-            reviewReload?.cancel()
-            reviewReload = Task {
-                guard await (try? Task.sleep(for: .milliseconds(500))) != nil else { return }
-
-                reviewIgnored = await (try? ReviewGit.ignoredDirectories(in: root)) ?? reviewIgnored
-                await refreshReview()
-            }
-        }
+        reviewWatchers = watchers
     }
 
     func watchForRepository(in folder: String?) {
@@ -839,6 +954,7 @@ final class Store {
 
         let isSelected = id == model.selectedTabID
         model.close(id)
+        if model.tabs.isEmpty, let sessionID = selectedSessionID { activeReviewRoots[sessionID] = nil }
         if model.tabs.isEmpty { focusedTerminal?.requestFocus() } else if isSelected { model.focusesEditor = true }
     }
 
@@ -1064,7 +1180,12 @@ final class Store {
             try? await Task.sleep(for: .seconds(1))
             refreshLive()
         }
-        if let sessionID { reviewModels[sessionID] = nil }
+        if let sessionID {
+            reviewModels = reviewModels.filter { $0.key != sessionID && !$0.key.hasPrefix(sessionID + "\n") }
+            activeReviewRoots[sessionID] = nil
+            reviewRepositories[sessionID] = nil
+            editedRepositories[sessionID] = nil
+        }
         tabs.removeAll { $0.id == id }
         recentTabIDs.removeAll { $0 == id }
         if multiSelection.contains(.tab(id)) { multiSelection.removeAll { $0 == .tab(id) } }

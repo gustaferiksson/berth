@@ -25,8 +25,8 @@ struct ContentView: View {
         @Bindable var store = store
         let selected = store.tabs.first { $0.id == store.selectedTabID }
         let isTrailing = sidebarPosition == .right
-        let reviewRoot = showsPanel ? store.reviewModel?.changes?.root : nil
-        let folderWithoutRepository: String? = if showsPanel, let model = store.reviewModel, case ReviewGitError.notARepository? = model.error { model.folder } else { nil }
+        let reviewRoots = showsPanel ? store.sessionReviewModels.compactMap { $0.changes?.root } : []
+        let folderWithoutRepository: String? = if showsPanel, let model = store.primaryReviewModel, case ReviewGitError.notARepository? = model.error { model.folder } else { nil }
         let reviewRequests = store.inbox?.count { $0.role == .reviewRequested } ?? 0
         NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanel ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
@@ -143,11 +143,11 @@ struct ContentView: View {
             store.refreshInbox()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
-        .task(id: reviewRoot) { await store.watchReview(reviewRoot) }
+        .task(id: reviewRoots) { await store.watchReview(reviewRoots) }
         .task(id: folderWithoutRepository) { store.watchForRepository(in: folderWithoutRepository) }
         .onChange(of: showsPanel) {
             guard !showsPanel else {
-                Task { await store.reviewModel?.load() }
+                Task { await store.loadReviewModels() }
                 return
             }
 

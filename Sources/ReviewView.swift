@@ -5,6 +5,7 @@ import SwiftUI
 struct ReviewDocument: Hashable {
     let path: String
     let compare: ReviewCompare?
+    var root: String?
 }
 
 struct ReviewTab: Identifiable {
@@ -45,6 +46,7 @@ final class ReviewModel {
     var movedFolder: String?
     var focusesEditor = false
     @ObservationIgnored var pullRequestBase: (branch: String, base: String)?
+    @ObservationIgnored var onOpen: () -> Void = {}
     var filesReveal: String?
     var expandedFolders: Set<String> = []
     var collapsedChangeFolders: Set<ReviewDocument> = []
@@ -144,6 +146,7 @@ final class ReviewModel {
     }
 
     func open(_ document: ReviewDocument) {
+        onOpen()
         if let shown = tabs.first(where: { $0.document == document }) {
             selectedTabID = shown.id
             return
@@ -281,7 +284,7 @@ struct ReviewPanel: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        if let model = store.reviewModel, let sessionID = store.tabs.first(where: { $0.id == store.selectedTabID })?.sessionID {
+        if let model = store.primaryReviewModel, let sessionID = store.selectedSessionID {
             ReviewFileList(sessionID: sessionID, model: model)
                 .id(ObjectIdentifier(model))
         } else {
@@ -603,7 +606,7 @@ private struct ReviewFileList: View {
     private func refresh() {
         Task {
             await store.refreshReview()
-            guard store.reviewModel === model else { return }
+            guard store.primaryReviewModel === model else { return }
 
             if let repository = pullRequest?.repository, let branch = model.changes?.branch { await store.fetchPullRequests([PullRequestBranch(repository: repository, branch: branch)]) }
             await loadPullRequestDetail()
