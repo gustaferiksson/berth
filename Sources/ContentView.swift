@@ -34,7 +34,7 @@ struct ContentView: View {
                     .scrollContentBackground(.hidden)
                     .background(store.theme.background ?? .clear)
                     .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
-                    .toolbar(removing: .sidebarToggle)
+                    .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
                     .navigationSplitViewColumnWidth(min: 220, ideal: 272, max: 440)
             } else {
                 Sidebar()
@@ -111,8 +111,8 @@ struct ContentView: View {
                             .help(Text("^[\(reviewRequests) pull request](inflect: true) waiting for your review"))
                         }
                     }
-                    if isReviewEnabled, isTrailing {
-                        ToolbarItem(placement: .navigation) { panelToggle(symbol: "sidebar.left") }
+                    if reviewRequests > 0 {
+                        ToolbarSpacer(.fixed, placement: isTrailing ? .navigation : .automatic)
                     }
                     ToolbarItem(placement: isTrailing ? .navigation : .automatic) {
                         Button(AppAction.switchTerminal.title, systemImage: AppAction.switchTerminal.symbol) {
@@ -121,10 +121,10 @@ struct ContentView: View {
                         .help("Switch between terminal and Claude (⌘J)")
                     }
                     if isReviewEnabled, !isTrailing {
-                        ToolbarItem { panelToggle(symbol: "sidebar.right") }
+                        ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
                     if isTrailing {
-                        ToolbarItem {
+                        ToolbarItem(placement: .primaryAction) {
                             Button(showsSessions ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right") {
                                 setSessions(showsSessions ? .detailOnly : .all)
                             }
