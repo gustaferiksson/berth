@@ -248,7 +248,6 @@ private struct ReviewDiffViews: NSViewRepresentable {
             NotificationCenter.default.addObserver(self, selector: #selector(clipViewDidResize), name: NSView.frameDidChangeNotification, object: scrollView.contentView)
 
             gutter.textView = textView
-            gutter.drawsSeparator = textView === right
             gutter.clipsToBounds = true
             gutter.setContentHuggingPriority(.required, for: .horizontal)
             gutter.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -262,7 +261,6 @@ private struct ReviewDiffViews: NSViewRepresentable {
             parent = view
             if isSplitChanged {
                 if view.isUnified { leftPane.removeFromSuperview() } else if leftPane.superview == nil { split.addSubview(leftPane, positioned: .below, relativeTo: nil) }
-                right.gutter?.drawsSeparator = view.isUnified
                 split.resizeSubviews(withOldSize: split.frame.size)
             }
             minimap.isHidden = !view.showsMinimap
