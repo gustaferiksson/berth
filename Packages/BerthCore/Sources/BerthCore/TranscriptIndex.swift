@@ -30,7 +30,7 @@ public struct TranscriptIndex: Sendable {
                 result[file.path] = cached
                 return
             }
-            let known = entries[file.path].flatMap { entry in entry.summary.map { (size: entry.size, lastPrompt: $0.lastPrompt, branches: $0.branches, pullRequests: $0.pullRequests, context: $0.context) } }
+            let known = entries[file.path].flatMap { entry in entry.summary.map { (size: entry.size, lastPrompt: $0.lastPrompt, branches: $0.branches, pullRequests: $0.pullRequests, issueRefs: $0.issueRefs, context: $0.context) } }
             result[file.path] = Entry(modified: modified, size: size, summary: Transcript.summary(of: file, after: known) ?? entries[file.path]?.summary)
         }
         entries = next

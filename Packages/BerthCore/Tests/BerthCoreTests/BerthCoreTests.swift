@@ -230,7 +230,7 @@ struct TranscriptTests {
         try handle.write(contentsOf: Data((toolLoop.joined(separator: "\n") + "\n").utf8))
         try handle.close()
         let known = try Date("2026-10-29T09:59:00.000Z", strategy: .iso8601)
-        #expect(Transcript.summary(of: url, after: (size: size, lastPrompt: known, branches: [], pullRequests: [], context: nil))?.lastPrompt == known)
+        #expect(Transcript.summary(of: url, after: (size: size, lastPrompt: known, branches: [], pullRequests: [], issueRefs: [], context: nil))?.lastPrompt == known)
         #expect(Transcript.summary(of: url)?.lastPrompt == prompt)
     }
 
@@ -254,7 +254,7 @@ struct TranscriptTests {
             try handle.write(contentsOf: Data((lines.joined(separator: "\n") + "\n").utf8))
             try handle.close()
         }
-        let known = (size: size, lastPrompt: Date.distantPast, branches: [String](), pullRequests: [PullRequestLink](), context: Optional(context))
+        let known = (size: size, lastPrompt: Date.distantPast, branches: [String](), pullRequests: [PullRequestLink](), issueRefs: [IssueRef](), context: Optional(context))
         try append([#"{"type":"user","timestamp":"2026-10-29T09:02:00.000Z","message":{"content":"next"}}"#, #"{"type":"ai-title","aiTitle":"Compacting"}"#])
         #expect(Transcript.summary(of: url, after: known)?.context == context)
 
