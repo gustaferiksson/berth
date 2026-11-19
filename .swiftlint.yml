@@ -101,16 +101,15 @@ disabled_rules:
   - async_without_await
   - unneeded_escaping
   - unused_setter_value
+  # Its tap-gesture targets are rows and tabs holding their own controls, or a dismiss scrim; .isButton there mislabels them.
+  - accessibility_trait_for_button
   # Test names refer to git's real master branch.
   - inclusive_language
   # SwiftFormat's unusedArguments owns this and autocorrects it.
   - unused_parameter
 
-analyzer_rules:
-  - capture_variable
-  - typesafe_array_init
-  - unused_declaration
-  - unused_import
+# No analyzer rules: one run needs a full build log, and unused_import fights MemberImportVisibility (CoreGraphics in Store),
+# capture_variable flags deliberate [previous = task] snapshots, unused_declaration flags the @objc TextKit flush override.
 
 attributes:
   attributes_with_arguments_always_on_line_above: false

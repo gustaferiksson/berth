@@ -1,5 +1,3 @@
-import Foundation
-
 public enum SessionPins {
     public static func split(_ sessions: [SessionSummary], pinned: [String]) -> (pinned: [SessionSummary], rest: [SessionSummary], kept: [String]) {
         let byID = Dictionary(sessions.map { ($0.id, $0) }) { first, _ in first }

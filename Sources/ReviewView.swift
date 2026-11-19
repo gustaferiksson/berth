@@ -1013,7 +1013,6 @@ struct ReviewDiffColumn: View {
         .background(Color(nsColor: style.foreground).opacity(isSelected ? 0.1 : 0), in: .rect(cornerRadius: 8))
         .contentShape(.rect)
         .onTapGesture { model.selectedTabID = tab.id }
-        .accessibilityAddTraits(.isButton)
         .simultaneousGesture(TapGesture(count: 2).onEnded { model.keep(tab.id) })
         .help("\(document.path)\(document.compare == .committed ? ", committed" : document.compare == .uncommitted ? ", uncommitted" : "")\(tab.isPreview ? ", preview: double-click or edit to keep it" : "")")
     }

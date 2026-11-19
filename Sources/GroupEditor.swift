@@ -86,7 +86,6 @@ struct GroupEditor: View {
                 .background(theme.foreground.opacity(selectedPath == rule.path ? 0.1 : 0), in: .rect(cornerRadius: 4))
                 .contentShape(.rect)
                 .onTapGesture { selectedPath = rule.path }
-                .accessibilityAddTraits(.isButton)
             }
             if !group.rules.isEmpty { Divider() }
             HStack(spacing: 4) {

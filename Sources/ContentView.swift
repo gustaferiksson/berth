@@ -56,7 +56,6 @@ struct ContentView: View {
                             Color.clear
                                 .contentShape(.rect)
                                 .onTapGesture { store.launcherMode = nil }
-                                .accessibilityAddTraits(.isButton)
                             Launcher(mode: mode)
                                 .id(mode)
                                 .padding(.top, 120)
