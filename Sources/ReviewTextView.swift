@@ -696,7 +696,6 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
 final class ReviewGutter: NSView, NSViewToolTipOwner {
     weak var textView: ReviewTextView?
-    var drawsSeparator = false
     var thickness: CGFloat = 40 {
         didSet { invalidateIntrinsicContentSize() }
     }
@@ -716,10 +715,6 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
 
         textView.backgroundColor.setFill()
         bounds.fill()
-        if drawsSeparator {
-            textView.style.commentBorder.setFill()
-            NSRect(x: 0, y: 0, width: 1 / (window?.backingScaleFactor ?? 2), height: bounds.height).fill(using: .sourceOver)
-        }
 
         let style = textView.style
         let changed = (textView.kind == .original ? style.removedWord : style.addedWord).withAlphaComponent(1)
