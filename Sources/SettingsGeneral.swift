@@ -33,7 +33,7 @@ struct GeneralSettings: View {
                 Toggle("Start new sessions in a worktree", isOn: $startsInWorktree)
                 Picker("Unload idle sessions after", selection: $unloadIdleAfter) {
                     Text("Never").tag(0.0)
-                    Text("1 hour").tag(3_600.0)
+                    Text("1 hour").tag(3600.0)
                     Text("4 hours").tag(14_400.0)
                     Text("1 day").tag(86_400.0)
                 }
@@ -125,8 +125,8 @@ struct GeneralSettings: View {
     private var servers: Binding<[LanguageServerEntry]> {
         Binding {
             LanguageServerEntry.configured(configuredServers)
-        } set: {
-            configuredServers = LanguageServerEntry.storage($0, keeping: LanguageServerEntry.stored(configuredServers).unreadable)
+        } set: { entries in
+            configuredServers = LanguageServerEntry.storage(entries, keeping: LanguageServerEntry.stored(configuredServers).unreadable)
         }
     }
 }

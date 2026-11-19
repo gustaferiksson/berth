@@ -1,0 +1,140 @@
+included:
+  - Sources
+  - Packages/BerthCore/Package.swift
+  - Packages/BerthCore/Sources
+  - Packages/BerthCore/Tests
+  - BerthRemote
+
+swiftlint_version: 0.65.1
+strict: true
+
+opt_in_rules:
+  - all
+
+disabled_rules:
+  # Mutually exclusive with opening_brace; the repo keeps braces on the declaration line.
+  - contrasted_opening_brace
+  # Conflicts with redundant_type_annotation; types are inferred unless the compiler needs them.
+  - explicit_type_interface
+  # Internal is the intended default; SwiftFormat's redundantInternal removes what these demand.
+  - explicit_acl
+  - explicit_top_level_acl
+  # One-line early exits (guard ... else { return }) are the house style.
+  - conditional_returns_on_newline
+  - return_value_from_void_function
+  # One-line switch cases are the house style; SwiftFormat's consistentSwitchCaseSpacing owns case spacing.
+  - switch_case_on_newline
+  - vertical_whitespace_between_cases
+  # The house style is zero comments, so no doc comments.
+  - missing_docs
+  # Lines are not wrapped at a width (SwiftFormat --max-width none); 1,473 lines exceed 120.
+  - line_length
+  # SwiftUI layout constants are clearest inline (1,363 hits).
+  - no_magic_numbers
+  # Member and file ordering would reorder every type (449 hits) across files in flight.
+  - type_contents_order
+  - file_types_order
+  # Files are named and grouped by feature (CLAUDE.md's module map), not one type per file.
+  - one_declaration_per_file
+  - file_name
+  - no_grouping_extension
+  # The Carets and Accessibility extensions are deliberate file splits of their classes.
+  - override_in_extension
+  # Case order is menu and settings order, and synthesized raw values are the persisted values.
+  - sorted_enum_cases
+  - explicit_enum_raw_value
+  # Mutually exclusive with redundant_string_enum_value for camelCase cases; both ends share RemoteProtocol.swift.
+  - raw_value_for_camel_cased_codable_enum
+  # Mutually exclusive with extension_access_modifier, which agrees with SwiftFormat's extensionAccessControl.
+  - no_extension_access_modifier
+  # SwiftFormat owns these (sortImports, modifierOrder, indent, redundantSelf) and they disagree on details.
+  - sorted_imports
+  - modifier_order
+  - indentation_width
+  - redundant_self
+  # Shadowing (let x = x, if let x) is idiomatic Swift.
+  - variable_shadowing
+  # Packed argument and literal lists (theme tables, JSON-RPC payloads) and SwiftUI modifier chains are deliberate.
+  - multiline_arguments
+  - multiline_call_arguments
+  - multiline_literal_brackets
+  - multiline_function_chains
+  # Size metrics would force splitting the DEBUG snapshot harness and the Review files.
+  - cyclomatic_complexity
+  - function_body_length
+  - type_body_length
+  - file_length
+  - closure_body_length
+  # Labelled tuples are the lightweight multi-value return here.
+  - large_tuple
+  # String(decoding:) is deliberately lossy; the failable initializer changes behaviour.
+  - optional_data_string_conversion
+  # NSString and NSRange bridging is how TextKit 2 and LSP UTF-16 offsets work.
+  - legacy_objc_type
+  # Remaining force unwraps are of compile-time-known values: literal URLs, allCases lookups, DEBUG runtime swizzles.
+  - force_unwrapping
+  # Data.range(of:) is the fast byte search on the transcript prefilter paths; generic contains is not.
+  - contains_over_range_nil_comparison
+  # Its autocorrect rewrites `count > 0` on types whose count is a field, not a collection (compactions, menu actions).
+  - empty_count
+  # Its autocorrect turns `xs[i { ... }...]` into `} ...]`, which no longer parses as a postfix range.
+  - closure_spacing
+  # `dict[key] ?? nil` flattens a double optional; removing it changes the type.
+  - redundant_nil_coalescing
+  # Default parameters and their order are part of the call-site reading.
+  - discouraged_default_parameter
+  - function_default_parameter_at_end
+  # Codable models mirror JSON where absent differs from empty or false.
+  - discouraged_optional_collection
+  - discouraged_optional_boolean
+  # Empty overrides and no-op closures are how events are swallowed.
+  - no_empty_block
+  # Explicit deinits would be empty noise.
+  - required_deinit
+  # Swift API guidelines name constants without a k prefix.
+  - prefixed_toplevel_constant
+  # Playground literals; swift-format's NoPlaygroundLiterals rule says the opposite.
+  - object_literal
+  # fileprivate is needed for @objc swizzle targets referenced from another type in the same file.
+  - strict_fileprivate
+  # Protocol requirements (UNUserNotificationCenterDelegate, URLSessionTaskDelegate) fix async, @escaping and setter shapes.
+  - async_without_await
+  - unneeded_escaping
+  - unused_setter_value
+  # Its tap-gesture targets are rows and tabs holding their own controls, or a dismiss scrim; .isButton there mislabels them.
+  - accessibility_trait_for_button
+  # Test names refer to git's real master branch.
+  - inclusive_language
+  # SwiftFormat's unusedArguments owns this and autocorrects it.
+  - unused_parameter
+
+# No analyzer rules: one run needs a full build log, and unused_import fights MemberImportVisibility (CoreGraphics in Store),
+# capture_variable flags deliberate [previous = task] snapshots, unused_declaration flags the @objc TextKit flush override.
+
+attributes:
+  attributes_with_arguments_always_on_line_above: false
+  always_on_same_line: ["@IBAction", "@NSManaged", "@Test", "@objc", "@concurrent"]
+
+identifier_name:
+  excluded: [x, y, i, j, ys, to, up, gh, id]
+
+number_separator:
+  minimum_length: 5
+
+trailing_comma:
+  mandatory_comma: true
+
+trailing_closure:
+  only_single_muted_parameter: true
+
+function_parameter_count:
+  warning: 7
+
+nesting:
+  type_level: 3
+
+enum_case_associated_values_count:
+  warning: 6
+
+prohibited_super_call:
+  excluded: ["doCommand(by:)"]

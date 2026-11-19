@@ -1,6 +1,6 @@
+@testable import BerthCore
 import Foundation
 import Testing
-@testable import BerthCore
 
 final class ReviewGitTests {
     static let isolatedGitConfig: Void = {
@@ -10,7 +10,7 @@ final class ReviewGitTests {
         setenv("GIT_CONFIG_NOSYSTEM", "1", 1)
     }()
 
-    let root = FileManager.default.temporaryDirectory.appending(path: "berth-review-\(UUID().uuidString)").resolvingSymlinksInPath()
+    private let root = FileManager.default.temporaryDirectory.appending(path: "berth-review-\(UUID().uuidString)").resolvingSymlinksInPath()
 
     init() throws {
         Self.isolatedGitConfig
@@ -22,15 +22,15 @@ final class ReviewGitTests {
     }
 
     @discardableResult
-    func git(_ repo: URL, _ arguments: String...) async throws -> String {
-        String(decoding: try await ReviewGit.git(arguments, in: repo.path), as: UTF8.self).trimmingCharacters(in: .newlines)
+    private func git(_ repo: URL, _ arguments: String...) async throws -> String {
+        try await String(decoding: ReviewGit.git(arguments, in: repo.path), as: UTF8.self).trimmingCharacters(in: .newlines)
     }
 
-    func write(_ repo: URL, _ path: String, _ text: String) throws {
+    private func write(_ repo: URL, _ path: String, _ text: String) throws {
         try text.write(to: repo.appending(path: path), atomically: true, encoding: .utf8)
     }
 
-    func repo(_ name: String) async throws -> URL {
+    private func repo(_ name: String) async throws -> URL {
         let repo = root.appending(path: name)
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
         try await git(repo, "init", "--quiet", "-b", "main")
@@ -43,7 +43,7 @@ final class ReviewGitTests {
         return repo
     }
 
-    func featureRepo() async throws -> URL {
+    private func featureRepo() async throws -> URL {
         let repo = try await repo("feature")
         try await git(repo, "checkout", "--quiet", "-b", "feature")
         try write(repo, "committed.txt", "x\ny\nz\n")
@@ -59,7 +59,7 @@ final class ReviewGitTests {
         return repo
     }
 
-    func pushedFeatureRepo() async throws -> URL {
+    private func pushedFeatureRepo() async throws -> URL {
         let repo = try await repo("pushed")
         let origin = root.appending(path: "pushed-origin.git")
         try await git(root, "init", "--quiet", "--bare", "-b", "main", origin.path)
@@ -141,9 +141,9 @@ final class ReviewGitTests {
         let repo = try await featureRepo()
         try FileManager.default.createDirectory(at: repo.appending(path: "empty"), withIntermediateDirectories: true)
         let changes = try await ReviewGit.changes(in: repo.appending(path: "empty").path)
-        #expect(changes.root == (try await git(repo, "rev-parse", "--show-toplevel")))
+        #expect(try await changes.root == git(repo, "rev-parse", "--show-toplevel"))
         #expect(changes.branch == "feature" && changes.base == "main")
-        #expect(changes.mergeBase == (try await git(repo, "rev-parse", "main")))
+        #expect(try await changes.mergeBase == git(repo, "rev-parse", "main"))
         #expect(changes.committed.map(\.path) == ["committed.txt", "logo.bin"])
         #expect(changes.uncommitted.map(\.path) == ["gone.txt", "image.bin", "keep.txt", "new.txt", "renamed file.txt"])
         #expect(changes.uncommitted.map(\.status) == [.deleted, .added, .modified, .added, .renamed])
@@ -161,7 +161,7 @@ final class ReviewGitTests {
         let changes = try await ReviewGit.changes(in: repo.path)
         let contents = { (path: String, compare: ReviewCompare) in
             let files = compare == .committed ? changes.committed : changes.uncommitted
-            return try await ReviewGit.contents(of: try #require(files.first { $0.path == path }), compare: compare, in: changes)
+            return try await ReviewGit.contents(of: #require(files.first { $0.path == path }), compare: compare, in: changes)
         }
 
         #expect(try await contents("new.txt", .uncommitted) == ReviewContents(original: nil, modified: .text("a\nb")))
@@ -175,10 +175,10 @@ final class ReviewGitTests {
     @Test func changesSplitUncommittedFromCommittedWork() async throws {
         let repo = try await pushedFeatureRepo()
         let changes = try await ReviewGit.changes(in: repo.path)
-        #expect(changes.root == (try await git(repo, "rev-parse", "--show-toplevel")))
+        #expect(try await changes.root == git(repo, "rev-parse", "--show-toplevel"))
         #expect(changes.branch == "feature" && !changes.isDefaultBranch && changes.base == "origin/main")
-        #expect(changes.head == (try await git(repo, "rev-parse", "HEAD")))
-        #expect(changes.mergeBase == (try await git(repo, "rev-parse", "main~1")))
+        #expect(try await changes.head == git(repo, "rev-parse", "HEAD"))
+        #expect(try await changes.mergeBase == git(repo, "rev-parse", "main~1"))
         #expect(changes.fetchedAt != nil && changes.fetchError == nil)
 
         #expect(changes.uncommitted.map(\.path) == ["gone.txt", "keep.txt", "notes.txt"])
@@ -195,7 +195,7 @@ final class ReviewGitTests {
         try await git(repo, "commit", "--quiet", "-am", "Later work")
         let contents = { (path: String, compare: ReviewCompare) in
             let files = compare == .committed ? changes.committed : changes.uncommitted
-            return try await ReviewGit.contents(of: try #require(files.first { $0.path == path }), compare: compare, in: changes)
+            return try await ReviewGit.contents(of: #require(files.first { $0.path == path }), compare: compare, in: changes)
         }
 
         #expect(try await contents("keep.txt", .committed) == ReviewContents(original: .text("one\ntwo\n"), modified: .text("one\ntwo\nthree\n")))
@@ -207,13 +207,13 @@ final class ReviewGitTests {
 
     @Test func branchStatusCountsAgainstTheBaseAndTheUpstream() async throws {
         let repo = try await pushedFeatureRepo()
-        let status = try await ReviewGit.branchStatus(of: try await ReviewGit.changes(in: repo.path))
+        let status = try await ReviewGit.branchStatus(of: ReviewGit.changes(in: repo.path))
         #expect(status.ahead == 2 && status.behind == 1)
         #expect(status.upstream == ReviewUpstream(name: "origin/feature", ahead: 1, behind: 0))
         #expect(status.commits.map(\.subject) == ["Extend keep", "Add the feature"])
         #expect(status.commits.map(\.isPushed) == [false, true])
-        #expect(status.commits.map(\.sha) == (try await git(repo, "log", "-2", "--format=%h")).split(separator: "\n").map(String.init))
-        #expect(status.commits.map(\.date) == (try await git(repo, "log", "-2", "--format=%at")).split(separator: "\n").map { Date(timeIntervalSince1970: TimeInterval($0)!) })
+        #expect(try await status.commits.map(\.sha) == git(repo, "log", "-2", "--format=%h").split(separator: "\n").map(String.init))
+        #expect(try await status.commits.map(\.date) == git(repo, "log", "-2", "--format=%at").split(separator: "\n").map { Date(timeIntervalSince1970: TimeInterval($0)!) })
     }
 
     @Test func theDefaultBranchHasNoCommittedCompare() async throws {

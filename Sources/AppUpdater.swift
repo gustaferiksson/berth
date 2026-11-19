@@ -25,7 +25,7 @@ final class AppUpdater {
     nonisolated static let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     private static let checkInterval: TimeInterval = 24 * 60 * 60
     static let restartDelay: TimeInterval = 15
-    nonisolated private static let stagingPrefix = ".berth-update-"
+    private nonisolated static let stagingPrefix = ".berth-update-"
 
     private(set) var status = Status.idle
     private(set) var staged: (version: String, app: URL)?
@@ -33,7 +33,7 @@ final class AppUpdater {
     private(set) var isPostponed = false
     @ObservationIgnored private var newerVersion: String?
     @ObservationIgnored private var timer: Timer?
-    @ObservationIgnored private var wakeObserver: NSObjectProtocol?
+    @ObservationIgnored private var wakeObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var swapping = false
     @ObservationIgnored private var idleTimer: Timer?
     @ObservationIgnored var workingSessions: () -> Int = { 0 }
@@ -56,12 +56,14 @@ final class AppUpdater {
             status = .blocked("This build doesn’t update itself.")
             return
         }
+
         Self.clearStaging()
         idleTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.relaunchIfSettled() }
         }
         // build.sh stamps local builds "<describe>-local", which would otherwise compare older than every release.
         guard !Self.currentVersion.hasSuffix("-local") else { return }
+
         check()
         timer = Timer.scheduledTimer(withTimeInterval: Self.checkInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.check() }
@@ -77,6 +79,7 @@ final class AppUpdater {
             return
         }
         guard !isBusy else { return }
+
         let previous = status
         status = .checking
         Task { await runCheck(trigger, previous: previous) }
@@ -105,6 +108,7 @@ final class AppUpdater {
             }
             return
         }
+
         newerVersion = latest
         if let staged, staged.version == latest, FileManager.default.fileExists(atPath: staged.app.path) {
             status = .ready(latest)
@@ -118,9 +122,10 @@ final class AppUpdater {
             if trigger == .manual { NSWorkspace.shared.open(Self.releasesURL) }
             return
         }
+
         status = .downloading
         do {
-            staged = (latest, try await Self.downloadVerified(version: latest))
+            staged = try await (latest, Self.downloadVerified(version: latest))
             status = .ready(latest)
             if trigger == .manual { offer(latest) }
         } catch {
@@ -140,6 +145,7 @@ final class AppUpdater {
             isPostponed = false
             return
         }
+
         installAndRelaunch()
     }
 
@@ -175,10 +181,11 @@ final class AppUpdater {
             return
         }
         guard let pendingRestart else {
-            self.pendingRestart = (staged.version, .now + Self.restartDelay)
+            pendingRestart = (staged.version, .now + Self.restartDelay)
             return
         }
         guard pendingRestart.deadline <= .now else { return }
+
         relaunch(then: NSApp.isActive ? .open : .background)
     }
 
@@ -193,15 +200,17 @@ final class AppUpdater {
 
     func installOnQuit() {
         guard staged != nil else { return }
+
         _ = spawnSwap(then: .quiet)
     }
 
     private func spawnSwap(then after: AfterSwap) -> String? {
         guard !swapping else { return nil }
         guard let staged, FileManager.default.fileExists(atPath: staged.app.path) else {
-            self.staged = nil
+            staged = nil
             return "The downloaded update is missing. Check for updates again."
         }
+
         let installed = Self.bundleVersion(of: Bundle.main.bundleURL)
         if let installed, !Self.isNewerVersion(staged.version, than: installed) {
             self.staged = nil
@@ -211,35 +220,39 @@ final class AppUpdater {
         guard FileManager.default.isWritableFile(atPath: Self.installDir.path) else {
             return "\(Self.installDir.path) isn’t writable."
         }
+
         let script = URL.temporaryDirectory.appending(path: "berth-update-\(UUID().uuidString).sh")
         guard (try? Self.swapScript.write(to: script, atomically: true, encoding: .utf8)) != nil else {
             return "Couldn’t prepare the update."
         }
+
         let helper = Process()
         helper.executableURL = URL(filePath: "/bin/sh")
         helper.arguments = [script.path, "\(getpid())", staged.app.path, Bundle.main.bundleURL.path, after.rawValue, installed ?? ""]
         guard (try? helper.run()) != nil else { return "Couldn’t start the update." }
+
         swapping = true
         return nil
     }
 
-    nonisolated private static func latestVersion() async -> String? {
+    private nonisolated static func latestVersion() async -> String? {
         var request = URLRequest(url: releasesURL)
         request.httpMethod = "HEAD"
         guard let (_, response) = try? await URLSession.shared.data(for: request, delegate: RedirectBlocker()),
               let location = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Location")
         else { return nil }
+
         return releaseVersion(fromLocation: location)
     }
 
-    nonisolated private static func clearStaging() {
+    private nonisolated static func clearStaging() {
         let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: installDir.path)) ?? []
         for entry in leftovers where entry.hasPrefix(stagingPrefix) {
             try? FileManager.default.removeItem(at: installDir.appending(path: entry))
         }
     }
 
-    @concurrent nonisolated private static func downloadVerified(version: String) async throws -> URL {
+    @concurrent private nonisolated static func downloadVerified(version: String) async throws -> URL {
         let fileManager = FileManager.default
         let root = installDir.appending(path: "\(stagingPrefix)\(UUID().uuidString)")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
@@ -249,60 +262,70 @@ final class AppUpdater {
         let zipURL = URL(string: "https://github.com/gustaferiksson/berth/releases/download/v\(version)/Berth-\(version).zip")!
         let (download, response) = try await URLSession.shared.download(from: zipURL)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw UpdateFailure("The update download failed.") }
+
         let zip = root.appending(path: "Berth.zip")
         try fileManager.moveItem(at: download, to: zip)
         guard run("/usr/bin/ditto", ["-x", "-k", zip.path, root.path]) else {
             throw UpdateFailure("Couldn’t unpack the update.")
         }
+
         try fileManager.removeItem(at: zip)
 
         let app = root.appending(path: "Berth.app")
         guard bundleVersion(of: app) == version else { throw UpdateFailure("The downloaded app isn’t version \(version).") }
+
         // spctl is avoided on purpose: it false-negatives on stapled builds.
         guard run("/usr/bin/codesign", ["--verify", "--strict", "-R", requirement, app.path]) else { throw UpdateFailure("The downloaded app failed signature checks.") }
+
         keep = true
         return app
     }
 
-    nonisolated private static func bundleVersion(of app: URL) -> String? {
+    private nonisolated static func bundleVersion(of app: URL) -> String? {
         guard let data = FileManager.default.contents(atPath: app.appending(path: "Contents/Info.plist").path),
               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         else { return nil }
+
         return plist["CFBundleShortVersionString"] as? String
     }
 
-    nonisolated private static func run(_ tool: String, _ arguments: [String]) -> Bool {
+    private nonisolated static func run(_ tool: String, _ arguments: [String]) -> Bool {
         let process = Process()
         process.executableURL = URL(filePath: tool)
         process.arguments = arguments
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         guard (try? process.run()) != nil else { return false }
+
         process.waitUntilExit()
         return process.terminationStatus == 0
     }
 
-    nonisolated private static func releaseVersion(fromLocation location: String) -> String? {
+    private nonisolated static func releaseVersion(fromLocation location: String) -> String? {
         guard let tag = location.split(separator: "/").last else { return nil }
+
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : String(tag)
         guard !version.isEmpty, version.allSatisfy({ ($0.isASCII && $0.isNumber) || $0 == "." }) else { return nil }
+
         return version
     }
 
-    nonisolated private static func isNewerVersion(_ remote: String, than local: String) -> Bool {
+    private nonisolated static func isNewerVersion(_ remote: String, than local: String) -> Bool {
         let components = { (version: String) in
             (version.hasPrefix("v") ? String(version.dropFirst()) : version).split(separator: ".").map { Int($0) ?? 0 }
         }
-        let r = components(remote), l = components(local)
-        for index in 0..<max(r.count, l.count) {
-            let a = index < r.count ? r[index] : 0, b = index < l.count ? l[index] : 0
-            if a != b { return a > b }
+        let remoteParts = components(remote)
+        let localParts = components(local)
+        for index in 0..<max(remoteParts.count, localParts.count) {
+            let remotePart = index < remoteParts.count ? remoteParts[index] : 0
+            let localPart = index < localParts.count ? localParts[index] : 0
+            if remotePart != localPart { return remotePart > localPart }
         }
         return false
     }
 
     // Paths only ever arrive as arguments; interpolating one into this script would make it shell-injectable.
-    nonisolated private static let swapScript = """
+    private nonisolated static let swapScript = """
     #!/bin/sh
     set -u
     trap '' HUP TERM
@@ -329,7 +352,7 @@ final class AppUpdater {
     """
 }
 
-nonisolated private struct UpdateFailure: LocalizedError {
+private nonisolated struct UpdateFailure: LocalizedError {
     let errorDescription: String?
 
     init(_ message: String) {
@@ -338,8 +361,8 @@ nonisolated private struct UpdateFailure: LocalizedError {
 }
 
 // URLSession follows redirects by default, and the release tag lives only in the 302's Location header.
-nonisolated private final class RedirectBlocker: NSObject, URLSessionTaskDelegate, Sendable {
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+private final nonisolated class RedirectBlocker: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_: URLSession, task _: URLSessionTask, willPerformHTTPRedirection _: HTTPURLResponse, newRequest _: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
     }
 }

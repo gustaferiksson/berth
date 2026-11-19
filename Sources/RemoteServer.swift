@@ -10,6 +10,7 @@ import Observation
 final class RemoteServer {
     static let enabledKey = "remoteEnabled"
     static let tokenKey = "remoteToken"
+
     #if DEBUG
     static let port = UInt16(UserDefaults.standard.string(forKey: "snapshotRemotePort") ?? "") ?? 7878
     #else
@@ -88,10 +89,12 @@ final class RemoteServer {
                 switch state {
                 case .ready:
                     self?.failure = nil
+
                 case let .failed(error), let .waiting(error):
                     print("remote: listener failed: \(error)")
                     self?.stop()
                     self?.failure = "Couldn’t listen on port \(Self.port): \(error)"
+
                 default:
                     break
                 }
@@ -114,7 +117,7 @@ final class RemoteServer {
     }
 
     private func accept(_ connection: NWConnection) {
-        guard clients.values.filter({ !$0.isAuthenticated }).count < 4 else { return connection.cancel() }
+        guard clients.values.count(where: { !$0.isAuthenticated }) < 4 else { return connection.cancel() }
 
         let id = ObjectIdentifier(connection)
         let nonce = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
@@ -141,6 +144,7 @@ final class RemoteServer {
         connection.receiveMessage { [weak self] data, _, _, error in
             MainActor.assumeIsolated {
                 guard let self, error == nil, let data, !data.isEmpty, self.clients[ObjectIdentifier(connection)] != nil else { return connection.cancel() }
+
                 self.handle(data, from: connection)
                 self.receive(on: connection)
             }
@@ -150,7 +154,6 @@ final class RemoteServer {
     private func handle(_ data: Data, from connection: NWConnection) {
         let id = ObjectIdentifier(connection)
         guard let client = clients[id] else { return connection.cancel() }
-
         guard client.isAuthenticated else {
             guard !token.isEmpty, data.count <= 256,
                   case let .auth(hmac)? = try? JSONDecoder().decode(RemoteClientMessage.self, from: data),
@@ -160,31 +163,39 @@ final class RemoteServer {
                 metadata.closeCode = .protocolCode(.policyViolation)
                 return connection.send(content: nil, contentContext: NWConnection.ContentContext(identifier: "close", metadata: [metadata]), isComplete: true, completion: .contentProcessed { _ in connection.cancel() })
             }
+
             clients[id]?.isAuthenticated = true
             return send(try? JSONEncoder().encode(sessionsMessage), to: connection)
         }
-
         guard let message = try? JSONDecoder().decode(RemoteClientMessage.self, from: data) else { return connection.cancel() }
+
         switch message {
         case .auth:
             return
+
         case let .subscribe(sessionID):
             clients[id]?.sessionID = sessionID
             clients[id]?.transcript = nil
             clients[id]?.end = nil
             Task { await streamTranscript(to: id) }
+
         case let .prompt(sessionID, text, attachments):
             Task { await submit(text, attachments: attachments ?? [], in: sessionID, from: connection) }
+
         case let .key(sessionID, key, waitingFor, waitingSince):
             press(key, in: sessionID, answering: waitingFor, since: waitingSince, from: connection)
+
         case let .newSession(folder, prompt):
             Task { await startSession(in: folder, prompt: prompt, from: connection) }
+
         case let .session(sessionID, action):
             perform(action, on: sessionID, from: connection)
+
         case .refresh:
             store.refresh()
             store.refreshPullRequests()
             send(try? JSONEncoder().encode(sessionsMessage), to: connection)
+
         case let .upload(uploadID, name, offset, chunk, isLast):
             receiveUpload(uploadID, name: name, offset: offset, chunk: chunk, isLast: isLast, from: connection)
         }
@@ -195,7 +206,8 @@ final class RemoteServer {
         guard let id = UUID(uuidString: uploadID)?.uuidString else { return fail("The upload had an invalid id") }
 
         if offset == 0, uploads[id] == nil {
-            guard uploads.values.filter({ !$0.isComplete }).count < 8 else { return fail("Too many uploads at once") }
+            guard uploads.values.count(where: { !$0.isComplete }) < 8 else { return fail("Too many uploads at once") }
+
             let safe = String(name.split(separator: "/").last ?? "").replacing(/[^A-Za-z0-9._-]/, with: "-").drop { $0 == "." || $0 == "-" }
             let cleaned = URL(filePath: safe.isEmpty ? "file" : String(safe))
             let stem = cleaned.deletingPathExtension().lastPathComponent.prefix(90)
@@ -203,6 +215,7 @@ final class RemoteServer {
             guard (try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)) != nil,
                   FileManager.default.createFile(atPath: file.path, contents: nil)
             else { return fail("Berth couldn’t save the file") }
+
             uploads[id] = Upload(file: file, owner: ObjectIdentifier(connection))
         }
 
@@ -210,6 +223,7 @@ final class RemoteServer {
             discardUpload(id)
             return fail("The upload failed or is over \(RemoteUpload.maxBytes >> 20) MB")
         }
+
         do {
             let handle = try FileHandle(forWritingTo: upload.file)
             defer { try? handle.close() }
@@ -223,11 +237,13 @@ final class RemoteServer {
         uploads[id]?.size += chunk.count
         uploads[id]?.isComplete = isLast
         guard isLast else { return }
+
         send(try? JSONEncoder().encode(RemoteServerMessage.uploaded(id: uploadID, error: nil)), to: connection)
     }
 
     private func discardUpload(_ id: String) {
         guard let upload = uploads.removeValue(forKey: id) else { return }
+
         try? FileManager.default.removeItem(at: upload.file.deletingLastPathComponent())
     }
 
@@ -329,10 +345,12 @@ final class RemoteServer {
         let files = attachments.compactMap { UUID(uuidString: $0).flatMap { uploads[$0.uuidString] }.flatMap { $0.isComplete ? $0.file : nil } }
         guard files.count == attachments.count else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "An attachment didn’t finish uploading, so the message wasn’t sent")), to: connection) }
         guard !submitting.contains(sessionID) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "The previous message is still being sent or the session is starting, so this one wasn’t sent")), to: connection) }
+
         submitting.insert(sessionID)
         defer { submitting.remove(sessionID) }
 
         guard store.sessionsByID[sessionID] != nil || store.tab(forSession: sessionID) != nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown session")), to: connection) }
+
         store.refreshLive()
         guard store.liveBySession[sessionID]?.status != "waiting" else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude is waiting for an answer, so the message wasn’t sent")), to: connection) }
 
@@ -357,13 +375,16 @@ final class RemoteServer {
         store.lastKeyInput = .now
         for image in images {
             guard isAcceptingInput(sessionID, from: connection) else { return }
+
             terminal.paste(text: image.path)
             try? await Task.sleep(for: .milliseconds(500))
         }
         guard isAcceptingInput(sessionID, from: connection) else { return }
+
         terminal.paste(text: images.isEmpty ? message : " \(message)")
         if !images.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
         guard isAcceptingInput(sessionID, from: connection) else { return }
+
         store.lastKeyInput = .now
         terminal.sendKey(.enter)
     }
@@ -371,6 +392,7 @@ final class RemoteServer {
     private func isAcceptingInput(_ sessionID: String, from connection: NWConnection) -> Bool {
         store.refreshLive()
         guard store.liveBySession[sessionID]?.status == "waiting" else { return true }
+
         send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude started waiting for an answer, so the message wasn’t sent")), to: connection)
         return false
     }
@@ -403,20 +425,28 @@ final class RemoteServer {
         case .show:
             store.activate(.session(sessionID))
             NSApp.activate()
+
         case .pin:
             store.pin(sessionID)
+
         case .unpin:
             store.unpin(sessionID)
+
         case .markRead:
             store.markRead(sessionID)
+
         case .markUnread:
             store.markUnread(sessionID)
+
         case .archive:
             guard store.liveBySession[sessionID] == nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude is still running in this session, so it can’t be archived from here")), to: connection) }
+
             store.archive(sessionID)
+
         case .interrupt:
             store.refreshLive()
             guard store.liveBySession[sessionID]?.status == "busy", let terminal = store.tab(forSession: sessionID)?.terminal else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude isn’t working in a Berth tab for this session")), to: connection) }
+
             store.lastKeyInput = .now
             terminal.sendKey(TerminalKeyPress(.escape))
         }
@@ -427,13 +457,16 @@ final class RemoteServer {
 
         store.openClaude(cwd: folder)
         guard let sessionID = store.tabs.first(where: { $0.id == store.selectedTabID })?.sessionID else { return }
+
         send(try? JSONEncoder().encode(RemoteServerMessage.opened(sessionID: sessionID)), to: connection)
         guard !prompt.isEmpty else { return }
+
         await submit(prompt, attachments: [], in: sessionID, from: connection)
     }
 
     private func send(_ data: Data?, to connection: NWConnection) {
         guard let data else { return }
+
         let context = NWConnection.ContentContext(identifier: "message", metadata: [NWProtocolWebSocket.Metadata(opcode: .text)])
         connection.send(content: data, contentContext: context, isComplete: true, completion: .idempotent)
     }

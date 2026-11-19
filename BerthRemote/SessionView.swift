@@ -48,10 +48,12 @@ struct SessionView: View {
         .onScrollGeometryChange(for: Bool.self) { $0.visibleRect.maxY >= $0.contentSize.height - 80 } action: { isAtBottom = $1 }
         .onChange(of: entries?.last?.id) {
             guard isAtBottom else { return }
+
             position.scrollTo(edge: .bottom)
         }
         .onChange(of: queued) {
             guard isAtBottom else { return }
+
             position.scrollTo(edge: .bottom)
         }
         .overlay {

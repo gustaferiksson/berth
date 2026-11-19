@@ -13,9 +13,9 @@ public struct LanguageServerCommand: Sendable, Hashable {
 public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
     public static let storageKey = "languageServers"
     public static let defaults = [
-        LanguageServerEntry(id: "sourcekit-lsp", name: "SourceKit-LSP", command: "sourcekit-lsp", languages: ["swift"], rootMarkers: ["Package.swift"]),
-        LanguageServerEntry(id: "rust-analyzer", name: "rust-analyzer", command: "rust-analyzer", languages: ["rust"]),
-        LanguageServerEntry(id: "typescript-language-server", name: "TypeScript", command: "typescript-language-server", arguments: ["--stdio"], languages: ["typescript", "typescriptreact", "javascript", "javascriptreact"]),
+        Self(id: "sourcekit-lsp", name: "SourceKit-LSP", command: "sourcekit-lsp", languages: ["swift"], rootMarkers: ["Package.swift"]),
+        Self(id: "rust-analyzer", name: "rust-analyzer", command: "rust-analyzer", languages: ["rust"]),
+        Self(id: "typescript-language-server", name: "TypeScript", command: "typescript-language-server", arguments: ["--stdio"], languages: ["typescript", "typescriptreact", "javascript", "javascriptreact"]),
     ]
 
     public var id: String
@@ -40,7 +40,7 @@ public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
         self.isEnabled = isEnabled
     }
 
-    public init(from decoder: Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
@@ -53,7 +53,7 @@ public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
     }
 
-    public static func stored(_ json: String?) -> (entries: [LanguageServerEntry], unreadable: [String]) {
+    public static func stored(_ json: String?) -> (entries: [Self], unreadable: [String]) {
         guard let json, !json.isEmpty else { return ([], []) }
 
         let fragment = { (value: Any) in (try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys, .withoutEscapingSlashes])).map { String(decoding: $0, as: UTF8.self) } }
@@ -61,16 +61,16 @@ public struct LanguageServerEntry: Codable, Hashable, Identifiable, Sendable {
         guard let elements = parsed as? [Any] else { return ([], fragment(parsed).map { [$0] } ?? []) }
 
         let fragments = elements.compactMap(fragment)
-        let decoded = fragments.map { (fragment: $0, entry: try? JSONDecoder().decode(LanguageServerEntry.self, from: Data($0.utf8))) }
+        let decoded = fragments.map { (fragment: $0, entry: try? JSONDecoder().decode(Self.self, from: Data($0.utf8))) }
         return (decoded.compactMap(\.entry), decoded.filter { $0.entry == nil }.map(\.fragment))
     }
 
-    public static func configured(_ json: String?) -> [LanguageServerEntry] {
+    public static func configured(_ json: String?) -> [Self] {
         let stored = stored(json).entries
         return stored + defaults.filter { entry in !stored.contains { $0.id == entry.id } }
     }
 
-    public static func storage(_ entries: [LanguageServerEntry], keeping unreadable: [String]) -> String {
+    public static func storage(_ entries: [Self], keeping unreadable: [String]) -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let readable = entries.compactMap { (try? encoder.encode($0)).map { String(decoding: $0, as: UTF8.self) } }
@@ -123,8 +123,8 @@ public enum LanguageServers {
 
         let head = (try? FileHandle(forReadingFrom: URL(filePath: executable)).read(upToCount: 128)).map { String(decoding: $0, as: UTF8.self) } ?? ""
         guard head.hasPrefix("#!"), head.prefix(while: { $0 != "\n" }).contains("node") else { return LanguageServerCommand(executable: executable, arguments: server.arguments) }
-
         guard let node = firstExecutable(path.map { "\($0)/node" } + (fallbacks["node"] ?? [])) else { return nil }
+
         return LanguageServerCommand(executable: node, arguments: [executable] + server.arguments)
     }
 
@@ -132,6 +132,7 @@ public enum LanguageServers {
         let fileManager = FileManager.default
         let candidates = patterns.flatMap { pattern -> [String] in
             guard let wildcard = pattern.range(of: "/*/") else { return [pattern] }
+
             let folder = String(pattern[..<wildcard.lowerBound])
             let names = (try? fileManager.contentsOfDirectory(atPath: folder)) ?? []
             return names.sorted { $0.localizedStandardCompare($1) == .orderedDescending }.map { "\(folder)/\($0)/\(pattern[wildcard.upperBound...])" }
@@ -139,6 +140,7 @@ public enum LanguageServers {
 
         return candidates.first { candidate in
             guard fileManager.isExecutableFile(atPath: candidate) else { return false }
+
             let resolved = URL(filePath: candidate).resolvingSymlinksInPath()
             let fileNumber = (try? fileManager.attributesOfItem(atPath: resolved.path))?[.systemFileNumber] as? Int
             let isRustupProxy = ["rustup", "rustup-init"].contains { name in

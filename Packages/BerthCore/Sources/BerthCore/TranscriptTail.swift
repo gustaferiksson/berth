@@ -25,10 +25,12 @@ public enum TranscriptTail {
 
     public static func read(_ url: URL, after offset: Int?, queue: [String] = []) -> Chunk? {
         guard let handle = try? FileHandle(forReadingFrom: url), let size = (try? handle.seekToEnd()).map(Int.init) else { return nil }
+
         defer { try? handle.close() }
 
         if let offset, offset <= size, size - offset <= tailBytes {
             guard (try? handle.seek(toOffset: UInt64(offset))) != nil else { return nil }
+
             let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: false, queue: queue)
             return Chunk(entries: parsed.entries, end: offset + parsed.consumed, isContinuation: true, queue: parsed.queue)
         }
@@ -37,6 +39,7 @@ public enum TranscriptTail {
         while true {
             let start = max(0, size - window)
             guard (try? handle.seek(toOffset: UInt64(start))) != nil else { return nil }
+
             let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: start > 0, queue: [])
             if start == 0 || window >= maxTailBytes || parsed.entries.count >= minEntries {
                 return Chunk(entries: parsed.entries, end: start + parsed.consumed, isContinuation: false, queue: parsed.queue)
@@ -57,16 +60,19 @@ public enum TranscriptTail {
                   object["isSidechain"] as? Bool != true, object["isMeta"] as? Bool != true,
                   let uuid = (object["uuid"] as? String).map({ String($0.prefix(maxText)) })
             else { return [] }
+
             let date = (object["timestamp"] as? String).flatMap { try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0) }
 
             if type == "attachment" {
                 guard (try? decoder.decode(Record.self, from: Data(line)))?.isQueuedPrompt == true, let attachment = object["attachment"] as? [String: Any] else { return [] }
+
                 let blocks = attachment["prompt"] as? [[String: Any]] ?? [["type": "text", "text": attachment["prompt"] as? String ?? ""]]
                 let text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n").prefix(maxText)
                 return [prompt(id: uuid, text: String(text), date: date, blocks: blocks)]
             }
 
             guard type == "user" || type == "assistant", let message = object["message"] as? [String: Any] else { return [] }
+
             let blocks = message["content"] as? [[String: Any]] ?? []
 
             if type == "user", let text = (try? decoder.decode(Record.self, from: Data(line)))?.typedPrompt {
@@ -97,6 +103,7 @@ public enum TranscriptTail {
                     )
                 }
                 guard type == "user", block["type"] as? String == "tool_result" else { return nil }
+
                 let content = block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
                 return RemoteEntry(id: id, kind: .toolResult, text: String(content.prefix(maxText)), toolID: (block["tool_use_id"] as? String).map { String($0.prefix(maxText)) }, isError: block["is_error"] as? Bool ?? false, date: date)
             }
@@ -130,8 +137,10 @@ public enum TranscriptTail {
                       kCGImageSourceThumbnailMaxPixelSize: thumbnailPixels,
                   ] as CFDictionary)
             else { return nil }
+
             let output = NSMutableData()
             guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+
             CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.7] as CFDictionary)
             return CGImageDestinationFinalize(destination) && output.length <= maxThumbnailBytes ? output as Data : nil
         }.prefix(maxImages))

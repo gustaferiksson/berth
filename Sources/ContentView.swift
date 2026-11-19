@@ -46,7 +46,8 @@ struct ContentView: View {
             TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel)
                 .onGeometryChange(for: Double.self) { $0.size.width } action: { splitWidth = $0 }
                 .task(id: showsPanel ? splitWidth : 0) {
-                    guard showsPanel, (try? await Task.sleep(for: .milliseconds(300))) != nil else { return }
+                    guard showsPanel, await (try? Task.sleep(for: .milliseconds(300))) != nil else { return }
+
                     yieldSidebarIfCramped()
                 }
                 .overlay {
@@ -68,55 +69,55 @@ struct ContentView: View {
                     }
                 }
                 .animation(.default, value: store.updater.pendingRestart?.deadline)
-            .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsPanel }, set: setInspector)) {
-                if isTrailing {
-                    Sidebar()
-                        .listStyle(.sidebar)
-                        .scrollContentBackground(.hidden)
-                        .background(store.theme.background ?? .clear)
-                        .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
-                        .background(ScrollPocketSeparatorRemover())
-                        .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs && $0 >= 220 { trailingSidebarWidth = $0 } }
-                        .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
-                } else {
-                    ReviewPanel()
-                        .scrollContentBackground(.hidden)
-                        .background(store.theme.background ?? .clear)
-                        .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
-                        .background(ScrollPocketSeparatorRemover())
-                        .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
-                }
-            }
-            .background(store.theme.background ?? .clear)
-            .background {
-                if let selected, !store.isHarborShown {
-                    TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
-                } else {
-                    Color.clear.navigationTitle(store.isHarborShown ? "Harbor" : "Berth")
-                }
-            }
-            .toolbar {
-                if isReviewEnabled, isTrailing {
-                    ToolbarItem(placement: .navigation) { panelToggle(symbol: "sidebar.left") }
-                }
-                ToolbarItem(placement: isTrailing ? .navigation : .automatic) {
-                    Button(AppAction.switchTerminal.title, systemImage: AppAction.switchTerminal.symbol) {
-                        AppAction.switchTerminal.perform(on: store)
+                .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsPanel }, set: setInspector)) {
+                    if isTrailing {
+                        Sidebar()
+                            .listStyle(.sidebar)
+                            .scrollContentBackground(.hidden)
+                            .background(store.theme.background ?? .clear)
+                            .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
+                            .background(ScrollPocketSeparatorRemover())
+                            .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs, $0 >= 220 { trailingSidebarWidth = $0 } }
+                            .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
+                    } else {
+                        ReviewPanel()
+                            .scrollContentBackground(.hidden)
+                            .background(store.theme.background ?? .clear)
+                            .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
+                            .background(ScrollPocketSeparatorRemover())
+                            .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
                     }
-                    .help("Switch between terminal and Claude (⌘J)")
                 }
-                if isReviewEnabled, !isTrailing {
-                    ToolbarItem { panelToggle(symbol: "sidebar.right") }
+                .background(store.theme.background ?? .clear)
+                .background {
+                    if let selected, !store.isHarborShown {
+                        TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
+                    } else {
+                        Color.clear.navigationTitle(store.isHarborShown ? "Harbor" : "Berth")
+                    }
                 }
-                if isTrailing {
-                    ToolbarItem {
-                        Button(showsSessions ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right") {
-                            setSessions(showsSessions ? .detailOnly : .all)
+                .toolbar {
+                    if isReviewEnabled, isTrailing {
+                        ToolbarItem(placement: .navigation) { panelToggle(symbol: "sidebar.left") }
+                    }
+                    ToolbarItem(placement: isTrailing ? .navigation : .automatic) {
+                        Button(AppAction.switchTerminal.title, systemImage: AppAction.switchTerminal.symbol) {
+                            AppAction.switchTerminal.perform(on: store)
                         }
-                        .help(showsSessions ? "Hide Sidebar" : "Show Sidebar")
+                        .help("Switch between terminal and Claude (⌘J)")
+                    }
+                    if isReviewEnabled, !isTrailing {
+                        ToolbarItem { panelToggle(symbol: "sidebar.right") }
+                    }
+                    if isTrailing {
+                        ToolbarItem {
+                            Button(showsSessions ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right") {
+                                setSessions(showsSessions ? .detailOnly : .all)
+                            }
+                            .help(showsSessions ? "Hide Sidebar" : "Show Sidebar")
+                        }
                     }
                 }
-            }
         }
         .containerBackground(store.theme.background ?? .clear, for: .window)
         .environment(\.ghosttyTheme, store.theme)
@@ -134,6 +135,7 @@ struct ContentView: View {
                 Task { await store.reviewModel?.load() }
                 return
             }
+
             sidebarYieldsToDiff = false
             keepsSidebarForDiff = false
         }
@@ -142,15 +144,18 @@ struct ContentView: View {
         }
         .onChange(of: areLanguageServersEnabled) {
             guard !areLanguageServersEnabled else { return }
+
             for model in store.reviewModels.values { model.language?.stop() }
         }
         .onChange(of: store.isStatsRequested) {
             guard store.isStatsRequested else { return }
+
             store.isStatsRequested = false
             openWindow(id: "stats")
         }
         .onChange(of: store.isSettingsRequested) {
             guard store.isSettingsRequested else { return }
+
             store.isSettingsRequested = false
             openSettings()
         }
@@ -166,7 +171,6 @@ struct ContentView: View {
         }
     }
 }
-
 
 extension ContentView {
     private var showsPanel: Bool {
@@ -228,7 +232,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     let isDiffLeading: Bool
     let isDiffCollapsed: Bool
 
-    func makeNSViewController(context: Context) -> TerminalSplitController {
+    func makeNSViewController(context _: Context) -> TerminalSplitController {
         let split = TerminalSplitController()
         split.splitView.identifier = NSUserInterfaceItemIdentifier("terminalSplit")
         let terminal = NSHostingController(rootView: TerminalArea(store: store))
@@ -243,11 +247,11 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         return split
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsViewController: TerminalSplitController, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsViewController _: TerminalSplitController, context _: Context) -> CGSize? {
         proposal.replacingUnspecifiedDimensions()
     }
 
-    func updateNSViewController(_ split: TerminalSplitController, context: Context) {
+    func updateNSViewController(_ split: TerminalSplitController, context _: Context) {
         guard let diff = split.diff else { return }
 
         if (split.splitViewItems.first === diff) != isDiffLeading {
@@ -381,9 +385,9 @@ struct Hairline: View {
 
 // AppKit gives an inspector column's scroll pocket a thin-film edge with a separator line, and no public API turns it off.
 private struct ScrollPocketSeparatorRemover: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context _: Context) -> NSView { NSView() }
 
-    func updateNSView(_ view: NSView, context: Context) {
+    func updateNSView(_ view: NSView, context _: Context) {
         DispatchQueue.main.async {
             var candidates = view.superview?.superview.map { [$0] } ?? []
             while let next = candidates.popLast() {
@@ -397,11 +401,12 @@ private struct ScrollPocketSeparatorRemover: NSViewRepresentable {
 struct WindowChrome: NSViewRepresentable {
     let color: Color?
 
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context _: Context) -> NSView { NSView() }
 
-    func updateNSView(_ view: NSView, context: Context) {
+    func updateNSView(_ view: NSView, context _: Context) {
         DispatchQueue.main.async {
             guard let window = view.window else { return }
+
             window.titlebarAppearsTransparent = color != nil
             window.backgroundColor = color.map(NSColor.init) ?? .windowBackgroundColor
         }

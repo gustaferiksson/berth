@@ -170,9 +170,14 @@ This is the slim first version; the rest is listed under Later.
   removed line takes the base's lines like a selection on the left (unchanged lines included);
   any other selection takes the file's lines. Every box and card opens in the one side, below
   its last line's row.
-- Added comments stay in the diff as compact cards (line label, text, × on hover) on their
+- Added comments stay in the diff as compact cards (line label, text, pencil and × on hover) on their
   side, below their last line; switching between side by side and unified moves them, and an
   open box, with the rows. Deleting a card or the comment in the panel removes both.
+- The pencil or a double-click on a card swaps it for the comment box in its place, prefilled
+  with the text, caret at the end, with Save instead of Add Comment. ↩ saves (same id, lines,
+  side, compare and order), Esc or ↩ with the text cleared restores the card unchanged (×
+  deletes). It is the one box: a new selection or another edit replaces it. Double-clicking a
+  comment in the panel opens its document and starts the same edit.
 - Edits on the right become the file's draft; 300 ms after the last edit the diff and
   highlighting are recomputed off the main thread. Save (⌘S) appears in the header while
   there is a draft. Each file keeps its own undo history while Review's model lives (switching

@@ -1,0 +1,3 @@
+disabled_rules:
+  # try! on fixture literals is known-good, and a crash there is the test failure.
+  - force_try

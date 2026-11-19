@@ -4,6 +4,7 @@ public enum FuzzyMatch {
     public static func score(_ query: String, name: String, path: String) -> Int? {
         let query = query.lowercased()
         guard !query.isEmpty else { return 0 }
+
         let name = name.lowercased()
         let path = path.lowercased()
         if query.hasPrefix("/") { return path.hasPrefix(query) ? 500 : nil }

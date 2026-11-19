@@ -9,7 +9,7 @@ public struct ReviewComment: Sendable, Hashable, Identifiable {
     public let path: String
     public let line: Int
     public let endLine: Int
-    public let text: String
+    public var text: String
     public let snippet: String
     public let side: Side
     public let compare: ReviewCompare?
@@ -25,7 +25,7 @@ public struct ReviewComment: Sendable, Hashable, Identifiable {
         self.compare = compare
     }
 
-    public static func prompt(for comments: [ReviewComment], branch: String, base: String) -> String {
+    public static func prompt(for comments: [Self], branch: String, base: String) -> String {
         let printable = { (text: String) in String(String.UnicodeScalarView(text.unicodeScalars.filter { $0 == "\n" || $0 == "\t" || ($0.value >= 0x20 && $0.value != 0x7F) })) }
         let blocks = comments.map { comment in
             let lines = comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)"

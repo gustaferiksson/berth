@@ -3,11 +3,13 @@ import Foundation
 public enum RepositoryRoot {
     public static func resolve(_ folder: String) -> String {
         guard let repository = enclosingRepository(folder) else { return folder }
+
         return repository.mainCheckout ?? repository.root.path
     }
 
     public static func checkout(_ folder: String) -> String {
         guard let repository = enclosingRepository(folder), let main = repository.mainCheckout else { return folder }
+
         return main + URL(filePath: folder, directoryHint: .isDirectory).standardizedFileURL.path.dropFirst(repository.root.path.count)
     }
 
@@ -21,6 +23,7 @@ public enum RepositoryRoot {
             }
             let parent = directory.deletingLastPathComponent()
             guard parent.path != directory.path else { return nil }
+
             directory = parent
         }
     }
@@ -46,11 +49,14 @@ public enum RepositoryRoot {
         guard let contents = try? String(contentsOf: dotGit, encoding: .utf8),
               let line = contents.split(separator: "\n").first(where: { $0.hasPrefix("gitdir:") })
         else { return nil }
+
         let path = line.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespaces)
         let gitDirectory = URL(filePath: path, directoryHint: .isDirectory, relativeTo: dotGit.deletingLastPathComponent()).standardizedFileURL
         guard let common = try? String(contentsOf: gitDirectory.appending(path: "commondir"), encoding: .utf8) else { return nil }
+
         let commonDirectory = URL(filePath: common.trimmingCharacters(in: .whitespacesAndNewlines), directoryHint: .isDirectory, relativeTo: gitDirectory).standardizedFileURL
         guard commonDirectory.lastPathComponent == ".git" else { return nil }
+
         return commonDirectory.deletingLastPathComponent().path
     }
 }

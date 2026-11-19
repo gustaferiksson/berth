@@ -25,7 +25,7 @@ struct ToolCall: Identifiable {
         return kind == .todo ? "" : use.detail ?? ""
     }
 
-    static func summary(of calls: [ToolCall]) -> String {
+    static func summary(of calls: [Self]) -> String {
         let grouped = Dictionary(grouping: calls, by: \.kind)
         let order = calls.map(\.kind).reduce(into: [ToolKind]()) { kinds, kind in
             if !kinds.contains(kind) { kinds.append(kind) }
@@ -131,25 +131,27 @@ struct Turn: Identifiable {
 
     var openCall: ToolCall? {
         guard case let .work(calls) = parts.last, let call = calls.last, call.result == nil else { return nil }
+
         return call
     }
 
     var duration: Duration? {
         guard let start = prompt?.date, let end, end > start else { return nil }
+
         return .seconds(end.timeIntervalSince(start).rounded())
     }
 
-    static func turns(from entries: [RemoteEntry]) -> [Turn] {
+    static func turns(from entries: [RemoteEntry]) -> [Self] {
         let results = Dictionary(entries.filter { $0.kind == .toolResult }.compactMap { entry in entry.toolID.map { ($0, entry) } }) { _, last in last }
-        var turns: [Turn] = []
+        var turns: [Self] = []
         for entry in entries {
             let isInterruption = entry.kind == .prompt && entry.text.hasPrefix("[Request interrupted by user")
             if entry.kind == .prompt, !isInterruption {
-                turns.append(Turn(id: entry.id, prompt: entry, end: entry.date))
+                turns.append(Self(id: entry.id, prompt: entry, end: entry.date))
                 continue
             }
 
-            if turns.isEmpty { turns.append(Turn(id: entry.id, prompt: nil)) }
+            if turns.isEmpty { turns.append(Self(id: entry.id, prompt: nil)) }
             let last = turns.count - 1
             turns[last].end = entry.date ?? turns[last].end
             turns[last].isInterrupted = turns[last].isInterrupted || isInterruption

@@ -65,6 +65,7 @@ struct TurnView: View {
     #if DEBUG
     private func expandForSnapshot() async {
         guard focusesAndExpands, isFinished else { return }
+
         try? await Task.sleep(for: .seconds(6))
         for _ in 0..<4 {
             showsWork.toggle()
@@ -199,10 +200,12 @@ private struct MarkdownBlockView: View {
         case .paragraph:
             text
                 .frame(maxWidth: .infinity, alignment: .leading)
+
         case let .heading(level):
             text
                 .font(level == 1 ? .title2.bold() : level == 2 ? .title3.bold() : .headline)
                 .padding(.top, 6)
+
         case let .item(marker, depth):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(marker)
@@ -212,8 +215,10 @@ private struct MarkdownBlockView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.leading, CGFloat(depth) * 18)
+
         case let .code(language):
             CodeBox(text: block.lines.joined(separator: "\n"), language: language)
+
         case .table:
             MarkdownTable(lines: block.lines)
         }
@@ -266,15 +271,15 @@ private struct MarkdownBlock {
         return parsed.transformingAttributes(\.link) { $0.value = nil }
     }
 
-    static func blocks(in text: String) -> [MarkdownBlock] {
-        var blocks: [MarkdownBlock] = []
+    static func blocks(in text: String) -> [Self] {
+        var blocks: [Self] = []
         var isInFence = false
         var continues = false
         for line in text.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.hasPrefix("```") {
                 isInFence.toggle()
-                if isInFence { blocks.append(MarkdownBlock(kind: .code(String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)), lines: [])) }
+                if isInFence { blocks.append(Self(kind: .code(String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespaces)), lines: [])) }
                 continues = false
                 continue
             }
@@ -286,19 +291,19 @@ private struct MarkdownBlock {
             if trimmed.isEmpty {
                 continues = false
             } else if let heading = trimmed.prefixMatch(of: /(#{1,6})\s+/) {
-                blocks.append(MarkdownBlock(kind: .heading(heading.output.1.count), lines: [String(trimmed[heading.range.upperBound...])]))
+                blocks.append(Self(kind: .heading(heading.output.1.count), lines: [String(trimmed[heading.range.upperBound...])]))
                 continues = false
             } else if let item = line.prefixMatch(of: /(\s*)([-*+]|\d+[.)])\s+/) {
                 let marker = String(item.output.2)
-                blocks.append(MarkdownBlock(kind: .item(marker.first?.isNumber == true ? marker : "•", depth: item.output.1.count / 2), lines: [String(line[item.range.upperBound...])]))
+                blocks.append(Self(kind: .item(marker.first?.isNumber == true ? marker : "•", depth: item.output.1.count / 2), lines: [String(line[item.range.upperBound...])]))
                 continues = true
             } else if trimmed.hasPrefix("|") {
-                if blocks.last?.kind == .table { blocks[blocks.count - 1].lines.append(trimmed) } else { blocks.append(MarkdownBlock(kind: .table, lines: [trimmed])) }
+                if blocks.last?.kind == .table { blocks[blocks.count - 1].lines.append(trimmed) } else { blocks.append(Self(kind: .table, lines: [trimmed])) }
                 continues = false
             } else if continues {
                 blocks[blocks.count - 1].lines.append(trimmed)
             } else {
-                blocks.append(MarkdownBlock(kind: .paragraph, lines: [line]))
+                blocks.append(Self(kind: .paragraph, lines: [line]))
                 continues = true
             }
         }

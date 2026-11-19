@@ -71,6 +71,7 @@ struct SessionListView: View {
             }
             .onChange(of: client.openedSessionID) {
                 guard let id = client.openedSessionID else { return }
+
                 client.openedSessionID = nil
                 path = [id]
             }
@@ -132,8 +133,8 @@ private struct SessionSummaryView: View {
 
     var body: some View {
         let isProminent = session.status != nil || session.isUnread == true
-        let lock = session.isLocked ? Text("\(Image(systemName: "lock.fill")) ") : Text("")
-        let branch = session.branch.map { Text("  \(Image(systemName: "arrow.triangle.branch")) \($0)") } ?? Text("")
+        let lock = session.isLocked ? Text("\(Text(Image(systemName: "lock.fill")).accessibilityLabel("Locked")) ") : Text("")
+        let branch = session.branch.map { Text("  \(Text(Image(systemName: "arrow.triangle.branch")).accessibilityLabel("Branch")) \($0)") } ?? Text("")
         let titleLayout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
 
         VStack(alignment: .leading, spacing: 4) {
@@ -149,7 +150,7 @@ private struct SessionSummaryView: View {
                 Text("\(lock)\(URL(filePath: session.folder).lastPathComponent)\(branch)")
                     .lineLimit(1)
                 if let pullRequest = session.pullRequest {
-                    Text("\(Image(systemName: "arrow.triangle.pull")) \(String(pullRequest.number))")
+                    Text("\(Text(Image(systemName: "arrow.triangle.pull")).accessibilityLabel("Pull request")) \(String(pullRequest.number))")
                         .foregroundStyle(pullRequest.state == "Open" ? .green : pullRequest.state == "Merged" ? .purple : pullRequest.state == "Closed" ? .red : .secondary)
                         .fixedSize()
                 }
@@ -168,15 +169,15 @@ private struct SessionStatus: View {
 
     var body: some View {
         if session.status == "waiting" {
-            Text("\(Image(systemName: "exclamationmark.bubble.fill")) Needs you")
+            Text("\(Text(Image(systemName: "exclamationmark.bubble.fill")).accessibilityLabel("Waiting")) Needs you")
                 .bold()
                 .foregroundStyle(.orange)
         } else if session.status == "busy" {
-            Text("\(Text(Image(systemName: "circle.fill")).font(.caption2)) \(Text(session.lastPrompt ?? session.lastActivity, style: .timer))")
+            Text("\(Text(Image(systemName: "circle.fill")).font(.caption2).accessibilityLabel("Working")) \(Text(session.lastPrompt ?? session.lastActivity, style: .timer))")
                 .monospacedDigit()
                 .foregroundStyle(.green)
         } else if session.status == "shell" {
-            Text("\(Image(systemName: "terminal")) Task running")
+            Text("\(Text(Image(systemName: "terminal")).accessibilityLabel("Shell")) Task running")
                 .foregroundStyle(.secondary)
         } else {
             TimelineView(.everyMinute) { context in
@@ -192,7 +193,7 @@ private struct SessionStatus: View {
         if seconds < 3600 { return "\(Int(seconds / 60))m" }
         if seconds < 6 * 3600 || Calendar.current.isDateInToday(session.lastActivity) { return "\(Int(seconds / 3600))h" }
         if Calendar.current.isDateInYesterday(session.lastActivity) { return "Yesterday" }
-        if seconds < 6 * 86400 { return session.lastActivity.formatted(.dateTime.weekday(.wide)) }
+        if seconds < 6 * 86_400 { return session.lastActivity.formatted(.dateTime.weekday(.wide)) }
         return session.lastActivity.formatted(.dateTime.day().month(.abbreviated))
     }
 }
