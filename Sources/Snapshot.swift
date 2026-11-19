@@ -137,6 +137,7 @@ enum Snapshot {
                 print("fake first session waiting: \(waiting), in a Berth tab: \(step >= 2)")
                 store.fakeWaiting = waiting
                 store.refreshLive()
+                print("busy sessions: \(store.busySessionCount)")
             }
         }
         if UserDefaults.standard.bool(forKey: "snapshotShell") {
@@ -193,6 +194,7 @@ enum Snapshot {
             store.tabs = zip(store.tabs, faked).map { Tab(id: $0.id, kind: .claude, cwd: $1.cwd, sessionID: $1.sessionId, terminal: $0.terminal) }
             store.selectedTabID = store.tabs.first?.id
             store.isHarborShown = true
+            print("harbor tabs: \(store.tabs.compactMap(\.sessionID).compactMap { store.liveBySession[$0]?.status }), busy sessions \(store.busySessionCount)")
         }
         if UserDefaults.standard.bool(forKey: "snapshotUnloadIdle") {
             let labels = ["idle", "touched", "selected", "pinned", "busy", "waiting", "attach", "dead"]
