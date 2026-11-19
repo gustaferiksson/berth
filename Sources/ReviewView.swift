@@ -250,7 +250,7 @@ private struct ReviewFileList: View {
     @AppStorage("collapsedReviewSections") private var collapsedSections = "files"
     @AppStorage("reviewFilesPaneHeight") private var filesPaneHeight = 0.0
     @State private var changesContentHeight = 0.0
-    @State private var filesContentHeight = 0.0
+    @State private var filesHeaderHeight = 0.0
 
     var body: some View {
         content
@@ -287,17 +287,23 @@ private struct ReviewFileList: View {
                     changes: list { changeSections(changes) }
                         .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
                         .environment(\.ghosttyTheme, theme),
-                    files: ScrollViewReader { proxy in
-                        list { filesSection(changes) }
-                            .onChange(of: model.selectedDocument?.path, initial: true) { _, path in
-                                guard let path else { return }
-                                model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
-                                Task { proxy.scrollTo(path) }
-                            }
+                    files: VStack(spacing: 0) {
+                        list { filesHeader }
+                            .scrollDisabled(true)
+                            .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { filesHeaderHeight = $1 }
+                            // Expanded, the List's own 10 pt of vertical padding would otherwise sit between the header and the tree.
+                            .frame(height: expansion(of: "files").wrappedValue ? max(filesHeaderHeight - 10, 0) : filesHeaderHeight)
+                        ScrollViewReader { proxy in
+                            list { ForEach(model.tree) { ReviewFileNode(node: $0, changes: changes, model: model) } }
+                                .onChange(of: model.selectedDocument?.path, initial: true) { _, path in
+                                    guard let path else { return }
+                                    model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
+                                    Task { proxy.scrollTo(path) }
+                                }
+                        }
                     }
-                    .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { filesContentHeight = $1 }
                     .environment(\.ghosttyTheme, theme),
-                    layout: !expansion(of: "files").wrappedValue ? .filesCollapsed(filesContentHeight) : (changes.uncommitted.isEmpty || !expansion(of: "uncommitted").wrappedValue) && (changes.committed.isEmpty || !expansion(of: "committed").wrappedValue) ? .changesCollapsed(changesContentHeight) : .split,
+                    layout: !expansion(of: "files").wrappedValue ? .filesCollapsed(filesHeaderHeight) : (changes.uncommitted.isEmpty || !expansion(of: "uncommitted").wrappedValue) && (changes.committed.isEmpty || !expansion(of: "committed").wrappedValue) ? .changesCollapsed(changesContentHeight) : .split,
                     filesHeight: $filesPaneHeight,
                     divider: NSColor(theme.foreground.opacity(0.1))
                 )
@@ -380,9 +386,8 @@ private struct ReviewFileList: View {
         }
     }
 
-    private func filesSection(_ changes: ReviewChanges) -> some View {
+    private var filesHeader: some View {
         Section(isExpanded: expansion(of: "files")) {
-            ForEach(model.tree) { ReviewFileNode(node: $0, changes: changes, model: model) }
         } header: {
             GroupHeader(title: "Files", help: "The repository’s files", count: nil, menu: { EmptyView() }) { _ in EmptyView() }
         }
