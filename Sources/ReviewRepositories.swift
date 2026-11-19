@@ -17,7 +17,7 @@ struct ReviewTaskCard: View {
             HStack(spacing: 6) {
                 Button { isExpanded.toggle() } label: {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .imageScale(.small)
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(theme.secondary)
                         .frame(width: 10)
                         .contentShape(.rect)
@@ -36,14 +36,14 @@ struct ReviewTaskCard: View {
                 .help(title)
                 if !isExpanded {
                     Text("^[\(repositoryCount) repo](inflect: true)")
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundStyle(theme.secondary)
                         .fixedSize()
                 }
             }
             if isExpanded {
                 Text("^[\(members.count) session](inflect: true) · \(pullRequestCount) \(pullRequestCount == 1 ? "PR" : "PRs") · ^[\(repositoryCount) repo](inflect: true)")
-                    .font(.subheadline)
+                    .font(.caption)
                     .foregroundStyle(theme.secondary)
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(members.prefix(6)) { member in
@@ -54,7 +54,7 @@ struct ReviewTaskCard: View {
                                     .truncationMode(.tail)
                                 Spacer(minLength: 4)
                                 Text(URL(filePath: member.checkout).lastPathComponent)
-                                    .font(.subheadline)
+                                    .font(.caption)
                                     .foregroundStyle(theme.secondary)
                                     .lineLimit(1)
                             }
@@ -67,7 +67,7 @@ struct ReviewTaskCard: View {
                     }
                     if members.count > 6 {
                         Text("\(members.count - 6) more")
-                            .font(.subheadline)
+                            .font(.caption)
                             .foregroundStyle(theme.secondary)
                             .frame(height: 22)
                     }
@@ -130,6 +130,5 @@ struct ReviewSubheading: View {
         .font(.system(size: 11))
         .frame(height: 20)
         .listRowInsets(EdgeInsets(top: 2, leading: -8 - indent, bottom: 0, trailing: 8))
-        .selectionDisabled()
     }
 }
