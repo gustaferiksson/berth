@@ -6,14 +6,14 @@ enum AppAction: Hashable {
     case commandPalette, filterSidebar, newSession, pullRequests, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
     case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showSideBySide, showInline, save, settings, checkForUpdates
-    case goBack, goForward
+    case goBack, goForward, previousChange, nextChange
     case caret(CaretAction)
 
     static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
         + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showSideBySide, .showInline, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
-    static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward]).filter { $0.shortcut != nil }
+    static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward, .previousChange, .nextChange]).filter { $0.shortcut != nil }
 
     var title: String {
         switch self {
@@ -44,6 +44,8 @@ enum AppAction: Hashable {
         case .checkForUpdates: "Check for Updates…"
         case .goBack: "Go Back"
         case .goForward: "Go Forward"
+        case .previousChange: "Previous Change"
+        case .nextChange: "Next Change"
         case let .caret(action): action.rawValue
         }
     }
@@ -99,6 +101,8 @@ enum AppAction: Hashable {
         case .checkForUpdates: "arrow.down.circle"
         case .goBack: "chevron.backward"
         case .goForward: "chevron.forward"
+        case .previousChange: "chevron.up"
+        case .nextChange: "chevron.down"
         case .caret: "character.cursor.ibeam"
         }
     }
@@ -120,6 +124,8 @@ enum AppAction: Hashable {
         case .settings: KeyboardShortcut(",")
         case .goBack: KeyboardShortcut("-", modifiers: .control)
         case .goForward: KeyboardShortcut("-", modifiers: [.control, .shift])
+        case .previousChange: KeyboardShortcut(.upArrow, modifiers: [.control, .option])
+        case .nextChange: KeyboardShortcut(.downArrow, modifiers: [.control, .option])
         case let .caret(action): action.shortcut
         default: nil
         }
@@ -137,6 +143,7 @@ enum AppAction: Hashable {
             Self.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocumentHasBothSides == true && store.isReviewDiffUnified == (self == .showSideBySide)
         case .save: Self.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { model.drafts[$0.path] } } != nil
         case .goBack, .goForward: store.isReviewTextFocused && store.reviewModel?.selectedTab.map { $0.history.indices.contains($0.index + (self == .goBack ? -1 : 1)) } == true
+        case .previousChange, .nextChange: store.isReviewTextFocused && store.reviewModel?.selectedDocument?.compare != nil
         case .caret: store.isReviewTextFocused
         default: true
         }
@@ -201,6 +208,8 @@ enum AppAction: Hashable {
         case .checkForUpdates: store.updater.check(.manual)
 
         case .goBack, .goForward: if isAvailable(in: store) { store.reviewModel?.go(by: self == .goBack ? -1 : 1) }
+
+        case .previousChange, .nextChange: if isAvailable(in: store) { store.reviewModel?.changeStep = self == .nextChange ? 1 : -1 }
 
         case let .caret(action): (NSApp.keyWindow?.firstResponder as? ReviewTextView)?.performCaretAction(action)
         }

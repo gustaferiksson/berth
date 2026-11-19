@@ -39,6 +39,7 @@ final class ReviewModel {
     private(set) var tabs: [ReviewTab] = []
     var selectedTabID: UUID?
     var reveal: (document: ReviewDocument, range: LanguageServerRange)?
+    var changeStep: Int?
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
     var editingComment: String?
@@ -1212,6 +1213,15 @@ struct ReviewDiffColumn: View {
                                 .padding(.vertical, 4)
                             }
                             .scrollIndicators(.hidden)
+                            if document.compare != nil {
+                                GlassCapsule {
+                                    Button("Previous Change", systemImage: "chevron.up") { model.changeStep = -1 }
+                                        .help("Previous Change (⌃⌥↑)")
+                                    Button("Next Change", systemImage: "chevron.down") { model.changeStep = 1 }
+                                        .help("Next Change (⌃⌥↓)")
+                                }
+                                .padding(.leading, 6)
+                            }
                             if model.selectedDocumentHasBothSides || AppAction.save.isAvailable(in: store) {
                                 GlassCapsule {
                                     if model.selectedDocumentHasBothSides {
@@ -1248,7 +1258,9 @@ struct ReviewDiffColumn: View {
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
                             isUnified: isUnified || !model.selectedDocumentHasBothSides,
                             takesFocus: model.focusesEditor,
+                            changeStep: model.changeStep,
                             onRevealed: { model.reveal = nil },
+                            onChangeStepped: { model.changeStep = nil },
                             editsComment: model.editingComment,
                             onEditing: { model.editingComment = nil },
                             onDefinition: model.goToDefinition,

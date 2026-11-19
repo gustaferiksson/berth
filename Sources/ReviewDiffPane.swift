@@ -13,7 +13,9 @@ struct ReviewDiffPane: View {
     let reveal: LanguageServerRange?
     let isUnified: Bool
     let takesFocus: Bool
+    let changeStep: Int?
     let onRevealed: () -> Void
+    let onChangeStepped: () -> Void
     let editsComment: String?
     let onEditing: () -> Void
     let onDefinition: (LanguageServerLocation, LanguageServerRange) -> Void
@@ -53,7 +55,9 @@ struct ReviewDiffPane: View {
                 isUnified: isUnified,
                 splitRatio: splitRatio,
                 takesFocus: takesFocus,
+                changeStep: changeStep,
                 onRevealed: onRevealed,
+                onChangeStepped: onChangeStepped,
                 editsComment: editsComment,
                 onEditing: onEditing,
                 onDefinition: onDefinition,
@@ -129,7 +133,9 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let isUnified: Bool
     let splitRatio: Double
     let takesFocus: Bool
+    let changeStep: Int?
     let onRevealed: () -> Void
+    let onChangeStepped: () -> Void
     let editsComment: String?
     let onEditing: () -> Void
     let onDefinition: (LanguageServerLocation, LanguageServerRange) -> Void
@@ -333,6 +339,10 @@ private struct ReviewDiffViews: NSViewRepresentable {
             if let reveal = view.reveal, applied?.modified == loadedModified {
                 right.reveal(NSRange(location: right.offset(of: reveal.start), length: max(right.offset(of: reveal.end) - right.offset(of: reveal.start), 0)))
                 Task { view.onRevealed() }
+            }
+            if let step = view.changeStep, applied != nil {
+                right.goToChange(by: step)
+                Task { view.onChangeStepped() }
             }
             if let id = view.editsComment, applied != nil, let card = cards[id] {
                 if !card.isHidden { edit(id) }
