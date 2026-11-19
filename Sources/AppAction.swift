@@ -119,7 +119,7 @@ enum AppAction: Hashable {
         case .showChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && (!store.showsReviewPanel || store.isHarborShown)
         case .hideChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.showsReviewPanel && !store.isHarborShown
         case .showSideBySide, .showInline:
-            AppAction.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocument?.compare != nil && store.isReviewDiffUnified == (self == .showSideBySide)
+            AppAction.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocumentHasBothSides == true && store.isReviewDiffUnified == (self == .showSideBySide)
         case .save: AppAction.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { model.drafts[$0.path] } } != nil
         case .caret: store.isReviewTextFocused
         default: true
