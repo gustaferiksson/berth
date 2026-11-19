@@ -55,7 +55,9 @@ struct Launcher: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: [LauncherMode.newSession: "chevron.right", .palette: "command", .pullRequests: "arrow.triangle.pull"][mode] ?? "magnifyingglass")
+                    .font(.title3)
                     .foregroundStyle(.secondary)
+                    .frame(width: 20)
                 TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests"][mode] ?? "Search all sessions"))
                     .textFieldStyle(.plain)
                     .font(.title3)
@@ -94,6 +96,7 @@ struct Launcher: View {
                     Button { store.launcherRole = nil } label: {
                         Label(role.title, systemImage: "xmark")
                             .font(.subheadline)
+                            .imageScale(.small)
                             .padding(.horizontal, 8)
                             .frame(height: 20)
                             .background(theme.foreground.opacity(0.1), in: .capsule)
@@ -103,14 +106,20 @@ struct Launcher: View {
                     .help("Show all pull requests")
                 }
                 if [.newSession, .pullRequests].contains(mode) {
-                    Picker("Scope", selection: Binding(get: { mode }, set: switchScope)) {
-                        Text("Folders").tag(LauncherMode.newSession)
-                        Text("Pull Requests").tag(LauncherMode.pullRequests)
+                    HStack(spacing: 0) {
+                        ForEach([(LauncherMode.newSession, "Folders"), (.pullRequests, "Pull Requests")], id: \.0) { scope, title in
+                            Button { switchScope(to: scope) } label: {
+                                Text(title)
+                                    .font(.subheadline)
+                                    .padding(.horizontal, 8)
+                                    .frame(height: 20)
+                                    .background(theme.foreground.opacity(scope == mode ? 0.15 : 0), in: .capsule)
+                                    .contentShape(.capsule)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .fixedSize()
+                    .background(theme.foreground.opacity(0.1), in: .capsule)
                     .help("Switch between folders and pull requests (⇥)")
                 }
                 if mode == .newSession {
@@ -341,10 +350,19 @@ struct Launcher: View {
 
     private func pullRequestRow(_ pullRequest: InboxPullRequest, isHighlighted: Bool) -> some View {
         let sessions = store.sessions(for: pullRequest)
-        return HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
+        return Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
+            GridRow(alignment: .firstTextBaseline) {
                 Text(pullRequest.title)
                     .fontWeight(.medium)
+                    .lineLimit(1)
+                Color.clear.gridCellUnsizedAxes(.vertical)
+                (sessions.first.map { Text("^[\(sessions.count) session](inflect: true) · \(age(since: $0.lastActivity))") } ?? Text("No session"))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(sessions.isEmpty ? theme.secondary : theme.foreground)
+                    .gridColumnAlignment(.trailing)
+            }
+            GridRow(alignment: .firstTextBaseline) {
                 HStack(spacing: 6) {
                     Text((pullRequest.repository as NSString).lastPathComponent)
                     PullRequestTag(pullRequest: PullRequest(number: pullRequest.number, url: pullRequest.url, title: pullRequest.title, state: pullRequest.isDraft ? .draft : .open, checks: pullRequest.checks))
@@ -355,21 +373,18 @@ struct Launcher: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            }
-            .lineLimit(1)
-            Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 2) {
-                (sessions.first.map { Text("^[\(sessions.count) session](inflect: true) · \(age(since: $0.lastActivity))") } ?? Text("No session"))
-                    .foregroundStyle(sessions.isEmpty ? theme.secondary : theme.foreground)
+                .lineLimit(1)
+                .fixedSize()
+                Color.clear.gridCellUnsizedAxes(.vertical)
                 Text("Updated \(age(since: pullRequest.updatedAt))")
+                    .font(.caption)
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
-            .font(.caption)
-            .monospacedDigit()
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .frame(minHeight: 44)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
         .contentShape(.rect)
     }
