@@ -540,6 +540,14 @@ enum Snapshot {
                     for group in shown.outline { print("  \(group)") }
                     report("references \(spec)")
                     save(".references-\(name).png")
+                    let resize = UserDefaults.standard.double(forKey: "snapshotReviewReferencesResize")
+                    if resize > 0 {
+                        window.setContentSize(NSSize(width: resize, height: 900))
+                        try? await Task.sleep(for: .seconds(1.5))
+                        print("references \(spec) resized to \(resize): \(peek() === shown ? "same peek" : "peek replaced"), \(shown.split.isVertical ? "side by side" : "stacked"), preview \(shown.split.subviews[0].frame), list \(shown.split.subviews[1].frame), column \(shown.list.tableColumns.first?.width ?? -1), \(describePeek(shown))")
+                        report("references \(spec) resized")
+                        save(".references-\(name)-resized.png")
+                    }
                     if let ratio = UserDefaults.standard.string(forKey: "snapshotReviewReferencesSplit").flatMap(Double.init) {
                         let saved = UserDefaults.standard.object(forKey: "reviewReferencesSplitRatio")
                         let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
@@ -552,18 +560,18 @@ enum Snapshot {
                         try? await Task.sleep(for: .milliseconds(300))
                         print("references split after faking key: selected row emphasized \(shown.list.rowView(atRow: shown.list.selectedRow, makeIfNecessary: false)?.isEmphasized.description ?? "-")")
                         let split = shown.split
-                        let drag = { (x: CGFloat?, clickCount: Int) in
-                            let divider = split.subviews[0].frame.maxX + split.dividerThickness / 2
-                            let event = { (type: NSEvent.EventType, x: CGFloat) in NSEvent.mouseEvent(with: type, location: split.convert(NSPoint(x: x, y: split.bounds.midY), to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: type == .leftMouseUp ? 0 : 1) }
-                            event(.leftMouseDragged, x ?? divider).map { NSApp.postEvent($0, atStart: false) }
-                            event(.leftMouseUp, x ?? divider).map { NSApp.postEvent($0, atStart: false) }
+                        let drag = { (position: CGFloat?, clickCount: Int) in
+                            let divider = (split.isVertical ? split.subviews[0].frame.maxX : split.subviews[0].frame.maxY) + split.dividerThickness / 2
+                            let event = { (type: NSEvent.EventType, position: CGFloat) in NSEvent.mouseEvent(with: type, location: split.convert(split.isVertical ? NSPoint(x: position, y: split.bounds.midY) : NSPoint(x: split.bounds.midX, y: position), to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: type == .leftMouseUp ? 0 : 1) }
+                            event(.leftMouseDragged, position ?? divider).map { NSApp.postEvent($0, atStart: false) }
+                            event(.leftMouseUp, position ?? divider).map { NSApp.postEvent($0, atStart: false) }
                             event(.leftMouseDown, divider).map(window.sendEvent)
                         }
                         let state = { (label: String) in
-                            print("references split \(label): \(peek() === shown ? "same peek" : "peek replaced") at \(shown.frame), preview | list \(split.subviews.map(\.frame.width)), preview clip x \((split.subviews.first as? NSScrollView)?.contentView.bounds.minX ?? -1), 2 pt right of the divider hits the split \(split.hitTest(split.convert(NSPoint(x: split.subviews[0].frame.maxX + split.dividerThickness + 2, y: split.bounds.midY), to: split.superview)) === split), column \(shown.list.tableColumns.first?.width ?? -1), stored \(UserDefaults.standard.object(forKey: "reviewReferencesSplitRatio").map { "\($0)" } ?? "unset"), selected row emphasized \(shown.list.rowView(atRow: shown.list.selectedRow, makeIfNecessary: false)?.isEmphasized.description ?? "-"), first responder is the list \(window.firstResponder === shown.list)")
+                            print("references split \(label): \(peek() === shown ? "same peek" : "peek replaced") at \(shown.frame), \(split.isVertical ? "side by side" : "stacked"), preview | list \(split.subviews.map { split.isVertical ? $0.frame.width : $0.frame.height }), preview clip x \((split.subviews.first as? NSScrollView)?.contentView.bounds.minX ?? -1), 2 pt past the divider hits the split \(split.hitTest(split.convert(split.isVertical ? NSPoint(x: split.subviews[0].frame.maxX + split.dividerThickness + 2, y: split.bounds.midY) : NSPoint(x: split.bounds.midX, y: split.subviews[0].frame.maxY + split.dividerThickness + 2), to: split.superview)) === split), column \(shown.list.tableColumns.first?.width ?? -1), stored \(UserDefaults.standard.object(forKey: "reviewReferencesSplitRatio").map { "\($0)" } ?? "unset"), selected row emphasized \(shown.list.rowView(atRow: shown.list.selectedRow, makeIfNecessary: false)?.isEmphasized.description ?? "-"), first responder is the list \(window.firstResponder === shown.list)")
                         }
                         state("before drag")
-                        drag((1 - CGFloat(ratio)) * (split.bounds.width - split.dividerThickness), 1)
+                        drag((1 - CGFloat(ratio)) * ((split.isVertical ? split.bounds.width : split.bounds.height) - split.dividerThickness), 1)
                         try? await Task.sleep(for: .seconds(1))
                         state("dragged to list share \(ratio)")
                         save(".references-\(name)-split.png")
@@ -582,6 +590,7 @@ enum Snapshot {
                         event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
                         event(.leftMouseDown).map(window.sendEvent)
                     }
+                    shown.list.scrollRowToVisible(shown.list.numberOfRows - 1)
                     let lastRow = NSPoint(x: shown.list.rect(ofRow: shown.list.numberOfRows - 1).midX, y: shown.list.rect(ofRow: shown.list.numberOfRows - 1).midY)
                     press(shown.list, lastRow, 1)
                     try? await Task.sleep(for: .milliseconds(300))
