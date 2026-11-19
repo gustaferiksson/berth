@@ -1,0 +1,30 @@
+--min-version 0.64.7
+--swift-version 6.2
+--exclude **/.build,Berth.xcodeproj,dist,design,icon
+
+--indent 4
+--max-width none
+--ifdef no-indent
+--ranges no-space
+--test-case-name-format standard-identifiers
+--decimal-grouping 3,5
+--hex-grouping none
+
+--enable blankLineAfterSwitchCase,blankLinesAfterGuardStatements,blockComments,commonTypos,emptyExtensions,forWhere,ifExpressions,isEmpty,noExplicitOwnership,noGuardInTests,preferContains,preferCountWhere,preferFinalClasses,preferFirstWhere,preferFlatMap,preferMinOverSorted,preferStructSwiftTestingSuites,preferSwiftStringAPI,preferSwiftTesting,privateSwiftUIDynamicProperties,redundantExtendedLifetime,redundantOverload,singlePropertyPerLine,sortSwitchCases,testSuiteAccessControl,unusedPrivateDeclarations,validateTestCases,wrapMultilineConditionalAssignment
+
+# One-line early exits and bodies (guard ... else { return }, if x { return y }) are the house style.
+--disable wrapIfStatementBodies,wrapLoopBodies,wrapIfExpressionBodies,wrapPropertyBodies,wrapFunctionBodies
+# The house style is zero comments: no doc comment conversion.
+--disable docComments
+# Explicit Sendable is kept: inference differs under the app's default MainActor isolation.
+--disable redundantSendable
+
+# Opt-in rules left off:
+# organizeDeclarations reorders every type (3,407 hits) and markTypes adds MARK comments.
+# acronyms renames Codable properties such as sessionId, which are JSON keys.
+# propertyTypes rewrites `let x: [K: V] = [:]` as `[K: V]()` either way; the repo mixes both on purpose.
+# preferExplicitFalse writes `x == false` instead of the idiomatic `!x`.
+# preferLazyMap adds `.lazy` noise to small collections.
+# wrapGuardStatementBodies, wrapCaseBodies, wrapClosureBodies, wrapDoBodies, wrapSwitchCases, wrapEnumCases,
+# wrapMultilineFunctionChains and wrapSingleLineStrings undo one-line bodies, cases and SwiftUI modifier chains.
+# urlMacro needs a #URL macro the project doesn't define.
