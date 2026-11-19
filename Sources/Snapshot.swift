@@ -361,6 +361,7 @@ enum Snapshot {
                 }
                 print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: pullRequest).map(\.id)) | enter: \(action)")
             }
+            if UserDefaults.standard.string(forKey: "snapshotLauncherRole") == "reviewRequested" { store.launcherRole = .reviewRequested }
             if launcherKeys == nil { store.launcherMode = .pullRequests }
         }
         let editedGroup = UserDefaults.standard.string(forKey: "snapshotEditGroup").map { name in
