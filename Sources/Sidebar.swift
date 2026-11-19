@@ -698,6 +698,8 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
     @ViewBuilder let menu: () -> Menu
     @ViewBuilder let accessory: (Bool) -> Accessory
     @State private var isHovering = false
+    @State private var restingWidth = 0.0
+    @State private var chevronWidth = 23.0
     @State private var name = ""
     @FocusState private var isNameFocused: Bool
     @Environment(\.ghosttyTheme) private var theme
@@ -716,6 +718,9 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
         .padding(.trailing, 6)
         .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 0, drop: drop))
         .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
+        .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
+            if !isHovering { restingWidth = width } else if restingWidth > 0 { chevronWidth = min(max(restingWidth - width, 0), 25) }
+        }
         .onHover { isHovering = $0 }
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
     }
@@ -749,8 +754,8 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
             Spacer(minLength: 4)
             accessory(isHovering)
         }
-        // While hovered, the system disclosure chevron takes this much of the header's trailing edge.
-        .padding(.trailing, isHovering ? 2 : 25)
+        // The system chevron takes its width off the header only while hovered; the rest of the 25 pt stays reserved so the header does not reflow.
+        .padding(.trailing, isHovering ? 25 - chevronWidth : 25)
         .frame(height: 24)
         .contentShape([.interaction, .dragPreview], .rect(cornerRadius: 8))
         .contextMenu(menuItems: menu)
