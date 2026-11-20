@@ -81,11 +81,14 @@ struct SessionView: View {
                 }
                 .accessibilityLabel(hasNewMessages ? "New messages, scroll to end" : "Scroll to End")
                 .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
+                .buttonBorderShape(hasNewMessages ? .capsule : .circle)
                 .controlSize(.large)
                 .padding()
+                .transition(.scale.combined(with: .opacity))
             }
         }
+        .animation(.smooth, value: hasNewMessages)
+        .animation(.smooth, value: isAtBottom)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 6) {
                 if let tasks = activity?.tasks, !tasks.isEmpty {
