@@ -89,7 +89,7 @@ struct ReviewRepoTabs: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ScrollView(.horizontal) {
             HStack(spacing: 14) {
                 ForEach(tabs, id: \.id) { tab in
                     Button { selection = tab.id } label: {
@@ -109,6 +109,7 @@ struct ReviewRepoTabs: View {
             }
             .padding(.horizontal, 16)
         }
+        .scrollIndicators(.hidden)
         .frame(height: 24)
         .padding(.bottom, 4)
     }
