@@ -14,8 +14,9 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let lastPrompt: Date?
     public let pullRequest: RemotePullRequest?
     public let isUnread: Bool?
+    public let turnStartedAt: Date?
 
-    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil) {
+    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil) {
         self.id = id
         self.title = title
         self.folder = folder
@@ -29,6 +30,7 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
         self.lastPrompt = lastPrompt
         self.pullRequest = pullRequest
         self.isUnread = isUnread
+        self.turnStartedAt = turnStartedAt
     }
 }
 

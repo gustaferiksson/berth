@@ -14,6 +14,7 @@ struct TurnView: View {
     let turn: Turn
     let isFinished: Bool
     let isWorking: Bool
+    let turnStartedAt: Date?
     let liveCall: LiveCall?
 
     @State private var showsWork = false
@@ -61,7 +62,7 @@ struct TurnView: View {
                     .foregroundStyle(.secondary)
             }
             if isWorking {
-                WorkingStatus(since: turn.prompt?.date)
+                WorkingStatus(since: turnStartedAt ?? turn.prompt?.date)
             }
         }
         .labelReservedIconWidth(iconWidth)

@@ -421,7 +421,8 @@ final class RemoteServer {
                 isLocked: live.map { $0.attachID == nil } ?? false && !open.contains(session.id),
                 lastPrompt: session.lastPrompt,
                 pullRequest: self.store.pullRequest(for: session).map { RemotePullRequest(number: $0.number, state: $0.state.rawValue, url: $0.url, checks: $0.checks?.rawValue) },
-                isUnread: self.store.isUnread(session)
+                isUnread: self.store.isUnread(session),
+                turnStartedAt: self.store.turnStarts[session.id]
             )
         }
         let starting = store.tabs.filter { $0.kind == .claude && $0.sessionID.map { store.sessionsByID[$0] == nil } ?? false }.compactMap { tab in

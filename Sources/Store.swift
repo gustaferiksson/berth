@@ -193,6 +193,7 @@ final class Store {
     private(set) var sessionsByID: [String: SessionSummary] = [:]
     private(set) var liveBySession: [String: LiveSession] = [:]
     private(set) var backgroundShellIDs: Set<String> = []
+    private(set) var turnStarts = TurnStarts()
     private(set) var seenAt = UserDefaults.standard.dictionary(forKey: "seenSessions") as? [String: Date] ?? [:] {
         didSet { if persistsTabs { UserDefaults.standard.set(seenAt, forKey: "seenSessions") } }
     }
@@ -662,6 +663,7 @@ final class Store {
         // Claude reports `shell` only while idle; a turn shows `busy`, so keep the mark until it reports plain idle.
         let shells = Set(liveBySession.values.filter { $0.activity == .shell || $0.activity != .idle && backgroundShellIDs.contains($0.sessionId) }.map(\.sessionId))
         if shells != backgroundShellIDs { backgroundShellIDs = shells }
+        turnStarts.update(live: liveBySession, sessions: sessionsByID)
         let claimed = Set(tabs.compactMap(\.sessionID))
         for session in live where !claimed.contains(session.sessionId) {
             guard let position = tabs.firstIndex(where: { tab in

@@ -29,6 +29,7 @@ struct SessionView: View {
                         turn: turn,
                         isFinished: !isLast || !isBusy,
                         isWorking: isLast && session?.status == "busy",
+                        turnStartedAt: session?.turnStartedAt,
                         liveCall: openCall.flatMap { session?.status == "busy" ? .running($0.id) : session?.status == "waiting" ? .waiting($0.id) : nil }
                     )
                 }

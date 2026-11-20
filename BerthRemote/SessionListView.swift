@@ -350,7 +350,7 @@ private struct SessionTime: View {
                 .bold()
                 .foregroundStyle(.orange)
         } else if session.status == "busy" {
-            Text(session.lastPrompt ?? session.lastActivity, style: .timer)
+            Text(session.turnStartedAt ?? session.lastPrompt ?? session.lastActivity, style: .timer)
                 .monospacedDigit()
                 .foregroundStyle(.green)
         } else if session.status == "shell" {

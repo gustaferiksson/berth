@@ -30,6 +30,7 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let title: String
     public let lastActivity: Date
     public let lastPrompt: Date
+    public let lastTypedPrompt: Date?
     public let branch: String?
     public let branches: [String]
     public let pullRequests: [PullRequestLink]
@@ -39,13 +40,14 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public var checkout: String
     public var context: SessionContext?
 
-    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, pullRequests: [PullRequestLink] = [], issueRefs: [IssueRef] = [], continuedIn: String? = nil, originalCwd: String? = nil, context: SessionContext? = nil) {
+    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, lastTypedPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, pullRequests: [PullRequestLink] = [], issueRefs: [IssueRef] = [], continuedIn: String? = nil, originalCwd: String? = nil, context: SessionContext? = nil) {
         self.id = id
         self.cwd = cwd
         checkout = cwd
         self.title = title
         self.lastActivity = lastActivity
         self.lastPrompt = lastPrompt ?? lastActivity
+        self.lastTypedPrompt = lastTypedPrompt
         self.branch = branch
         self.branches = branches ?? branch.map { [$0] } ?? []
         self.pullRequests = pullRequests
@@ -132,6 +134,7 @@ public enum Transcript {
             title: String(oneLine.prefix(maxTitleLength)),
             lastActivity: lastConversation(in: tail) ?? lastConversation(in: head) ?? modified,
             lastPrompt: lastPrompt(in: tail) ?? earlierPrompt ?? lastPrompt(in: head) ?? head.lazy.compactMap(\.date).first ?? modified,
+            lastTypedPrompt: tail.last { $0.typedPrompt != nil && $0.timestamp != nil }?.date,
             branch: branch == "HEAD" || branch?.isEmpty == true ? nil : branch,
             branches: recordedBranches.reduce(into: []) { branches, branch in
                 if branch != "HEAD", !branch.isEmpty, !branches.contains(branch) { branches.append(branch) }
