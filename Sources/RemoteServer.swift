@@ -52,10 +52,14 @@ final class RemoteServer {
     @ObservationIgnored private var submitting: Set<String> = []
     @ObservationIgnored private var uploads: [String: Upload] = [:]
     @ObservationIgnored private var reviewChanges: [String: ReviewChanges] = [:]
+    @ObservationIgnored private let imageCache = NSCache<NSString, NSData>()
+    @ObservationIgnored private var imageLines: [String: [String: Range<Int>]] = [:]
+    @ObservationIgnored private var imageLoads: [String: Task<Data?, Never>] = [:]
     @ObservationIgnored private var pullRequestLoads: [String: (task: Task<PullRequestDetail?, Never>, date: Date)] = [:]
 
     init(store: Store) {
         self.store = store
+        imageCache.totalCostLimit = 64 << 20
     }
 
     func update() {
@@ -223,7 +227,26 @@ final class RemoteServer {
 
         case let .taskDetail(sessionID, taskID):
             Task { await sendTaskDetail(taskID, in: sessionID, to: id) }
+
+        case let .image(sessionID, imageID, variant):
+            Task { await sendImage(imageID, variant: variant, in: sessionID, to: connection) }
         }
+    }
+
+    private func sendImage(_ imageID: String, variant: RemoteImageVariant, in sessionID: String, to connection: NWConnection) async {
+        let reply = { (data: Data?) in self.send(try? JSONEncoder().encode(RemoteServerMessage.image(sessionID: sessionID, id: imageID, variant: variant, data: data)), to: connection) }
+        guard let url = store.index.url(ofSession: sessionID) else { return reply(nil) }
+
+        let key = "\(sessionID)/\(imageID)/\(variant.rawValue)" as NSString
+        if let cached = imageCache.object(forKey: key) { return reply(cached as Data) }
+
+        let line = imageLines[sessionID]?[imageID]
+        let load = imageLoads[key as String] ?? Task.detached { TranscriptImages.image(id: imageID, variant: variant, in: url, line: line) }
+        imageLoads[key as String] = load
+        let data = await load.value
+        imageLoads[key as String] = nil
+        if let data { imageCache.setObject(data as NSData, forKey: key, cost: data.count) }
+        reply(data)
     }
 
     private func search(_ query: String, for id: ObjectIdentifier) async {
@@ -406,7 +429,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] : []))
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] : []))
     }
 
     private func observeSessions() {
@@ -469,6 +492,7 @@ final class RemoteServer {
             clients[id]?.transcript = url
             clients[id]?.end = chunk.end
             clients[id]?.queue = chunk.queue
+            imageLines[sessionID] = (chunk.isContinuation ? imageLines[sessionID] ?? [:] : [:]).merging(chunk.imageLines) { $1 }
             clients[id]?.activity = activity
             clients[id]?.agentLogs = logs
             clients[id]?.sentActivity = report

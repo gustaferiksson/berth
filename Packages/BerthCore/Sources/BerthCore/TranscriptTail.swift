@@ -1,6 +1,4 @@
 import Foundation
-import ImageIO
-import UniformTypeIdentifiers
 
 public enum TranscriptTail {
     public struct Chunk: Sendable {
@@ -8,6 +6,7 @@ public enum TranscriptTail {
         public let end: Int
         public let isContinuation: Bool
         public let queue: [String]
+        public let imageLines: [String: Range<Int>]
 
         public var queuedPrompts: [String] {
             queue.filter { !$0.isEmpty && !$0.hasPrefix("<") }
@@ -15,7 +14,7 @@ public enum TranscriptTail {
     }
 
     static let tailBytes = 256 * 1024
-    static let maxTailBytes = 8 * 1024 * 1024
+    static let maxTailBytes = 32 * 1024 * 1024
     static let maxText = 4000
     static let minEntries = 50
     static let maxDetail = 300
@@ -28,11 +27,11 @@ public enum TranscriptTail {
 
         defer { try? handle.close() }
 
-        if let offset, offset <= size, size - offset <= tailBytes {
+        if let offset, offset <= size, size - offset <= maxTailBytes {
             guard (try? handle.seek(toOffset: UInt64(offset))) != nil else { return nil }
 
-            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: false, queue: queue)
-            return Chunk(entries: parsed.entries, end: offset + parsed.consumed, isContinuation: true, queue: parsed.queue)
+            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: false, queue: queue, baseOffset: offset)
+            return Chunk(entries: parsed.entries, end: offset + parsed.consumed, isContinuation: true, queue: parsed.queue, imageLines: parsed.imageLines)
         }
 
         var window = tailBytes
@@ -40,19 +39,20 @@ public enum TranscriptTail {
             let start = max(0, size - window)
             guard (try? handle.seek(toOffset: UInt64(start))) != nil else { return nil }
 
-            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: start > 0, queue: [])
+            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: start > 0, queue: [], baseOffset: start)
             if start == 0 || window >= maxTailBytes || parsed.entries.count >= minEntries {
-                return Chunk(entries: parsed.entries, end: start + parsed.consumed, isContinuation: false, queue: parsed.queue)
+                return Chunk(entries: parsed.entries, end: start + parsed.consumed, isContinuation: false, queue: parsed.queue, imageLines: parsed.imageLines)
             }
             window *= 2
         }
     }
 
-    static func entries(in data: Data, dropFirst: Bool, queue: [String]) -> (entries: [RemoteEntry], consumed: Int, queue: [String]) {
+    static func entries(in data: Data, dropFirst: Bool, queue: [String], baseOffset: Int = 0) -> (entries: [RemoteEntry], consumed: Int, queue: [String], imageLines: [String: Range<Int>]) {
         let consumed = data.lastIndex(of: UInt8(ascii: "\n")).map { data.distance(from: data.startIndex, to: $0) + 1 } ?? 0
         let lines = data.prefix(consumed).split(separator: UInt8(ascii: "\n")).dropFirst(dropFirst ? 1 : 0)
         let decoder = JSONDecoder()
-        let entries = lines.flatMap { line -> [RemoteEntry] in
+        let entriesOf = { (rawLine: Data) -> [RemoteEntry] in
+            let line = TranscriptImages.redactingImageData(rawLine)
             guard !line.starts(with: Data(#"{"type":"api-request"#.utf8)),
                   line.range(of: Data(#""type":"user""#.utf8)) != nil || line.range(of: Data(#""type":"assistant""#.utf8)) != nil || line.range(of: Data(#""type":"queued_command""#.utf8)) != nil,
                   let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
@@ -105,8 +105,22 @@ public enum TranscriptTail {
                 guard type == "user", block["type"] as? String == "tool_result" else { return nil }
 
                 let content = block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
-                return RemoteEntry(id: id, kind: .toolResult, text: String(content.prefix(maxText)), toolID: (block["tool_use_id"] as? String).map { String($0.prefix(maxText)) }, isError: block["is_error"] as? Bool ?? false, date: date)
+                let refs = TranscriptImages.refs(in: block, entryID: id)
+                return RemoteEntry(id: id, kind: .toolResult, text: String(content.prefix(maxText)), toolID: (block["tool_use_id"] as? String).map { String($0.prefix(maxText)) }, isError: block["is_error"] as? Bool ?? false, date: date, imageRefs: refs.isEmpty ? nil : refs)
             }
+        }
+        let parsed = lines.map { line in
+            let start = baseOffset + line.startIndex - data.startIndex
+            return (entries: entriesOf(line), range: start..<start + line.count)
+        }
+        let entries = parsed.flatMap(\.entries)
+        let readImages = Set(entries.lazy.filter { $0.kind == .toolUse && $0.name == "Read" && TranscriptImages.isImagePath($0.filePath) }.compactMap(\.toolID))
+        let resolved = entries.map { entry in
+            guard entry.kind == .toolResult, !entry.isError, entry.imageRefs == nil, let toolID = entry.toolID, readImages.contains(toolID) else { return entry }
+
+            var entry = entry
+            entry.imageRefs = [RemoteImageRef(id: "\(entry.id)-file", bytes: 0)]
+            return entry
         }
         let operations = lines.lazy
             .filter { $0.range(of: Data(#""type":"queue-operation""#.utf8)) != nil }
@@ -122,7 +136,9 @@ public enum TranscriptTail {
                 queue.removeAll()
             }
         }
-        return (entries, consumed, queue)
+        let rangeByEntry = Dictionary(parsed.flatMap { line in line.entries.map { ($0.id, line.range) } }) { $1 }
+        let imageLines = Dictionary(resolved.flatMap { entry in (entry.imageRefs ?? []).compactMap { ref in rangeByEntry[entry.id].map { (ref.id, $0) } } }) { $1 }
+        return (resolved, consumed, queue, imageLines)
     }
 
     static func prompt(id: String, text: String, date: Date?, blocks: [[String: Any]]) -> RemoteEntry {
@@ -130,19 +146,11 @@ public enum TranscriptTail {
             guard block["type"] as? String == "image",
                   let base64 = (block["source"] as? [String: Any])?["data"] as? String,
                   let data = Data(base64Encoded: base64),
-                  let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                      kCGImageSourceCreateThumbnailFromImageAlways: true,
-                      kCGImageSourceCreateThumbnailWithTransform: true,
-                      kCGImageSourceThumbnailMaxPixelSize: thumbnailPixels,
-                  ] as CFDictionary)
+                  let thumbnail = TranscriptImages.jpeg(data, maxPixel: thumbnailPixels, quality: 0.7),
+                  thumbnail.count <= maxThumbnailBytes
             else { return nil }
 
-            let output = NSMutableData()
-            guard let destination = CGImageDestinationCreateWithData(output, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
-
-            CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.7] as CFDictionary)
-            return CGImageDestinationFinalize(destination) && output.length <= maxThumbnailBytes ? output as Data : nil
+            return thumbnail
         }.prefix(maxImages))
         let shown = images.isEmpty ? text : text.replacing(/\[Image #\d+\]/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
         return RemoteEntry(id: id, kind: .prompt, text: shown, date: date, images: images.isEmpty ? nil : images)

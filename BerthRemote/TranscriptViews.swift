@@ -46,6 +46,14 @@ struct TurnView: View {
                 }
                 .tint(.secondary)
             }
+            if let folded, !showsWork {
+                let refs = folded.flatMap { part -> [RemoteImageRef] in
+                    guard case let .work(calls) = part else { return [] }
+
+                    return calls.flatMap { $0.result?.imageRefs ?? [] }
+                }
+                if !refs.isEmpty { ToolImageRow(refs: refs) }
+            }
             ForEach(turn.parts[(folded?.endIndex ?? 0)...]) { TurnPartView(part: $0, liveCall: liveCall) }
             if turn.isInterrupted {
                 Label("Interrupted", systemImage: "stop.circle")
@@ -393,6 +401,10 @@ private struct WorkGroupView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 }
+                if !isExpanded {
+                    let refs = done.flatMap { $0.result?.imageRefs ?? [] }
+                    if !refs.isEmpty { ToolImageRow(refs: refs) }
+                }
             } else {
                 ForEach(done) { ToolCallRow(call: $0, live: nil) }
             }
@@ -419,27 +431,32 @@ private struct ToolCallRow: View {
         let description = [.command, .agent].contains(call.kind) ? call.use.detail.flatMap { $0.isEmpty ? nil : $0 } : nil
         let title = description.map { isWaiting ? Text("\(verb) \($0)") : Text($0) } ?? Text("\(verb) \(subject)")
 
-        DisclosureGroup(isExpanded: $isExpanded) {
-            ToolCallDetail(call: call)
-                .padding(.top, 8)
-        } label: {
-            Label {
-                title
-                    .lineLimit(1)
-            } icon: {
-                if case .running = live, !reduceMotion {
-                    ProgressView()
-                        .controlSize(.small)
-                } else if case .waiting = live {
-                    Image(systemName: "hand.raised")
-                        .foregroundStyle(.orange)
-                } else {
-                    Image(systemName: isError ? "xmark.circle" : call.kind.icon)
-                        .foregroundStyle(isError ? .red : .secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            DisclosureGroup(isExpanded: $isExpanded) {
+                ToolCallDetail(call: call)
+                    .padding(.top, 8)
+            } label: {
+                Label {
+                    title
+                        .lineLimit(1)
+                } icon: {
+                    if case .running = live, !reduceMotion {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else if case .waiting = live {
+                        Image(systemName: "hand.raised")
+                            .foregroundStyle(.orange)
+                    } else {
+                        Image(systemName: isError ? "xmark.circle" : call.kind.icon)
+                            .foregroundStyle(isError ? .red : .secondary)
+                    }
                 }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+            if let refs = call.result?.imageRefs {
+                ToolImageRow(refs: refs)
+            }
         }
     }
 }
