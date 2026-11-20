@@ -381,7 +381,10 @@ enum Snapshot {
         let showsStats = UserDefaults.standard.bool(forKey: "snapshotStats")
         let root = editedGroup.map { AnyView(GroupEditor(group: $0).environment(\.ghosttyTheme, store.theme).preferredColorScheme(store.theme.isDark ? .dark : .light)) }
             ?? editedServer.map { AnyView(LanguageServerEditor(server: $0, servers: .constant(servers)).preferredColorScheme(store.theme.isDark ? .dark : .light)) } ?? AnyView(showsStats ? AnyView(StatsView()) : AnyView(ContentView()))
-        let hosting = NSHostingController(rootView: root.environment(store))
+        let hosting = NSHostingController(rootView: root.environment(store).environment(\.openURL, OpenURLAction { url in
+            print("snapshot openURL \(url)")
+            return .handled
+        }))
         hosting.sceneBridgingOptions = .all
         let window = UnconstrainedWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
