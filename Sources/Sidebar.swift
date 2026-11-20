@@ -172,11 +172,11 @@ private struct SidebarList: View, Equatable {
     private enum Row: Hashable {
         case session(String)
         case task(String)
-        case member(String, isLast: Bool)
+        case member(String)
 
         var item: SidebarItem {
             switch self {
-            case let .session(id), let .member(id, _): .session(id)
+            case let .session(id), let .member(id): .session(id)
             case let .task(id): .task(id)
             }
         }
@@ -195,7 +195,7 @@ private struct SidebarList: View, Equatable {
         entries.flatMap { entry -> [Row] in
             guard case let .task(id, memberIDs) = entry else { return [.session(entry.id)] }
 
-            return [.task(id)] + (isCollapsed(id) ? [] : memberIDs.enumerated().map { .member($1, isLast: $0 == memberIDs.count - 1) })
+            return [.task(id)] + (isCollapsed(id) ? [] : memberIDs.map(Row.member))
         }
     }
 
@@ -412,8 +412,8 @@ private struct SidebarList: View, Equatable {
                     TaskItem(id: id, isExpanded: expansion(of: id), select: select, rename: { renamingTask = $0; taskName = $0.title }, delete: { deletingTask = $0 })
                         .id(SidebarItem.task(id))
 
-                case let .member(id, isLast):
-                    SessionItem(id: id, place: .task, container: isLast ? .bottom : .middle, select: select)
+                case let .member(id):
+                    SessionItem(id: id, place: .task, select: select)
                         .id(SidebarItem.session(id))
                 }
             }
@@ -581,7 +581,6 @@ private struct SessionItem: View {
     let id: String
     let place: Place
     private static let taskIndent = 12.0
-    var container: TaskContainer.Position?
     let select: (SidebarItem) -> Void
     @Environment(Store.self) private var store
     @Environment(\.sidebarDensity) private var density
@@ -615,7 +614,7 @@ private struct SessionItem: View {
                 }
             }
         }
-        .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: tab == nil && live.map { $0.attachID == nil } ?? false, indent: place == .task ? Self.taskIndent : 0, container: container) {
+        .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: tab == nil && live.map { $0.attachID == nil } ?? false, indent: place == .task ? Self.taskIndent : 0) {
             select(.session(id))
         })
         .contextMenu {
@@ -901,7 +900,6 @@ private struct RowChrome: ViewModifier {
     let hoverID: String
     let isLocked: Bool
     var indent = 0.0
-    var container: TaskContainer.Position?
     let select: () -> Void
     @State private var isHovering = false
     @Environment(Store.self) private var store
@@ -925,10 +923,7 @@ private struct RowChrome: ViewModifier {
             .accessibilityAction(.default, select)
             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
             .listRowBackground(
-                ZStack {
-                    if let container { TaskContainer(position: container) }
-                    RowFill(opacity: fill, indent: indent, inset: container == nil ? 0 : 4)
-                }
+                RowFill(opacity: fill, indent: indent)
             )
     }
 }
@@ -936,70 +931,14 @@ private struct RowChrome: ViewModifier {
 struct RowFill: View {
     let opacity: Double
     var indent = 0.0
-    var inset = 0.0
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         RoundedRectangle(cornerRadius: 8)
             .fill(theme.foreground.opacity(opacity))
-            .padding(.leading, 8 + indent + inset)
-            .padding(.trailing, 8 + inset)
+            .padding(.leading, 8 + indent)
+            .padding(.trailing, 8)
             .padding(.vertical, 2)
-    }
-}
-
-struct TaskContainer: View {
-    enum Position { case top, middle, bottom }
-
-    let position: Position
-    @Environment(\.ghosttyTheme) private var theme
-
-    var body: some View {
-        let radius = 10.0
-        UnevenRoundedRectangle(topLeadingRadius: position == .top ? radius : 0, bottomLeadingRadius: position == .bottom ? radius : 0, bottomTrailingRadius: position == .bottom ? radius : 0, topTrailingRadius: position == .top ? radius : 0)
-            .fill(theme.unread.opacity(0.08))
-            .overlay { Outline(isTop: position == .top, isBottom: position == .bottom, radius: radius).stroke(theme.unread.opacity(0.3), lineWidth: 1) }
-            .padding(.horizontal, 8)
-            .padding(.top, position == .top ? 2 : 0)
-            .padding(.bottom, position == .bottom ? 2 : 0)
-    }
-
-    private struct Outline: Shape {
-        let isTop: Bool
-        let isBottom: Bool
-        let radius: Double
-
-        nonisolated func path(in rect: CGRect) -> Path {
-            let left = rect.minX + 0.5
-            let right = rect.maxX - 0.5
-            let top = rect.minY + 0.5
-            let bottom = rect.maxY - 0.5
-            let inner = radius - 0.5
-            var path = Path()
-            if isBottom {
-                path.move(to: CGPoint(x: left + inner, y: bottom))
-                path.addArc(tangent1End: CGPoint(x: left, y: bottom), tangent2End: CGPoint(x: left, y: bottom - inner), radius: inner)
-            } else {
-                path.move(to: CGPoint(x: left, y: rect.maxY))
-            }
-            if isTop {
-                path.addLine(to: CGPoint(x: left, y: top + inner))
-                path.addArc(tangent1End: CGPoint(x: left, y: top), tangent2End: CGPoint(x: left + inner, y: top), radius: inner)
-                path.addLine(to: CGPoint(x: right - inner, y: top))
-                path.addArc(tangent1End: CGPoint(x: right, y: top), tangent2End: CGPoint(x: right, y: top + inner), radius: inner)
-            } else {
-                path.addLine(to: CGPoint(x: left, y: rect.minY))
-                path.move(to: CGPoint(x: right, y: rect.minY))
-            }
-            if isBottom {
-                path.addLine(to: CGPoint(x: right, y: bottom - inner))
-                path.addArc(tangent1End: CGPoint(x: right, y: bottom), tangent2End: CGPoint(x: right - inner, y: bottom), radius: inner)
-                path.addLine(to: CGPoint(x: left + inner, y: bottom))
-            } else {
-                path.addLine(to: CGPoint(x: right, y: rect.maxY))
-            }
-            return path
-        }
     }
 }
 
@@ -1139,7 +1078,7 @@ private struct TaskItem: View {
                 )
             }
         }
-        .modifier(RowChrome(item: .task(id), hoverID: task?.title ?? id, isLocked: false, container: isExpanded ? .top : nil) {
+        .modifier(RowChrome(item: .task(id), hoverID: task?.title ?? id, isLocked: false) {
             isExpanded.toggle()
             if NSApp.currentEvent?.clickCount == 2 { store.activate(.task(id)) }
         })
