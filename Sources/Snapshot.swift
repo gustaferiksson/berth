@@ -2,6 +2,7 @@ import AppKit
 import BerthCore
 import GhosttyTerminal
 import SwiftUI
+import WebKit
 
 enum Snapshot {
     #if DEBUG
@@ -1212,6 +1213,37 @@ enum Snapshot {
                 let clock = ContinuousClock.now
                 let hits = store.searchIndex.search(query, in: store.activeSessions + store.archivedSessions)
                 print("search \(query.count) chars: \(hits.count) hits, snippets \(hits.map(\.snippets.count)), \(ContinuousClock.now - clock)")
+            }
+        }
+        if let address = UserDefaults.standard.string(forKey: "snapshotPreview"), let model = store.reviewModels["snapshot-review"] {
+            let preview = model.preview
+            await preview.load(address)
+            for _ in 0..<100 where preview.webView.url == nil || preview.webView.isLoading { try? await Task.sleep(for: .milliseconds(100)) }
+            try? await Task.sleep(for: .milliseconds(500))
+            print("preview: url \(preview.webView.url?.absoluteString ?? "-"), title \(preview.webView.title ?? "-"), address \(preview.address), notice \(preview.notice ?? "-"), blocked \(preview.blocked?.absoluteString ?? "-")")
+            let save = { (suffix: String) in
+                if let image = image(of: window) { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix)) }
+            }
+            save(".preview.png")
+            if let selector = UserDefaults.standard.string(forKey: "snapshotPreviewPick") {
+                await preview.setPicking(true)
+                _ = try? await preview.webView.callAsyncJavaScript("document.querySelector(selector).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); return true", arguments: ["selector": selector], contentWorld: .page)
+                _ = try? await preview.webView.callAsyncJavaScript("document.querySelector(selector).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))", arguments: ["selector": selector], contentWorld: .page)
+                for _ in 0..<50 where preview.pick == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                print("pick: \(preview.pick.map { "selector \($0.selector), html \($0.html.debugDescription), image \($0.imagePath) \((try? FileManager.default.attributesOfItem(atPath: $0.imagePath)[.size] as? Int) ?? 0) bytes" } ?? "none"), picking \(preview.isPicking)")
+                try? await Task.sleep(for: .milliseconds(300))
+                save(".pick.png")
+                preview.pickText = "Make this button blue."
+                preview.addPick(to: model)
+                try? await Task.sleep(for: .milliseconds(300))
+                print("prompt: \(ReviewComment.prompt(for: model.comments.filter { $0.element != nil }, branch: "b", base: "main"))")
+                save(".comment.png")
+            }
+            if let blockedLink = UserDefaults.standard.string(forKey: "snapshotPreviewBlockedLink") {
+                _ = try? await preview.webView.callAsyncJavaScript("document.querySelector(selector).click()", arguments: ["selector": blockedLink], contentWorld: .page)
+                try? await Task.sleep(for: .seconds(1))
+                print("after external link: url \(preview.webView.url?.absoluteString ?? "-"), blocked \(preview.blocked?.absoluteString ?? "-")")
+                save(".blocked.png")
             }
         }
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))

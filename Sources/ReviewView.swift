@@ -28,11 +28,12 @@ enum ReviewDiffLayout: String {
 enum ReviewPanelTab: String, CaseIterable {
     case changes
     case files
+    case preview
     case comments
 
     var title: String { rawValue.capitalized }
 
-    var symbol: String { [Self.changes: "plusminus", .files: "folder", .comments: "text.bubble"][self] ?? "" }
+    var symbol: String { [Self.changes: "plusminus", .files: "folder", .preview: "globe", .comments: "text.bubble"][self] ?? "" }
 }
 
 @Observable
@@ -52,6 +53,7 @@ final class ReviewModel {
     var changeStep: Int?
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
+    let preview = ReviewPreviewModel()
     var editingComment: String?
     var notice: String?
     var movedFolder: String?
@@ -681,6 +683,7 @@ private struct ReviewFileList: View {
             switch panelTab {
             case .changes: changesTab(changes)
             case .files: filesTab(changes)
+            case .preview: ReviewPreviewView(model: model, rootPID: store.liveBySession[sessionID]?.pid)
             case .comments: comments
             }
         }
@@ -766,7 +769,7 @@ private struct ReviewFileList: View {
                     ForEach(owners.flatMap { owner in owner.model.comments.map { (owner: owner, comment: $0) } }, id: \.comment.id) { owner, comment in
                         HStack(alignment: .firstTextBaseline) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("\(owner.repository.map { "\($0.name):" } ?? "")\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")\(comment.compare == .committed ? ", committed" : "")")
+                                Text(comment.element.map { "Preview \($0.selector)" } ?? "\(owner.repository.map { "\($0.name):" } ?? "")\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")\(comment.compare == .committed ? ", committed" : "")")
                                     .font(.caption)
                                     .foregroundStyle(theme.secondary)
                                 Text(comment.text)
@@ -774,6 +777,8 @@ private struct ReviewFileList: View {
                             }
                             .contentShape(.rect)
                             .onTapGesture(count: 2) {
+                                guard comment.element == nil else { return }
+
                                 owner.model.open(ReviewDocument(path: comment.path, compare: comment.compare))
                                 owner.model.editingComment = comment.id
                             }
