@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct BerthRemoteApp: App {
-    @State private var client = RemoteClient()
+    @State private var client = RemoteClient.shared
     @State private var updates = UpdateCheck()
     @AppStorage("colorScheme") private var colorScheme = "system"
     @Environment(\.scenePhase) private var scenePhase
@@ -29,6 +29,9 @@ struct BerthRemoteApp: App {
                 guard scenePhase == .active else { return }
 
                 client.resume()
+                #if DEBUG
+                await runSnapshotIntent()
+                #endif
                 await updates.checkIfDue()
             }
         }

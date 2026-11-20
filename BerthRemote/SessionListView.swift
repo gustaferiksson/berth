@@ -88,7 +88,7 @@ struct SessionListView: View {
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()
             }
-            .onChange(of: client.openedSessionID) {
+            .onChange(of: client.openedSessionID, initial: true) {
                 guard let id = client.openedSessionID else { return }
 
                 client.openedSessionID = nil
