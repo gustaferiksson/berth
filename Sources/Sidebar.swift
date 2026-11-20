@@ -52,6 +52,7 @@ struct SidebarLayout: Equatable {
         let entries: [Entry]
         let folders: [String]
         var id: String { source.id }
+        var visibleLimit: Int { source.kind == .flat ? 15 : 5 }
     }
 
     let terminalIDs: [Tab.ID]
@@ -192,7 +193,6 @@ private struct SidebarList: View, Equatable {
     @State private var browseRoot: String?
     @FocusState private var isFocused: Bool
 
-    private static let visibleSessions = 5
     private static let pinnedID = "pinned"
 
     private struct Group {
@@ -220,7 +220,7 @@ private struct SidebarList: View, Equatable {
 
     private var groups: [Group] {
         layout.groups.map { group in
-            let entries = expandedGroups.contains(group.id) || !layout.filter.isEmpty ? group.entries : Array(group.entries.prefix(Self.visibleSessions))
+            let entries = expandedGroups.contains(group.id) || !layout.filter.isEmpty ? group.entries : Array(group.entries.prefix(group.visibleLimit))
             return Group(layout: group, entries: entries, hiddenSessions: group.entries.count - entries.count)
         }
     }
@@ -455,7 +455,7 @@ private struct SidebarList: View, Equatable {
                         .id(SidebarItem.session(id))
                 }
             }
-            if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && group.entries.count > Self.visibleSessions {
+            if group.hiddenSessions > 0 || expandedGroups.contains(group.id) && group.entries.count > group.layout.visibleLimit {
                 let isExpanded = expandedGroups.contains(group.id)
                 Button(isExpanded ? "Show Less" : "Show \(group.hiddenSessions) More") {
                     if isExpanded { expandedGroups.remove(group.id) } else { expandedGroups.insert(group.id) }

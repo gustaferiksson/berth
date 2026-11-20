@@ -1,9 +1,9 @@
 import Foundation
 
 public enum GroupingMode: String, CaseIterable, Sendable {
-    case project, repository, recent
+    case project, repository, recent, flat
 
-    public var title: String { rawValue.capitalized }
+    public var title: String { self == .flat ? "Recent (One List)" : rawValue.capitalized }
 }
 
 public struct FolderRule: Codable, Hashable, Sendable {
@@ -61,6 +61,7 @@ public struct SessionGroup: Identifiable, Sendable, Equatable {
         case custom(CustomGroup)
         case folder(String)
         case recent(RecentBucket)
+        case flat
     }
 
     public let kind: Kind
@@ -74,12 +75,14 @@ public struct SessionGroup: Identifiable, Sendable, Equatable {
     public var id: String {
         if case let .custom(group) = kind { return "custom:\(group.id.uuidString)" }
         if case let .recent(bucket) = kind { return "recent:\(bucket.rawValue)" }
+        if kind == .flat { return "flat" }
         return folder ?? ""
     }
 
     public var title: String {
         if case let .custom(group) = kind { return group.name }
         if case let .recent(bucket) = kind { return bucket.title }
+        if kind == .flat { return "Recent" }
         return URL(filePath: folder ?? "/").lastPathComponent
     }
 
@@ -115,6 +118,7 @@ public struct SessionGrouping: Sendable {
 
     public func kind(forFolder folder: String, lastPrompt: Date) -> SessionGroup.Kind {
         if let group = customGroups.first(where: { $0.matches(folder) }) { return .custom(group) }
+        if mode == .flat { return .flat }
         if mode == .recent { return .recent(RecentBucket(date: lastPrompt, now: now, calendar: calendar)) }
         return .folder(mode == .repository ? repositoryRoots[folder] ?? folder : folder)
     }

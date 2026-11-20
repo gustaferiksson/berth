@@ -494,6 +494,16 @@ struct GroupingTests {
         #expect(groups.map(\.id) == ["recent:today", "custom:\(custom.id.uuidString)", "recent:older"])
     }
 
+    @Test func flatModeIsOneNewestFirstGroupWithTasksKeptTogether() {
+        let day: TimeInterval = 86_400
+        let sessions = [session("old", "/a", ago: 30 * day), session("api", "/b", ago: 3 * day), session("new", "/c"), session("web", "/d", ago: 60)]
+        let groups = SessionGrouping(mode: .flat, customGroups: [], repositoryRoots: [:], now: now, calendar: calendar).groups(sessions)
+        #expect(groups.map(\.id) == ["flat"])
+        #expect(groups[0].sessions.map(\.id) == ["new", "web", "api", "old"])
+        let task = SessionTask(id: "t", title: "T", issue: nil, sessions: [sessions[3], sessions[1]])
+        #expect(SessionTask.entries(of: groups[0].sessions, tasks: [task]) == [.session("new"), .task("t"), .session("old")])
+    }
+
     @Test func movingAGroupStoresEveryCustomSlotInDisplayOrder() {
         let acme = CustomGroup(name: "Acme", rules: [])
         let nova = CustomGroup(name: "Nova", rules: [])
