@@ -92,7 +92,7 @@ struct SessionView: View {
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 6) {
                 if let tasks = activity?.tasks, !tasks.isEmpty {
-                    RunningSummary(tasks: tasks) { isShowingRunning = true }
+                    RunningStrip(tasks: tasks) { isShowingRunning = true }
                 }
                 SessionControls(
                     session: session,
@@ -102,7 +102,7 @@ struct SessionView: View {
             }
         }
         .sheet(isPresented: $isShowingRunning) {
-            RunningSheet(tasks: activity?.tasks ?? [])
+            RunningSheet(sessionID: sessionID)
         }
         .sheet(isPresented: $isShowingContext) {
             if let context = activity?.context {

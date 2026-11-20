@@ -56,6 +56,7 @@ final class RemoteClient {
             pullRequests = [:]
             changes = [:]
             diffs = [:]
+            taskDetails = [:]
             for (id, upload) in uploads where upload == .uploading { uploads[id] = .failed("The connection dropped") }
         }
     }
@@ -68,6 +69,7 @@ final class RemoteClient {
     private(set) var pullRequests: [String: PullRequestLoad] = [:]
     private(set) var changes: [String: ChangesLoad] = [:]
     private(set) var diffs: [ChangeKey: DiffLoad] = [:]
+    private(set) var taskDetails: [String: RemoteTaskDetail] = [:]
     private(set) var features: [String] = []
     private(set) var usage: PlanUsage?
     private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
@@ -155,6 +157,12 @@ final class RemoteClient {
     func subscribe(to sessionID: String) {
         subscribedSessionID = sessionID
         send(.subscribe(sessionID: sessionID))
+    }
+
+    func requestTaskDetail(_ taskID: String, in sessionID: String) {
+        guard features.contains(RemoteTaskDetail.feature) else { return }
+
+        send(.taskDetail(sessionID: sessionID, taskID: taskID))
     }
 
     func loadPullRequest(of sessionID: String) {
@@ -298,6 +306,9 @@ final class RemoteClient {
                 draftAttachments[lastSent.sessionID] = lastSent.attachments
             }
             lastSent = nil
+
+        case let .taskDetail(_, taskID, detail):
+            taskDetails[taskID] = detail
 
         case let .uploaded(id, error):
             uploads[id] = error.map(UploadState.failed) ?? .done

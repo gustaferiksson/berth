@@ -6,6 +6,9 @@ public struct TranscriptActivity: Sendable {
         let title: String
         let started: Date
         var deadline: Date?
+        var command: String?
+        var agentType: String?
+        var output: String?
     }
 
     struct Reply: Sendable {
@@ -25,6 +28,7 @@ public struct TranscriptActivity: Sendable {
     var running: [String: Launch] = [:]
     var ended: [String: Date] = [:]
     var agentTitles: [String: String] = [:]
+    var agentTypes: [String: String] = [:]
     var reply: Reply?
     var compactions = 0
     var lastCompaction: Date?
@@ -47,7 +51,7 @@ public struct TranscriptActivity: Sendable {
         }
     }
 
-    public func tasks(of live: LiveSession?, now: Date, isFinished: (String) -> Bool) -> [RemoteTask] {
+    public func tasks(of live: LiveSession?, now: Date, progress: [String: AgentLog] = [:], isFinished: (String) -> Bool) -> [RemoteTask] {
         guard let live, let status = live.status, let startedAt = live.startedAt.map({ Date(timeIntervalSince1970: $0 / 1000) }) else { return [] }
 
         let background = running.filter { id, launch in
@@ -59,13 +63,20 @@ public struct TranscriptActivity: Sendable {
         let foreground = ["busy", "waiting"].contains(status) ? pending.filter { Self.agentTools.contains($0.value.tool) && $0.value.started >= startedAt } : [:]
         return background.merging(foreground) { first, _ in first }
             .map { id, launch in
-                RemoteTask(id: id, kind: Self.agentTools.contains(launch.tool) ? RemoteTask.agent : launch.tool == "Bash" ? RemoteTask.shell : RemoteTask.monitor, title: launch.title, started: launch.started)
+                RemoteTask(id: id, kind: Self.agentTools.contains(launch.tool) ? RemoteTask.agent : launch.tool == "Bash" ? RemoteTask.shell : RemoteTask.monitor, title: launch.title, started: launch.started, command: launch.command, agentType: launch.agentType, toolCount: progress[id]?.toolCount, tokens: progress[id]?.tokens, call: progress[id]?.calls.last)
             }
             .sorted { ($0.started, $0.id) < ($1.started, $1.id) }
     }
 
     public var runningAgentIDs: [String] {
         running.filter { Self.agentTools.contains($0.value.tool) }.map(\.key)
+    }
+
+    public func outputFile(of task: String) -> URL? {
+        guard let path = running[task]?.output else { return nil }
+
+        let url = URL(filePath: path)
+        return url.lastPathComponent == "\(task).output" ? url : nil
     }
 
     public var model: String? {
@@ -156,7 +167,7 @@ public struct TranscriptActivity: Sendable {
 
             let input = block["input"] as? [String: Any] ?? [:]
             let title = ["description", "summary", "command"].lazy.compactMap { input[$0] as? String }.first ?? tool
-            pending[id] = Launch(tool: tool, title: title, started: date)
+            pending[id] = Launch(tool: tool, title: title, started: date, command: input["command"] as? String, agentType: input["subagent_type"] as? String)
         }
     }
 
@@ -171,14 +182,18 @@ public struct TranscriptActivity: Sendable {
                 end(task, at: date)
             } else if Self.agentTools.contains(launch.tool), result["isAsync"] as? Bool == true, let agent = result["agentId"] as? String {
                 agentTitles[agent] = launch.title
+                agentTypes[agent] = launch.agentType
                 start(agent, launch)
             } else if launch.tool == "SendMessage", let agent = result["resumedAgentId"] as? String {
-                start(agent, Launch(tool: "Agent", title: agentTitles[agent] ?? launch.title, started: launch.started))
+                start(agent, Launch(tool: "Agent", title: agentTitles[agent] ?? launch.title, started: launch.started, agentType: agentTypes[agent]))
             } else if launch.tool == "Bash", let task = result["backgroundTaskId"] as? String {
-                start(task, launch)
+                let content = block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+                var started = launch
+                started.output = content.firstMatch(of: /written to:? (\/[^\s;]+?)\.?(?:\s|;|$)/)?.1.description
+                start(task, started)
             } else if launch.tool == "Monitor", let task = result["taskId"] as? String {
                 let timeout = result["persistent"] as? Bool == true ? nil : result["timeoutMs"] as? Double
-                start(task, Launch(tool: launch.tool, title: launch.title, started: launch.started, deadline: timeout.map { launch.started + $0 / 1000 }))
+                start(task, Launch(tool: launch.tool, title: launch.title, started: launch.started, deadline: timeout.map { launch.started + $0 / 1000 }, command: launch.command))
             }
         }
     }

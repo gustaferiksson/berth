@@ -153,12 +153,51 @@ public struct RemoteTask: Codable, Sendable, Hashable, Identifiable {
     public let kind: String
     public let title: String
     public let started: Date
+    public let command: String?
+    public let agentType: String?
+    public let toolCount: Int?
+    public let tokens: Int?
+    public let call: RemoteToolCall?
 
-    public init(id: String, kind: String, title: String, started: Date) {
+    public init(id: String, kind: String, title: String, started: Date, command: String? = nil, agentType: String? = nil, toolCount: Int? = nil, tokens: Int? = nil, call: RemoteToolCall? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
         self.started = started
+        self.command = command
+        self.agentType = agentType
+        self.toolCount = toolCount
+        self.tokens = tokens
+        self.call = call
+    }
+}
+
+public struct RemoteToolCall: Codable, Sendable, Hashable {
+    public let name: String
+    public let summary: String
+    public let date: Date?
+
+    public init(name: String, summary: String, date: Date? = nil) {
+        self.name = name
+        self.summary = summary
+        self.date = date
+    }
+
+    public var phrase: String {
+        let verbs = ["Grep": "Searching for", "Glob": "Finding", "Read": "Reading", "Edit": "Editing", "Write": "Writing", "Bash": "Running", "WebFetch": "Fetching", "WebSearch": "Searching the web for"]
+        return [verbs[name] ?? name, summary].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+}
+
+public struct RemoteTaskDetail: Codable, Sendable, Hashable {
+    public static let feature = "taskDetail"
+
+    public let output: String?
+    public let calls: [RemoteToolCall]?
+
+    public init(output: String? = nil, calls: [RemoteToolCall]? = nil) {
+        self.output = output
+        self.calls = calls
     }
 }
 
@@ -317,6 +356,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case changes(sessionID: String)
     case changeDiff(sessionID: String, path: String, isCommitted: Bool)
     case usage
+    case taskDetail(sessionID: String, taskID: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
@@ -331,4 +371,5 @@ public enum RemoteServerMessage: Codable, Sendable {
     case changes(sessionID: String, changes: RemoteChanges?)
     case changeDiff(sessionID: String, path: String, isCommitted: Bool, diff: RemoteFileDiff?)
     case usage(PlanUsage?)
+    case taskDetail(sessionID: String, taskID: String, detail: RemoteTaskDetail?)
 }

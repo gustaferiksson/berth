@@ -26,6 +26,7 @@ final class RemoteServer {
         var end: Int?
         var queue: [String] = []
         var activity = TranscriptActivity()
+        var agentLogs: [String: AgentLog] = [:]
         var sentActivity: RemoteActivity?
         var isReading = false
         var needsRead = false
@@ -219,6 +220,9 @@ final class RemoteServer {
 
         case let .changeDiff(sessionID, path, isCommitted):
             Task { await sendChangeDiff(of: path, isCommitted: isCommitted, in: sessionID, to: connection) }
+
+        case let .taskDetail(sessionID, taskID):
+            Task { await sendTaskDetail(taskID, in: sessionID, to: id) }
         }
     }
 
@@ -314,6 +318,23 @@ final class RemoteServer {
         ))
     }
 
+    private func sendTaskDetail(_ taskID: String, in sessionID: String, to id: ObjectIdentifier) async {
+        guard let client = clients[id], client.sessionID == sessionID, let transcript = client.transcript else { return }
+
+        let output = client.activity.outputFile(of: taskID)
+        var log = client.agentLogs[taskID]
+        let detail = await Task.detached {
+            if let output { return RemoteTaskDetail(output: TaskOutput.tail(output)) }
+            guard log != nil else { return RemoteTaskDetail() }
+
+            log?.read(transcript.deletingPathExtension().appending(path: "subagents/agent-\(taskID).jsonl"))
+            return RemoteTaskDetail(calls: log?.calls)
+        }.value
+        guard let connection = clients[id]?.connection else { return }
+
+        send(try? JSONEncoder().encode(RemoteServerMessage.taskDetail(sessionID: sessionID, taskID: taskID, detail: detail)), to: connection)
+    }
+
     private func receiveUpload(_ uploadID: String, name: String, offset: Int, chunk: Data, isLast: Bool, from connection: NWConnection) {
         let fail = { (message: String) in self.send(try? JSONEncoder().encode(RemoteServerMessage.uploaded(id: uploadID, error: message)), to: connection) }
         guard let id = UUID(uuidString: uploadID)?.uuidString else { return fail("The upload had an invalid id") }
@@ -385,7 +406,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] : []))
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] : []))
     }
 
     private func observeSessions() {
@@ -426,17 +447,20 @@ final class RemoteServer {
         let live = store.liveBySession[sessionID]
         let catalogDirectory = Store.claudeDirectory.appending(path: "cache/model-catalog")
         let previous = url == client.transcript ? client.activity : TranscriptActivity()
-        let (chunk, activity, report) = await Task.detached {
+        let previousLogs = url == client.transcript ? client.agentLogs : [:]
+        let (chunk, activity, logs, report) = await Task.detached {
             let chunk = TranscriptTail.read(url, after: after, queue: queue)
             var activity = previous
             activity.read(url)
+            var logs = previousLogs.filter { activity.runningAgentIDs.contains($0.key) }
+            for agent in activity.runningAgentIDs { logs[agent, default: AgentLog()].read(url.deletingPathExtension().appending(path: "subagents/agent-\(agent).jsonl")) }
             let finished = Set(activity.runningAgentIDs.filter { agent in
                 let meta = (try? JSONSerialization.jsonObject(with: Data(contentsOf: url.deletingPathExtension().appending(path: "subagents/agent-\(agent).meta.json")))) as? [String: Any]
                 return meta?["finished"] as? Bool == true || meta?["stoppedByUser"] as? Bool == true
             })
             let catalogs = ((try? FileManager.default.contentsOfDirectory(at: catalogDirectory, includingPropertiesForKeys: nil)) ?? []).compactMap { try? Data(contentsOf: $0) }
             let window = activity.model.flatMap { TranscriptActivity.catalogModel($0, catalogs: catalogs).window }
-            return (chunk, activity, RemoteActivity(tasks: activity.tasks(of: live, now: .now) { finished.contains($0) }, context: activity.context(window: window)))
+            return (chunk, activity, logs, RemoteActivity(tasks: activity.tasks(of: live, now: .now, progress: logs) { finished.contains($0) }, context: activity.context(window: window)))
         }.value
         guard let current = clients[id] else { return }
 
@@ -446,6 +470,7 @@ final class RemoteServer {
             clients[id]?.end = chunk.end
             clients[id]?.queue = chunk.queue
             clients[id]?.activity = activity
+            clients[id]?.agentLogs = logs
             clients[id]?.sentActivity = report
             if !chunk.isContinuation || !chunk.entries.isEmpty || chunk.queue != current.queue || report != current.sentActivity {
                 send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: chunk.entries, isContinuation: chunk.isContinuation, queued: chunk.queuedPrompts, activity: report)), to: current.connection)
