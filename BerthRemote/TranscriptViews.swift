@@ -187,7 +187,6 @@ private struct MarkdownText: View {
             }
         }
         .textSelection(.enabled)
-        .copyMenu(text)
     }
 }
 
@@ -320,6 +319,7 @@ struct CodeBox: View {
 
     @AppStorage("conversationCodeSize") private var codeSize = "medium"
     @State private var height: CGFloat = 0
+    @State private var isCopied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -343,30 +343,24 @@ struct CodeBox: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(tint.map { AnyShapeStyle($0.opacity(0.12)) } ?? AnyShapeStyle(.fill.quaternary), in: .rect(cornerRadius: 12))
         .textSelection(.enabled)
-        .copyMenu(text)
-    }
-}
-
-private extension View {
-    func copyMenu(_ text: String) -> some View {
-        modifier(CopyMenu(text: text))
-    }
-}
-
-private struct CopyMenu: ViewModifier {
-    let text: String
-
-    @State private var copies = 0
-
-    func body(content: Content) -> some View {
-        content
-            .contextMenu {
-                Button("Copy", systemImage: "doc.on.doc") {
-                    UIPasteboard.general.string = text
-                    copies += 1
+        .overlay(alignment: .topTrailing) {
+            Button {
+                UIPasteboard.general.string = text
+                isCopied = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    isCopied = false
                 }
+            } label: {
+                Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
             }
-            .sensoryFeedback(.success, trigger: copies)
+            .buttonStyle(.plain)
+            .accessibilityLabel(isCopied ? "Copied" : "Copy")
+            .sensoryFeedback(.success, trigger: isCopied) { _, copied in copied }
+        }
     }
 }
 
