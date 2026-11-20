@@ -135,11 +135,9 @@ struct ReviewRepositoryAccessory: View {
                 PullRequestTag(pullRequest: pullRequest)
                     .fixedSize()
                     .opacity(pullRequest.number == hiding ? 0 : 1)
-                    .frame(maxWidth: pullRequest.number == hiding ? 0 : nil)
-                    .clipped()
             }
         }
-        .animation(.default, value: hiding)
+        .animation(.easeInOut(duration: 0.2), value: hiding)
     }
 }
 
