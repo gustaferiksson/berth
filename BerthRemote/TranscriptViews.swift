@@ -319,6 +319,7 @@ struct CodeBox: View {
 
     @AppStorage("conversationCodeSize") private var codeSize = "medium"
     @State private var height: CGFloat = 0
+    @State private var isCopied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -342,6 +343,24 @@ struct CodeBox: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(tint.map { AnyShapeStyle($0.opacity(0.12)) } ?? AnyShapeStyle(.fill.quaternary), in: .rect(cornerRadius: 12))
         .textSelection(.enabled)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                UIPasteboard.general.string = text
+                isCopied = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    isCopied = false
+                }
+            } label: {
+                Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isCopied ? "Copied" : "Copy")
+            .sensoryFeedback(.success, trigger: isCopied) { _, copied in copied }
+        }
     }
 }
 
@@ -396,7 +415,7 @@ private struct ToolCallRow: View {
         let isError = call.result?.isError == true
         let isWaiting = live == .waiting(call.id)
         let verb = Text(live == nil ? call.verb.past : isWaiting ? "Waiting for approval:" : call.verb.present)
-        let subject = Text(call.subject).font([.command, .read, .edit, .search].contains(call.kind) ? .subheadline.monospaced() : .subheadline)
+        let subject = Text(call.subject).font([.command, .read, .edit, .search, .other].contains(call.kind) ? .subheadline.monospaced() : .subheadline)
         let description = [.command, .agent].contains(call.kind) ? call.use.detail.flatMap { $0.isEmpty ? nil : $0 } : nil
         let title = description.map { isWaiting ? Text("\(verb) \($0)") : Text($0) } ?? Text("\(verb) \(subject)")
 
@@ -441,7 +460,7 @@ private struct ToolCallDetail: View {
                 }
             } else if call.kind != .agent, let detail = call.use.detail ?? (call.kind == .other ? call.use.text : nil) {
                 Text(detail)
-                    .font(call.kind == .search ? .footnote.monospaced() : .footnote)
+                    .font([.search, .web, .other].contains(call.kind) ? .footnote.monospaced() : .footnote)
                     .foregroundStyle(.secondary)
             }
             if let result = call.result, !result.text.isEmpty, call.kind != .edit || result.isError {

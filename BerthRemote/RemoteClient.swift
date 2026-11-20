@@ -50,6 +50,11 @@ final class RemoteClient {
     private(set) var pullRequests: [String: PullRequestLoad] = [:]
     private(set) var features: [String] = []
     private(set) var uploads: [String: UploadState] = [:]
+    var draftTexts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:] {
+        didSet { UserDefaults.standard.set(draftTexts.filter { !$0.value.isEmpty }, forKey: "drafts") }
+    }
+
+    var draftAttachments: [String: [Attachment]] = [:]
     var notice: String?
     var openedSessionID: String?
     @ObservationIgnored private var task: URLSessionWebSocketTask?
@@ -57,6 +62,7 @@ final class RemoteClient {
     @ObservationIgnored private var failures = 0
     @ObservationIgnored private var sessionsReceived = 0
     @ObservationIgnored private var subscribedSessionID: String?
+    @ObservationIgnored private var lastSent: (sessionID: String, text: String, attachments: [Attachment], date: Date)?
 
     init() {
         if let legacy = UserDefaults.standard.string(forKey: "remoteToken"), legacy.isEmpty || Self.save(token: legacy) {
@@ -132,10 +138,23 @@ final class RemoteClient {
         send(.pullRequest(sessionID: sessionID))
     }
 
-    func send(_ message: RemoteClientMessage) {
-        guard let task, state == .connected, let data = try? JSONEncoder().encode(message) else { return }
+    @discardableResult
+    func send(_ message: RemoteClientMessage) -> Bool {
+        guard let task, state == .connected, let data = try? JSONEncoder().encode(message) else { return false }
 
         Task { try? await task.send(.string(String(decoding: data, as: UTF8.self))) }
+        return true
+    }
+
+    func sendDraft(to sessionID: String) -> Bool {
+        let text = draftTexts[sessionID, default: ""]
+        let attachments = draftAttachments[sessionID, default: []]
+        guard send(.prompt(sessionID: sessionID, text: text, attachments: attachments.isEmpty ? nil : attachments.map(\.id))) else { return false }
+
+        lastSent = (sessionID, text, attachments, .now)
+        draftTexts[sessionID] = nil
+        draftAttachments[sessionID] = nil
+        return true
     }
 
     func upload(_ data: Data, id: String, name: String) async {
@@ -235,6 +254,11 @@ final class RemoteClient {
 
         case let .notice(message):
             notice = message
+            if let lastSent, Date.now.timeIntervalSince(lastSent.date) < 5, draftTexts[lastSent.sessionID, default: ""].isEmpty, draftAttachments[lastSent.sessionID, default: []].isEmpty {
+                draftTexts[lastSent.sessionID] = lastSent.text
+                draftAttachments[lastSent.sessionID] = lastSent.attachments
+            }
+            lastSent = nil
 
         case let .uploaded(id, error):
             uploads[id] = error.map(UploadState.failed) ?? .done

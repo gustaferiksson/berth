@@ -679,7 +679,7 @@ final class Store {
             ?? (UserDefaults.standard.bool(forKey: "snapshotFakeStatus") ? [#""status":"waiting","waitingFor":"permission prompt","pid":1"#, #""status":"busy","pid":1"#, #""status":"shell","pid":1"#] : [])
             + (UserDefaults.standard.bool(forKey: "snapshotFakeStatus") && UserDefaults.standard.bool(forKey: "snapshotRemote") ? [#""status":"idle","pid":1"#, #""status":"idle","pid":2"#] : [])
         return fakeLiveSessions + zip(groups.first { !$0.sessions.isEmpty }?.sessions ?? [], statuses).compactMap { session, status in
-            let json = #"{"sessionId":"\#(session.id)","cwd":"\#(session.cwd)","startedAt":0,\#(status)}"#
+            let json = #"{"sessionId":"\#(session.id)","cwd":"\#(session.cwd)","startedAt":0,"statusUpdatedAt":\#(Int((Date.now.timeIntervalSince1970 - 95) * 1000)),\#(status)}"#
             return try? JSONDecoder().decode(LiveSession.self, from: Data(json.utf8))
         }
         #else
