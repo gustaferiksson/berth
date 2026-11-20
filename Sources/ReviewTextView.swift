@@ -38,6 +38,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     var carets = CaretState()
     private(set) var layoutManagerRequests = 0
     private(set) var lineStarts = [0]
+    private var indentUnit = 4
     private(set) var rowHeight: CGFloat = 15
     private var lastChange: (index: Int, y: CGFloat)?
     private var rowPadding: CGFloat = 0
@@ -671,6 +672,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
                 style.filler.setFill()
                 fillers.forEach { $0.fill(using: .sourceOver) }
             }
+            drawIndentGuides(in: rect)
         }
 
         if let original = unifiedOriginal, let side = original.side, self.side?.lineCount == lineStarts.count {
@@ -754,6 +756,41 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
     private func countLines() {
         lineStarts = [0] + string.utf16.enumerated().compactMap { $0.element == 0x0A ? $0.offset + 1 : nil }
+        let indents = lineStarts.indices.compactMap { indentColumns(ofLine: $0) }.filter { $0 > 0 }
+        let twos = indents.count { $0 % 4 == 2 }
+        indentUnit = twos > 0 && twos * 2 >= indents.count { $0.isMultiple(of: 4) } ? 2 : 4
+    }
+
+    private func indentColumns(ofLine line: Int) -> Int? {
+        guard let text = textStorage?.string as NSString?, lineStarts.indices.contains(line) else { return nil }
+
+        let end = line + 1 < lineStarts.count ? lineStarts[line + 1] : text.length
+        var columns = 0
+        for offset in lineStarts[line]..<end {
+            let unit = text.character(at: offset)
+            if unit == 0x20 { columns += 1 } else if unit == 0x09 { columns += 4 } else { return unit == 0x0A || unit == 0x0D ? nil : columns }
+        }
+
+        return nil
+    }
+
+    private func drawIndentGuides(in rect: NSRect) {
+        let advance = (" " as NSString).size(withAttributes: [.font: style.font]).width
+        let origin = textContainerOrigin.x
+        let unit = indentUnit
+        var rows: [(line: Int, row: NSRect)] = []
+        enumerateRows(in: rect) { line, row, _, _ in rows.append((line, row)) }
+
+        style.indentGuide.setFill()
+        for (line, row) in rows {
+            let columns = indentColumns(ofLine: line) ?? min(
+                (max(line - 50, 0)..<line).reversed().lazy.compactMap { self.indentColumns(ofLine: $0) }.first ?? 0,
+                ((line + 1)..<min(line + 50, lineStarts.count)).lazy.compactMap { self.indentColumns(ofLine: $0) }.first ?? 0
+            )
+            for level in 0..<(columns / unit) {
+                NSRect(x: (origin + CGFloat(level * unit) * advance).rounded(), y: row.minY, width: 1, height: row.height).fill(using: .sourceOver)
+            }
+        }
     }
 
     private func fragmentTop(atOffset offset: Int) -> CGFloat? {
