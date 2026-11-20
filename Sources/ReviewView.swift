@@ -313,7 +313,8 @@ private struct ReviewFileList: View {
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedReviewSections") private var collapsedSections = ""
     @AppStorage("reviewChangesAsTree") private var changesAsTree = false
-    @AppStorage("reviewPanelTab") private var panelTab = ReviewPanelTab.changes
+    @AppStorage("reviewPanelTab") private var storedPanelTab = ReviewPanelTab.changes
+    @State private var unpersistedPanelTab: ReviewPanelTab?
     @FocusState private var focusedList: String?
 
     var body: some View {
@@ -705,6 +706,11 @@ private struct ReviewFileList: View {
             case .comments: comments
             }
         }
+    }
+
+    private var panelTab: ReviewPanelTab {
+        get { unpersistedPanelTab ?? storedPanelTab }
+        nonmutating set { if store.persistsTabs { storedPanelTab = newValue } else { unpersistedPanelTab = newValue } }
     }
 
     private var commentCount: Int { owners.reduce(0) { $0 + $1.model.comments.count } }
