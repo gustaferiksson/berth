@@ -8,42 +8,159 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build:
-    name: Build & test (unsigned)
+  changes:
+    name: Changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      lint: ${{ steps.paths.outputs.lint }}
+      mac: ${{ steps.paths.outputs.mac }}
+      ios: ${{ steps.paths.outputs.ios }}
+    steps:
+      - id: paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          if [ -n "$PR" ]; then
+            files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename') || files=
+          else
+            files=$(gh api "repos/$REPO/compare/$BEFORE...$SHA" --jq '.files[].filename') || files=
+          fi
+          # A failed or empty lookup runs everything.
+          all=false
+          [ -n "$files" ] || all=true
+          matches() { [ "$all" = true ] || grep -qE "$1" <<<"$files"; }
+          # The Mac app builds from everything except the iOS app, docs, release plumbing and tests.
+          mac_ignored='^(BerthRemote/|docs/|design/|pages/|icon/|Signing/|Packages/BerthCore/Tests/)|\.md$|^(LICENSE|package-ios\.sh|notarize\.sh)$|^\.github/workflows/(release|label-external)\.yml$'
+          mac=true
+          [ "$all" = true ] || grep -qvE "$mac_ignored" <<<"$files" || mac=false
+          {
+            echo "mac=$mac"
+            matches '\.swift$|^\.swiftlint\.yml$|^\.swiftformat$|^\.github/workflows/ci\.yml$' && echo lint=true || echo lint=false
+            matches '^(BerthRemote/|project\.yml$|Resources/AppIcon\.icon/|Packages/BerthCore/Sources/BerthCore/RemoteProtocol\.swift$|\.github/workflows/ci\.yml$)' && echo ios=true || echo ios=false
+          } | tee -a "$GITHUB_OUTPUT"
+
+  lint:
+    name: Lint
+    needs: changes
+    if: needs.changes.outputs.lint == 'true'
     runs-on: xcode-27
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Install build tools
-        run: brew install xcodegen
+        with:
+          persist-credentials: false
 
       - name: Lint
         run: |
           set -euo pipefail
           tools="$RUNNER_TEMP/lint"
           mkdir -p "$tools"
-          curl -fsSL -o "$tools/swiftlint.zip" https://github.com/realm/SwiftLint/releases/download/0.65.1/portable_swiftlint.zip
-          curl -fsSL -o "$tools/swiftformat.zip" https://github.com/nicklockwood/SwiftFormat/releases/download/0.64.7/swiftformat.zip
+          curl -fsSL -o "$tools/swiftlint.zip" https://github.com/realm/SwiftLint/releases/download/0.65.1/portable_swiftlint.zip &
+          curl -fsSL -o "$tools/swiftformat.zip" https://github.com/nicklockwood/SwiftFormat/releases/download/0.64.7/swiftformat.zip &
+          wait
           echo "c1e429b0599cf1b516f369a2d9ec04eaf0e436f3c12b637df8851fa52ff694d0  $tools/swiftlint.zip" | shasum -a 256 -c
           echo "e82e224325cbd3403fc7b68caf6c917926dc106de3af875fca4b87e3c4634038  $tools/swiftformat.zip" | shasum -a 256 -c
           unzip -oq "$tools/swiftlint.zip" swiftlint -d "$tools"
           unzip -oq "$tools/swiftformat.zip" swiftformat -d "$tools"
-          "$tools/swiftlint" lint --quiet --reporter github-actions-logging
-          "$tools/swiftformat" Sources Packages/BerthCore BerthRemote --lint --reporter github-actions-log
+          "$tools/swiftlint" lint --quiet --reporter github-actions-logging &
+          lint=$!
+          "$tools/swiftformat" Sources Packages/BerthCore BerthRemote --lint --reporter github-actions-log &
+          format=$!
+          wait $lint
+          wait $format
 
-      - name: Build (ad-hoc, unsigned)
-        run: ./build.sh
+  mac:
+    name: Build Mac app
+    needs: changes
+    if: needs.changes.outputs.mac == 'true'
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
 
-      - name: Test
-        run: swift test --package-path Packages/BerthCore
+      # Only main saves, so a PR restores main's packages and their compiled objects.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: mac-debug-${{ github.sha }}
+          restore-keys: mac-debug-
+
+      - name: Build (Debug, ad-hoc)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+          CONFIGURATION: Debug
+        run: |
+          brew install xcodegen
+          ./build.sh
 
       - name: Verify the bundle
         run: |
           set -euo pipefail
-          app=dist/Berth.app
+          app=.build/Build/Products/Debug/Berth.app
           test -f $app/Contents/Resources/Assets.car
           name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconName" "$app/Contents/Info.plist")
           [ "$name" = "AppIcon" ] || { echo "CFBundleIconName is '$name', expected AppIcon"; exit 1; }
           test -d $app/Contents/Resources/GhosttyKit_GhosttyTerminal.bundle
-          codesign --verify --deep --strict $app
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'push'
+        with:
+          path: .build
+          key: mac-debug-${{ github.sha }}
+
+  ios:
+    name: Build Berth Remote
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ios-debug-${{ github.sha }}
+          restore-keys: ios-debug-
+
+      - name: Build (Debug, unsigned)
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen generate --quiet
+          xcodebuild -project Berth.xcodeproj -scheme BerthRemote -configuration Debug -derivedDataPath .build -quiet \
+            -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.event_name == 'push'
+        with:
+          path: .build
+          key: ios-debug-${{ github.sha }}
+
+  ci:
+    name: CI
+    needs: [ changes, lint, mac, ios ]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

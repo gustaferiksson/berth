@@ -23,7 +23,7 @@ jobs:
       runner: xcode-27
       signed_by_build: true
       build: |
-        brew install xcodegen
+        HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install xcodegen
         CODE_SIGN_IDENTITY="Developer ID Application" DEVELOPMENT_TEAM=82K3YC8HVF \
           MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" ./build.sh
 
@@ -77,6 +77,8 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
           BUILD: ${{ github.run_number }}
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
         run: |
           set -euo pipefail
           brew install xcodegen
