@@ -14,33 +14,30 @@ struct ReviewTaskCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Button { isExpanded.toggle() } label: {
+            Button { isExpanded.toggle() } label: {
+                HStack(spacing: 6) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(theme.secondary)
                         .frame(width: 10)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isExpanded ? "Collapse Task" : "Expand Task")
-                if let issue { IssueTag(issue: issue).fixedSize() }
-                Button { isExpanded.toggle() } label: {
+                        .accessibilityLabel(isExpanded ? "Collapse Task" : "Expand Task")
+                    if let issue { IssueTag(issue: issue).fixedSize() }
                     Text(title)
                         .fontWeight(.semibold)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(.rect)
+                        .help(title)
+                    if !isExpanded {
+                        Text("^[\(repositoryCount) repo](inflect: true)")
+                            .font(.caption)
+                            .foregroundStyle(theme.secondary)
+                            .fixedSize()
+                    }
                 }
-                .buttonStyle(.plain)
-                .help(title)
-                if !isExpanded {
-                    Text("^[\(repositoryCount) repo](inflect: true)")
-                        .font(.caption)
-                        .foregroundStyle(theme.secondary)
-                        .fixedSize()
-                }
+                .padding(.leading, 6)
+                .contentShape(.rect)
             }
+            .buttonStyle(.plain)
             if isExpanded {
                 Text("^[\(members.count) session](inflect: true) · \(pullRequestCount) \(pullRequestCount == 1 ? "PR" : "PRs") · ^[\(repositoryCount) repo](inflect: true)")
                     .font(.caption)
