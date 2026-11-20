@@ -564,25 +564,27 @@ private struct ReviewFileList: View {
         }
     }
 
+    private func taskCard(_ task: StoredTask) -> some View {
+        let ownRoot = store.repositoryRoot(ofSession: sessionID) ?? model.folder
+        let members = task.sessionIDs.compactMap { store.sessionsByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt }
+        return ReviewTaskCard(
+            title: store.title(of: task),
+            issue: task.issue,
+            members: members,
+            currentID: sessionID,
+            pullRequestCount: store.pullRequestCount(of: members),
+            repositoryCount: Set(members.compactMap { store.repositoryRoot(ofSession: $0.id) } + [ownRoot] + extras.map(\.repository.root)).count,
+            isExpanded: repositoryExpansion(task.id),
+            activate: { store.activate(.session($0)) }
+        )
+        .padding(.horizontal, 8)
+        .padding(.bottom, 6)
+    }
+
     @ViewBuilder
     private func stackedSections(_ changes: ReviewChanges?) -> some View {
         let ownRoot = store.repositoryRoot(ofSession: sessionID) ?? model.folder
         let inset = changesAsTree ? 9.0 : 0.0
-        if let task = store.task(containing: sessionID) {
-            let members = task.sessionIDs.compactMap { store.sessionsByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt }
-            ReviewTaskCard(
-                title: store.title(of: task),
-                issue: task.issue,
-                members: members,
-                currentID: sessionID,
-                pullRequestCount: store.pullRequestCount(of: members),
-                repositoryCount: Set(members.compactMap { store.repositoryRoot(ofSession: $0.id) } + [ownRoot] + extras.map(\.repository.root)).count,
-                isExpanded: repositoryExpansion(task.id),
-                activate: { store.activate(.session($0)) }
-            )
-            .listRowInsets(EdgeInsets(top: 0, leading: -7.5 - inset, bottom: 4, trailing: -8))
-            .listRowSeparator(.hidden)
-        }
         if let changes {
             Section(isExpanded: repositoryExpansion(ownRoot)) {
                 branchCard(changes, model.status ?? .unknown)
@@ -665,6 +667,7 @@ private struct ReviewFileList: View {
 
     private func changesTab(_ changes: ReviewChanges?) -> some View {
         VStack(spacing: 0) {
+            if let task = store.task(containing: sessionID) { taskCard(task) }
             if !isStacked, let changes, let status = model.status {
                 branchCard(changes, status)
                     .padding(.horizontal, 8)

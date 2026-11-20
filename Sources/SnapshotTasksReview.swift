@@ -111,6 +111,21 @@ extension Snapshot {
         }
         describeRepositories("at start")
         save(".stack.png")
+        if let names = UserDefaults.standard.string(forKey: "snapshotTasksReviewCollapse") {
+            store.collapsedReviewRepositories.formUnion(names.split(separator: "|").map { RepositoryRoot.resolve(tasksReviewFolder + "/" + $0) })
+            try? await Task.sleep(for: .seconds(2))
+            save(".collapsed.png")
+        }
+        for step in (UserDefaults.standard.string(forKey: "snapshotTasksReviewDefaults") ?? "").split(separator: "|") {
+            let pair = step.split(separator: "=")
+            guard pair.count == 2 else { continue }
+
+            var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            arguments[String(pair[0])] = String(pair[1])
+            UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            try? await Task.sleep(for: .seconds(2))
+            save(".\(pair[0])-\(pair[1]).png")
+        }
         let points = Dictionary(uniqueKeysWithValues: (UserDefaults.standard.string(forKey: "snapshotTasksReviewPoints") ?? "").split(separator: "|").compactMap { entry -> (String, [Double])? in
             let parts = entry.split(separator: "=")
             return parts.count == 2 ? (String(parts[0]), parts[1].split(separator: ",").compactMap { Double($0) }) : nil
