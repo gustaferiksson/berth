@@ -319,7 +319,7 @@ private struct ReviewFileList: View {
 
     var body: some View {
         content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .task { await model.load() }
             .task(id: [model.changes?.branch, pullRequest?.pullRequest?.baseRefName]) {
                 let base = model.changes.flatMap { changes in pullRequest?.pullRequest?.baseRefName.map { (branch: changes.branch, base: $0) } }
@@ -706,6 +706,7 @@ private struct ReviewFileList: View {
             case .comments: comments
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var panelTab: ReviewPanelTab {

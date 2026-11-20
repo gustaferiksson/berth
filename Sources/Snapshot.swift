@@ -361,7 +361,7 @@ enum Snapshot {
             }
             store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: reviewFolder, sessionID: "snapshot-review", terminal: $0.terminal) : $0 }
             if AppAction.showChanges.isAvailable(in: store) { AppAction.showChanges.perform(on: store) }
-            store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")]
+            if !UserDefaults.standard.bool(forKey: "snapshotReviewNoComment") { store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")] }
         }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { prepareTasksReview(store: store) }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
