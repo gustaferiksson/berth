@@ -150,6 +150,7 @@ final class Store {
     }
 
     var sidebarFilter = ""
+    var sidebarStatus = SidebarStatus.all
     var sidebarFilterFocusRequests = 0
     @ObservationIgnored var launcherQuery = Snapshot.launcherQuery
     var launcherRole: InboxPullRequest.Role?
