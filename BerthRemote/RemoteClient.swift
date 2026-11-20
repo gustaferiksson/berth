@@ -49,6 +49,7 @@ final class RemoteClient {
     private(set) var activity: [String: RemoteActivity] = [:]
     private(set) var pullRequests: [String: PullRequestLoad] = [:]
     private(set) var features: [String] = []
+    private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
     private(set) var uploads: [String: UploadState] = [:]
     var draftTexts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:] {
         didSet { UserDefaults.standard.set(draftTexts.filter { !$0.value.isEmpty }, forKey: "drafts") }
@@ -265,6 +266,9 @@ final class RemoteClient {
 
         case let .pullRequest(sessionID, detail):
             pullRequests[sessionID] = detail.map(PullRequestLoad.loaded) ?? .failed
+
+        case let .searchResults(query, hits, isIndexing):
+            transcriptSearch = (query, hits, isIndexing)
 
         case .challenge:
             return

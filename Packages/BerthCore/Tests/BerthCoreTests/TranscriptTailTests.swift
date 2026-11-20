@@ -100,4 +100,17 @@ struct RemoteProtocolTests {
 
         #expect(detail == nil)
     }
+
+    @Test func searchMessagesRoundTrip() throws {
+        let request = RemoteClientMessage.search(query: "walrus")
+        guard case let .search(query) = try JSONDecoder().decode(RemoteClientMessage.self, from: JSONEncoder().encode(request)) else { throw CancellationError() }
+
+        #expect(query == "walrus")
+
+        let hit = RemoteSearchHit(id: "s", title: "t", folder: "/f", lastActivity: Date(timeIntervalSince1970: 0), snippets: [RemoteSnippet(text: "a walrus", highlights: [2..<8])])
+        let reply = RemoteServerMessage.searchResults(query: "walrus", hits: [hit], isIndexing: true)
+        guard case let .searchResults(replyQuery, hits, isIndexing) = try JSONDecoder().decode(RemoteServerMessage.self, from: JSONEncoder().encode(reply)) else { throw CancellationError() }
+
+        #expect(replyQuery == "walrus" && hits == [hit] && isIndexing)
+    }
 }

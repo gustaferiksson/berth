@@ -29,6 +29,7 @@ final class RemoteServer {
         var sentActivity: RemoteActivity?
         var isReading = false
         var needsRead = false
+        var searchQuery: String?
     }
 
     private struct Upload {
@@ -202,6 +203,38 @@ final class RemoteServer {
 
         case let .pullRequest(sessionID):
             Task { await sendPullRequest(of: sessionID, to: connection) }
+
+        case let .search(query):
+            Task { await search(query, for: id) }
+        }
+    }
+
+    private func search(_ query: String, for id: ObjectIdentifier) async {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.count >= RemoteSearchFeature.minimumQueryLength, clients[id] != nil else { return }
+
+        clients[id]?.searchQuery = query
+        if store.searchIndexTask == nil { store.updateSearchIndex() }
+
+        while true {
+            let index = store.searchIndex
+            let sessions = store.activeSessions + store.archivedSessions
+            let isIndexing = store.searchIndexing != nil || store.searchIndexVersion == 0
+            let found = await Task.detached { index.search(query, in: sessions) }.value
+            guard let client = clients[id], client.searchQuery == query else { return }
+
+            let hits = found.map { hit in
+                RemoteSearchHit(id: hit.id, title: hit.session.title, folder: hit.session.checkout, lastActivity: hit.session.lastActivity, snippets: hit.snippets.map { snippet in
+                    RemoteSnippet(text: snippet.text, highlights: snippet.highlights.map { range in
+                        let nsRange = NSRange(range, in: snippet.text)
+                        return nsRange.location..<nsRange.location + nsRange.length
+                    })
+                })
+            }
+            send(try? JSONEncoder().encode(RemoteServerMessage.searchResults(query: query, hits: hits, isIndexing: isIndexing)), to: client.connection)
+            guard isIndexing else { return }
+
+            try? await Task.sleep(for: .seconds(1))
         }
     }
 
@@ -315,7 +348,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name])
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name])
     }
 
     private func observeSessions() {
