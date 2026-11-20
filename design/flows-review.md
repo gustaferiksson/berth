@@ -102,7 +102,7 @@ This is the slim first version; the rest is listed under Later.
     "N running", counts in the tooltip) and "N open" unresolved review threads. Checks and threads are one `gh api graphql`
     call (`PullRequestDetail`) for this PR only, off the main thread, when the panel shows the
     session, when the PR first appears and on Refresh; kept per PR number, so a failed call
-    keeps the last result. Without `gh` only the total is left on the line.
+    keeps the last result. Without `gh` only the total is left on the line. The branch's commits follow, as below.
   - Otherwise: a "No pull request" pill (only once the sidebar's lookup answered no PR; without
     `gh` or a GitHub remote there is no pill), "N commits ahead of <base>" ("No commits yet" at
     0), ↑ahead ↓behind the base, the branch total, the upstream state ("Not pushed, no
