@@ -237,14 +237,17 @@ private struct SessionSummaryView: View {
             VStack(alignment: .leading, spacing: 3) {
                 if isAccessibility {
                     title
-                    HStack(spacing: 8) {
-                        time
-                        Spacer(minLength: 0)
-                        if let pullRequest = session.pullRequest {
-                            PullRequestTag(pullRequest: pullRequest)
-                        }
-                    }
+                    time
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                     location
+                    if let pullRequest = session.pullRequest {
+                        PullRequestTag(pullRequest: pullRequest)
+                    } else {
+                        Text(" ")
+                            .font(.caption.weight(.medium))
+                            .accessibilityHidden(true)
+                    }
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         title
