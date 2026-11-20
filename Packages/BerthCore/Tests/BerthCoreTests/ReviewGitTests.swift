@@ -264,7 +264,7 @@ final class ReviewGitTests {
         #expect(changes.defaultBase == "origin/main" && changes.base == "origin/feature" && changes.baseReason == .nearest)
         #expect(changes.bases.map(\.ref) == ["origin/feature", "feature", "origin/main"])
         #expect(status.upstream == nil)
-        #expect(status.commits.map(\.subject) == ["Spike"])
+        #expect(status.commits.map(\.subject) == ["Spike", "Extend keep"])
         #expect(status.commits.allSatisfy { !$0.isPushed })
     }
 
