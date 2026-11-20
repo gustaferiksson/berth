@@ -87,6 +87,7 @@ struct ReviewRepositoryAccessory: View {
     let branch: String?
     let base: String?
     let pullRequests: [PullRequest]
+    let hiding: Int?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -99,8 +100,15 @@ struct ReviewRepositoryAccessory: View {
                     .truncationMode(.middle)
                     .layoutPriority(-1)
             }
-            ForEach(pullRequests, id: \.number) { PullRequestTag(pullRequest: $0).fixedSize() }
+            ForEach(pullRequests, id: \.number) { pullRequest in
+                PullRequestTag(pullRequest: pullRequest)
+                    .fixedSize()
+                    .opacity(pullRequest.number == hiding ? 0 : 1)
+                    .frame(maxWidth: pullRequest.number == hiding ? 0 : nil)
+                    .clipped()
+            }
         }
+        .animation(.default, value: hiding)
     }
 }
 

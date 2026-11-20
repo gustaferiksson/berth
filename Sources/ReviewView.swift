@@ -635,7 +635,7 @@ private struct ReviewFileList: View {
                 stackedRows(changes, in: model, root: nil, indent: inset)
             } header: {
                 GroupHeader(title: URL(filePath: ownRoot).lastPathComponent, help: ownRoot, count: nil) { EmptyView() } accessory: { _ in
-                    ReviewRepositoryAccessory(branch: nil, base: nil, pullRequests: store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch).filter { !repositoryExpansion(ownRoot).wrappedValue || $0.number != pullRequest?.pullRequest?.number })
+                    ReviewRepositoryAccessory(branch: nil, base: nil, pullRequests: store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch), hiding: repositoryExpansion(ownRoot).wrappedValue ? pullRequest?.pullRequest?.number : nil)
                 }
             }
         }
@@ -652,7 +652,7 @@ private struct ReviewFileList: View {
                 }
             } header: {
                 GroupHeader(title: extra.repository.name, help: extra.repository.folder, count: nil) { EmptyView() } accessory: { _ in
-                    ReviewRepositoryAccessory(branch: extra.model.changes?.branch, base: extra.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base }, pullRequests: store.pullRequests(inRoot: extra.repository.root, of: sessionID, branch: extra.model.changes?.branch).filter { !repositoryExpansion(extra.repository.root).wrappedValue || $0.number != extra.model.changes.flatMap { extraPullRequest(extra.repository.root, $0.branch) }?.pullRequest?.number })
+                    ReviewRepositoryAccessory(branch: extra.model.changes?.branch, base: extra.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base }, pullRequests: store.pullRequests(inRoot: extra.repository.root, of: sessionID, branch: extra.model.changes?.branch), hiding: repositoryExpansion(extra.repository.root).wrappedValue ? extra.model.changes.flatMap { extraPullRequest(extra.repository.root, $0.branch) }?.pullRequest?.number : nil)
                 }
             }
         }
