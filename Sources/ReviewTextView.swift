@@ -51,6 +51,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     private var hoverDiagnostics: [LanguageServerDiagnostic] = []
     private var hoverTask: Task<Void, Never>?
     private var hoverCard: NSView?
+    private var hoverClickMonitor: Any?
     private var flagsMonitor: Any?
     private(set) var occurrences: [NSRange] = [] {
         didSet { if occurrences != oldValue { needsDisplay = true } }
@@ -197,6 +198,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         hoverTask = nil
         hoverTarget = nil
         hoverDiagnostics = []
+        hoverClickMonitor.map(NSEvent.removeMonitor)
+        hoverClickMonitor = nil
+        if let hoverCard, let responder = window?.firstResponder as? NSView, responder.isDescendant(of: hoverCard) { window?.makeFirstResponder(self) }
         hoverCard?.removeFromSuperview()
         hoverCard = nil
     }
@@ -210,7 +214,26 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             needsDisplay = true
         }
         let problems = diagnosticSegments.filter { $0.rect.contains(point) }
-        guard target?.textView !== hoverTarget?.textView || target?.range != hoverTarget?.range || problems.map(\.diagnostic) != hoverDiagnostics else { return }
+        let unchanged = target?.textView === hoverTarget?.textView && target?.range == hoverTarget?.range && problems.map(\.diagnostic) == hoverDiagnostics
+        if let hoverCard {
+            if hoverCard.frame.contains(point) || unchanged {
+                hoverTask?.cancel()
+                hoverTask = nil
+                return
+            }
+            if target == nil, problems.isEmpty {
+                if hoverTask == nil {
+                    hoverTask = Task { [weak self] in
+                        try? await Task.sleep(for: .milliseconds(300))
+                        guard !Task.isCancelled else { return }
+
+                        self?.dismissHover()
+                    }
+                }
+                return
+            }
+        }
+        guard !unchanged else { return }
 
         dismissHover()
         hoverTarget = target
@@ -264,6 +287,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     }
 
     private func showHover(_ markdown: String?, diagnostics: [LanguageServerDiagnostic], below anchor: NSRect) {
+        hoverTask = nil
         let small = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         let problems = NSMutableAttributedString()
         for diagnostic in diagnostics {
@@ -282,16 +306,29 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         }
 
         let labels = [problems, info].filter { $0.length > 0 }.map { text in
-            let label = NSTextField(wrappingLabelWithString: "")
-            label.attributedStringValue = text
-            label.maximumNumberOfLines = 20
-            label.preferredMaxLayoutWidth = min(520, visibleRect.width - 40)
-            let size = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: label.preferredMaxLayoutWidth, height: .greatestFiniteMagnitude)) ?? .zero
-            label.frame.size = NSSize(width: size.width.rounded(.up), height: size.height.rounded(.up))
+            let label = HoverCardText(usingTextLayoutManager: false)
+            label.isEditable = false
+            label.drawsBackground = false
+            label.textContainerInset = .zero
+            label.textContainer?.lineFragmentPadding = 0
+            label.textContainer?.widthTracksTextView = false
+            label.textContainer?.containerSize = NSSize(width: min(520, visibleRect.width - 40), height: .greatestFiniteMagnitude)
+            label.writingToolsBehavior = .none
+            label.setAccessibilityRole(.staticText)
+            label.onCancel = { [weak self] in self?.dismissHover() }
+            label.textStorage?.setAttributedString(text)
+            let container = label.textContainer ?? NSTextContainer()
+            label.layoutManager?.ensureLayout(for: container)
+            let used = label.layoutManager?.usedRect(for: container) ?? .zero
+            label.frame.size = NSSize(width: used.width.rounded(.up), height: used.height.rounded(.up))
+            label.textContainer?.containerSize.width = label.frame.width
             return label
         }
         let width = (labels.map(\.frame.width).max() ?? 0) + 20
         let card = NSView(frame: NSRect(x: 0, y: 0, width: width, height: labels.map { $0.frame.height + 16 }.reduce(0, +)))
+        card.setAccessibilityElement(true)
+        card.setAccessibilityRole(.group)
+        card.setAccessibilityLabel("Hover information")
         card.wantsLayer = true
         card.layer?.backgroundColor = (style.background.blended(withFraction: 0.08, of: style.foreground) ?? style.background).cgColor
         card.layer?.borderColor = style.commentBorder.cgColor
@@ -313,6 +350,12 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         card.frame.origin = NSPoint(x: max(min(anchor.minX, visibleRect.maxX - card.frame.width - 8), visibleRect.minX), y: below + card.frame.height > visibleRect.maxY ? anchor.minY - card.frame.height - 4 : below)
         addSubview(card)
         hoverCard = card
+        hoverClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self, weak card] event in
+            guard let self, let card, event.window === window, !card.frame.contains(convert(event.locationInWindow, from: nil)) else { return event }
+
+            dismissHover()
+            return event
+        }
     }
 
     private func identifier(at point: NSPoint) -> NSRange? {
@@ -851,5 +894,13 @@ extension RandomAccessCollection {
             }
         }
         return low
+    }
+}
+
+private final class HoverCardText: NSTextView {
+    var onCancel: (() -> Void)?
+
+    override func cancelOperation(_: Any?) {
+        onCancel?()
     }
 }

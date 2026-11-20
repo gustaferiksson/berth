@@ -626,17 +626,40 @@ enum Snapshot {
                 }
                 if let spec = UserDefaults.standard.string(forKey: "snapshotReviewHover"), let (_, textView, target) = locate(spec) {
                     let requests = textView.layoutManagerRequests
-                    let card = { textView.subviews.first { $0.subviews.first is NSTextField } }
+                    let card = { textView.subviews.first { $0.subviews.first is NSTextView } }
                     let started = ContinuousClock.now
                     while ContinuousClock.now - started < .seconds(60), card() == nil {
                         mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
                         mouse(textView, .mouseMoved, target, [])
                         try? await Task.sleep(for: .seconds(2))
                     }
-                    print("hover \(spec) after \(ContinuousClock.now - started): \(card()?.subviews.map { ($0 as? NSTextField)?.stringValue.debugDescription ?? "———" }.joined(separator: " ") ?? "no card"), card \(card().map { "\($0.frame), label \($0.subviews.first?.frame ?? .zero)" } ?? "-"), visible width \(textView.visibleRect.width), layoutManager requests \(requests) → \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)")
-                    if let shown = card() { crop(".hover.png", textView, shown.frame.union(NSRect(x: target.x - 60, y: target.y - 20, width: 120, height: 20)).insetBy(dx: -16, dy: -16)) }
+                    print("hover \(spec) after \(ContinuousClock.now - started): \(card()?.subviews.map { ($0 as? NSTextView)?.string.debugDescription ?? "———" }.joined(separator: " ") ?? "no card"), card \(card().map { "\($0.frame), label \($0.subviews.first?.frame ?? .zero)" } ?? "-"), visible width \(textView.visibleRect.width), layoutManager requests \(requests) → \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)")
+                    if let shown = card() {
+                        let texts = shown.subviews.compactMap { $0 as? NSTextView }
+                        let saved = NSPasteboard.general.string(forType: .string)
+                        let before = right()?.selectedRange()
+                        let copied = texts.map { text -> String in
+                            text.selectAll(nil)
+                            NSPasteboard.general.clearContents()
+                            text.copy(nil)
+                            return NSPasteboard.general.string(forType: .string)?.debugDescription ?? "nil"
+                        }
+                        print("hover copy: \(copied), editor selection \(String(describing: before)) → \(String(describing: right()?.selectedRange())), card role \(shown.accessibilityRole()?.rawValue ?? "-") label \(shown.accessibilityLabel() ?? "-"), text roles \(texts.map { $0.accessibilityRole()?.rawValue ?? "-" }) values \(texts.map { String(describing: $0.accessibilityValue()) })")
+                        NSPasteboard.general.clearContents()
+                        if let saved { NSPasteboard.general.setString(saved, forType: .string) }
+                        crop(".hover.png", textView, shown.frame.union(NSRect(x: target.x - 60, y: target.y - 20, width: 120, height: 20)).insetBy(dx: -16, dy: -16))
+                    }
+                    if let shown = card() {
+                        mouse(textView, .mouseMoved, NSPoint(x: shown.frame.midX, y: shown.frame.midY), [])
+                        mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
+                        mouse(textView, .mouseMoved, NSPoint(x: shown.frame.midX, y: shown.frame.midY), [])
+                        try? await Task.sleep(for: .milliseconds(600))
+                        print("hover pointer re-entered the card within the grace period: card \(card() == nil ? "dismissed" : "shown")")
+                    }
                     mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
-                    print("hover after moving away: card \(card() == nil ? "dismissed" : "shown")")
+                    print("hover after moving away: card \(card() == nil ? "dismissed" : "shown") at once")
+                    try? await Task.sleep(for: .milliseconds(600))
+                    print("hover after moving away: card \(card() == nil ? "dismissed" : "shown") 600 ms later")
                 }
                 for spec in (UserDefaults.standard.string(forKey: "snapshotReviewDefinition") ?? "").split(separator: "|").map(String.init) {
                     if model.selectedDocument != file {
