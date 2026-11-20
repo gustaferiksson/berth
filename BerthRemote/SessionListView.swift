@@ -221,7 +221,7 @@ private struct SessionSummaryView: View {
     let session: RemoteSession
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric private var gutterWidth = 12
+    @ScaledMetric private var gutterWidth = 14
 
     var body: some View {
         let isProminent = session.status != nil || session.isUnread == true
@@ -320,6 +320,7 @@ private struct SessionStatusIcon: View {
                     .accessibilityLabel("Needs you")
             } else if session.status == "busy" {
                 Image(systemName: "ellipsis")
+                    .font(.caption)
                     .symbolEffect(.variableColor.iterative)
                     .foregroundStyle(.green)
                     .accessibilityLabel("Working")
