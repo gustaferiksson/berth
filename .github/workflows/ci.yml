@@ -58,7 +58,7 @@ jobs:
     if: needs.changes.outputs.lint == 'true'
     runs-on: xcode-27
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -87,7 +87,7 @@ jobs:
     if: needs.changes.outputs.mac == 'true'
     runs-on: xcode-27
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -102,10 +102,13 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: '1'
           HOMEBREW_NO_INSTALL_CLEANUP: '1'
-          CONFIGURATION: Debug
         run: |
+          set -euo pipefail
           brew install xcodegen
-          ./build.sh
+          xcodegen generate --quiet
+          xcodebuild -project Berth.xcodeproj -scheme Berth -configuration Debug -derivedDataPath .build -quiet \
+            -destination 'platform=macOS,arch=arm64' -skipPackagePluginValidation -skipMacroValidation \
+            CODE_SIGN_IDENTITY=- ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO DEBUG_INFORMATION_FORMAT=dwarf build
 
       - name: Verify the bundle
         run: |
@@ -128,7 +131,7 @@ jobs:
     if: needs.changes.outputs.ios == 'true'
     runs-on: xcode-27
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
