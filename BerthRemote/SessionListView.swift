@@ -45,7 +45,7 @@ struct SessionListView: View {
                         HStack {
                             Text(group.title)
                             if group.id == "active", waitingCount > 0 {
-                                Label("\(waitingCount) need you", systemImage: "exclamationmark.bubble.fill")
+                                Label("\(waitingCount) \(waitingCount == 1 ? "needs" : "need") you", systemImage: "exclamationmark.bubble.fill")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.orange)
                                     .textCase(nil)
@@ -212,7 +212,7 @@ private struct SessionSummaryView: View {
         let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
         let folder = URL(filePath: session.folder).lastPathComponent
 
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             SessionStatusIcon(session: session)
             VStack(alignment: .leading, spacing: 3) {
                 layout {
