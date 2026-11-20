@@ -1236,8 +1236,9 @@ struct GlassCapsule<Content: View>: View {
         HStack(spacing: 0, content: { content })
             .labelStyle(.iconOnly)
             .buttonStyle(GlassCapsuleButtonStyle())
-            .padding(.horizontal, 4)
-            .frame(height: 28)
+            .font(.caption)
+            .padding(.horizontal, 3)
+            .frame(height: 24)
             .glassEffect(.regular, in: .capsule)
     }
 }
@@ -1247,7 +1248,7 @@ private struct GlassCapsuleButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .frame(width: 28, height: 28)
+            .frame(width: 22, height: 24)
             .contentShape(.rect)
             .opacity(!isEnabled ? 0.4 : configuration.isPressed ? 0.6 : 1)
     }
