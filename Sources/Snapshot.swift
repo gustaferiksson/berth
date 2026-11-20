@@ -1078,6 +1078,11 @@ enum Snapshot {
                     arguments["sidebarPosition"] = UserDefaults.standard.string(forKey: "sidebarPosition") == "right" ? "left" : "right"
                     UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
                 }
+                let flipBelow = {
+                    var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                    arguments[GeneralSettings.terminalBelowKey] = !UserDefaults.standard.bool(forKey: GeneralSettings.terminalBelowKey)
+                    UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                }
                 let steps: [(String, () -> Void)] = [
                     ("close diff", { store.closeDiff() }),
                     ("open diff", { file.map(model.open) }),
@@ -1089,6 +1094,8 @@ enum Snapshot {
                     ("leave harbor", { store.isHarborShown = false }),
                     ("flip sidebar", flipSidebar),
                     ("flip back", flipSidebar),
+                    ("flip terminal placement", flipBelow),
+                    ("flip terminal placement back", flipBelow),
                     ("scroll right side to x 40", { descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last.map { $0.scroll(NSPoint(x: 40, y: $0.visibleRect.minY)) } }),
                     ("live resize after scroll", {
                         window.setContentSize(NSSize(width: window.contentLayoutRect.width - 80, height: window.contentLayoutRect.height))
@@ -1106,7 +1113,7 @@ enum Snapshot {
                     step()
                     try? await Task.sleep(for: .seconds(1.5))
                     let now = ProcessAncestry.descendants()
-                    print("\(label): sidebar \(UserDefaults.standard.string(forKey: "sidebarPosition") ?? "left"), text clip x \(descendantViews(window.contentView ?? NSView()).compactMap { ($0 as? ReviewTextView)?.enclosingScrollView?.contentView.bounds.minX }), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), panel \(store.showsReviewPanel ? "shown" : "hidden"), harbor \(store.isHarborShown), diff \(store.reviewModel?.selectedDocument?.path ?? "closed"), split \(split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" }), same views \(mounted() == views), in window \(windows()), lost \(processes.subtracting(now).count), new \(now.subtracting(processes).count), ptys \(ptys()), shell starts \(starts())")
+                    print("\(label): sidebar \(UserDefaults.standard.string(forKey: "sidebarPosition") ?? "left"), text clip x \(descendantViews(window.contentView ?? NSView()).compactMap { ($0 as? ReviewTextView)?.enclosingScrollView?.contentView.bounds.minX }), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), panel \(store.showsReviewPanel ? "shown" : "hidden"), harbor \(store.isHarborShown), diff \(store.reviewModel?.selectedDocument?.path ?? "closed"), split \(split.arrangedSubviews.map { "\(Int($0.frame.width))x\(Int($0.frame.height))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" }), same views \(mounted() == views), in window \(windows()), lost \(processes.subtracting(now).count), new \(now.subtracting(processes).count), ptys \(ptys()), shell starts \(starts())")
                     save(".\(label.replacing(" ", with: "-")).png")
                 }
             }

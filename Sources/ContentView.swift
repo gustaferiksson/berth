@@ -15,6 +15,7 @@ struct ContentView: View {
     @AppStorage("showsTrailingSidebar") private var showsTrailingSidebar = true
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
     @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
+    @AppStorage(GeneralSettings.terminalBelowKey) private var isTerminalBelow = false
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
     @State private var splitWidth = 0.0
@@ -42,9 +43,9 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
-            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel)
+            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel, isTerminalBelow: isTerminalBelow)
                 .onGeometryChange(for: Double.self) { $0.size.width } action: { splitWidth = $0 }
-                .task(id: showsPanel ? splitWidth : 0) {
+                .task(id: showsPanel ? [splitWidth, isTerminalBelow ? 1 : 0] : [0]) {
                     guard showsPanel, await (try? Task.sleep(for: .milliseconds(300))) != nil else { return }
 
                     yieldSidebarIfCramped()
@@ -223,7 +224,7 @@ extension ContentView {
     }
 
     private func yieldSidebarIfCramped() {
-        guard showsSessions, !keepsSidebarForDiff, splitWidth > 0, splitWidth < TerminalSplit.diffMinimum + TerminalSplit.terminalMinimum + 1 else { return }
+        guard showsSessions, !keepsSidebarForDiff, splitWidth > 0, splitWidth < TerminalSplit.diffMinimum + (isTerminalBelow ? 1 : TerminalSplit.terminalMinimum + 1) else { return }
 
         if columnVisibility == .automatic { columnVisibility = .all }
         sidebarYieldsToDiff = true
@@ -239,10 +240,12 @@ extension ContentView {
 private struct TerminalSplit: NSViewControllerRepresentable {
     static let diffMinimum = 440.0
     static let terminalMinimum = 360.0
+    static let belowMinimum = 160.0
 
     let store: Store
     let isDiffLeading: Bool
     let isDiffCollapsed: Bool
+    let isTerminalBelow: Bool
 
     func makeNSViewController(context _: Context) -> TerminalSplitController {
         let split = TerminalSplitController()
@@ -255,7 +258,8 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         let diffItem = NSSplitViewItem(viewController: diff)
         diffItem.canCollapse = true
         diffItem.isCollapsed = isDiffCollapsed
-        split.splitViewItems = isDiffLeading ? [diffItem, terminalItem] : [terminalItem, diffItem]
+        split.splitView.isVertical = !isTerminalBelow
+        split.splitViewItems = isDiffLeading || isTerminalBelow ? [diffItem, terminalItem] : [terminalItem, diffItem]
         return split
     }
 
@@ -266,9 +270,17 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     func updateNSViewController(_ split: TerminalSplitController, context _: Context) {
         guard let diff = split.diff else { return }
 
-        if (split.splitViewItems.first === diff) != isDiffLeading {
+        let leadsDiff = isDiffLeading || isTerminalBelow
+        let flipsOrientation = split.splitView.isVertical == isTerminalBelow
+        if flipsOrientation { split.splitView.isVertical = !isTerminalBelow }
+        if (split.splitViewItems.first === diff) != leadsDiff {
             split.removeSplitViewItem(diff)
-            split.insertSplitViewItem(diff, at: isDiffLeading ? 0 : 1)
+            split.insertSplitViewItem(diff, at: leadsDiff ? 0 : 1)
+        }
+        if flipsOrientation {
+            split.splitView.adjustSubviews()
+            split.splitView.layoutSubtreeIfNeeded()
+            split.fitDiff(preferring: 760)
         }
         guard diff.isCollapsed != isDiffCollapsed else { return }
 
@@ -282,36 +294,56 @@ private struct TerminalSplit: NSViewControllerRepresentable {
 
 // Width minimums as constraints (minimumThickness too) loop AppKit's constraint pass until it throws once the window can't fit them, so the divider is moved after layout instead.
 private final class TerminalSplitController: NSSplitViewController {
+    static let belowRatioKey = "reviewTerminalBelowRatio"
+    static let belowRatioDefault = 0.6
+
     var diff: NSSplitViewItem? {
         splitViewItems.first { $0.viewController is NSHostingController<ReviewDiffColumn> }
     }
 
-    private var laidOutWidth = 0.0
+    private var laidOutSize = CGSize.zero
+
+    override func splitViewDidResizeSubviews(_ notification: Notification) {
+        super.splitViewDidResizeSubviews(notification)
+        guard !splitView.isVertical, NSApp.currentEvent?.type == .leftMouseDragged, let diff, !diff.isCollapsed else { return }
+
+        UserDefaults.standard.set(diff.viewController.view.frame.height / (splitView.bounds.height - splitView.dividerThickness), forKey: Self.belowRatioKey)
+    }
 
     override func viewDidLayout() {
         super.viewDidLayout()
-        guard splitView.bounds.width != laidOutWidth else { return }
+        guard splitView.bounds.size != laidOutSize else { return }
 
-        let preferred: CGFloat? = laidOutWidth == 0 ? 760 : nil
-        laidOutWidth = splitView.bounds.width
+        let preferred: CGFloat? = laidOutSize == .zero ? 760 : nil
+        laidOutSize = splitView.bounds.size
         DispatchQueue.main.async { [weak self] in self?.fitDiff(preferring: preferred) }
+    }
+
+    override func splitView(_ splitView: NSSplitView, constrainSplitPosition proposed: CGFloat, ofSubviewAt _: Int) -> CGFloat {
+        splitView.isVertical ? proposed : min(max(proposed, TerminalSplit.belowMinimum), splitView.bounds.height - TerminalSplit.belowMinimum - splitView.dividerThickness)
     }
 
     func fitDiff(preferring preferred: CGFloat?) {
         guard let diff, !diff.isCollapsed else { return }
 
-        let total = splitView.bounds.width
-        let current = diff.viewController.view.frame.width
-        let width = min(max(preferred ?? current, TerminalSplit.diffMinimum), max(TerminalSplit.diffMinimum, total - TerminalSplit.terminalMinimum - splitView.dividerThickness))
-        guard abs(width - current) >= 1 else { return }
+        let isBelow = !splitView.isVertical
+        let total = isBelow ? splitView.bounds.height : splitView.bounds.width
+        let current = isBelow ? diff.viewController.view.frame.height : diff.viewController.view.frame.width
+        let diffMinimum = isBelow ? TerminalSplit.belowMinimum : TerminalSplit.diffMinimum
+        let terminalMinimum = isBelow ? TerminalSplit.belowMinimum : TerminalSplit.terminalMinimum
+        let ratio = UserDefaults.standard.object(forKey: Self.belowRatioKey) as? Double ?? Self.belowRatioDefault
+        let wanted = isBelow ? preferred.map { _ in ratio * (total - splitView.dividerThickness) } : preferred
+        let size = min(max(wanted ?? current, diffMinimum), max(diffMinimum, total - terminalMinimum - splitView.dividerThickness))
+        guard abs(size - current) >= 1 else { return }
 
-        splitView.setPosition(splitViewItems.first === diff ? width : total - width - splitView.dividerThickness, ofDividerAt: 0)
+        splitView.setPosition(splitViewItems.first === diff ? size : total - size - splitView.dividerThickness, ofDividerAt: 0)
     }
 }
 
 private struct TerminalArea: View {
     let store: Store
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
+    @AppStorage(GeneralSettings.terminalBelowKey) private var isTerminalBelow = false
 
     var body: some View {
         ZStack {
@@ -336,7 +368,7 @@ private struct TerminalArea: View {
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
-            if isReviewEnabled, store.showsReviewPanel, !store.isHarborShown {
+            if isReviewEnabled, store.showsReviewPanel, !store.isHarborShown, !isTerminalBelow {
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
                     Divider()

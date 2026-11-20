@@ -98,12 +98,16 @@ struct BerthApp: App {
 
 private struct ChangesMenuItem: View {
     let store: Store
+    @AppStorage(GeneralSettings.terminalBelowKey) private var isTerminalBelow = false
 
     var body: some View {
         (AppAction.hideChanges.isAvailable(in: store) ? AppAction.hideChanges : .showChanges).menuButton(store)
         let layout = AppAction.showInline.isAvailable(in: store) ? AppAction.showInline : .showSideBySide
         layout.menuButton(store)
             .disabled(!layout.isAvailable(in: store))
+        let terminalPlacement = isTerminalBelow ? AppAction.showClaudeBeside : .showClaudeBelow
+        terminalPlacement.menuButton(store)
+            .disabled(!terminalPlacement.isAvailable(in: store))
         ForEach([AppAction.goBack, .goForward, .previousChange, .nextChange], id: \.self) { action in
             action.menuButton(store)
                 .disabled(!action.isAvailable(in: store))
