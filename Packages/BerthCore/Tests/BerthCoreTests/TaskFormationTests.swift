@@ -50,6 +50,12 @@ struct TaskFormationTests {
         #expect(form([session("a", extraRepositories: ["acme/web"], pullRequests: [rounding])]).shown.map(\.sessionIDs) == [["a"]])
     }
 
+    @Test func threeLinkedPullRequestsInOneRepositoryAreNotASweep() {
+        let linked = (1...3).map { PullRequestLink(repository: "acme/billing", number: $0) }
+        let result = form([session("a", pullRequests: linked), session("b", age: 60, repository: "acme/web", pullRequests: [linked[1]])])
+        #expect(result.shown.map(\.sessionIDs) == [["a", "b"]])
+    }
+
     @Test func aSweepContributesNothingButStaysInItsTask() {
         let pullRequests = (1...6).map { PullRequestLink(repository: "acme/billing", number: $0) }
         let sweep = session("sweep", age: 10, typed: [usage], pullRequests: pullRequests)

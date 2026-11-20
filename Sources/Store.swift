@@ -211,6 +211,7 @@ final class Store {
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
     private(set) var pullRequests = Snapshot.fixturePullRequests
+    private(set) var linkedPullRequests = Snapshot.fixtureLinkedPullRequests
     private(set) var inbox = Snapshot.fixtureInbox
     private(set) var isInboxLoading = false
     private(set) var searchIndexVersion = 0
@@ -450,17 +451,21 @@ final class Store {
     }
 
     func refreshPullRequests() {
-        let branches = Set((pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches))
-        guard !branches.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
+        let sessions = pinnedSessions + groups.flatMap(\.sessions) + archivedSessions
+        let branches = Set(sessions.flatMap(pullRequestBranches))
+        let linked = Set(sessions.flatMap(\.pullRequests).filter { [nil, .open, .draft].contains(linkedPullRequests[$0]?.state) })
+        guard !branches.isEmpty || !linked.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
 
         pullRequestsFetchedAt = .now
-        Task { await fetchPullRequests(branches) }
+        Task { await fetchPullRequests(branches, linked: linked) }
     }
 
-    func fetchPullRequests(_ branches: Set<PullRequestBranch>) async {
-        let fetched = await Task.detached { await PullRequestStatus.fetch(branches) }.value
-        let merged = pullRequests.merging(fetched) { $1 }
+    func fetchPullRequests(_ branches: Set<PullRequestBranch>, linked: Set<PullRequestLink> = []) async {
+        let fetched = await Task.detached { await PullRequestStatus.fetch(branches, linked: linked) }.value
+        let merged = pullRequests.merging(fetched.branches) { $1 }
         if merged != pullRequests { pullRequests = merged }
+        let mergedLinked = linkedPullRequests.merging(fetched.linked) { $1 }
+        if mergedLinked != linkedPullRequests { linkedPullRequests = mergedLinked }
         formTasks()
     }
 
@@ -481,7 +486,7 @@ final class Store {
         return (activeSessions + archivedSessions)
             .filter { session in
                 session.pullRequests.contains { $0.number == pullRequest.number && $0.repository.lowercased() == repository }
-                    || self.pullRequest(for: session)?.number == pullRequest.number && repositoryRoots[session.checkout].flatMap { repositories[$0] ?? nil }?.lowercased() == repository
+                    || self.pullRequests(of: session).contains { $0.number == pullRequest.number && $0.repository.lowercased() == repository }
             }
             .sorted { $0.lastActivity > $1.lastActivity }
     }
@@ -501,12 +506,20 @@ final class Store {
         Task {
             if !unresolved.isEmpty { await repositories.merge(Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
             formTasks()
-            if (pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) { refreshPullRequests() }
+            let sessions = pinnedSessions + groups.flatMap(\.sessions) + archivedSessions
+            if sessions.flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) || sessions.flatMap(\.pullRequests).contains(where: { linkedPullRequests[$0] == nil }) { refreshPullRequests() }
         }
     }
 
+    func pullRequests(of session: SessionSummary) -> [SessionPullRequest] {
+        let repository = repositoryRoots[session.checkout].flatMap { repositories[$0] ?? nil }
+        let linked = session.pullRequests.compactMap { link in linkedPullRequests[link].map { SessionPullRequest(repository: link.repository, pullRequest: $0, head: $0.headRefName) } }
+        let looked = repository.map { repository in session.branches.compactMap { branch in (pullRequests[PullRequestBranch(repository: repository, branch: branch)] ?? nil).map { SessionPullRequest(repository: repository, pullRequest: $0, head: branch) } } } ?? []
+        return PullRequestSelection.order(linked + looked, currentRepository: repository, branches: session.branches)
+    }
+
     func pullRequest(for session: SessionSummary) -> PullRequest? {
-        pullRequestBranches(of: session).lazy.compactMap { self.pullRequests[$0] ?? nil }.first
+        pullRequests(of: session).first?.pullRequest
     }
 
     func pullRequest(in folder: String, branch: String) -> (repository: String, pullRequest: PullRequest?)? {
@@ -877,11 +890,13 @@ final class Store {
 
     func pullRequests(inRoot root: String?, of sessionID: String, branch: String?) -> [PullRequest] {
         let own = root ?? sessionsByID[sessionID].flatMap { repositoryRoots[$0.checkout] }
+        let repository = own.flatMap { repositories[$0] ?? nil }
         let members = task(containing: sessionID)?.sessionIDs.compactMap { sessionsByID[$0] } ?? []
-        let fromMembers = members.filter { repositoryRoots[$0.checkout] == own }.compactMap(pullRequest(for:))
-        let fromBranch = own.flatMap { repositories[$0] ?? nil }.flatMap { repository in branch.flatMap { pullRequests[PullRequestBranch(repository: repository, branch: $0)] ?? nil } }
+        let fromMembers = members.filter { repositoryRoots[$0.checkout] == own }.compactMap { member in pullRequests(of: member).first { $0.repository.lowercased() == repository?.lowercased() }?.pullRequest }
+        let fromLinks = sessionsByID[sessionID].map { pullRequests(of: $0).filter { $0.repository.lowercased() == repository?.lowercased() }.map(\.pullRequest) } ?? []
+        let fromBranch = repository.flatMap { repository in branch.flatMap { pullRequests[PullRequestBranch(repository: repository, branch: $0)] ?? nil } }
         var seen: Set<Int> = []
-        return (fromMembers + [fromBranch].compactMap(\.self)).filter { seen.insert($0.number).inserted }.sorted { $0.number < $1.number }
+        return (fromMembers + fromLinks + [fromBranch].compactMap(\.self)).filter { seen.insert($0.number).inserted }.sorted { $0.number < $1.number }
     }
 
     func pullRequestBranch(inRoot root: String, branch: String) -> PullRequestBranch? {
