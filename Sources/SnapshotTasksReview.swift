@@ -114,6 +114,24 @@ extension Snapshot {
         }
         describeRepositories("at start")
         save(".stack.png")
+        if UserDefaults.standard.bool(forKey: "snapshotTasksReviewTransition"), let task = store.task(containing: own) {
+            let infra = RepositoryRoot.resolve(tasksReviewFolder + "/infra")
+            store.reviewRepoTabs[task.id] = infra
+            try? await Task.sleep(for: .seconds(2))
+            save(".infra-tab.png")
+            store.editedRepositories[own] = [:]
+            store.refreshEditedRepositories()
+            try? await Task.sleep(for: .seconds(3))
+            print("transition: repositories \(store.reviewRepositories[own]?.map(\.name) ?? []), picked \(store.reviewRepoTabs[task.id].map { URL(filePath: $0).lastPathComponent } ?? "-")")
+            save(".infra-gone.png")
+            if let tab = store.tabs.first(where: { $0.id == store.selectedTabID }), let index = store.tabs.firstIndex(where: { $0.id == tab.id }) {
+                store.tabs[index].cwd = tasksReviewFolder + "/web"
+                store.prepareReviewModel()
+                try? await Task.sleep(for: .seconds(3))
+                print("transition: relocated model folder \(store.reviewModels[own]?.folder ?? "-")")
+                save(".relocated.png")
+            }
+        }
         if let names = UserDefaults.standard.string(forKey: "snapshotTasksReviewCollapse") {
             store.collapsedReviewRepositories.formUnion(names.split(separator: "|").map { RepositoryRoot.resolve(tasksReviewFolder + "/" + $0) })
             try? await Task.sleep(for: .seconds(2))
