@@ -268,6 +268,7 @@ enum Snapshot {
             print("suggestions: \(store.taskSuggestions.map { "\($0.key) -> \($0.value.key) task \($0.value.taskID ?? "new") sessions \($0.value.sessionIDs)" }.sorted())")
             print("sidebar: \(store.sidebarGroups.map { "\($0.group.title) \($0.entries.map { "\($0)" })" })")
         }
+        if let status = UserDefaults.standard.string(forKey: "snapshotSidebarStatus").flatMap(SidebarStatus.init(rawValue:)) { store.sidebarStatus = status }
         if let filters = UserDefaults.standard.string(forKey: "snapshotSidebarFilter") {
             for filter in filters.split(separator: "|", omittingEmptySubsequences: false).map(String.init) {
                 store.sidebarFilter = filter

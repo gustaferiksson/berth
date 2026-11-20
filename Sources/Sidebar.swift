@@ -60,6 +60,7 @@ struct SidebarLayout: Equatable {
     let archivedIDs: [String]
     let isEmpty: Bool
     let filter: String
+    let status: SidebarStatus
     let hasNoMatches: Bool
 }
 
@@ -98,7 +99,39 @@ struct Sidebar: View, Equatable {
                     withAnimation { proxy.scrollTo(cursor) }
                 }
         }
+        .safeAreaInset(edge: .top, spacing: 0) { SidebarStatusRow() }
         .safeAreaInset(edge: .bottom, spacing: 0) { SidebarFilterField() }
+    }
+}
+
+private struct SidebarStatusRow: View {
+    @Environment(Store.self) private var store
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(SidebarStatus.allCases) { status in
+                let count = store.sidebarCount(status)
+                Button { store.sidebarStatus = status } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: status.symbol)
+                            .font(.system(size: 13))
+                        if count > 0 {
+                            Text("\(count)")
+                                .font(.caption.monospacedDigit())
+                        }
+                    }
+                    .foregroundStyle(store.sidebarStatus == status ? theme.foreground : theme.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help(status.title)
+                .accessibilityLabel(status.title)
+            }
+        }
+        .frame(height: 26)
+        .overlay(alignment: .bottom) { Divider() }
     }
 }
 
@@ -116,11 +149,12 @@ private struct SidebarFilterField: View {
                 .textFieldStyle(.plain)
                 .focused($isFocused)
                 .onKeyPress(.escape) {
-                    if store.sidebarFilter.isEmpty {
+                    if store.sidebarFilter.isEmpty, store.sidebarStatus == .all {
                         isFocused = false
                         store.focusedTerminal?.requestFocus()
                     } else {
                         store.sidebarFilter = ""
+                        store.sidebarStatus = .all
                     }
                     return .handled
                 }
@@ -259,9 +293,11 @@ private struct SidebarList: View, Equatable {
             return .handled
         }
         .onKeyPress(.escape) {
-            guard !store.multiSelection.isEmpty else { return .ignored }
+            guard !store.multiSelection.isEmpty || store.sidebarStatus != .all || !store.sidebarFilter.isEmpty else { return .ignored }
 
             store.multiSelection = []
+            store.sidebarStatus = .all
+            store.sidebarFilter = ""
             return .handled
         }
         .alert("Rename Task", isPresented: Binding(get: { renamingTask != nil }, set: { if !$0 { renamingTask = nil } })) {
@@ -285,7 +321,9 @@ private struct SidebarList: View, Equatable {
         }
         .fileDialogDefaultDirectory(browseRoot.map { URL(filePath: $0) })
         .overlay {
-            if layout.hasNoMatches {
+            if layout.hasNoMatches, layout.filter.isEmpty {
+                ContentUnavailableView("No \(layout.status.title) Sessions", systemImage: layout.status.symbol)
+            } else if layout.hasNoMatches {
                 ContentUnavailableView.search(text: layout.filter)
             } else if layout.isEmpty {
                 ContentUnavailableView("No Claude Sessions", systemImage: "bubble.left.and.text.bubble.right", description: Text("Sessions you start with claude show up here, grouped by project."))
