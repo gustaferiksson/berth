@@ -18,13 +18,7 @@ struct BerthRemoteApp: App {
             }
             .safeAreaInset(edge: .top) {
                 if client.state == .reconnecting {
-                    Label {
-                        Text("Reconnecting…")
-                    } icon: {
-                        ProgressView()
-                    }
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    ConnectionStatus()
                 }
             }
             .environment(client)
