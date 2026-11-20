@@ -142,6 +142,8 @@ private struct Composer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var sends = 0
     @State private var stops = 0
+    @State private var isShowingTray = UserDefaults.standard.bool(forKey: "snapshotTray")
+    @State private var confirmedCommand: SlashCommand?
     @FocusState private var isFocused: Bool
     @ScaledMetric private var rowHeight = 48
 
@@ -166,6 +168,14 @@ private struct Composer: View {
                 .font(.title3)
                 .frame(width: rowHeight, height: rowHeight)
                 .glassEffect(.regular.interactive(), in: .circle)
+                Button("Quick Replies", systemImage: "text.bubble") { isShowingTray = true }
+                    .labelStyle(.iconOnly)
+                    .font(.title3)
+                    .frame(width: rowHeight, height: rowHeight)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .popover(isPresented: $isShowingTray) {
+                        QuickReplyTray(onInsert: insert, onCommand: run)
+                    }
                 VStack(alignment: .leading, spacing: 0) {
                     if !attachments.isEmpty {
                         ScrollView(.horizontal) {
@@ -203,6 +213,16 @@ private struct Composer: View {
         }
         .disabled(client.state != .connected)
         .sensoryFeedback(.impact(weight: .light), trigger: sends)
+        .sensoryFeedback(.selection, trigger: isShowingTray)
+        .confirmationDialog("Clear this conversation?", isPresented: Binding { confirmedCommand != nil } set: { if !$0 { confirmedCommand = nil } }, titleVisibility: .visible) {
+            Button("Clear", role: .destructive) {
+                guard let confirmedCommand else { return }
+
+                sendCommand(confirmedCommand)
+            }
+        } message: {
+            Text("/clear starts over with an empty conversation. This can’t be undone from here.")
+        }
         .sensoryFeedback(.impact(weight: .medium), trigger: stops)
         .sensoryFeedback(.error, trigger: client.uploads) { old, new in failures(in: new) > failures(in: old) }
         .photosPicker(isPresented: $isPickingPhotos, selection: $photoItems, maxSelectionCount: 4, matching: .images)
@@ -278,6 +298,28 @@ private struct Composer: View {
         send()
     }
     #endif
+
+    private func insert(_ text: String) {
+        isShowingTray = false
+        draft = draft.isEmpty || draft.last?.isWhitespace == true ? draft + text : draft + " " + text
+        isFocused = true
+    }
+
+    private func run(_ command: SlashCommand) {
+        isShowingTray = false
+        if command.isDestructive {
+            confirmedCommand = command
+            return
+        }
+
+        sendCommand(command)
+    }
+
+    private func sendCommand(_ command: SlashCommand) {
+        guard client.send(.prompt(sessionID: sessionID, text: command.name, attachments: nil)) else { return }
+
+        sends += 1
+    }
 
     private func send() {
         guard client.sendDraft(to: sessionID) else { return }
