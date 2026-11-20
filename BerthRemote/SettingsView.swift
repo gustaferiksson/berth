@@ -91,6 +91,9 @@ struct SettingsView: View {
                 } footer: {
                     Text("Text Size adds to the size set in the Settings app.")
                 }
+                Section {
+                    NavigationLink("Quick Replies") { QuickRepliesEditor() }
+                }
                 Section("Appearance") {
                     Picker("Appearance", selection: $colorScheme) {
                         Text("System").tag("system")
