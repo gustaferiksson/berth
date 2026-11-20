@@ -278,6 +278,7 @@ struct TranscriptTests {
         let summary = try #require(Transcript.summary(id: "a", folder: "-x", modified: .now, head: head, tail: tail))
         #expect(try summary.lastPrompt == Date("2026-10-29T10:01:00.000Z", strategy: .iso8601))
         #expect(try summary.lastActivity == Date("2026-10-29T10:01:00.000Z", strategy: .iso8601))
+        #expect(summary.lastTypedPrompt == nil)
     }
 
     private func transcript(withPrompt prompt: String, followedByToolResults count: Int) throws -> URL {
