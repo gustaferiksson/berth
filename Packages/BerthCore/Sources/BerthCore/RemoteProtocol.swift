@@ -36,11 +36,53 @@ public struct RemotePullRequest: Codable, Sendable, Hashable {
     public let number: Int
     public let state: String
     public let url: URL
+    public let checks: String?
 
-    public init(number: Int, state: String, url: URL) {
+    public init(number: Int, state: String, url: URL, checks: String? = nil) {
         self.number = number
         self.state = state
         self.url = url
+        self.checks = checks
+    }
+}
+
+public struct RemotePullRequestDetail: Codable, Sendable, Hashable {
+    public let number: Int
+    public let title: String
+    public let state: String
+    public let url: URL
+    public let repository: String?
+    public let head: String?
+    public let base: String?
+    public let checks: String?
+    public let checksPassed: Int?
+    public let checksFailed: Int?
+    public let checksRunning: Int?
+    public let reviewDecision: String?
+    public let unresolvedThreads: Int?
+    public let additions: Int?
+    public let deletions: Int?
+    public let changedFiles: Int?
+    public let commits: Int?
+
+    public init(number: Int, title: String, state: String, url: URL, repository: String?, head: String?, base: String?, checks: String?, checksPassed: Int?, checksFailed: Int?, checksRunning: Int?, reviewDecision: String?, unresolvedThreads: Int?, additions: Int?, deletions: Int?, changedFiles: Int?, commits: Int?) {
+        self.number = number
+        self.title = title
+        self.state = state
+        self.url = url
+        self.repository = repository
+        self.head = head
+        self.base = base
+        self.checks = checks
+        self.checksPassed = checksPassed
+        self.checksFailed = checksFailed
+        self.checksRunning = checksRunning
+        self.reviewDecision = reviewDecision
+        self.unresolvedThreads = unresolvedThreads
+        self.additions = additions
+        self.deletions = deletions
+        self.changedFiles = changedFiles
+        self.commits = commits
     }
 }
 
@@ -152,6 +194,10 @@ public nonisolated enum RemoteUpload {
     public static let chunkBytes = 512 << 10
 }
 
+public nonisolated enum RemotePullRequestFeature {
+    public static let name = "pullRequest"
+}
+
 public enum RemoteClientMessage: Codable, Sendable {
     case auth(hmac: Data)
     case subscribe(sessionID: String)
@@ -161,6 +207,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case session(sessionID: String, action: RemoteSessionAction)
     case refresh
     case upload(id: String, name: String, offset: Int, chunk: Data, isLast: Bool)
+    case pullRequest(sessionID: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
@@ -170,4 +217,5 @@ public enum RemoteServerMessage: Codable, Sendable {
     case opened(sessionID: String)
     case notice(message: String)
     case uploaded(id: String, error: String?)
+    case pullRequest(sessionID: String, detail: RemotePullRequestDetail?)
 }

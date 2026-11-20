@@ -83,5 +83,21 @@ struct RemoteProtocolTests {
         guard case let .transcript(_, entries, _, queued, _) = try JSONDecoder().decode(RemoteServerMessage.self, from: Data(#"{"transcript":{"sessionID":"s","entries":[],"isContinuation":true}}"#.utf8)) else { throw CancellationError() }
 
         #expect(entries.isEmpty && queued == nil)
+
+        let session = try JSONDecoder().decode(RemoteSession.self, from: Data(#"{"id":"s","title":"t","folder":"/f","lastActivity":0,"isOpen":true,"isLocked":false,"pullRequest":{"number":7,"state":"Open","url":"https://github.com/a/b/pull/7"}}"#.utf8))
+
+        #expect(session.pullRequest?.checks == nil)
+    }
+
+    @Test func pullRequestMessagesRoundTrip() throws {
+        let request = RemoteClientMessage.pullRequest(sessionID: "s")
+        guard case let .pullRequest(sessionID) = try JSONDecoder().decode(RemoteClientMessage.self, from: JSONEncoder().encode(request)) else { throw CancellationError() }
+
+        #expect(sessionID == "s")
+
+        let reply = RemoteServerMessage.pullRequest(sessionID: "s", detail: nil)
+        guard case let .pullRequest(_, detail) = try JSONDecoder().decode(RemoteServerMessage.self, from: JSONEncoder().encode(reply)) else { throw CancellationError() }
+
+        #expect(detail == nil)
     }
 }
