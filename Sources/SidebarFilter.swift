@@ -23,10 +23,10 @@ enum SidebarStatus: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .all: "tray.full"
+        case .all: "tray"
         case .working: "ellipsis.circle"
         case .needsYou: "exclamationmark.circle"
-        case .unread: "circle.fill"
+        case .unread: "circlebadge"
         case .flagged: "flag"
         }
     }

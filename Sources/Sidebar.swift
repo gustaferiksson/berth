@@ -107,32 +107,10 @@ struct Sidebar: View, Equatable {
 
 private struct SidebarStatusRow: View {
     @Environment(Store.self) private var store
-    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(SidebarStatus.allCases) { status in
-                let count = store.sidebarCount(status)
-                Button { store.sidebarStatus = status } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: status.symbol)
-                            .font(.system(size: 13))
-                        if count > 0 {
-                            Text("\(count)")
-                                .font(.caption.monospacedDigit())
-                        }
-                    }
-                    .foregroundStyle(store.sidebarStatus == status ? theme.foreground : theme.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .help(status.title)
-                .accessibilityLabel(status.title)
-            }
-        }
-        .frame(height: 26)
-        .overlay(alignment: .bottom) { Divider() }
+        @Bindable var store = store
+        IconTabBar(tabs: SidebarStatus.allCases, selection: $store.sidebarStatus, symbol: \.symbol, title: \.title) { $0 == .all ? 0 : store.sidebarCount($0) }
     }
 }
 

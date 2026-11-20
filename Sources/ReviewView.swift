@@ -346,18 +346,7 @@ private struct ReviewFileList: View {
 
     @ViewBuilder private var content: some View {
         if let changes = model.changes {
-            VStack(spacing: 0) {
-                header(changes)
-                if let movedFolder = model.movedFolder {
-                    Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits and send or delete your comments to follow it.", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(theme.needsYou)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 6)
-                }
-                tabs(changes)
-            }
+            tabs(changes)
         } else if let error = model.error, case ReviewGitError.notARepository = error, !extras.isEmpty {
             tabs(nil)
         } else if let error = model.error, case ReviewGitError.notARepository = error {
@@ -678,28 +667,15 @@ private struct ReviewFileList: View {
 
     private func tabs(_ changes: ReviewChanges?) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                ForEach(ReviewPanelTab.allCases, id: \.self) { tab in
-                    Button { panelTab = tab } label: {
-                        HStack(spacing: 3) {
-                            Label(tab.title, systemImage: tab.symbol)
-                                .labelStyle(.iconOnly)
-                                .font(.system(size: 13))
-                            if tab == .comments, commentCount > 0 {
-                                Text("\(commentCount)")
-                                    .font(.caption2)
-                                    .monospacedDigit()
-                            }
-                        }
-                        .foregroundStyle(panelTab == tab ? theme.foreground : theme.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 28)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .help(tab.title)
-                }
+            IconTabBar(tabs: ReviewPanelTab.allCases, selection: Binding(get: { panelTab }, set: { panelTab = $0 }), symbol: \.symbol, title: \.title) { $0 == .comments ? commentCount : 0 }
+            if let movedFolder = model.movedFolder {
+                Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits and send or delete your comments to follow it.", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(theme.needsYou)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
             }
-            Hairline(axis: .horizontal)
             switch panelTab {
             case .changes: changesTab(changes)
             case .files: filesTab(changes)
@@ -718,6 +694,7 @@ private struct ReviewFileList: View {
 
     private func changesTab(_ changes: ReviewChanges?) -> some View {
         VStack(spacing: 0) {
+            if let changes { header(changes) }
             if let task = store.task(containing: sessionID) {
                 taskCard(task)
                 if !extras.isEmpty { repoTabs(task) }
