@@ -210,7 +210,7 @@ final class Store {
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
     private(set) var pullRequests = Snapshot.fixturePullRequests
-    private(set) var linkedPullRequests: [PullRequestLink: PullRequest] = [:]
+    private(set) var linkedPullRequests = Snapshot.fixtureLinkedPullRequests
     private(set) var inbox = Snapshot.fixtureInbox
     private(set) var isInboxLoading = false
     private(set) var searchIndexVersion = 0
@@ -480,7 +480,7 @@ final class Store {
         return (activeSessions + archivedSessions)
             .filter { session in
                 session.pullRequests.contains { $0.number == pullRequest.number && $0.repository.lowercased() == repository }
-                    || self.pullRequest(for: session)?.number == pullRequest.number && repositoryRoots[session.checkout].flatMap { repositories[$0] ?? nil }?.lowercased() == repository
+                    || self.pullRequests(of: session).contains { $0.number == pullRequest.number && $0.repository.lowercased() == repository }
             }
             .sorted { $0.lastActivity > $1.lastActivity }
     }
@@ -505,8 +505,15 @@ final class Store {
         }
     }
 
+    func pullRequests(of session: SessionSummary) -> [SessionPullRequest] {
+        let repository = repositoryRoots[session.checkout].flatMap { repositories[$0] ?? nil }
+        let linked = session.pullRequests.compactMap { link in linkedPullRequests[link].map { SessionPullRequest(repository: link.repository, pullRequest: $0, head: $0.headRefName) } }
+        let looked = repository.map { repository in session.branches.compactMap { branch in (pullRequests[PullRequestBranch(repository: repository, branch: branch)] ?? nil).map { SessionPullRequest(repository: repository, pullRequest: $0, head: branch) } } } ?? []
+        return PullRequestSelection.order(linked + looked, currentRepository: repository, branches: session.branches)
+    }
+
     func pullRequest(for session: SessionSummary) -> PullRequest? {
-        pullRequestBranches(of: session).lazy.compactMap { self.pullRequests[$0] ?? nil }.first
+        pullRequests(of: session).first?.pullRequest
     }
 
     func pullRequest(in folder: String, branch: String) -> (repository: String, pullRequest: PullRequest?)? {

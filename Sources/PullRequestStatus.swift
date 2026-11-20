@@ -1,13 +1,6 @@
 import BerthCore
 import Foundation
 
-nonisolated enum PullRequestState: String, Sendable {
-    case open = "Open"
-    case draft = "Draft"
-    case merged = "Merged"
-    case closed = "Closed"
-}
-
 nonisolated struct PullRequest: Sendable, Hashable {
     let number: Int
     let url: URL
@@ -29,6 +22,15 @@ nonisolated struct ClosingIssue: Sendable, Hashable {
     let ref: IssueRef
     let title: String
     var state: IssueState?
+}
+
+nonisolated struct SessionPullRequest: PullRequestCandidate, Hashable {
+    let repository: String
+    let pullRequest: PullRequest
+    let head: String?
+
+    var number: Int { pullRequest.number }
+    var state: PullRequestState { pullRequest.state }
 }
 
 nonisolated struct PullRequestBranch: Sendable, Hashable {

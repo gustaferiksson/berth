@@ -23,6 +23,13 @@ enum Snapshot {
     #endif
 
     #if DEBUG
+    private static let linkedFixtures: [PullRequestLink: PullRequest] = UserDefaults.standard.bool(forKey: "snapshotLinkedPullRequests") ? [
+        PullRequestLink(repository: "acme/web", number: 77): PullRequest(number: 77, url: URL(string: "https://github.com/acme/web/pull/77")!, title: "Show linked pull requests", state: .closed, headRefName: "feature/linked-web"),
+        PullRequestLink(repository: "acme/billing", number: 4822): PullRequest(number: 4822, url: URL(string: "https://github.com/acme/billing/pull/4822")!, title: "Reconcile settlement exports, part 2", state: .merged, headRefName: "feature/settlement-part-2"),
+        PullRequestLink(repository: "acme/billing", number: 4823): PullRequest(number: 4823, url: URL(string: "https://github.com/acme/billing/pull/4823")!, title: "Export ledger entries", state: .open, headRefName: "feature/ledger-export", checks: .passed),
+    ] : [:]
+    private static let linkedFixtureLinks = linkedFixtures.keys.sorted { $0.number > $1.number }
+
     private static let longNames: [(session: SessionSummary, pullRequest: PullRequest?)] = {
         let code = NSTemporaryDirectory() + "berth-long-names"
         let billing = "\(code)/acme-platform-billing-reconciliation-pipeline-service"
@@ -30,7 +37,7 @@ enum Snapshot {
         let legacy = "\(code)/acme-platform-billing-reconciliation-pipeline-service-legacy-adapter"
         for folder in [billing, onboarding, legacy, "\(code)/api"] { try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
         return [
-            (SessionSummary(id: "fixture-1", cwd: billing, title: "Reconcile ledger entries against settlement exports and flag every mismatch", lastActivity: .now - 120, branch: "feature/reconcile-settlement-exports-with-ledger-entries"), PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries", state: .open)),
+            (SessionSummary(id: "fixture-1", cwd: billing, title: "Reconcile ledger entries against settlement exports and flag every mismatch", lastActivity: .now - 120, branch: "feature/reconcile-settlement-exports-with-ledger-entries", pullRequests: linkedFixtureLinks), PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries", state: .open)),
             (SessionSummary(id: "fixture-2", cwd: billing, title: "Fix rounding", lastActivity: .now - 900, branch: "fix/rounding"), PullRequest(number: 4790, url: URL(string: "https://github.com/acme/billing/pull/4790")!, title: "Fix rounding", state: .merged)),
             (SessionSummary(id: "fixture-3", cwd: onboarding, title: "Retry document verification when the upstream provider times out", lastActivity: .now - 2400, branch: "chore/upgrade-document-verification-provider-sdk-to-latest-major"), nil),
             (SessionSummary(id: "fixture-4", cwd: "\(code)/api", title: "Draft the webhook signature check", lastActivity: .now - 3000, branch: "feature/webhook-signature-verification-with-rotating-secrets"), PullRequest(number: 12, url: URL(string: "https://github.com/acme/billing/pull/12")!, title: "Webhook signatures", state: .draft)),
@@ -42,7 +49,7 @@ enum Snapshot {
     private static let reviewPullRequest: [(session: SessionSummary, pullRequest: PullRequest?)] = {
         guard let folder = UserDefaults.standard.string(forKey: "snapshotReview"), let branch = UserDefaults.standard.string(forKey: "snapshotReviewPullRequest") else { return [] }
 
-        let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch)
+        let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch, pullRequests: linkedFixtureLinks)
         let state = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestState") ?? "Open"
         return [(session, PullRequestState(rawValue: state.capitalized).map { PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries against settlement exports and flag every mismatch", state: $0, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase")) })]
     }()
@@ -166,6 +173,7 @@ enum Snapshot {
         }
     }) { first, _ in first }
     static let fixtureInbox = inboxFixtures?.inbox
+    static let fixtureLinkedPullRequests = linkedFixtures
     #else
     static let fixtureSessions: [SessionSummary]? = nil
     static let fixtureTasks: TaskState? = nil
@@ -173,6 +181,7 @@ enum Snapshot {
     static let fixtureRepositories: [String: String?] = [:]
     static let fixturePullRequests: [PullRequestBranch: PullRequest?] = [:]
     static let fixtureInbox: [InboxPullRequest]? = nil
+    static let fixtureLinkedPullRequests: [PullRequestLink: PullRequest] = [:]
     static let fixturePullRequestDetail: PullRequestDetail? = nil
     #endif
 
@@ -271,7 +280,7 @@ enum Snapshot {
         if let status = UserDefaults.standard.string(forKey: "snapshotSidebarStatus").flatMap(SidebarStatus.init(rawValue:)) { store.sidebarStatus = status }
         for session in store.sessionsByID.values.filter({ forcedHover.contains($0.title) }) {
             let isOpen = store.tab(forSession: session.id) != nil || store.liveBySession[session.id] != nil
-            let card = SessionHoverCard(session: session, pullRequest: store.pullRequest(for: session), context: isOpen ? session.context : nil)
+            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil)
                 .environment(\.ghosttyTheme, store.theme)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)

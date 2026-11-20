@@ -47,7 +47,7 @@ final class HoverCardPanel {
 
 struct SessionHoverTrigger: ViewModifier {
     let session: SessionSummary
-    let pullRequest: PullRequest?
+    let pullRequests: [SessionPullRequest]
     let context: SessionContext?
     @State private var anchor: NSView?
     @State private var pending: Task<Void, Never>?
@@ -69,7 +69,7 @@ struct SessionHoverTrigger: ViewModifier {
                     let row = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
                     let column = anchor.enclosingScrollView.map { window.convertToScreen($0.convert($0.bounds, to: nil)) } ?? row
                     HoverCardPanel.shared.show(
-                        SessionHoverCard(session: session, pullRequest: pullRequest, context: context).environment(\.ghosttyTheme, theme),
+                        SessionHoverCard(session: session, pullRequests: pullRequests, context: context).environment(\.ghosttyTheme, theme),
                         isDark: theme.isDark,
                         beside: row,
                         column: column,
@@ -95,7 +95,7 @@ private struct ViewAnchor: NSViewRepresentable {
 
 struct SessionHoverCard: View {
     let session: SessionSummary
-    let pullRequest: PullRequest?
+    let pullRequests: [SessionPullRequest]
     let context: SessionContext?
     @Environment(\.ghosttyTheme) private var theme
 
@@ -107,14 +107,14 @@ struct SessionHoverCard: View {
             Text([URL(filePath: session.checkout).lastPathComponent, session.branch].compactMap(\.self).joined(separator: " · "))
                 .font(.caption)
                 .foregroundStyle(.primary.opacity(0.7))
-            if let pullRequest {
-                let checks = [.open, .draft].contains(pullRequest.state) ? pullRequest.checks : nil
+            ForEach(pullRequests, id: \.self) { item in
+                let checks = [.open, .draft].contains(item.state) ? item.pullRequest.checks : nil
                 HStack(spacing: 6) {
                     Image(systemName: "circle.fill")
                         .accessibilityHidden(true)
                         .font(.system(size: 7))
-                        .foregroundStyle(pullRequest.state.color(in: theme))
-                    Text("#\(String(pullRequest.number)) \(pullRequest.state.rawValue)\(checks.map { ", checks \($0.rawValue)" } ?? "")")
+                        .foregroundStyle(item.state.color(in: theme))
+                    Text(verbatim: "\(item.repository) #\(item.number) \(item.state.rawValue)\(checks.map { ", checks \($0.rawValue)" } ?? "")")
                         .font(.caption)
                 }
             }
