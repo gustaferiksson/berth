@@ -80,6 +80,7 @@ extension Snapshot {
         }
         let deadline = Date.now + 30
         while Date.now < deadline, store.sessionReviewModels.count < 3 || store.sessionReviewModels.contains(where: { $0.changes == nil && $0.error == nil }) { try? await Task.sleep(for: .milliseconds(100)) }
+        if UserDefaults.standard.bool(forKey: "snapshotReviewCommitsExpanded") { store.sessionReviewModels.forEach { $0.showsCommits = true } }
         try? await Task.sleep(for: .seconds(2))
         print("transcript of \(own): \(store.index.url(ofSession: own)?.lastPathComponent ?? "not indexed") (claude directory \(Store.claudeDirectory.path)), edited repositories \(store.editedRepositories[own]?.keys.map { URL(filePath: $0).lastPathComponent } ?? [])")
         if own != "task-usage-api" {

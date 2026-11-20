@@ -51,6 +51,7 @@ final class ReviewModel {
     var filesReveal: String?
     var expandedFolders: Set<String> = []
     var collapsedChangeFolders: Set<ReviewDocument> = []
+    var showsCommits = false
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private var queuedLoad: Task<Void, Never>?
     @ObservationIgnored private(set) var loadCount = 0
@@ -547,7 +548,7 @@ private struct ReviewFileList: View {
     }
 
     private func branchCard(_ changes: ReviewChanges, _ status: ReviewBranchStatus) -> some View {
-        ReviewBranchCard(changes: changes, status: status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest)
+        ReviewBranchCard(changes: changes, status: status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest, showsCommits: Bindable(model).showsCommits)
     }
 
     private var allExtras: [(repository: ReviewRepository, model: ReviewModel)] {
@@ -643,7 +644,7 @@ private struct ReviewFileList: View {
             Section(isExpanded: repositoryExpansion(extra.repository.root)) {
                 if let changes = extra.model.changes {
                     let found = extraPullRequest(extra.repository.root, changes.branch)
-                    ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil)
+                    ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil, showsCommits: Bindable(extra.model).showsCommits)
                         .listRowInsets(EdgeInsets(top: 0, leading: -7.5 - inset, bottom: 6, trailing: -8))
                     stackedRows(changes, in: extra.model, root: extra.repository.root, indent: inset)
                 } else {
@@ -1078,6 +1079,7 @@ private struct ReviewBranchCard: View {
     let detail: PullRequestDetail?
     let isClaudeLive: Bool
     let createPullRequest: (() -> Void)?
+    @Binding var showsCommits: Bool
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -1196,31 +1198,44 @@ private struct ReviewBranchCard: View {
 
     private var commits: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(status.commits.prefix(5), id: \.sha) { commit in
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(commit.isPushed ? theme.secondary : .clear)
-                        .strokeBorder(commit.isPushed ? .clear : theme.needsYou, lineWidth: 1.25)
-                        .frame(width: 7, height: 7)
-                        .help(commit.isPushed ? "Pushed" : "Not pushed")
-                    Text(commit.sha)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(theme.secondary)
-                    Text(commit.subject)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 4)
-                    Text(age(since: commit.date))
+            Button {
+                showsCommits.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: showsCommits ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .frame(width: 10)
+                        .accessibilityHidden(true)
+                    Text("\(status.commits.count)\(status.ahead > status.commits.count ? "+" : "") \(status.commits.count == 1 ? "commit" : "commits")")
                         .font(.caption)
-                        .foregroundStyle(theme.secondary)
+                    Spacer(minLength: 0)
                 }
+                .foregroundStyle(theme.secondary)
                 .frame(height: 22)
-                .help(commit.subject)
+                .contentShape(.rect)
             }
-            if status.commits.count > 5 {
-                Text("\(status.commits.count - 5) more")
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
+            .buttonStyle(.plain)
+            if showsCommits {
+                ForEach(status.commits, id: \.sha) { commit in
+                    HStack(spacing: 7) {
+                        Circle()
+                            .fill(commit.isPushed ? theme.secondary : .clear)
+                            .strokeBorder(commit.isPushed ? .clear : theme.needsYou, lineWidth: 1.25)
+                            .frame(width: 7, height: 7)
+                            .help(commit.isPushed ? "Pushed" : "Not pushed")
+                        Text(commit.sha)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(theme.secondary)
+                        Text(commit.subject)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 4)
+                        Text(age(since: commit.date))
+                            .font(.caption)
+                            .foregroundStyle(theme.secondary)
+                    }
                     .frame(height: 22)
+                    .help(commit.subject)
+                }
             }
         }
         .padding(.top, 4)
