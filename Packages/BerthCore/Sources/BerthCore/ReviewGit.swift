@@ -251,7 +251,8 @@ public enum ReviewGit {
 
             bases.append(ReviewBase(ref: ref.name, distance: distance))
         }
-        return bases.sorted { ($0.distance, $0.ref) < ($1.distance, $1.ref) } + [ReviewBase(ref: defaultBase, distance: distance)]
+        let nearestFirst = bases.sorted { ($0.distance, $0.ref) < ($1.distance, $1.ref) }
+        return nearestFirst.filter { $0.ref.hasPrefix("origin/") } + nearestFirst.filter { !$0.ref.hasPrefix("origin/") } + [ReviewBase(ref: defaultBase, distance: distance)]
     }
 
     public static func contents(of file: ReviewFile, compare: ReviewCompare, in changes: ReviewChanges) async throws -> ReviewContents {

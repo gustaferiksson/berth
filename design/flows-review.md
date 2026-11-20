@@ -29,11 +29,11 @@ This is the slim first version; the rest is listed under Later.
   the merge base with the default branch and HEAD (`git for-each-ref --merged=HEAD --contains=<merge
   base>`), without the current branch, its `origin/` twin and refs at HEAD or at the merge base; a
   local branch at the same commit as its `origin/` twin shows once, as the remote. Each carries its
-  distance (`rev-list --count <ref>..HEAD`), nearest first, and the default branch always comes last.
+  distance (`rev-list --count <ref>..HEAD`), `origin/` refs first, then local branches, each nearest first, and the default branch always comes last.
 - Base, first hit wins (`ReviewChanges.baseReason`): the user's pick (`reviewBaseBranches`, per
   repository root and branch), the PR's base branch (`baseRefName`, as `origin/<name>` else `<name>`),
   the configured base when it isn't the default branch, each only while it shares history with HEAD,
-  then the nearest candidate, then the default branch. A pick that no longer resolves is removed.
+  then the first candidate (the nearest `origin/` one, a local branch only when there is none), then the default branch. A pick that no longer resolves is removed.
   Everything below that says base uses this one: the Committed compare, ahead and behind, the
   commits, the branch total and Create Pull Request.
 - A background `git fetch` of the configured base (the default branch without one) runs at most
