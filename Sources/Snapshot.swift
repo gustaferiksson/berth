@@ -213,6 +213,11 @@ enum Snapshot {
             arguments[LanguageServerEntry.storageKey] = String(decoding: data, as: UTF8.self)
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         }
+        if let tab = UserDefaults.standard.string(forKey: "snapshotReviewPanelTab") {
+            var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            arguments["reviewPanelTab"] = tab
+            UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        }
         await store.waitForScan()
         if UserDefaults.standard.bool(forKey: "snapshotRemote") { store.remote.update() }
         if UserDefaults.standard.bool(forKey: "snapshotFakeWaiting") {
@@ -1037,7 +1042,11 @@ enum Snapshot {
                 store.closeDiff()
                 try? await Task.sleep(for: .milliseconds(500))
                 print("edit closed diff: \(describe(model))")
-                let row = NSPoint(x: 100, y: (window.contentView?.frame.height ?? 0) - 828)
+                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                arguments["reviewPanelTab"] = ReviewPanelTab.comments.rawValue
+                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                try? await Task.sleep(for: .milliseconds(500))
+                let row = NSPoint(x: 100, y: (window.contentView?.frame.height ?? 0) - 150)
                 for clicks in [1, 2] {
                     let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: row, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
                     event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }

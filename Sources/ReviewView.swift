@@ -25,6 +25,16 @@ enum ReviewDiffLayout: String {
     static let key = "reviewDiffLayout"
 }
 
+enum ReviewPanelTab: String, CaseIterable {
+    case changes
+    case files
+    case comments
+
+    var title: String { rawValue.capitalized }
+
+    var symbol: String { [Self.changes: "plusminus", .files: "folder", .comments: "text.bubble"][self] ?? "" }
+}
+
 @Observable
 final class ReviewModel {
     let folder: String
@@ -301,11 +311,9 @@ private struct ReviewFileList: View {
     @Bindable var model: ReviewModel
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
-    @AppStorage("collapsedReviewSections") private var collapsedSections = "files"
-    @AppStorage("reviewFilesPaneHeight") private var filesPaneHeight = 0.0
+    @AppStorage("collapsedReviewSections") private var collapsedSections = ""
     @AppStorage("reviewChangesAsTree") private var changesAsTree = false
-    @State private var changesContentHeight = 0.0
-    @State private var filesHeaderHeight = 0.0
+    @AppStorage("reviewPanelTab") private var panelTab = ReviewPanelTab.changes
     @FocusState private var focusedList: String?
 
     var body: some View {
@@ -319,6 +327,7 @@ private struct ReviewFileList: View {
                 model.pullRequestBase = base
                 await model.load()
             }
+            .onChange(of: model.filesReveal) { if $1 != nil { panelTab = .files } }
             .onChange(of: owners.contains { $0.model.hasUnsavedEdits || !$0.model.comments.isEmpty }) { store.prepareReviewModel() }
             .task(id: selection) { await (store.reviewModel ?? model).loadSelectedContents() }
             .task(id: extraStates) { for extra in extras { await prepare(extra.repository, extra.model) } }
@@ -341,59 +350,10 @@ private struct ReviewFileList: View {
                         .padding(.horizontal, 8)
                         .padding(.bottom, 6)
                 }
-                if !isStacked, let status = model.status {
-                    branchCard(changes, status)
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 6)
-                }
-                ReviewFilesSplit(
-                    changes: list(name: "changes", order: order(changes)) { if isStacked { stackedSections(changes) } else { changeSections(changes) } }
-                        .id(changesAsTree ? ([changes] + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
-                        .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { changesContentHeight = $1 }
-                        .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
-                            guard let document, let compare = document.compare, let active = store.reviewModel else { return }
-
-                            active.collapsedChangeFolders = active.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
-                        }
-                        .environment(\.ghosttyTheme, theme),
-                    files: VStack(spacing: 0) {
-                        list { filesHeader }
-                            .scrollDisabled(true)
-                            .onScrollGeometryChange(for: CGFloat.self) { $0.contentSize.height + $0.contentInsets.top + $0.contentInsets.bottom } action: { filesHeaderHeight = $1 }
-                            // Expanded, the List's own 10 pt of vertical padding would otherwise sit between the header and the tree.
-                            .frame(height: expansion(of: "files").wrappedValue ? max(filesHeaderHeight - 10, 0) : filesHeaderHeight)
-                        ScrollViewReader { proxy in
-                            list(name: "files", order: expansion(of: "files").wrappedValue ? model.tree.flatMap { leaves(of: $0, compare: nil, in: model, root: nil) } : []) { ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) } }
-                                .onChange(of: [model.selectedDocument?.path, model.filesReveal], initial: true) {
-                                    guard let path = model.filesReveal ?? model.selectedDocument?.path else { return }
-
-                                    if model.filesReveal != nil, !expansion(of: "files").wrappedValue { expansion(of: "files").wrappedValue = true }
-                                    model.filesReveal = nil
-                                    model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
-                                    Task { proxy.scrollTo(path) }
-                                }
-                        }
-                    }
-                    .environment(\.ghosttyTheme, theme),
-                    layout: !expansion(of: "files").wrappedValue ? .filesCollapsed(filesHeaderHeight) : areChangesCollapsed(changes) ? .changesCollapsed(changesContentHeight) : .split,
-                    filesHeight: $filesPaneHeight,
-                    divider: NSColor(theme.foreground.opacity(0.1))
-                )
-
-                if owners.contains(where: { !$0.model.comments.isEmpty }) {
-                    Hairline(axis: .horizontal)
-                    comments
-                }
+                tabs(changes)
             }
         } else if let error = model.error, case ReviewGitError.notARepository = error, !extras.isEmpty {
-            VStack(spacing: 0) {
-                list { stackedSections(nil) }
-                    .environment(\.ghosttyTheme, theme)
-                if owners.contains(where: { !$0.model.comments.isEmpty }) {
-                    Hairline(axis: .horizontal)
-                    comments
-                }
-            }
+            tabs(nil)
         } else if let error = model.error, case ReviewGitError.notARepository = error {
             let failure = failure(error)
             ContentUnavailableView(failure.title, systemImage: failure.symbol, description: Text(failure.description))
@@ -604,12 +564,6 @@ private struct ReviewFileList: View {
         }
     }
 
-    private func areChangesCollapsed(_ changes: ReviewChanges) -> Bool {
-        guard isStacked else { return (changes.uncommitted.isEmpty || !expansion(of: "uncommitted").wrappedValue) && (changes.committed.isEmpty || !expansion(of: "committed").wrappedValue) }
-
-        return !repositoryExpansion(store.repositoryRoot(ofSession: sessionID) ?? model.folder).wrappedValue && extras.allSatisfy { !repositoryExpansion($0.repository.root).wrappedValue }
-    }
-
     @ViewBuilder
     private func stackedSections(_ changes: ReviewChanges?) -> some View {
         let ownRoot = store.repositoryRoot(ofSession: sessionID) ?? model.folder
@@ -675,9 +629,72 @@ private struct ReviewFileList: View {
         }
     }
 
-    private var filesHeader: some View {
-        Section(isExpanded: expansion(of: "files")) {} header: {
-            GroupHeader(title: "Files", help: "The repository’s files", count: nil) { EmptyView() } accessory: { _ in EmptyView() }
+    private func tabs(_ changes: ReviewChanges?) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(ReviewPanelTab.allCases, id: \.self) { tab in
+                    Button { panelTab = tab } label: {
+                        HStack(spacing: 3) {
+                            Label(tab.title, systemImage: tab.symbol)
+                                .labelStyle(.iconOnly)
+                                .font(.system(size: 13))
+                            if tab == .comments, commentCount > 0 {
+                                Text("\(commentCount)")
+                                    .font(.caption2)
+                                    .monospacedDigit()
+                            }
+                        }
+                        .foregroundStyle(panelTab == tab ? theme.foreground : theme.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 28)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .help(tab.title)
+                }
+            }
+            Hairline(axis: .horizontal)
+            switch panelTab {
+            case .changes: changesTab(changes)
+            case .files: filesTab(changes)
+            case .comments: comments
+            }
+        }
+    }
+
+    private var commentCount: Int { owners.reduce(0) { $0 + $1.model.comments.count } }
+
+    private func changesTab(_ changes: ReviewChanges?) -> some View {
+        VStack(spacing: 0) {
+            if !isStacked, let changes, let status = model.status {
+                branchCard(changes, status)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+            }
+            list(name: "changes", order: order(changes)) { if isStacked { stackedSections(changes) } else if let changes { changeSections(changes) } }
+                .id(changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
+                .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
+                    guard let document, let compare = document.compare, let active = store.reviewModel else { return }
+
+                    active.collapsedChangeFolders = active.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func filesTab(_ changes: ReviewChanges?) -> some View {
+        if let changes {
+            ScrollViewReader { proxy in
+                list(name: "files", order: model.tree.flatMap { leaves(of: $0, compare: nil, in: model, root: nil) }) { ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) } }
+                    .onChange(of: [model.selectedDocument?.path, model.filesReveal], initial: true) {
+                        guard let path = model.filesReveal ?? model.selectedDocument?.path else { return }
+
+                        model.filesReveal = nil
+                        model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
+                        Task { proxy.scrollTo(path) }
+                    }
+            }
+        } else {
+            ContentUnavailableView("No Git Repository", systemImage: "folder")
         }
     }
 
@@ -690,8 +707,10 @@ private struct ReviewFileList: View {
         }
     }
 
-    private var comments: some View {
-        VStack(spacing: 0) {
+    @ViewBuilder private var comments: some View {
+        if commentCount == 0 {
+            ContentUnavailableView("No Comments", systemImage: "text.bubble", description: Text("Select lines in a diff to comment on them."))
+        } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(owners.flatMap { owner in owner.model.comments.map { (owner: owner, comment: $0) } }, id: \.comment.id) { owner, comment in
@@ -719,10 +738,7 @@ private struct ReviewFileList: View {
                 }
                 .padding(12)
             }
-            .frame(maxHeight: 220)
-            .fixedSize(horizontal: false, vertical: true)
-
-            let commentCount = owners.reduce(0) { $0 + $1.model.comments.count }
+            Hairline(axis: .horizontal)
             Button("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")", action: sendComments)
                 .frame(maxWidth: .infinity)
                 .padding(10)
@@ -975,100 +991,6 @@ private struct ReviewFileNode: View {
                 .foregroundStyle(theme.secondary)
         }
         .help(node.path)
-    }
-}
-
-private struct ReviewFilesSplit<Changes: View, Files: View>: NSViewRepresentable {
-    let changes: Changes
-    let files: Files
-    let layout: ReviewFilesSplitView.Layout
-    @Binding var filesHeight: Double
-    let divider: NSColor
-
-    func makeNSView(context _: Context) -> ReviewFilesSplitView {
-        let split = ReviewFilesSplitView()
-        split.isVertical = false
-        split.dividerStyle = .thin
-        split.delegate = split
-        let changesView = NSHostingView(rootView: changes)
-        let filesView = NSHostingView(rootView: files)
-        changesView.sizingOptions = []
-        filesView.sizingOptions = []
-        split.addSubview(changesView)
-        split.addSubview(filesView)
-        return split
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView _: ReviewFilesSplitView, context _: Context) -> CGSize? {
-        proposal.replacingUnspecifiedDimensions()
-    }
-
-    func updateNSView(_ split: ReviewFilesSplitView, context _: Context) {
-        (split.subviews.first as? NSHostingView<Changes>)?.rootView = changes
-        (split.subviews.last as? NSHostingView<Files>)?.rootView = files
-        split.divider = divider
-        split.dragged = { filesHeight = $0 }
-        guard split.layout != layout || split.filesHeight != filesHeight else { return }
-
-        split.layout = layout
-        split.filesHeight = filesHeight
-        split.resizeSubviews(withOldSize: split.bounds.size)
-        // NSSplitView's divider is a sublayer it positions and colours in layout, never in draw.
-        split.needsLayout = true
-    }
-}
-
-private final class ReviewFilesSplitView: NSSplitView, NSSplitViewDelegate {
-    enum Layout: Equatable {
-        case split
-        case filesCollapsed(CGFloat)
-        case changesCollapsed(CGFloat)
-    }
-
-    static let minimum = 80.0
-
-    var layout = Layout.split
-    var filesHeight = 0.0
-    var divider = NSColor.separatorColor {
-        didSet { needsLayout = true }
-    }
-
-    var dragged: (Double) -> Void = { _ in }
-
-    override var dividerColor: NSColor { divider }
-
-    override func mouseDown(with event: NSEvent) {
-        let before = subviews.last?.frame.height
-        super.mouseDown(with: event)
-        guard layout == .split, let after = subviews.last?.frame.height, after != before else { return }
-
-        dragged(after)
-    }
-
-    func splitView(_: NSSplitView, resizeSubviewsWithOldSize _: NSSize) {
-        guard let changes = subviews.first, let files = subviews.last else { return }
-
-        let available = max(bounds.height - dividerThickness, 0)
-        let height = switch layout {
-        case .split: min(max(filesHeight > 0 ? filesHeight : available * 0.4, Self.minimum), max(available - Self.minimum, Self.minimum))
-        case let .filesCollapsed(header): header
-        case let .changesCollapsed(headers): available - headers
-        }
-        let filesHeight = min(max(height, 0), available)
-        changes.frame = NSRect(x: 0, y: 0, width: bounds.width, height: available - filesHeight)
-        files.frame = NSRect(x: 0, y: available - filesHeight + dividerThickness, width: bounds.width, height: filesHeight)
-    }
-
-    func splitView(_: NSSplitView, constrainMinCoordinate _: CGFloat, ofSubviewAt _: Int) -> CGFloat {
-        Self.minimum
-    }
-
-    func splitView(_: NSSplitView, constrainMaxCoordinate _: CGFloat, ofSubviewAt _: Int) -> CGFloat {
-        bounds.height - dividerThickness - Self.minimum
-    }
-
-    func splitView(_: NSSplitView, effectiveRect proposedEffectiveRect: NSRect, forDrawnRect _: NSRect, ofDividerAt _: Int) -> NSRect {
-        layout == .split ? proposedEffectiveRect.insetBy(dx: 0, dy: -3) : .zero
     }
 }
 

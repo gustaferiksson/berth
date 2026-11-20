@@ -49,11 +49,13 @@ This is the slim first version; the rest is listed under Later.
 
 - Toolbar: a Show / Hide Changes button, `sidebar.left` next to the traffic lights when the
   panel is on the left, `sidebar.right` at the trailing end when it is on the right.
-- Panel, 272 pt ideal (220–440), on the Ghostty theme like the sessions sidebar: the header,
-  the card, one list of collapsible sections (the sessions sidebar's headers and disclosure),
-  the session's comments below it with a delete button each, and Send N Comments. Collapsed
-  sections persist in `@AppStorage` `collapsedReviewSections` (comma-separated ids
-  `uncommitted`, `committed`, `files`; default `files`).
+- Panel, 272 pt ideal (220–440), on the Ghostty theme like the sessions sidebar: the header, then
+  an icon tab bar (Changes `plusminus`, Files `folder`, Comments `text.bubble` with a count when
+  there are comments; `@AppStorage` `reviewPanelTab`, default `changes`) over one tab's content.
+  Changes holds the card and one list of collapsible sections (the sessions sidebar's headers and
+  disclosure); Comments lists the session's comments with a delete button each and Send N Comments.
+  Collapsed sections persist in `@AppStorage` `collapsedReviewSections` (comma-separated ids
+  `uncommitted`, `committed`). Reveal in Files switches to the Files tab.
 - Uncommitted and Committed (count, summed +/-) sections, each only when it
   has files. Rows: status letter A/M/D/R in the theme's working, needs-you, closed and branch
   colours, file name, +/- counts. Each row opens its own compare. Nothing changed: "No

@@ -210,8 +210,7 @@ Built (slice 1b, review part). Decided from the mock: card `fold`, repos `stack`
   sends real double-clicks and clicks at those points (top-left origin), `-snapshotRemoteLog /abs/file`
   fakes the session live over `tee -a` so Send's paste can be read back, and `-snapshotTasksReviewTranscript
   YES` skips the seeded edited repositories so `CFFIXED_USER_HOME` with a compact-JSON transcript under the
-  fixture session id drives `TranscriptEdits` end to end. Pass `-collapsedReviewSections files
-  -reviewChangesAsTree NO|YES` and run with `GIT_CEILING_DIRECTORIES` set to `.build`. The cards' and
+  fixture session id drives `TranscriptEdits` end to end. Pass `-reviewChangesAsTree NO|YES` and run with `GIT_CEILING_DIRECTORIES` set to `.build`. The cards' and
   subheadings' list insets are tuned per mode (tree rows sit 9 pt further in).
 
 ## Data cost
