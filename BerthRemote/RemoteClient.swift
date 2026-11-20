@@ -55,6 +55,7 @@ final class RemoteClient {
     @ObservationIgnored private var task: URLSessionWebSocketTask?
     @ObservationIgnored private var retry: Task<Void, Never>?
     @ObservationIgnored private var failures = 0
+    @ObservationIgnored private var sessionsReceived = 0
     @ObservationIgnored private var subscribedSessionID: String?
 
     init() {
@@ -88,6 +89,22 @@ final class RemoteClient {
         guard state == .reconnecting, task == nil, let url = UserDefaults.standard.string(forKey: "remoteURL").flatMap(Self.url(from:)), let token = Self.savedToken else { return }
 
         open(url, token: token)
+    }
+
+    func retryNow() {
+        guard state == .reconnecting, task == nil else { return }
+
+        retry?.cancel()
+        resume()
+    }
+
+    func refresh() async {
+        let before = sessionsReceived
+        let deadline = ContinuousClock.now + .seconds(5)
+        send(.refresh)
+        while sessionsReceived == before, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     func suspend() {
@@ -198,6 +215,7 @@ final class RemoteClient {
     private func apply(_ message: RemoteServerMessage) {
         switch message {
         case let .sessions(groups, folders, features):
+            sessionsReceived += 1
             self.groups = groups
             self.folders = folders
             self.features = features ?? []
