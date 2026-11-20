@@ -596,9 +596,11 @@ private struct ReviewFileList: View {
         let repositories: [(root: String?, id: String, name: String, branch: String?)] = [(nil, ownRoot, URL(filePath: ownRoot).lastPathComponent, model.changes?.branch)]
             + extras.map { ($0.repository.root, $0.repository.root, $0.repository.name, $0.model.changes?.branch) }
         var tabs = repositories.map { repository -> (id: String, title: String) in
-            guard let number = store.pullRequests(inRoot: repository.root, of: sessionID, branch: repository.branch).first?.number else { return (repository.id, repository.name) }
+            let linked = store.pullRequests(inRoot: repository.root, of: sessionID, branch: repository.branch)
+            let card = repository.branch.flatMap { store.pullRequestBranch(inRoot: repository.root ?? ownRoot, branch: $0) }.flatMap { store.pullRequests[$0] ?? nil }
+            guard let number = (card ?? linked.first)?.number else { return (repository.id, repository.name) }
 
-            return (repository.id, "\(repository.name) #\(number)")
+            return (repository.id, "\(repository.name) #\(number)\(linked.count > 1 ? " +\(linked.count - 1)" : "")")
         }
         tabs.append((id: "all", title: "All"))
         return ReviewRepoTabs(tabs: tabs, selection: Binding(get: { shownRepo ?? "all" }, set: { store.reviewRepoTabs[task.id] = $0 }))

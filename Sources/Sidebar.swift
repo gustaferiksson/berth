@@ -622,6 +622,7 @@ private struct SessionItem: View {
         let live = store.liveBySession[id]
         let suggestion = store.taskSuggestions[id]
         let suggestionLabel = suggestion.flatMap(suggestionText)
+        let pullRequests = session.map(store.pullRequests(of:)) ?? []
         // A layout container makes the row one static view, so List builds only the visible rows.
         VStack(alignment: .leading, spacing: 0) {
             if let session {
@@ -634,11 +635,12 @@ private struct SessionItem: View {
                     isUnread: store.isUnread(session),
                     isFlagged: store.flaggedIDs.contains(id),
                     context: tab != nil || live != nil ? session.context : nil,
-                    pullRequest: store.pullRequest(for: session),
+                    pullRequest: pullRequests.first?.pullRequest,
+                    morePullRequests: max(pullRequests.count - 1, 0),
                     suggestion: suggestionLabel,
                     showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
                 )
-                .modifier(SessionHoverTrigger(session: session, pullRequest: store.pullRequest(for: session), context: tab != nil || live != nil ? session.context : nil))
+                .modifier(SessionHoverTrigger(session: session, pullRequests: pullRequests, context: tab != nil || live != nil ? session.context : nil))
                 .padding(.leading, place == .task ? Self.taskIndent : 0)
                 if let suggestion, let suggestionLabel, !density.isCompact {
                     SuggestionLine(text: suggestionLabel, accept: { store.accept(suggestion) }, dismiss: { store.dismiss(suggestion) })
@@ -998,6 +1000,7 @@ private struct SessionRow: View {
     let isFlagged: Bool
     let context: SessionContext?
     let pullRequest: PullRequest?
+    let morePullRequests: Int
     let suggestion: String?
     @Binding var showsLockedNotice: Bool
     @Environment(\.ghosttyTheme) private var theme
@@ -1027,7 +1030,7 @@ private struct SessionRow: View {
                                 .accessibilityLabel(suggestion)
                         }
                         if let pullRequest {
-                            PullRequestTag(pullRequest: pullRequest)
+                            PullRequestTag(pullRequest: pullRequest, more: morePullRequests)
                                 .fixedSize()
                         }
                     }
@@ -1064,7 +1067,7 @@ private struct SessionRow: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         if let pullRequest {
-                            PullRequestTag(pullRequest: pullRequest)
+                            PullRequestTag(pullRequest: pullRequest, more: morePullRequests)
                                 .fixedSize()
                         }
                     }
@@ -1466,6 +1469,7 @@ private func tokenCount(_ tokens: Int) -> String {
 
 struct PullRequestTag: View {
     let pullRequest: PullRequest
+    var more = 0
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @State private var isHovering = false
@@ -1500,6 +1504,10 @@ struct PullRequestTag: View {
                     .foregroundStyle(checks == .passed ? theme.working : checks == .failed ? theme.closed : theme.needsYou)
                     .accessibilityLabel("Checks \(checks.rawValue)")
                 }
+                if more > 0 {
+                    Text(verbatim: "+\(more)")
+                        .foregroundStyle(theme.secondary)
+                }
             }
             .font(.caption.monospaced())
             .foregroundStyle(color)
@@ -1509,7 +1517,7 @@ struct PullRequestTag: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .help("Open pull request #\(pullRequest.number)\(checks.map { ", checks \($0.rawValue)" } ?? "")")
+        .help("Open pull request #\(pullRequest.number)\(checks.map { ", checks \($0.rawValue)" } ?? "")\(more > 0 ? ", \(more) more on this session" : "")")
     }
 }
 
