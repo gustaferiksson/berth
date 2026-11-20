@@ -1153,7 +1153,7 @@ private struct ReviewBranchCard: View {
                 .font(.caption)
                 .foregroundStyle(theme.secondary)
             }
-            if (pullRequest ?? nil) == nil, !status.commits.isEmpty {
+            if !status.commits.isEmpty {
                 commits
             }
             if let createPullRequest, pullRequest != nil, (pullRequest ?? nil) == nil, !changes.isDefaultBranch, changes.base != nil, status.ahead > 0 {
