@@ -645,6 +645,7 @@ private struct SessionItem: View {
                     suggestion: suggestionLabel,
                     showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
                 )
+                .modifier(SessionHoverTrigger(session: session, pullRequest: store.pullRequest(for: session), context: tab != nil || live != nil ? session.context : nil))
                 .padding(.leading, place == .task ? Self.taskIndent : 0)
                 if let suggestion, let suggestionLabel, !density.isCompact {
                     SuggestionLine(text: suggestionLabel, accept: { store.accept(suggestion) }, dismiss: { store.dismiss(suggestion) })
@@ -1081,7 +1082,7 @@ private struct SessionRow: View {
                 }
             }
         )
-        .help(isLocked ? "Running in another terminal" : session.title)
+        .help(isLocked ? "Running in another terminal" : "")
         .accessibilityElement(children: .combine)
         .accessibilityValue(isLocked ? "locked, running in another terminal" : "")
         .popover(isPresented: $showsLockedNotice, arrowEdge: .trailing) {

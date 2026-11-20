@@ -269,6 +269,17 @@ enum Snapshot {
             print("sidebar: \(store.sidebarGroups.map { "\($0.group.title) \($0.entries.map { "\($0)" })" })")
         }
         if let status = UserDefaults.standard.string(forKey: "snapshotSidebarStatus").flatMap(SidebarStatus.init(rawValue:)) { store.sidebarStatus = status }
+        for session in store.sessionsByID.values.filter({ forcedHover.contains($0.title) }) {
+            let isOpen = store.tab(forSession: session.id) != nil || store.liveBySession[session.id] != nil
+            let card = SessionHoverCard(session: session, pullRequest: store.pullRequest(for: session), context: isOpen ? session.context : nil)
+                .environment(\.ghosttyTheme, store.theme)
+                .background(store.theme.background ?? .black, in: .rect(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(store.theme.foreground.opacity(0.15)))
+                .padding(8)
+            let renderer = ImageRenderer(content: card)
+            renderer.scale = 2
+            if let image = renderer.cgImage { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(output.path).hover-\(session.id).png")) }
+        }
         if let filters = UserDefaults.standard.string(forKey: "snapshotSidebarFilter") {
             for filter in filters.split(separator: "|", omittingEmptySubsequences: false).map(String.init) {
                 store.sidebarFilter = filter
