@@ -187,6 +187,7 @@ private struct MarkdownText: View {
             }
         }
         .textSelection(.enabled)
+        .copyMenu(text)
     }
 }
 
@@ -342,6 +343,30 @@ struct CodeBox: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(tint.map { AnyShapeStyle($0.opacity(0.12)) } ?? AnyShapeStyle(.fill.quaternary), in: .rect(cornerRadius: 12))
         .textSelection(.enabled)
+        .copyMenu(text)
+    }
+}
+
+private extension View {
+    func copyMenu(_ text: String) -> some View {
+        modifier(CopyMenu(text: text))
+    }
+}
+
+private struct CopyMenu: ViewModifier {
+    let text: String
+
+    @State private var copies = 0
+
+    func body(content: Content) -> some View {
+        content
+            .contextMenu {
+                Button("Copy", systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = text
+                    copies += 1
+                }
+            }
+            .sensoryFeedback(.success, trigger: copies)
     }
 }
 
@@ -396,7 +421,7 @@ private struct ToolCallRow: View {
         let isError = call.result?.isError == true
         let isWaiting = live == .waiting(call.id)
         let verb = Text(live == nil ? call.verb.past : isWaiting ? "Waiting for approval:" : call.verb.present)
-        let subject = Text(call.subject).font([.command, .read, .edit, .search].contains(call.kind) ? .subheadline.monospaced() : .subheadline)
+        let subject = Text(call.subject).font([.command, .read, .edit, .search, .other].contains(call.kind) ? .subheadline.monospaced() : .subheadline)
         let description = [.command, .agent].contains(call.kind) ? call.use.detail.flatMap { $0.isEmpty ? nil : $0 } : nil
         let title = description.map { isWaiting ? Text("\(verb) \($0)") : Text($0) } ?? Text("\(verb) \(subject)")
 
@@ -441,7 +466,7 @@ private struct ToolCallDetail: View {
                 }
             } else if call.kind != .agent, let detail = call.use.detail ?? (call.kind == .other ? call.use.text : nil) {
                 Text(detail)
-                    .font(call.kind == .search ? .footnote.monospaced() : .footnote)
+                    .font([.search, .web, .other].contains(call.kind) ? .footnote.monospaced() : .footnote)
                     .foregroundStyle(.secondary)
             }
             if let result = call.result, !result.text.isEmpty, call.kind != .edit || result.isError {
