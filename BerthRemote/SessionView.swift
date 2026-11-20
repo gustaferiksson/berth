@@ -71,7 +71,7 @@ struct SessionView: View {
                 ContentUnavailableView("No Messages Yet", systemImage: "text.bubble", description: Text("Messages appear here once Claude starts."))
             }
         }
-        .overlay(alignment: .bottomTrailing) {
+        .overlay(alignment: .bottom) {
             if !isAtBottom {
                 Button(action: scrollToEnd) {
                     if hasNewMessages {
