@@ -14,6 +14,7 @@ nonisolated struct PullRequest: Sendable, Hashable {
     let title: String
     let state: PullRequestState
     var baseRefName: String?
+    var headRefName: String?
     var checks: PullRequestChecks.State?
     var closingIssues: [ClosingIssue] = []
 }
@@ -42,6 +43,7 @@ nonisolated enum PullRequestStatus {
         struct Payload: Decodable {
             let info: Info?
             let branches: [String: Connection?]?
+            let numbers: [String: Node?]?
         }
 
         struct Info: Decodable {
@@ -84,6 +86,7 @@ nonisolated enum PullRequestStatus {
             let state: String
             let isDraft: Bool
             let baseRefName: String?
+            let headRefName: String?
             let headRepository: Repository?
             let statusCheckRollup: Rollup?
             let closingIssuesReferences: Closing?
@@ -92,41 +95,57 @@ nonisolated enum PullRequestStatus {
         let data: Payload?
     }
 
-    static func fetch(_ branches: Set<PullRequestBranch>) async -> [PullRequestBranch: PullRequest?] {
-        guard let gh else { return [:] }
+    static func fetch(_ branches: Set<PullRequestBranch>, linked: Set<PullRequestLink>) async -> (branches: [PullRequestBranch: PullRequest?], linked: [PullRequestLink: PullRequest]) {
+        guard let gh else { return ([:], [:]) }
 
-        return await withTaskGroup(of: [PullRequestBranch: PullRequest?].self) { group in
-            for (repository, branches) in Dictionary(grouping: branches, by: \.repository) {
-                group.addTask { fetch(branches.map(\.branch), in: repository, gh: gh) }
+        return await withTaskGroup(of: (branches: [PullRequestBranch: PullRequest?], linked: [PullRequestLink: PullRequest]).self) { group in
+            for repository in Set(branches.map(\.repository) + linked.map(\.repository)) {
+                let names = branches.filter { $0.repository == repository }.map(\.branch)
+                let numbers = linked.filter { $0.repository == repository }.map(\.number)
+                group.addTask { fetch(branches: names, numbers: numbers, in: repository, gh: gh) }
             }
-            return await group.reduce(into: [:]) { $0.merge($1) { $1 } }
+            return await group.reduce(into: ([:], [:])) { results, fetched in
+                results.branches.merge(fetched.branches) { $1 }
+                results.linked.merge(fetched.linked) { $1 }
+            }
         }
     }
 
-    private static func fetch(_ branches: [String], in repository: String, gh: String) -> [PullRequestBranch: PullRequest?] {
+    private static let nodeFields = "number url title state isDraft baseRefName headRefName headRepository { nameWithOwner } statusCheckRollup { state } closingIssuesReferences(first: 5) { nodes { number title state stateReason repository { nameWithOwner } } }"
+
+    private static func fetch(branches: [String], numbers: [Int], in repository: String, gh: String) -> (branches: [PullRequestBranch: PullRequest?], linked: [PullRequestLink: PullRequest]) {
         let parts = repository.split(separator: "/").map(String.init)
-        guard parts.count == 2, parts.allSatisfy({ $0.wholeMatch(of: /[A-Za-z0-9_.-]+/) != nil }) else { return [:] }
+        guard parts.count == 2, parts.allSatisfy({ $0.wholeMatch(of: /[A-Za-z0-9_.-]+/) != nil }) else { return ([:], [:]) }
 
         let target = "repository(owner: \"\(parts[0])\", name: \"\(parts[1])\")"
-        let variables = branches.indices.map { "$b\($0): String!" }.joined(separator: ", ")
-        let fields = branches.indices.map { "b\($0): pullRequests(headRefName: $b\($0), first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number url title state isDraft baseRefName headRepository { nameWithOwner } statusCheckRollup { state } closingIssuesReferences(first: 5) { nodes { number title state stateReason repository { nameWithOwner } } } } }" }.joined(separator: " ")
-        let query = "query(\(variables)) { info: \(target) { nameWithOwner defaultBranchRef { name } } branches: \(target) { \(fields) } }"
-        let arguments = ["api", "graphql", "-f", "query=\(query)"] + branches.enumerated().flatMap { ["-f", "b\($0.offset)=\($0.element)"] }
+        let variables = (branches.indices.map { "$b\($0): String!" } + numbers.indices.map { "$n\($0): Int!" }).joined(separator: ", ")
+        let branchFields = branches.indices.map { "b\($0): pullRequests(headRefName: $b\($0), first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { \(nodeFields) } }" }.joined(separator: " ")
+        let numberFields = numbers.indices.map { "n\($0): pullRequest(number: $n\($0)) { \(nodeFields) }" }.joined(separator: " ")
+        let query = "query(\(variables)) { info: \(target) { nameWithOwner defaultBranchRef { name } } \(branches.isEmpty ? "" : "branches: \(target) { \(branchFields) }") \(numbers.isEmpty ? "" : "numbers: \(target) { \(numberFields) }") }"
+        let arguments = ["api", "graphql", "-f", "query=\(query)"] + branches.enumerated().flatMap { ["-f", "b\($0.offset)=\($0.element)"] } + numbers.enumerated().flatMap { ["-F", "n\($0.offset)=\($0.element)"] }
         guard let output = run(gh, arguments: arguments),
               let payload = (try? JSONDecoder().decode(Response.self, from: output))?.data,
-              let info = payload.info, let connections = payload.branches
-        else { return [:] }
+              let info = payload.info
+        else { return ([:], [:]) }
 
-        return branches.enumerated().reduce(into: [:]) { results, item in
-            guard let connection = connections["b\(item.offset)"] ?? nil else { return }
+        let found = branches.enumerated().reduce(into: [PullRequestBranch: PullRequest?]()) { results, item in
+            guard let connection = payload.branches?["b\(item.offset)"] ?? nil else { return }
 
             let own = connection.nodes.filter { $0.headRepository?.nameWithOwner == info.nameWithOwner }
             let node = item.element == info.defaultBranchRef?.name ? nil : own.first { $0.state == "OPEN" } ?? own.first
-            results[PullRequestBranch(repository: repository, branch: item.element)] = .some(node.map { node in
-                let state: PullRequestState = node.state == "MERGED" ? .merged : node.state == "CLOSED" ? .closed : node.isDraft ? .draft : .open
-                return PullRequest(number: node.number, url: node.url, title: node.title, state: state, baseRefName: node.baseRefName, checks: node.statusCheckRollup.map { PullRequestChecks.State($0.state) }, closingIssues: node.closingIssuesReferences?.nodes.map { ClosingIssue(ref: IssueRef(repository: $0.repository.nameWithOwner, number: $0.number), title: $0.title, state: IssueState(state: $0.state, reason: $0.stateReason)) } ?? [])
-            })
+            results[PullRequestBranch(repository: repository, branch: item.element)] = .some(node.map(pullRequest))
         }
+        let linked = numbers.enumerated().reduce(into: [PullRequestLink: PullRequest]()) { results, item in
+            guard let node = payload.numbers?["n\(item.offset)"] ?? nil else { return }
+
+            results[PullRequestLink(repository: repository, number: item.element)] = pullRequest(node)
+        }
+        return (found, linked)
+    }
+
+    private static func pullRequest(_ node: Response.Node) -> PullRequest {
+        let state: PullRequestState = node.state == "MERGED" ? .merged : node.state == "CLOSED" ? .closed : node.isDraft ? .draft : .open
+        return PullRequest(number: node.number, url: node.url, title: node.title, state: state, baseRefName: node.baseRefName, headRefName: node.headRefName, checks: node.statusCheckRollup.map { PullRequestChecks.State($0.state) }, closingIssues: node.closingIssuesReferences?.nodes.map { ClosingIssue(ref: IssueRef(repository: $0.repository.nameWithOwner, number: $0.number), title: $0.title, state: IssueState(state: $0.state, reason: $0.stateReason)) } ?? [])
     }
 
     static func inbox() -> [InboxPullRequest]? {

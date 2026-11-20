@@ -210,6 +210,7 @@ final class Store {
     private(set) var hasScanned = false
     private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
     private(set) var pullRequests = Snapshot.fixturePullRequests
+    private(set) var linkedPullRequests: [PullRequestLink: PullRequest] = [:]
     private(set) var inbox = Snapshot.fixtureInbox
     private(set) var isInboxLoading = false
     private(set) var searchIndexVersion = 0
@@ -444,17 +445,21 @@ final class Store {
     }
 
     func refreshPullRequests() {
-        let branches = Set((pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches))
-        guard !branches.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
+        let sessions = pinnedSessions + groups.flatMap(\.sessions) + archivedSessions
+        let branches = Set(sessions.flatMap(pullRequestBranches))
+        let linked = Set(sessions.flatMap(\.pullRequests).filter { [nil, .open, .draft].contains(linkedPullRequests[$0]?.state) })
+        guard !branches.isEmpty || !linked.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
 
         pullRequestsFetchedAt = .now
-        Task { await fetchPullRequests(branches) }
+        Task { await fetchPullRequests(branches, linked: linked) }
     }
 
-    func fetchPullRequests(_ branches: Set<PullRequestBranch>) async {
-        let fetched = await Task.detached { await PullRequestStatus.fetch(branches) }.value
-        let merged = pullRequests.merging(fetched) { $1 }
+    func fetchPullRequests(_ branches: Set<PullRequestBranch>, linked: Set<PullRequestLink> = []) async {
+        let fetched = await Task.detached { await PullRequestStatus.fetch(branches, linked: linked) }.value
+        let merged = pullRequests.merging(fetched.branches) { $1 }
         if merged != pullRequests { pullRequests = merged }
+        let mergedLinked = linkedPullRequests.merging(fetched.linked) { $1 }
+        if mergedLinked != linkedPullRequests { linkedPullRequests = mergedLinked }
         formTasks()
     }
 
@@ -495,7 +500,8 @@ final class Store {
         Task {
             if !unresolved.isEmpty { await repositories.merge(Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
             formTasks()
-            if (pinnedSessions + groups.flatMap(\.sessions) + archivedSessions).flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) { refreshPullRequests() }
+            let sessions = pinnedSessions + groups.flatMap(\.sessions) + archivedSessions
+            if sessions.flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) || sessions.flatMap(\.pullRequests).contains(where: { linkedPullRequests[$0] == nil }) { refreshPullRequests() }
         }
     }
 
