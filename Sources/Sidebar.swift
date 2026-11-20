@@ -957,8 +957,8 @@ struct TaskContainer: View {
     var body: some View {
         let radius = 10.0
         UnevenRoundedRectangle(topLeadingRadius: position == .top ? radius : 0, bottomLeadingRadius: position == .bottom ? radius : 0, bottomTrailingRadius: position == .bottom ? radius : 0, topTrailingRadius: position == .top ? radius : 0)
-            .fill(theme.unread.opacity(0.08))
-            .overlay { Outline(isTop: position == .top, isBottom: position == .bottom, radius: radius).stroke(theme.unread.opacity(0.3), lineWidth: 1) }
+            .fill(theme.foreground.opacity(0.05))
+            .overlay { Outline(isTop: position == .top, isBottom: position == .bottom, radius: radius).stroke(theme.foreground.opacity(0.13), lineWidth: 1) }
             .padding(.horizontal, 8)
             .padding(.top, position == .top ? 2 : 0)
             .padding(.bottom, position == .bottom ? 2 : 0)
