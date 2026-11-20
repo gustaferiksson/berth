@@ -472,7 +472,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             }
 
             let inset: CGFloat = 6
-            let indent = right.textContainerOrigin.x + (right.textContainer?.lineFragmentPadding ?? 0)
+            let indent = right.textContainerInset.width
             let widths = placed.map { max(($0.owner.enclosingScrollView?.contentView.bounds.width ?? 0) - indent - 2 * inset, 120) }
             let heights = zip(placed, widths).map { ($0.view as? ReviewInlineComment)?.fittingHeight(forWidth: $1) ?? ($1 < ReviewReferencesPeek.stackedBelowWidth ? ReviewReferencesPeek.stackedHeight : ReviewReferencesPeek.height) }
             var reserved: [Int: CGFloat] = [:]
