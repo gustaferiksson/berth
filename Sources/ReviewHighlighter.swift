@@ -45,6 +45,27 @@ enum ReviewHighlighter {
     private nonisolated static let css = Grammar(tree_sitter_css(), queries: [("TreeSitterCSS_TreeSitterCSS", "highlights.scm")])
 
     nonisolated static func spans(in text: String, path: String) -> [Span] {
+        let spans = captures(in: text, path: path)
+        let utf16 = Array(text.utf16)
+        let brackets = spans.indices.filter { spans[$0].capture == "punctuation.bracket" && spans[$0].range.length == 1 && NSMaxRange(spans[$0].range) <= utf16.count }.sorted { spans[$0].range.location < spans[$1].range.location }
+        let pairs: [UInt16: UInt16] = [0x29: 0x28, 0x5D: 0x5B, 0x7D: 0x7B]
+        var result = spans
+        var open: [UInt16] = []
+        for index in brackets {
+            let unit = utf16[spans[index].range.location]
+            if pairs.values.contains(unit) {
+                result[index] = Span(range: spans[index].range, capture: "punctuation.bracket.\(open.count % 3)")
+                open.append(unit)
+            } else if let opener = pairs[unit], open.last == opener {
+                open.removeLast()
+                result[index] = Span(range: spans[index].range, capture: "punctuation.bracket.\(open.count % 3)")
+            }
+        }
+
+        return result
+    }
+
+    private nonisolated static func captures(in text: String, path: String) -> [Span] {
         let pathExtension = (path as NSString).pathExtension.lowercased()
         let parser = Parser()
         guard let grammar = grammar(forExtension: pathExtension), (try? parser.setLanguage(grammar.language)) != nil, let tree = parser.parse(text) else { return [] }
