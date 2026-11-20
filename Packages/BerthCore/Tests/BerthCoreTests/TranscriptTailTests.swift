@@ -33,6 +33,28 @@ struct TranscriptTailTests {
         #expect(entries.count == 3 && fields.count == 6 && fields.allSatisfy { $0.count == TranscriptTail.maxText })
     }
 
+    @Test func keepsOlderTurnsBehindHugeImageLines() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "tail-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let small = (0..<30).flatMap { turn in
+            [
+                #"{"type":"user","uuid":"p\#(turn)","message":{"role":"user","content":"turn \#(turn)"}}"#,
+                #"{"type":"assistant","uuid":"r\#(turn)","message":{"content":[{"type":"text","text":"reply \#(turn)"}]}}"#,
+            ]
+        }
+        let base64 = String(repeating: "QUJD", count: 1_300_000)
+        let huge = (0..<3).map { shot in
+            #"{"type":"user","uuid":"i\#(shot)","message":{"content":[{"type":"tool_result","tool_use_id":"t\#(shot)","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"\#(base64)"}}]}]}}"#
+        }
+        try Data(((small + huge).joined(separator: "\n") + "\n").utf8).write(to: url)
+
+        let chunk = try #require(TranscriptTail.read(url, after: nil))
+        #expect(chunk.entries.count >= TranscriptTail.minEntries)
+        #expect(chunk.entries.contains { $0.text == "turn 20" })
+        #expect(chunk.entries.suffix(3).allSatisfy { $0.imageRefs?.first?.bytes == base64.utf8.count * 3 / 4 })
+        #expect(chunk.imageLines["i2-0-0"] != nil)
+    }
+
     @Test func continuesFromTheLastCompleteLine() throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "tail-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -63,7 +85,7 @@ struct TranscriptTailTests {
         ]
         let parsed = TranscriptTail.entries(in: Data((operations.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: [])
         #expect(parsed.entries.isEmpty && parsed.queue == ["<task-notification>done</task-notification>", "second"])
-        #expect(TranscriptTail.Chunk(entries: [], end: 0, isContinuation: true, queue: parsed.queue).queuedPrompts == ["second"])
+        #expect(TranscriptTail.Chunk(entries: [], end: 0, isContinuation: true, queue: parsed.queue, imageLines: [:]).queuedPrompts == ["second"])
 
         let popped = TranscriptTail.entries(in: Data((#"{"type":"queue-operation","operation":"popAll","content":"second"}"# + "\n").utf8), dropFirst: false, queue: parsed.queue)
         #expect(popped.queue.isEmpty)

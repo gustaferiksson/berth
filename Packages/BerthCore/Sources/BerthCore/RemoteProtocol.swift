@@ -116,8 +116,9 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
     public let date: Date?
     public let detail: String?
     public let images: [Data]?
+    public var imageRefs: [RemoteImageRef]?
 
-    public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false, date: Date? = nil, detail: String? = nil, images: [Data]? = nil) {
+    public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false, date: Date? = nil, detail: String? = nil, images: [Data]? = nil, imageRefs: [RemoteImageRef]? = nil) {
         self.id = id
         self.kind = kind
         self.text = text
@@ -131,7 +132,28 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
         self.date = date
         self.detail = detail
         self.images = images
+        self.imageRefs = imageRefs
     }
+}
+
+public struct RemoteImageRef: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let bytes: Int
+
+    public init(id: String, bytes: Int) {
+        self.id = id
+        self.bytes = bytes
+    }
+}
+
+public enum RemoteImageVariant: String, Codable, Sendable {
+    case thumbnail, full
+}
+
+public nonisolated enum RemoteImagesFeature {
+    public static let name = "images"
+    public static let maxSourceBytes = 20 << 20
+    public static let maxReplyBytes = 700_000
 }
 
 public struct RemoteActivity: Codable, Sendable, Hashable {
@@ -357,6 +379,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case changeDiff(sessionID: String, path: String, isCommitted: Bool)
     case usage
     case taskDetail(sessionID: String, taskID: String)
+    case image(sessionID: String, id: String, variant: RemoteImageVariant)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
@@ -372,4 +395,5 @@ public enum RemoteServerMessage: Codable, Sendable {
     case changeDiff(sessionID: String, path: String, isCommitted: Bool, diff: RemoteFileDiff?)
     case usage(PlanUsage?)
     case taskDetail(sessionID: String, taskID: String, detail: RemoteTaskDetail?)
+    case image(sessionID: String, id: String, variant: RemoteImageVariant, data: Data?)
 }

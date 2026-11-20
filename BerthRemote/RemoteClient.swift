@@ -26,6 +26,17 @@ final class RemoteClient {
         case failed
     }
 
+    enum ImageLoad: Equatable {
+        case loading
+        case loaded(Data)
+        case failed
+    }
+
+    struct ImageKey: Hashable {
+        let id: String
+        let variant: RemoteImageVariant
+    }
+
     struct ChangeKey: Hashable {
         let sessionID: String
         let path: String
@@ -57,6 +68,7 @@ final class RemoteClient {
             changes = [:]
             diffs = [:]
             taskDetails = [:]
+            images = images.filter { if case .loaded = $0.value { true } else { false } }
             for (id, upload) in uploads where upload == .uploading { uploads[id] = .failed("The connection dropped") }
         }
     }
@@ -72,6 +84,7 @@ final class RemoteClient {
     private(set) var taskDetails: [String: RemoteTaskDetail] = [:]
     private(set) var features: [String] = []
     private(set) var usage: PlanUsage?
+    private(set) var images: [ImageKey: ImageLoad] = [:]
     private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
     private(set) var uploads: [String: UploadState] = [:]
     var draftTexts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:] {
@@ -177,6 +190,14 @@ final class RemoteClient {
 
     func loadChanges(of sessionID: String) {
         send(.changes(sessionID: sessionID))
+    }
+
+    func loadImage(_ id: String, variant: RemoteImageVariant) {
+        let key = ImageKey(id: id, variant: variant)
+        guard images[key] == nil, features.contains(RemoteImagesFeature.name), let subscribedSessionID else { return }
+
+        images[key] = .loading
+        if !send(.image(sessionID: subscribedSessionID, id: id, variant: variant)) { images[key] = nil }
     }
 
     func loadDiff(_ key: ChangeKey) {
@@ -321,6 +342,9 @@ final class RemoteClient {
 
         case let .changes(sessionID, changes):
             self.changes[sessionID] = changes.map(ChangesLoad.loaded) ?? .failed
+
+        case let .image(_, id, variant, data):
+            images[ImageKey(id: id, variant: variant)] = data.map(ImageLoad.loaded) ?? .failed
 
         case let .changeDiff(sessionID, path, isCommitted, diff):
             diffs[ChangeKey(sessionID: sessionID, path: path, isCommitted: isCommitted)] = diff.map(DiffLoad.loaded) ?? .failed
