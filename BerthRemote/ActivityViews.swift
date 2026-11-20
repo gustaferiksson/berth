@@ -95,7 +95,7 @@ struct ContextSheet: View {
                         } currentValueLabel: {
                             Text((Double(tokens) / Double(window)).formatted(.percent.precision(.fractionLength(0))))
                         }
-                        .tint(Double(tokens) / Double(window) > 0.8 ? .orange : .accentColor)
+                        .tint(Double(tokens) / Double(window) >= 0.9 ? .red : Double(tokens) / Double(window) >= 0.7 ? .orange : .accentColor)
                     }
                     if let tokens = context.tokens {
                         LabeledContent("Tokens", value: tokens.formatted())
