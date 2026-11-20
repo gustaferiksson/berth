@@ -1251,6 +1251,7 @@ struct ReviewDiffColumn: View {
     @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
     @AppStorage(ReviewDiffLayout.key) private var diffLayout = ReviewDiffLayout.auto
     @State private var isNarrow = false
+    @State private var measuredNarrow = false
 
     private var isUnified: Bool { diffLayout == .inline || diffLayout == .auto && isNarrow }
 
@@ -1361,7 +1362,12 @@ struct ReviewDiffColumn: View {
         .foregroundStyle(Color(nsColor: style.foreground))
         .background(Color(nsColor: style.background))
         .environment(\.colorScheme, style.isDark ? .dark : .light)
-        .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { isNarrow = $0 }
+        .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { measuredNarrow = $0 }
+        .task(id: [measuredNarrow, store.showsReviewPanel && !store.isHarborShown]) {
+            guard await (try? Task.sleep(for: .milliseconds(50))) != nil, store.showsReviewPanel, !store.isHarborShown else { return }
+
+            isNarrow = measuredNarrow
+        }
         .onChange(of: isUnified, initial: true) { store.isReviewDiffUnified = isUnified }
         .environment(store)
         .environment(\.ghosttyTheme, store.theme)

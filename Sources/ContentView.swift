@@ -18,7 +18,6 @@ struct ContentView: View {
     @AppStorage(GeneralSettings.terminalBelowKey) private var isTerminalBelow = false
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
-    @State private var splitWidth = 0.0
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -44,12 +43,7 @@ struct ContentView: View {
             }
         } detail: {
             TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel, isTerminalBelow: isTerminalBelow)
-                .onGeometryChange(for: Double.self) { $0.size.width } action: { splitWidth = $0 }
-                .task(id: showsPanel ? [splitWidth, isTerminalBelow ? 1 : 0] : [0]) {
-                    guard showsPanel, await (try? Task.sleep(for: .milliseconds(300))) != nil else { return }
-
-                    yieldSidebarIfCramped()
-                }
+                .background { SplitWidthSettled(isActive: showsPanel, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
                 .overlay {
                     if let mode = store.launcherMode {
                         ZStack(alignment: .top) {
@@ -223,7 +217,7 @@ extension ContentView {
         if sidebarPosition == .right { showsTrailingSidebar = visibility != .detailOnly } else { columnVisibility = visibility }
     }
 
-    private func yieldSidebarIfCramped() {
+    private func yieldSidebarIfCramped(splitWidth: Double) {
         guard showsSessions, !keepsSidebarForDiff, splitWidth > 0, splitWidth < TerminalSplit.diffMinimum + (isTerminalBelow ? 1 : TerminalSplit.terminalMinimum + 1) else { return }
 
         if columnVisibility == .automatic { columnVisibility = .all }
@@ -234,6 +228,24 @@ extension ContentView {
         let action = AppAction.hideChanges.isAvailable(in: store) ? AppAction.hideChanges : .showChanges
         return Button(action.title, systemImage: symbol) { action.perform(on: store) }
             .help("\(action.title) (⇧⌘R)")
+    }
+}
+
+// Reads the split's width in its own view so a live resize doesn't re-evaluate ContentView on every frame.
+private struct SplitWidthSettled: View {
+    let isActive: Bool
+    let isTerminalBelow: Bool
+    let onSettle: (Double) -> Void
+    @State private var width = 0.0
+
+    var body: some View {
+        Color.clear
+            .onGeometryChange(for: Double.self) { $0.size.width } action: { width = $0 }
+            .task(id: isActive ? [width, isTerminalBelow ? 1 : 0] : [0]) {
+                guard isActive, await (try? Task.sleep(for: .milliseconds(300))) != nil else { return }
+
+                onSettle(width)
+            }
     }
 }
 

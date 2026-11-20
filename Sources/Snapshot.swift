@@ -1095,6 +1095,7 @@ enum Snapshot {
                 try? await Task.sleep(for: .milliseconds(500))
                 state("deleted while editing")
             }
+            if UserDefaults.standard.bool(forKey: "snapshotPerf") { await measurePerformance(window: window, store: store) }
             let resize = UserDefaults.standard.double(forKey: "snapshotReviewResize")
             if resize > 0 {
                 window.setContentSize(NSSize(width: resize, height: 900))
