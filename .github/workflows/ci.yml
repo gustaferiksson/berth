@@ -90,6 +90,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       # Only main saves, so a PR restores main's packages and their compiled objects.
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -97,6 +98,14 @@ jobs:
           path: .build
           key: mac-debug-${{ github.sha }}
           restore-keys: mac-debug-
+
+      # Xcode rebuilds on mtime, and a fresh checkout stamps every file as new.
+      - name: Restore file mtimes
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/git-restore-mtime" https://raw.githubusercontent.com/MestreLion/git-tools/b5822d297b3ca4a3b6574e78327a464790b14937/git-restore-mtime
+          echo "8cdae72ea524e7c79c5a61bdfb5004cdab0082074f5fb558f1dba270f91e26b2  $RUNNER_TEMP/git-restore-mtime" | shasum -a 256 -c
+          python3 "$RUNNER_TEMP/git-restore-mtime" --quiet
 
       - name: Build (Debug, ad-hoc)
         env:
@@ -106,9 +115,9 @@ jobs:
           set -euo pipefail
           brew install xcodegen
           xcodegen generate --quiet
-          xcodebuild -project Berth.xcodeproj -scheme Berth -configuration Debug -derivedDataPath .build -quiet \
+          xcodebuild -project Berth.xcodeproj -scheme Berth -configuration Debug -derivedDataPath .build -showBuildTimingSummary \
             -destination 'platform=macOS,arch=arm64' -skipPackagePluginValidation -skipMacroValidation \
-            CODE_SIGN_IDENTITY=- ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO DEBUG_INFORMATION_FORMAT=dwarf build
+            CODE_SIGN_IDENTITY=- ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO DEBUG_INFORMATION_FORMAT=dwarf build 2>&1 | tail -80
 
       - name: Verify the bundle
         run: |
