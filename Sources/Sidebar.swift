@@ -1104,17 +1104,15 @@ private struct TaskRow: View {
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.sidebarDensity) private var density
 
-    private var showsChevron: Bool { isExpanded || state == nil && !isUnread }
-
     var body: some View {
         CardRow(
             title: task.title,
-            state: state,
+            state: isExpanded ? nil : state,
             isLocked: false,
             isLoaded: false,
             modified: task.sessions[0].lastPrompt,
-            isUnread: isUnread,
-            chevron: showsChevron ? (isExpanded ? "chevron.down" : "chevron.right") : nil
+            isUnread: !isExpanded && isUnread,
+            chevron: isExpanded ? "chevron.down" : "chevron.right"
         ) {
             HStack(spacing: 8) {
                 if let issue = task.issue { IssueTag(issue: issue).fixedSize() }
@@ -1254,7 +1252,9 @@ private struct CardRow<Detail: View>: View {
     @Environment(\.sidebarDensity) private var density
 
     var body: some View {
-        let hasActivityDot = hasBackgroundShell || isLoaded && lastActivity != nil
+        let isWorking = chevron != nil && state == .working
+        let hasMemberDot = chevron != nil && (state != nil || isUnread)
+        let hasActivityDot = hasBackgroundShell || isLoaded && lastActivity != nil || hasMemberDot
         let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 10 >= $0 * 6 && context.tokens <= $0 ? $0 : nil } }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1301,7 +1301,7 @@ private struct CardRow<Detail: View>: View {
                         .monospacedDigit()
                         .fixedSize()
                         .foregroundStyle(theme.secondary)
-                        .padding(.leading, hasActivityDot ? 10 : 0)
+                        .padding(.leading, isWorking ? 20 : hasActivityDot ? 10 : 0)
                         .overlay(alignment: .leading) {
                             if hasBackgroundShell {
                                 Circle()
@@ -1309,6 +1309,8 @@ private struct CardRow<Detail: View>: View {
                                     .frame(width: 6, height: 6)
                                     .help("Background shell running")
                                     .accessibilityLabel("Background shell running")
+                            } else if hasMemberDot {
+                                MemberDot(state: state)
                             } else if isLoaded, let lastActivity {
                                 let inactiveFrom = lastActivity.addingTimeInterval(15 * 60)
                                 TimelineView(.explicit([inactiveFrom])) { _ in
@@ -1341,6 +1343,29 @@ private struct CardRow<Detail: View>: View {
         .padding(.vertical, density.rowPadding)
         .overlay(alignment: .topLeading) {
             StatusSlot(state: state, isUnread: isUnread, chevron: chevron).offset(x: -8, y: density.rowPadding)
+        }
+    }
+}
+
+private struct MemberDot: View {
+    let state: RowState?
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        if state == .working {
+            WorkingDots(label: "Working")
+        } else if case let .needsYou(reason) = state {
+            Circle()
+                .fill(theme.needsYou)
+                .frame(width: 6, height: 6)
+                .help("Needs you\(reason.map { ": \($0)" } ?? "")")
+                .accessibilityLabel("Needs you")
+        } else {
+            Circle()
+                .fill(theme.unread)
+                .frame(width: 6, height: 6)
+                .help("Unread")
+                .accessibilityLabel("Unread")
         }
     }
 }
