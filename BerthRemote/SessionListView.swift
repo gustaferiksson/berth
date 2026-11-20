@@ -221,6 +221,7 @@ private struct SessionSummaryView: View {
     let session: RemoteSession
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric private var gutterWidth = 12
 
     var body: some View {
         let isProminent = session.status != nil || session.isUnread == true
@@ -241,8 +242,8 @@ private struct SessionSummaryView: View {
             .lineLimit(1)
             .truncationMode(.middle)
 
-        HStack(alignment: .top, spacing: 10) {
-            SessionStatusIcon(session: session)
+        HStack(alignment: .top, spacing: 4) {
+            SessionStatusIcon(session: session, width: gutterWidth)
             VStack(alignment: .leading, spacing: 3) {
                 if isAccessibility {
                     title
@@ -274,6 +275,7 @@ private struct SessionSummaryView: View {
             }
         }
         .padding(.vertical, 2)
+        .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] + gutterWidth + 4 }
         .opacity(session.isLocked ? 0.55 : 1)
         .accessibilityElement(children: .combine)
     }
@@ -308,13 +310,12 @@ private struct PullRequestTag: View {
 
 private struct SessionStatusIcon: View {
     let session: RemoteSession
-
-    @ScaledMetric private var slotWidth = 22
+    let width: CGFloat
 
     var body: some View {
         Group {
             if session.status == "waiting" {
-                Image(systemName: "exclamationmark.bubble.fill")
+                Image(systemName: "circle.fill")
                     .foregroundStyle(.orange)
                     .accessibilityLabel("Needs you")
             } else if session.status == "busy" {
@@ -323,12 +324,11 @@ private struct SessionStatusIcon: View {
                     .foregroundStyle(.green)
                     .accessibilityLabel("Working")
             } else if session.status == "shell" {
-                Image(systemName: "terminal")
-                    .foregroundStyle(.green)
+                Image(systemName: "circle.fill")
+                    .foregroundStyle(.teal)
                     .accessibilityLabel("Task running")
             } else if session.isUnread == true {
                 Image(systemName: "circle.fill")
-                    .font(.caption2)
                     .foregroundStyle(.blue)
                     .accessibilityLabel("Unread")
             } else {
@@ -336,8 +336,8 @@ private struct SessionStatusIcon: View {
                     .accessibilityHidden(true)
             }
         }
-        .font(.subheadline)
-        .frame(width: slotWidth)
+        .font(.caption2)
+        .frame(width: width, height: 22)
     }
 }
 
