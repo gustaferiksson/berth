@@ -198,6 +198,37 @@ public nonisolated enum RemotePullRequestFeature {
     public static let name = "pullRequest"
 }
 
+public nonisolated enum RemoteSearchFeature {
+    public static let name = "search"
+    public static let minimumQueryLength = 3
+}
+
+public struct RemoteSnippet: Codable, Sendable, Hashable {
+    public let text: String
+    public let highlights: [Range<Int>]
+
+    public init(text: String, highlights: [Range<Int>]) {
+        self.text = text
+        self.highlights = highlights
+    }
+}
+
+public struct RemoteSearchHit: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let title: String
+    public let folder: String
+    public let lastActivity: Date
+    public let snippets: [RemoteSnippet]
+
+    public init(id: String, title: String, folder: String, lastActivity: Date, snippets: [RemoteSnippet]) {
+        self.id = id
+        self.title = title
+        self.folder = folder
+        self.lastActivity = lastActivity
+        self.snippets = snippets
+    }
+}
+
 public enum RemoteClientMessage: Codable, Sendable {
     case auth(hmac: Data)
     case subscribe(sessionID: String)
@@ -208,6 +239,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case refresh
     case upload(id: String, name: String, offset: Int, chunk: Data, isLast: Bool)
     case pullRequest(sessionID: String)
+    case search(query: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
@@ -218,4 +250,5 @@ public enum RemoteServerMessage: Codable, Sendable {
     case notice(message: String)
     case uploaded(id: String, error: String?)
     case pullRequest(sessionID: String, detail: RemotePullRequestDetail?)
+    case searchResults(query: String, hits: [RemoteSearchHit], isIndexing: Bool)
 }

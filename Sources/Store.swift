@@ -228,7 +228,7 @@ final class Store {
 
     @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    @ObservationIgnored private var searchIndexTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var searchIndexTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var themeWatcher: FileWatcher?
     @ObservationIgnored private var summaries: [SessionSummary] = []

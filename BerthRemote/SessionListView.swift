@@ -5,7 +5,7 @@ struct SessionListView: View {
     @Environment(UpdateCheck.self) private var updates
     @State private var path: [String] = UserDefaults.standard.string(forKey: "remoteSession").map { [$0] } ?? []
     @State private var isStartingSession = false
-    @State private var query = ""
+    @State private var query = UserDefaults.standard.string(forKey: "snapshotQuery") ?? ""
     @State private var expandedGroups: [String: Bool] = [:]
     @State private var isShowingSettings = UserDefaults.standard.bool(forKey: "snapshotSettings")
     @State private var feedback = ActionFeedback(count: 0, action: nil)
@@ -24,6 +24,9 @@ struct SessionListView: View {
         let groups = ([RemoteGroup(id: "active", title: "Active", sessions: running)] + client.groups.filter { $0.id != "starting" })
             .map { group in RemoteGroup(id: group.id, title: group.title, sessions: group.sessions.filter { (group.id == "active" || !runningIDs.contains($0.id)) && matches($0) }) }
             .filter { !$0.sessions.isEmpty }
+
+        let searchedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let searchesTranscripts = client.features.contains(RemoteSearchFeature.name) && searchedQuery.count >= RemoteSearchFeature.minimumQueryLength
 
         NavigationStack(path: $path) {
             List {
@@ -55,6 +58,9 @@ struct SessionListView: View {
                         }
                     }
                 }
+                if searchesTranscripts {
+                    TranscriptSearchSection(query: searchedQuery)
+                }
             }
             .listStyle(.sidebar)
             .sensoryFeedback(trigger: feedback) { _, new in
@@ -65,7 +71,7 @@ struct SessionListView: View {
                     ContentUnavailableView("Reconnecting", systemImage: "wifi.slash", description: Text("Berth Remote reconnects when your Mac is reachable."))
                 } else if client.groups.isEmpty {
                     ContentUnavailableView("No Sessions", systemImage: "text.bubble", description: Text("Start a session with the + button."))
-                } else if groups.isEmpty {
+                } else if groups.isEmpty, !searchesTranscripts {
                     ContentUnavailableView.search
                 }
             }
