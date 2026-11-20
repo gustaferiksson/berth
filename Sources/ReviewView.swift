@@ -1166,6 +1166,7 @@ private struct ReviewBranchCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.foreground.opacity(0.13)))
+        .geometryGroup()
     }
 
     private var pushState: some View {

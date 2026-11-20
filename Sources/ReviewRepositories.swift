@@ -130,6 +130,7 @@ struct ReviewRepositoryAccessory: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .layoutPriority(-1)
+                    .transaction { $0.animation = nil }
             }
             ForEach(pullRequests, id: \.number) { pullRequest in
                 PullRequestTag(pullRequest: pullRequest)
