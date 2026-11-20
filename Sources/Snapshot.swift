@@ -223,6 +223,16 @@ enum Snapshot {
             arguments[LanguageServerEntry.storageKey] = String(decoding: data, as: UTF8.self)
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         }
+        if let fixture = UserDefaults.standard.string(forKey: "snapshotUsage") {
+            let windows = fixture.split(separator: "|").enumerated().compactMap { index, part -> UsageWindow? in
+                let numbers = part.split(separator: ":").compactMap { Double($0) }
+                guard numbers.count == 2, index < PlanUsage.windows.count else { return nil }
+
+                let (key, title, length) = PlanUsage.windows[index]
+                return UsageWindow(id: key, title: title, length: length, used: numbers[0] / 100, resetsAt: .now.addingTimeInterval(length * (1 - numbers[1] / 100)))
+            }
+            store.planUsage = PlanUsage(windows: windows)
+        }
         if let tab = UserDefaults.standard.string(forKey: "snapshotReviewPanelTab") {
             var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
             arguments["reviewPanelTab"] = tab

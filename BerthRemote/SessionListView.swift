@@ -8,6 +8,7 @@ struct SessionListView: View {
     @State private var query = UserDefaults.standard.string(forKey: "snapshotQuery") ?? ""
     @State private var expandedGroups: [String: Bool] = [:]
     @State private var isShowingSettings = UserDefaults.standard.bool(forKey: "snapshotSettings")
+    @State private var isShowingUsage = UserDefaults.standard.bool(forKey: "snapshotUsageSheet")
     @State private var feedback = ActionFeedback(count: 0, action: nil)
 
     var body: some View {
@@ -35,6 +36,11 @@ struct SessionListView: View {
                         Link(destination: UpdateCheck.installURL) {
                             Label("Install Berth Remote \(version)", systemImage: "arrow.down.circle")
                         }
+                    }
+                }
+                if let usage = client.usage, query.isEmpty {
+                    Section {
+                        UsageSummary(usage: usage) { isShowingUsage = true }
                     }
                 }
                 ForEach(groups) { group in
@@ -90,6 +96,9 @@ struct SessionListView: View {
             }
             .sheet(isPresented: $isStartingSession) {
                 NewSessionView()
+            }
+            .sheet(isPresented: $isShowingUsage) {
+                UsageSheet()
             }
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()

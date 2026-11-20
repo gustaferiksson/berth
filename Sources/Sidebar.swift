@@ -102,7 +102,12 @@ struct Sidebar: View, Equatable {
                 }
         }
         .safeAreaInset(edge: .top, spacing: 0) { SidebarStatusRow() }
-        .safeAreaInset(edge: .bottom, spacing: 0) { SidebarFilterField() }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                UsageBar()
+                SidebarFilterField()
+            }
+        }
     }
 }
 

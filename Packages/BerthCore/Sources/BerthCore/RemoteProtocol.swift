@@ -229,6 +229,10 @@ public struct RemoteSearchHit: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+public nonisolated enum RemoteUsageFeature {
+    public static let name = "usage"
+}
+
 public nonisolated enum RemoteChangesFeature {
     public static let name = "changes"
     public static let maxFiles = 200
@@ -312,6 +316,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case search(query: String)
     case changes(sessionID: String)
     case changeDiff(sessionID: String, path: String, isCommitted: Bool)
+    case usage
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
@@ -325,4 +330,5 @@ public enum RemoteServerMessage: Codable, Sendable {
     case searchResults(query: String, hits: [RemoteSearchHit], isIndexing: Bool)
     case changes(sessionID: String, changes: RemoteChanges?)
     case changeDiff(sessionID: String, path: String, isCommitted: Bool, diff: RemoteFileDiff?)
+    case usage(PlanUsage?)
 }

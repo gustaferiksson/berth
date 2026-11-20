@@ -211,6 +211,12 @@ final class RemoteServer {
         case let .changes(sessionID):
             Task { await sendChanges(of: sessionID, to: connection) }
 
+        case .usage:
+            Task {
+                await store.refreshPlanUsage()
+                send(try? JSONEncoder().encode(RemoteServerMessage.usage(store.planUsage)), to: connection)
+            }
+
         case let .changeDiff(sessionID, path, isCommitted):
             Task { await sendChangeDiff(of: path, isCommitted: isCommitted, in: sessionID, to: connection) }
         }
@@ -379,7 +385,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name])
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] : []))
     }
 
     private func observeSessions() {

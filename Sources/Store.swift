@@ -91,6 +91,7 @@ final class Store {
     var missingFolder: String?
     var editingGroup: CustomGroup?
     var isStatsRequested = false
+    var planUsage: PlanUsage?
     var isSettingsRequested = false
     var isHarborShown = false {
         didSet {
@@ -253,6 +254,7 @@ final class Store {
 
     @ObservationIgnored private var pullRequestsFetchedAt = Date.distantPast
     @ObservationIgnored private var inboxFetchedAt = Date.distantPast
+    @ObservationIgnored private var planUsageFetchedAt = Date.distantPast
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var waitingSessionIDs: Set<String>?
     @ObservationIgnored private var tabTouches: [Tab.ID: Date] = [:]
@@ -284,10 +286,12 @@ final class Store {
                 self?.refreshPullRequests()
                 self?.refreshInbox()
                 self?.unloadIdleTabs()
+                await self?.refreshPlanUsage()
             }
         }
         refresh()
         refreshInbox()
+        Task { await refreshPlanUsage() }
         guard restoringTabs else { return }
 
         Task {
@@ -467,6 +471,16 @@ final class Store {
         let mergedLinked = linkedPullRequests.merging(fetched.linked) { $1 }
         if mergedLinked != linkedPullRequests { linkedPullRequests = mergedLinked }
         formTasks()
+    }
+
+    func refreshPlanUsage() async {
+        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey), planUsageFetchedAt.timeIntervalSinceNow < -60 else { return }
+
+        planUsageFetchedAt = .now
+        let usage = await Task.detached { await PlanUsageFetch.fetch() }.value
+        guard let usage else { return }
+
+        planUsage = usage
     }
 
     func refreshInbox() {
