@@ -26,8 +26,14 @@ public struct PullRequestChecks: Sendable, Hashable {
 public struct PullRequestDetail: Sendable, Hashable {
     public let checks: PullRequestChecks?
     public let unresolvedThreads: Int
+    public var headRefName: String?
+    public var reviewDecision: String?
+    public var additions: Int?
+    public var deletions: Int?
+    public var changedFiles: Int?
+    public var commits: Int?
 
-    public static let query = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { statusCheckRollup { state contexts { checkRunCountsByState { state count } statusContextCountsByState { state count } } } reviewThreads(first: 100) { nodes { isResolved } } } } }"
+    public static let query = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefName reviewDecision additions deletions changedFiles commits { totalCount } statusCheckRollup { state contexts { checkRunCountsByState { state count } statusContextCountsByState { state count } } } reviewThreads(first: 100) { nodes { isResolved } } } } }"
 
     private struct Response: Decodable {
         struct Payload: Decodable {
@@ -41,6 +47,16 @@ public struct PullRequestDetail: Sendable, Hashable {
         struct PullRequest: Decodable {
             let statusCheckRollup: Rollup?
             let reviewThreads: Threads
+            let headRefName: String?
+            let reviewDecision: String?
+            let additions: Int?
+            let deletions: Int?
+            let changedFiles: Int?
+            let commits: Commits?
+        }
+
+        struct Commits: Decodable {
+            let totalCount: Int
         }
 
         struct Rollup: Decodable {
@@ -84,6 +100,6 @@ public struct PullRequestDetail: Sendable, Hashable {
             return PullRequestChecks(state: PullRequestChecks.State(rollup.state), passed: counts[.passed] ?? 0, failed: counts[.failed] ?? 0, running: counts[.running] ?? 0)
         }
 
-        return Self(checks: checks, unresolvedThreads: pullRequest.reviewThreads.nodes.count(where: { $0?.isResolved == false }))
+        return Self(checks: checks, unresolvedThreads: pullRequest.reviewThreads.nodes.count(where: { $0?.isResolved == false }), headRefName: pullRequest.headRefName, reviewDecision: pullRequest.reviewDecision, additions: pullRequest.additions, deletions: pullRequest.deletions, changedFiles: pullRequest.changedFiles, commits: pullRequest.commits?.totalCount)
     }
 }

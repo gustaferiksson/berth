@@ -11,6 +11,11 @@ final class RemoteClient {
         case failed(String)
     }
 
+    enum PullRequestLoad: Equatable {
+        case loaded(RemotePullRequestDetail)
+        case failed
+    }
+
     enum State: Equatable {
         case disconnected(String?)
         case connecting
@@ -32,6 +37,7 @@ final class RemoteClient {
             guard state != .connected else { return }
 
             activity = [:]
+            pullRequests = [:]
             for (id, upload) in uploads where upload == .uploading { uploads[id] = .failed("The connection dropped") }
         }
     }
@@ -41,6 +47,7 @@ final class RemoteClient {
     private(set) var entries: [String: [RemoteEntry]] = [:]
     private(set) var queued: [String: [String]] = [:]
     private(set) var activity: [String: RemoteActivity] = [:]
+    private(set) var pullRequests: [String: PullRequestLoad] = [:]
     private(set) var features: [String] = []
     private(set) var uploads: [String: UploadState] = [:]
     var notice: String?
@@ -102,6 +109,10 @@ final class RemoteClient {
     func subscribe(to sessionID: String) {
         subscribedSessionID = sessionID
         send(.subscribe(sessionID: sessionID))
+    }
+
+    func loadPullRequest(of sessionID: String) {
+        send(.pullRequest(sessionID: sessionID))
     }
 
     func send(_ message: RemoteClientMessage) {
@@ -209,6 +220,9 @@ final class RemoteClient {
 
         case let .uploaded(id, error):
             uploads[id] = error.map(UploadState.failed) ?? .done
+
+        case let .pullRequest(sessionID, detail):
+            pullRequests[sessionID] = detail.map(PullRequestLoad.loaded) ?? .failed
 
         case .challenge:
             return
