@@ -182,6 +182,7 @@ final class Store {
     }
 
     private(set) var sessionTasks: [SessionTask] = []
+    private(set) var liveSessions: [SessionSummary] = []
     private(set) var taskSuggestions: [String: TaskSuggestion] = [:]
     private(set) var groups: [SessionGroup] = []
     private(set) var activeSessions: [SessionSummary] = []
@@ -313,7 +314,12 @@ final class Store {
         let pins = SessionPins.split(split.active, pinned: pinnedIDs)
         if hasScanned, pins.kept != pinnedIDs { pinnedIDs = pins.kept }
         if pins.pinned != pinnedSessions { pinnedSessions = pins.pinned }
-        let restByID = Dictionary(pins.rest.map { ($0.id, $0) }) { first, _ in first }
+        let live = grouping.active(split.active, live: liveBySession)
+        let liveRank = Dictionary(uniqueKeysWithValues: liveSessions.enumerated().map { ($1.id, $0) })
+        let shownLive = isPointerInSidebar ? live.sorted { liveRank[$0.id, default: -1] < liveRank[$1.id, default: -1] } : live
+        if shownLive != liveSessions { liveSessions = shownLive }
+        let liveIDs = Set(live.map(\.id))
+        let restByID = Dictionary(pins.rest.filter { !liveIDs.contains($0.id) }.map { ($0.id, $0) }) { first, _ in first }
         let issueTitles = Dictionary(pullRequests.values.compactMap(\.self).flatMap(\.closingIssues).map { ($0.ref, $0.title) }) { first, _ in first }
         let rows = shownTasks.compactMap { task -> SessionTask? in
             let members = task.sessionIDs.compactMap { restByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt }
@@ -615,7 +621,10 @@ final class Store {
     func refreshLive() {
         let live = fakeLive + LiveSession.load(from: Self.claudeDirectory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
         let byID = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
-        if byID != liveBySession { liveBySession = byID }
+        if byID != liveBySession {
+            liveBySession = byID
+            if groupingMode == .recent { applyGroups() }
+        }
         // Claude reports `shell` only while idle; a turn shows `busy`, so keep the mark until it reports plain idle.
         let shells = Set(liveBySession.values.filter { $0.activity == .shell || $0.activity != .idle && backgroundShellIDs.contains($0.sessionId) }.map(\.sessionId))
         if shells != backgroundShellIDs { backgroundShellIDs = shells }
@@ -975,9 +984,23 @@ final class Store {
         if kind == .shell { newTerminal() }
     }
 
-    var sidebarGroups: [(group: SessionGroup, tabs: [Tab], entries: [GroupEntry])] {
+    var sidebarActive: (group: SessionGroup, tabs: [Tab], entries: [GroupEntry])? {
+        guard groupingMode == .recent else { return nil }
+
+        let starting = unlistedClaudeTabs
+        guard !liveSessions.isEmpty || !starting.isEmpty else { return nil }
+
+        return (SessionGroup(kind: .active, sessions: liveSessions), starting, liveSessions.map { .session($0.id) })
+    }
+
+    private var unlistedClaudeTabs: [Tab] {
         let listed = Set(activeSessions.map(\.id))
-        let unlisted = tabs.filter { $0.kind == .claude && !($0.sessionID.map(listed.contains) ?? false) }
+        return tabs.filter { $0.kind == .claude && !($0.sessionID.map(listed.contains) ?? false) }
+    }
+
+    var sidebarGroups: [(group: SessionGroup, tabs: [Tab], entries: [GroupEntry])] {
+        let liveIDs = Set(liveSessions.map(\.id))
+        let unlisted = groupingMode == .recent ? [] : unlistedClaudeTabs
         let grouping = grouping
         let placed = Dictionary(grouping: unlisted) { SessionGroup(kind: grouping.kind(forFolder: $0.cwd, lastPrompt: $0.opened), sessions: []).id }
         let known = Set(groups.map(\.id))
@@ -986,19 +1009,21 @@ final class Store {
             .filter { !known.contains($0.id) }
             .sorted { $0.id < $1.id }
         return SessionGrouping.place(groups.filter { $0.custom != nil }, among: extra + groups.filter { $0.custom == nil })
-            .map { group in (group, placed[group.id] ?? [], SessionTask.entries(of: group.sessions, tasks: sessionTasks)) }
+            .map { group in (group, placed[group.id] ?? [], SessionTask.entries(of: group.sessions.filter { !liveIDs.contains($0.id) }, tasks: sessionTasks)) }
             .filter { $0.0.custom != nil || !$0.1.isEmpty || !$0.2.isEmpty }
     }
 
     var sidebarOrderedTabs: [Tab] {
-        terminals + pinnedSessions.compactMap { tab(forSession: $0.id) } + sidebarGroups.flatMap { group in
-            group.tabs + group.entries.flatMap { entry in
-                switch entry {
-                case let .session(id): [id]
-                case let .task(id): sessionTasks.first { $0.id == id }?.sessions.map(\.id) ?? []
-                }
-            }.compactMap { tab(forSession: $0) }
-        }
+        let liveIDs = Set(liveSessions.map(\.id))
+        return terminals + (sidebarActive?.tabs ?? []) + liveSessions.compactMap { tab(forSession: $0.id) }
+            + pinnedSessions.filter { !liveIDs.contains($0.id) }.compactMap { tab(forSession: $0.id) } + sidebarGroups.flatMap { group in
+                group.tabs + group.entries.flatMap { entry in
+                    switch entry {
+                    case let .session(id): [id]
+                    case let .task(id): sessionTasks.first { $0.id == id }?.sessions.map(\.id) ?? []
+                    }
+                }.compactMap { tab(forSession: $0) }
+            }
     }
 
     func selectTab(number: Int) {
@@ -1105,7 +1130,7 @@ final class Store {
     func setGroupsExpanded(_ expanded: Bool) {
         guard persistsTabs else { return }
 
-        let current = Set(sidebarGroups.map(\.group.id) + [Sidebar.terminalsID])
+        let current = Set(sidebarGroups.map(\.group.id) + [Sidebar.terminalsID] + (sidebarActive.map { [$0.group.id] } ?? []))
         let others = (UserDefaults.standard.string(forKey: "collapsedGroups") ?? "").split(separator: "\n").map(String.init).filter { !current.contains($0) }
         let listed = current.filter { Sidebar.collapsedByDefault.contains($0) == expanded }.sorted()
         UserDefaults.standard.set((others + listed).joined(separator: "\n"), forKey: "collapsedGroups")

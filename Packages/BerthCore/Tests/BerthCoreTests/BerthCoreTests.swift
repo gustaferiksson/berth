@@ -539,6 +539,22 @@ struct GroupingTests {
         #expect(groups.map(\.title) == ["Today", "This Week", "Older"])
     }
 
+    @Test func activeHoldsLiveSessionsByStatusThenRecency() {
+        let live = ["idle-new": "idle", "idle-old": "idle", "busy": "busy", "wait": "waiting", "shell": "shell"].map { id, status in
+            LiveSession(pid: 1, sessionId: id, cwd: "/a", kind: nil, jobId: nil, status: status, waitingFor: nil, statusUpdatedAt: nil, startedAt: nil)
+        }
+        let sessions = [
+            session("dead", "/a"), session("idle-old", "/a", ago: 50), session("shell", "/a", ago: 40), session("busy", "/a", ago: 30),
+            session("idle-new", "/a", ago: 5), session("wait", "/a", ago: 90),
+        ]
+        let byID = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
+        let recent = SessionGrouping(mode: .recent, customGroups: [], repositoryRoots: [:], now: now, calendar: calendar)
+        #expect(recent.active(sessions, live: byID).map(\.id) == ["wait", "busy", "shell", "idle-new", "idle-old"])
+        #expect(SessionGroup(kind: .active, sessions: []).id == "recent:active")
+        #expect(SessionGroup(kind: .active, sessions: []).title == "Active")
+        #expect(SessionGrouping(mode: .project, customGroups: [], repositoryRoots: [:], now: now, calendar: calendar).active(sessions, live: byID).isEmpty)
+    }
+
     @Test func recentBucketsFollowCalendarDays() {
         let midnight = calendar.startOfDay(for: now)
         #expect(RecentBucket(date: midnight, now: now, calendar: calendar) == .today)

@@ -56,6 +56,7 @@ struct SidebarLayout: Equatable {
 
     let terminalIDs: [Tab.ID]
     let pinnedIDs: [String]
+    let active: Group?
     let groups: [Group]
     let archivedIDs: [String]
     let isEmpty: Bool
@@ -225,6 +226,10 @@ private struct SidebarList: View, Equatable {
         }
     }
 
+    private var active: Group? {
+        layout.active.map { Group(layout: $0, entries: $0.entries, hiddenSessions: 0) }
+    }
+
     private func rows(of entries: [SidebarLayout.Entry]) -> [Row] {
         entries.flatMap { entry -> [Row] in
             guard case let .task(id, memberIDs) = entry else { return [.session(entry.id)] }
@@ -233,8 +238,15 @@ private struct SidebarList: View, Equatable {
         }
     }
 
+    private var activeItems: [SidebarItem] {
+        guard let active, !isCollapsed(active.id) else { return [] }
+
+        return active.layout.tabIDs.map(SidebarItem.tab) + rows(of: active.entries).map(\.item)
+    }
+
     private var items: [SidebarItem] {
         (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
+            + activeItems
             + (isCollapsed(Self.pinnedID) ? [] : layout.pinnedIDs).map(SidebarItem.session)
             + groups.filter { !isCollapsed($0.id) }.flatMap { $0.layout.tabIDs.map(SidebarItem.tab) + rows(of: $0.entries).map(\.item) }
             + (isArchiveExpanded ? layout.archivedIDs : []).map(SidebarItem.session)
@@ -245,6 +257,9 @@ private struct SidebarList: View, Equatable {
         List {
             if !layout.terminalIDs.isEmpty {
                 terminalsSection
+            }
+            if let active {
+                section(active, at: 0, in: [])
             }
             if !layout.pinnedIDs.isEmpty {
                 Section(isExpanded: expansion(of: Self.pinnedID)) {

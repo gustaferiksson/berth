@@ -58,7 +58,7 @@ extension Store {
         let matchesTab = { (tab: Tab) in
             self.sidebarStatus == .all && (words.isEmpty || matches([tab.title(terminalTitle: tab.terminal.title, sessionTitle: self.sessionTitle(of: tab)), URL(filePath: tab.folder).lastPathComponent]))
         }
-        let sidebarGroups = sidebarGroups.compactMap { group, tabs, entries -> SidebarLayout.Group? in
+        let sidebarGroups = ((sidebarActive.map { [$0] } ?? []) + sidebarGroups).compactMap { group, tabs, entries -> SidebarLayout.Group? in
             let tabs = tabs.filter(matchesTab)
             let entries = entries.compactMap { entry -> SidebarLayout.Entry? in
                 switch entry {
@@ -82,12 +82,14 @@ extension Store {
             )
         }
         let terminalIDs = terminals.filter(matchesTab).map(\.id)
-        let pinnedIDs = pinnedSessions.filter(matchesSession).map(\.id)
+        let liveIDs = Set(liveSessions.map(\.id))
+        let pinnedIDs = pinnedSessions.filter { !liveIDs.contains($0.id) && matchesSession($0) }.map(\.id)
         let archivedIDs = archivedSessions.filter(matchesSession).map(\.id)
         return SidebarLayout(
             terminalIDs: terminalIDs,
             pinnedIDs: pinnedIDs,
-            groups: sidebarGroups,
+            active: sidebarGroups.first { $0.source.kind == .active },
+            groups: sidebarGroups.filter { $0.source.kind != .active },
             archivedIDs: archivedIDs,
             isEmpty: hasScanned && groups.isEmpty && pinnedSessions.isEmpty && tabs.isEmpty,
             filter: sidebarFilter,
