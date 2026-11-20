@@ -21,7 +21,7 @@ Changes apply to a running Berth without a relaunch, except where the table says
 | `startsInWorktree` | `-bool` | `false` | Start new sessions in a git repo with `claude -w`. |
 | `sidebarPosition` | `-string` | `left` | `left` or `right`. |
 | `sidebarDensity` | `-string` | `comfortable` | `comfortable`, `cozy` (tighter rows) or `compact` (one line per row, the pull request beside the title). Settings > Appearance. |
-| `groupingMode` | `-string` | `project` | `project`, `repository` or `recent`. Read at launch. |
+| `groupingMode` | `-string` | `project` | `project`, `repository`, `recent` or `flat`. Read at launch. |
 | `showsCustomGroups` | `-bool` | `true` | Show custom groups in the sidebar. Read at launch. |
 | `reviewEnabled` | `-bool` | `false` | Turn on Review (⇧⌘R). |
 | `languageServersEnabled` | `-bool` | `false` | Run language servers in Review. Needs `reviewEnabled`. |
