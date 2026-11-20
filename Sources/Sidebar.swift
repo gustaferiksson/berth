@@ -1115,8 +1115,7 @@ private struct TaskRow: View {
             isLoaded: false,
             modified: task.sessions[0].lastPrompt,
             isUnread: isUnread,
-            chevron: showsChevron ? (isExpanded ? "chevron.down" : "chevron.right") : nil,
-            titleWeight: .semibold
+            chevron: showsChevron ? (isExpanded ? "chevron.down" : "chevron.right") : nil
         ) {
             HStack(spacing: 8) {
                 if let issue = task.issue { IssueTag(issue: issue).fixedSize() }
@@ -1250,7 +1249,6 @@ private struct CardRow<Detail: View>: View {
     var isFlagged = false
     var context: SessionContext?
     var chevron: String?
-    var titleWeight = Font.Weight.regular
     var close: (() -> Void)?
     @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
@@ -1262,7 +1260,6 @@ private struct CardRow<Detail: View>: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
-                    .fontWeight(titleWeight)
                     .foregroundStyle(theme.foreground)
                     .lineLimit(1)
                     .layoutPriority(density.isCompact ? 1 : 0)
