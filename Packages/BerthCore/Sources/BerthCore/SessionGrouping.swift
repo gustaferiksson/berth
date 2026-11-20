@@ -3,6 +3,8 @@ import Foundation
 public enum GroupingMode: String, CaseIterable, Sendable {
     case project, repository, recent, flat
 
+    public var hasActive: Bool { self == .recent || self == .flat }
+
     public var title: String { self == .flat ? "Recent (One List)" : rawValue.capitalized }
 }
 
@@ -62,6 +64,7 @@ public struct SessionGroup: Identifiable, Sendable, Equatable {
         case folder(String)
         case recent(RecentBucket)
         case flat
+        case active
     }
 
     public let kind: Kind
@@ -76,6 +79,7 @@ public struct SessionGroup: Identifiable, Sendable, Equatable {
         if case let .custom(group) = kind { return "custom:\(group.id.uuidString)" }
         if case let .recent(bucket) = kind { return "recent:\(bucket.rawValue)" }
         if kind == .flat { return "flat" }
+        if kind == .active { return "recent:active" }
         return folder ?? ""
     }
 
@@ -83,6 +87,7 @@ public struct SessionGroup: Identifiable, Sendable, Equatable {
         if case let .custom(group) = kind { return group.name }
         if case let .recent(bucket) = kind { return bucket.title }
         if kind == .flat { return "Recent" }
+        if kind == .active { return "Active" }
         return URL(filePath: folder ?? "/").lastPathComponent
     }
 
@@ -135,6 +140,15 @@ public struct SessionGrouping: Sendable {
                 return RecentBucket.allCases.firstIndex(of: left)! < RecentBucket.allCases.firstIndex(of: right)!
             }
         return Self.place(custom, among: automatic)
+    }
+
+    public func active(_ sessions: [SessionSummary], live: [String: LiveSession]) -> [SessionSummary] {
+        guard mode.hasActive else { return [] }
+
+        let rank = ["waiting": 0, "busy": 1, "shell": 2]
+        return sessions
+            .filter { live[$0.id]?.status != nil }
+            .sorted { (rank[live[$0.id]?.status ?? ""] ?? 3, $1.lastActivity) < (rank[live[$1.id]?.status ?? ""] ?? 3, $0.lastActivity) }
     }
 
     public static func place(_ custom: [SessionGroup], among automatic: [SessionGroup]) -> [SessionGroup] {
