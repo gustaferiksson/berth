@@ -215,6 +215,7 @@ This is the slim first version; the rest is listed under Later.
 | ⇧⌘R, View ▸ Show / Hide Changes, palette, toolbar button | anywhere | Shows or hides the panel (showing leaves Harbor) |
 | ⌘W, a tab's × | a tab is open, focus outside a terminal | Closes the current tab; closing the last leaves "No File Open" and focuses the terminal |
 | View ▸ Show Side by Side / Show Inline, palette, the tab strip toggle | a compare of a file that is neither added nor deleted is shown | Sets `reviewDiffLayout` |
+| View ▸ Show Claude Below Diff / Show Claude Beside Diff, palette | the panel shows | Sets `reviewTerminalBelow`: the split goes vertical, diff on top, terminal below, no strip above the terminal; 160 pt minimum each; the diff starts at 60% (`reviewTerminalBelowRatio`, written while dragging the divider) |
 | ⌘S, Save in the tab strip | Review, the file has a draft | Saves it through `ReviewGit.save` |
 | ⌘F | the diff | The focused side's find bar |
 | ⌘-click | an identifier on the right side, language servers on | Goes to its definition |
