@@ -111,7 +111,7 @@ private struct ApprovalCard: View {
                     Button(isExpanded ? "Show Less" : "Show More") { isExpanded.toggle() }
                         .font(.footnote)
                 }
-                actions(allow: "Approve Plan", deny: "Keep Planning")
+                actions(allow: "Approve Plan", detail: "Auto-accept edits", deny: "Keep Planning")
             } else if let pendingCall, let target {
                 Text(pendingCall.use.detail ?? ["Bash": "Run this command?", "Edit": "Edit this file?", "Write": "Write this file?", "WebFetch": "Fetch this page?"][name, default: "Allow this tool call?"])
                     .font(.headline)
@@ -141,14 +141,20 @@ private struct ApprovalCard: View {
         .sensoryFeedback(.warning, trigger: denials)
     }
 
-    private func actions(allow: String, deny title: String) -> some View {
+    private func actions(allow: String, detail: String? = nil, deny title: String) -> some View {
         HStack(spacing: 12) {
             Button(title, role: .destructive, action: deny)
                 .buttonStyle(.borderless)
                 .frame(maxWidth: .infinity)
             Button { press(.digit1) } label: {
-                Text(allow)
-                    .frame(maxWidth: .infinity)
+                VStack(spacing: 0) {
+                    Text(allow)
+                    if let detail {
+                        Text(detail)
+                            .font(.caption2)
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
             .buttonStyle(.glassProminent)
             .controlSize(.large)
