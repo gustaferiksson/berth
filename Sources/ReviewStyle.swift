@@ -57,6 +57,7 @@ struct ReviewStyle: Equatable {
     let error: NSColor
     let warning: NSColor
     let link: NSColor
+    let indentGuide: NSColor
     private let commentFont: NSFont
     private let syntax: Syntax
 
@@ -68,7 +69,7 @@ struct ReviewStyle: Equatable {
 
         if scheme == .oneDark {
             self.init(
-                isDark: true, font: font, lineHeight: lineHeight, ghostty: ghostty, italicComments: true,
+                isDark: true, font: font, lineHeight: lineHeight, ghostty: ghostty, italicComments: true, indentGuide: hex(0x3B4048FF),
                 background: hex(0x282C34FF), foreground: hex(0xABB2BFFF), gutterForeground: hex(0x495162FF), selection: hex(0x67769660),
                 removedLine: hex(0x9A353D40), addedLine: hex(0x10986833), removedWord: hex(0x9A353D80), addedWord: hex(0x10986866),
                 syntax: Syntax(keyword: hex(0xC678DDFF), string: hex(0x98C379FF), number: hex(0xD19A66FF), type: hex(0xE5C07BFF), function: hex(0x61AFEFFF), property: hex(0xE06C75FF), tag: hex(0xE06C75FF), operator: hex(0x56B6C2FF), comment: hex(0x5C6370FF), variable: hex(0xE06C75FF), constant: hex(0xE5C07BFF), regexp: hex(0xE06C75FF), brackets: [hex(0xD19A66FF), hex(0xC678DDFF), hex(0x56B6C2FF)])
@@ -110,7 +111,7 @@ struct ReviewStyle: Equatable {
         )
     }
 
-    private init(isDark: Bool, font: NSFont, lineHeight: CGFloat, ghostty: GhosttyTheme, italicComments: Bool, background: NSColor, foreground: NSColor, gutterForeground: NSColor, selection: NSColor, removedLine: NSColor, addedLine: NSColor, removedWord: NSColor, addedWord: NSColor, syntax: Syntax) {
+    private init(isDark: Bool, font: NSFont, lineHeight: CGFloat, ghostty: GhosttyTheme, italicComments: Bool, indentGuide: NSColor? = nil, background: NSColor, foreground: NSColor, gutterForeground: NSColor, selection: NSColor, removedLine: NSColor, addedLine: NSColor, removedWord: NSColor, addedWord: NSColor, syntax: Syntax) {
         self.isDark = isDark
         self.font = font
         self.lineHeight = lineHeight
@@ -130,6 +131,7 @@ struct ReviewStyle: Equatable {
         error = NSColor(ghostty.closed)
         warning = NSColor(ghostty.needsYou)
         link = syntax.function
+        self.indentGuide = indentGuide ?? foreground.withAlphaComponent(0.12)
         commentFont = italicComments ? NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) : font
         self.syntax = syntax
     }
