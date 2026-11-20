@@ -138,3 +138,138 @@ enum_case_associated_values_count:
 
 prohibited_super_call:
   excluded: ["doCommand(by:)"]
+
+# Custom SwiftUI, platform and HIG rules. Comments and strings never match. A rule's exclusion names the one legitimate use.
+custom_rules:
+  # Bug prevention
+  observable_object_legacy:
+    name: Legacy Observation
+    regex: '@Published\b|@StateObject\b|@EnvironmentObject\b|:\s*ObservableObject\b|@ObservedObject(?! var terminal: TerminalViewState)'
+    message: 'Use @Observable with @State, @Bindable and @Environment. Only the libghostty TerminalViewState is an ObservableObject.'
+  unstable_view_identity:
+    name: Unstable View Identity
+    regex: '\.id\(UUID\(\)\)'
+    message: 'A fresh id on every update destroys and recreates the view, losing its state. Use a stable id.'
+  dispatch_main_sync:
+    name: Dispatch Main Sync
+    regex: 'DispatchQueue\.main\.sync\b'
+    message: 'Deadlocks when already on the main thread. Use MainActor.assumeIsolated or an await.'
+  dispatch_main_after:
+    name: Dispatch Main After
+    regex: 'DispatchQueue\.main\.asyncAfter\b'
+    message: 'Not cancellable. Use Task.sleep(for:) in a task that ends with the view (.task) or the owner.'
+  dispatch_main_async_in_remote:
+    name: Dispatch Main Async
+    regex: 'DispatchQueue\.main\.async\b'
+    message: 'Use Task { @MainActor in } or an isolated async function. Swift 6 does not check the closure against the main actor.'
+    included: 'BerthRemote/'
+  blocking_sleep:
+    name: Blocking Sleep
+    regex: 'Thread\.sleep\b|(?<![.\w])u?sleep\('
+    message: 'Blocks the thread. Use try await Task.sleep(for:).'
+  task_sleep_nanoseconds:
+    name: Task Sleep Nanoseconds
+    regex: 'Task\.sleep\(nanoseconds:'
+    message: 'Use Task.sleep(for: .seconds(1)); durations are typed and overflow-safe.'
+  on_appear_task:
+    name: Task Inside onAppear
+    regex: '\.onAppear\s*\{\s*Task\s*\{'
+    message: 'Use .task { }, which cancels when the view disappears.'
+  animation_without_value:
+    name: Animation Without Value
+    regex: '\.animation\((nil|\.\w+(\([^()]*\))?)\)'
+    message: 'The value-less .animation(_:) is deprecated and animates every change. Use .animation(_, value:) or withAnimation.'
+  repeat_forever:
+    name: Repeating Animation
+    regex: '\.repeatForever\('
+    message: 'Gate it on accessibilityReduceMotion, or drive it from a TimelineView that pauses.'
+
+  # SwiftUI modernisation
+  navigation_view:
+    name: NavigationView
+    regex: '\bNavigationView\b'
+    message: 'Deprecated. Use NavigationStack or NavigationSplitView.'
+  foreground_color:
+    name: foregroundColor
+    regex: '\.foregroundColor\('
+    message: 'Deprecated. Use .foregroundStyle, which also takes hierarchical and gradient styles.'
+  corner_radius:
+    name: cornerRadius
+    regex: '\.cornerRadius\('
+    message: 'Deprecated on views. Use .clipShape(.rect(cornerRadius:)). Swift Charts marks have no clipShape.'
+    excluded: 'Sources/StatsView\.swift'
+  navigation_bar_modifiers:
+    name: Navigation Bar Modifiers
+    regex: '\.(navigationBarTitle|navigationBarItems|navigationBarHidden)\('
+    message: 'Deprecated. Use .navigationTitle, .toolbar and .toolbarVisibility.'
+  on_change_single_value:
+    name: Single-Value onChange
+    regex: '\.onChange\(of:[^{\n]*(perform:|\)\s*\{\s*(\[[^\]]*\]\s*)?\w+\s+in\b)'
+    message: 'Deprecated. Use the two-parameter { oldValue, newValue in } or the zero-parameter form.'
+  preview_provider:
+    name: PreviewProvider
+    regex: ':\s*PreviewProvider\b'
+    message: 'Use the #Preview macro.'
+  text_concatenation:
+    name: Text Concatenation
+    regex: 'Text\([^\n]*\)\s*\+\s*Text\('
+    message: 'Text + Text is deprecated in iOS 26 and unlocalizable. Interpolate: Text("\\(Text(...)) \\(Text(...))").'
+  tab_item:
+    name: tabItem
+    regex: '\.tabItem\s*\{'
+    message: 'Use Tab(_:systemImage:) inside TabView, which gets the iOS 26 tab bar behaviours.'
+  deprecated_swiftui_api:
+    name: Deprecated SwiftUI API
+    regex: '\.accentColor\(|\.edgesIgnoringSafeArea\(|\.autocapitalization\(|\.disableAutocorrection\(|\.actionSheet\(|\.alert\((isPresented|item):|\bpresentationMode\b|NavigationLink\(destination:|showsIndicators:|\.onReceive\(Timer'
+    message: 'Deprecated. Use .tint, .ignoresSafeArea, .textInputAutocapitalization, .autocorrectionDisabled, .confirmationDialog, .alert(_:isPresented:actions:), @Environment(\.dismiss), NavigationLink(value:), .scrollIndicators, or TimelineView.'
+  uiscreen_main:
+    name: UIScreen.main
+    regex: 'UIScreen\.main\b'
+    message: 'Deprecated, and wrong in multi-window iPad. Read the size from the view (onGeometryChange, containerRelativeFrame) or the window scene.'
+  any_view:
+    name: AnyView
+    regex: '\bAnyView\b'
+    message: 'Type erasure defeats SwiftUI diffing. Use @ViewBuilder, Group or a generic.'
+    excluded: 'Sources/Snapshot\.swift'
+  geometry_reader:
+    name: GeometryReader
+    regex: '\bGeometryReader\b'
+    message: 'Greedy and re-layouts its children. Use onGeometryChange, containerRelativeFrame or visualEffect unless the size must feed layout.'
+    excluded: 'Sources/Harbor\.swift'
+
+  # HIG and glass
+  hand_rolled_material:
+    name: Hand-Rolled Material
+    regex: '\.background\(\s*\.?(ultraThin|thin|regular|thick|ultraThick)Material\b|\.background\(\.bar\)|\b(NSVisualEffectView|UIVisualEffectView|UIBlurEffect)\b'
+    message: 'Bars, controls and floating panels get the system glass: .glassEffect, .buttonStyle(.glass), NSGlassEffectView, UIGlassEffect, or the stock toolbar.'
+  custom_bar_background:
+    name: Custom Bar Background
+    regex: '\.toolbarBackground(Visibility)?\('
+    message: 'Liquid Glass bars draw their own scroll edge effect. Remove the custom bar background.'
+  color_components_literal:
+    name: Colour Component Literal
+    regex: '\b(Color|NSColor|UIColor)\((red|srgbRed|calibratedRed|deviceRed|displayP3Red|white|hue):'
+    message: 'Colours come from the theme (GhosttyTheme, ReviewStyle) or semantic system colours, so Dark Mode and Increase Contrast work.'
+    excluded: 'Sources/(GhosttyConfig|ReviewStyle)\.swift'
+
+  # Accessibility (BerthRemote only: macOS has no Dynamic Type, and its tap-gesture rows are deliberate)
+  fixed_font_size_in_remote:
+    name: Fixed Font Size
+    regex: '\.system\(size:|UIFont\.systemFont\(ofSize'
+    message: 'Fixed sizes ignore Dynamic Type. Use a text style (.body, .caption), or @ScaledMetric for symbols.'
+    included: 'BerthRemote/'
+  tap_gesture_in_remote:
+    name: Tap Gesture
+    regex: '\.onTapGesture\b'
+    message: 'No button trait, VoiceOver action or pointer and keyboard focus. Use Button.'
+    included: 'BerthRemote/'
+  fixed_black_white_in_remote:
+    name: Fixed Black or White
+    regex: '\.(foregroundStyle|background|foregroundColor|tint)\(\.?(Color\.)?(white|black)\)'
+    message: 'Breaks in the opposite appearance. Use .primary, .secondary or a semantic colour.'
+    included: 'BerthRemote/'
+  uikit_feedback_generator:
+    name: UIKit Feedback Generator
+    regex: 'UI(Impact|Notification|Selection)FeedbackGenerator'
+    message: 'Use .sensoryFeedback(_:trigger:).'
+    included: 'BerthRemote/'
