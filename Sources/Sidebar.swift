@@ -1293,7 +1293,6 @@ private struct CardRow<Detail: View>: View {
     var body: some View {
         let isWorking = chevron != nil && state == .working
         let hasMemberDot = chevron != nil && (state != nil || isUnread)
-        let hasActivityDot = hasBackgroundShell || isLoaded && lastActivity != nil || hasMemberDot
         let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 10 >= $0 * 6 && context.tokens <= $0 ? $0 : nil } }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1324,13 +1323,13 @@ private struct CardRow<Detail: View>: View {
                         .foregroundStyle(theme.closed)
                         .help("Flagged")
                         .accessibilityLabel("Flagged")
-                        .padding(.trailing, hasActivityDot || ringWindow != nil ? 0 : 10)
+                        .padding(.trailing, hasMemberDot || ringWindow != nil ? 0 : 10)
                 }
                 if let modified {
                     HStack(spacing: 8) {
                         if let context, let ringWindow {
                             ContextRing(context: context, window: ringWindow)
-                                .padding(.trailing, hasActivityDot ? 0 : 10)
+                                .padding(.trailing, hasMemberDot ? 0 : 10)
                         }
                         ZStack(alignment: .trailing) {
                             Text(verbatim: "00m").hidden()
@@ -1340,27 +1339,10 @@ private struct CardRow<Detail: View>: View {
                         .monospacedDigit()
                         .fixedSize()
                         .foregroundStyle(theme.secondary)
-                        .padding(.leading, isWorking ? 20 : hasActivityDot ? 10 : 0)
+                        .padding(.leading, isWorking ? 20 : hasMemberDot ? 10 : 0)
                         .overlay(alignment: .leading) {
-                            if hasBackgroundShell {
-                                Circle()
-                                    .fill(theme.shellAttached)
-                                    .frame(width: 6, height: 6)
-                                    .help("Background shell running")
-                                    .accessibilityLabel("Background shell running")
-                            } else if hasMemberDot {
+                            if hasMemberDot {
                                 MemberDot(state: state)
-                            } else if isLoaded, let lastActivity {
-                                let inactiveFrom = lastActivity.addingTimeInterval(15 * 60)
-                                TimelineView(.explicit([inactiveFrom])) { _ in
-                                    let isActive = state == .working || Date.now < inactiveFrom
-                                    Circle()
-                                        .strokeBorder(theme.working, lineWidth: 1.25)
-                                        .background(Circle().fill(isActive ? theme.working : .clear))
-                                        .frame(width: 6, height: 6)
-                                        .help(isActive ? "Active" : "Inactive for 15 minutes")
-                                        .accessibilityLabel(isActive ? "Active" : "Inactive")
-                                }
                             }
                         }
                     }
@@ -1381,7 +1363,7 @@ private struct CardRow<Detail: View>: View {
         .padding(.trailing, -8)
         .padding(.vertical, density.rowPadding)
         .overlay(alignment: .topLeading) {
-            StatusSlot(state: state, isUnread: isUnread, chevron: chevron).offset(x: -8, y: density.rowPadding)
+            StatusSlot(state: state, isUnread: isUnread, hasBackgroundShell: hasBackgroundShell, activity: isLoaded ? lastActivity : nil, chevron: chevron).offset(x: -8, y: density.rowPadding)
         }
     }
 }
@@ -1412,6 +1394,8 @@ private struct MemberDot: View {
 private struct StatusSlot: View {
     let state: RowState?
     let isUnread: Bool
+    var hasBackgroundShell = false
+    var activity: Date?
     var chevron: String?
     @Environment(\.ghosttyTheme) private var theme
 
@@ -1422,20 +1406,37 @@ private struct StatusSlot: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(theme.secondary)
                     .accessibilityHidden(true)
-            } else if state == .working {
-                WorkingDots(label: "Working")
             } else if case let .needsYou(reason) = state {
                 Circle()
                     .fill(theme.needsYou)
                     .frame(width: 8, height: 8)
                     .help("Needs you\(reason.map { ": \($0)" } ?? "")")
                     .accessibilityLabel("Needs you")
-            } else if state == nil, isUnread {
+            } else if state == .working {
+                WorkingDots(label: "Working")
+            } else if hasBackgroundShell {
+                Circle()
+                    .fill(theme.shellAttached)
+                    .frame(width: 6, height: 6)
+                    .help("Background shell running")
+                    .accessibilityLabel("Background shell running")
+            } else if isUnread {
                 Circle()
                     .fill(theme.unread)
                     .frame(width: 8, height: 8)
                     .help("Unread")
                     .accessibilityLabel("Unread")
+            } else if let activity {
+                let inactiveFrom = activity.addingTimeInterval(15 * 60)
+                TimelineView(.explicit([inactiveFrom])) { _ in
+                    let isActive = Date.now < inactiveFrom
+                    Circle()
+                        .strokeBorder(theme.working, lineWidth: 1.25)
+                        .background(Circle().fill(isActive ? theme.working : .clear))
+                        .frame(width: 6, height: 6)
+                        .help(isActive ? "Active" : "Inactive for 15 minutes")
+                        .accessibilityLabel(isActive ? "Active" : "Inactive")
+                }
             }
         }
         .frame(width: 8, height: 16)
