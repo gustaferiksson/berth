@@ -6,8 +6,7 @@ struct SessionView: View {
     @Environment(RemoteClient.self) private var client
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
-    @State private var draft = ""
-    @State private var attachments: [Attachment] = []
+    @State private var hasNewMessages = false
     @State private var isShowingRunning = UserDefaults.standard.bool(forKey: "snapshotRunning")
     @State private var isShowingContext = UserDefaults.standard.bool(forKey: "snapshotContext")
     @State private var isShowingPullRequest = UserDefaults.standard.bool(forKey: "snapshotPullRequest")
@@ -46,9 +45,15 @@ struct SessionView: View {
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
-        .onScrollGeometryChange(for: Bool.self) { $0.visibleRect.maxY >= $0.contentSize.height - 80 } action: { isAtBottom = $1 }
+        .onScrollGeometryChange(for: Bool.self) { $0.visibleRect.maxY >= $0.contentSize.height - 80 } action: { _, atBottom in
+            isAtBottom = atBottom
+            if atBottom { hasNewMessages = false }
+        }
         .onChange(of: entries?.last?.id) {
-            guard isAtBottom else { return }
+            guard isAtBottom else {
+                hasNewMessages = true
+                return
+            }
 
             position.scrollTo(edge: .bottom)
         }
@@ -66,12 +71,18 @@ struct SessionView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if !isAtBottom {
-                Button("Scroll to End", systemImage: "arrow.down", action: scrollToEnd)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .controlSize(.large)
-                    .padding()
+                Button(action: scrollToEnd) {
+                    if hasNewMessages {
+                        Label("New Messages", systemImage: "arrow.down")
+                    } else {
+                        Image(systemName: "arrow.down")
+                    }
+                }
+                .accessibilityLabel(hasNewMessages ? "New messages, scroll to end" : "Scroll to End")
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .controlSize(.large)
+                .padding()
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -82,9 +93,7 @@ struct SessionView: View {
                 SessionControls(
                     session: session,
                     sessionID: sessionID,
-                    pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil,
-                    draft: $draft,
-                    attachments: $attachments
+                    pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil
                 )
             }
         }

@@ -6,8 +6,8 @@ struct SessionControls: View {
     let session: RemoteSession?
     let sessionID: String
     let pendingCall: ToolCall?
-    @Binding var draft: String
-    @Binding var attachments: [Attachment]
+
+    @Environment(RemoteClient.self) private var client
 
     var body: some View {
         Group {
@@ -19,7 +19,12 @@ struct SessionControls: View {
             } else if let session, session.status == "waiting" {
                 ApprovalCard(session: session, pendingCall: session.waitingFor == "permission prompt" ? pendingCall : nil)
             } else {
-                Composer(sessionID: sessionID, isWorking: session?.status == "busy", draft: $draft, attachments: $attachments)
+                Composer(
+                    sessionID: sessionID,
+                    isWorking: session?.status == "busy",
+                    draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
+                    attachments: Binding { client.draftAttachments[sessionID, default: []] } set: { client.draftAttachments[sessionID] = $0 }
+                )
             }
         }
         .padding(.horizontal)
@@ -32,12 +37,26 @@ private struct ApprovalCard: View {
     let pendingCall: ToolCall?
 
     @Environment(RemoteClient.self) private var client
+    @State private var answers = 0
+    @State private var cancels = 0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(session.waitingFor.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "Needs you", systemImage: "exclamationmark.bubble.fill")
-                .font(.subheadline.bold())
-                .foregroundStyle(.orange)
+        let isPermission = session.waitingFor == "permission prompt"
+
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Label(session.waitingFor.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "Needs you", systemImage: "exclamationmark.bubble.fill")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.orange)
+                Spacer()
+                if let since = session.waitingSince {
+                    Text(Date(timeIntervalSince1970: since / 1000), style: .timer)
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .accessibilityLabel("Waiting for \(Duration.seconds(max(0, Date.now.timeIntervalSince1970 - since / 1000).rounded()).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide, maximumUnitCount: 2)))")
+                }
+            }
             if let pendingCall {
                 Text(pendingCall.use.detail ?? pendingCall.use.name ?? "Tool")
                     .font(.headline)
@@ -51,26 +70,63 @@ private struct ApprovalCard: View {
                 Text("Claude is waiting for an answer in Berth.")
                     .font(.headline)
             }
+            Button {
+                press(.digit1)
+            } label: {
+                VStack(spacing: 2) {
+                    Text("Option 1")
+                        .font(.headline)
+                    Text("Usually yes")
+                        .font(.caption)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+            .accessibilityLabel("Option 1, usually yes")
             HStack(spacing: 8) {
-                ForEach([("1", RemoteKey.digit1), ("2", .digit2), ("3", .digit3), ("Esc", .escape)], id: \.0) { title, key in
+                ForEach([("Option 2", RemoteKey.digit2), ("Option 3", .digit3)], id: \.0) { title, key in
+                    Button(title) { press(key) }
+                        .frame(maxWidth: .infinity)
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                }
+            }
+            HStack(spacing: 8) {
+                Button(role: .cancel) {
+                    cancels += 1
+                    client.send(.key(sessionID: session.id, key: .escape, waitingFor: session.waitingFor, waitingSince: session.waitingSince))
+                } label: {
+                    Label("Cancel", systemImage: "xmark")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.red)
+                .accessibilityLabel("Cancel, sends Escape")
+                if isPermission {
                     Button {
-                        client.send(.key(sessionID: session.id, key: key, waitingFor: session.waitingFor, waitingSince: session.waitingSince))
+                        press(.shiftTab)
                     } label: {
-                        Text(title)
+                        Label("Shift-Tab", systemImage: "arrow.left.arrow.right")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.large)
+                    .accessibilityLabel("Shift-Tab, switches Claude’s permission mode")
                 }
             }
-            .disabled(client.state != .connected)
-            Text("Picks an option of Claude’s question by number. Usually 1 is yes, 2 is yes and don’t ask again, 3 is no.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            .controlSize(.large)
         }
+        .disabled(client.state != .connected)
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular.tint(.orange.opacity(0.08)), in: .rect(cornerRadius: 24))
+        .sensoryFeedback(.selection, trigger: answers)
+        .sensoryFeedback(.warning, trigger: cancels)
+    }
+
+    private func press(_ key: RemoteKey) {
+        answers += 1
+        client.send(.key(sessionID: session.id, key: key, waitingFor: session.waitingFor, waitingSince: session.waitingSince))
     }
 }
 
@@ -84,6 +140,8 @@ private struct Composer: View {
     @State private var isPickingPhotos = false
     @State private var isImportingFiles = false
     @State private var photoItems: [PhotosPickerItem] = []
+    @State private var sends = 0
+    @State private var stops = 0
     @FocusState private var isFocused: Bool
     @ScaledMetric private var rowHeight = 48
 
@@ -144,6 +202,9 @@ private struct Composer: View {
             }
         }
         .disabled(client.state != .connected)
+        .sensoryFeedback(.impact(weight: .light), trigger: sends)
+        .sensoryFeedback(.impact(weight: .medium), trigger: stops)
+        .sensoryFeedback(.error, trigger: client.uploads) { old, new in failures(in: new) > failures(in: old) }
         .photosPicker(isPresented: $isPickingPhotos, selection: $photoItems, maxSelectionCount: 4, matching: .images)
         .fileImporter(isPresented: $isImportingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             Task { await importFiles((try? result.get()) ?? []) }
@@ -219,12 +280,18 @@ private struct Composer: View {
     #endif
 
     private func send() {
-        client.send(.prompt(sessionID: sessionID, text: draft, attachments: attachments.isEmpty ? nil : attachments.map(\.id)))
-        draft = ""
-        attachments = []
+        guard client.sendDraft(to: sessionID) else { return }
+
+        sends += 1
     }
 
     private func stop() {
-        client.send(.session(sessionID: sessionID, action: .interrupt))
+        guard client.send(.session(sessionID: sessionID, action: .interrupt)) else { return }
+
+        stops += 1
+    }
+
+    private func failures(in uploads: [String: RemoteClient.UploadState]) -> Int {
+        uploads.values.count { if case .failed = $0 { true } else { false } }
     }
 }
