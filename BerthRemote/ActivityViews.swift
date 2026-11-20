@@ -60,6 +60,26 @@ struct RunningSheet: View {
     }
 }
 
+struct ContextRing: View {
+    let context: RemoteContext?
+
+    var body: some View {
+        let fill = context?.tokens.flatMap { tokens in context?.window.map { Double(tokens) / Double($0) } }
+        let level = fill ?? 0
+        ZStack {
+            Circle()
+                .stroke(.secondary.opacity(0.3), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: min(level, 1))
+                .stroke(level >= 0.9 ? .red : level >= 0.7 ? .orange : .primary, style: StrokeStyle(lineWidth: 3, lineCap: .butt))
+                .rotationEffect(.degrees(-90))
+        }
+        .padding(2)
+        .frame(width: 20, height: 20)
+        .accessibilityLabel(fill.map { "Context \($0.formatted(.percent.precision(.fractionLength(0)))) full" } ?? "Context")
+    }
+}
+
 struct ContextSheet: View {
     let context: RemoteContext
 

@@ -106,7 +106,7 @@ struct SessionView: View {
             }
             if activity?.context != nil {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Context", systemImage: "chart.pie") { isShowingContext = true }
+                    Button { isShowingContext = true } label: { ContextRing(context: activity?.context) }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
