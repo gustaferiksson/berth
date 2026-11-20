@@ -142,7 +142,7 @@ private struct Composer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var sends = 0
     @State private var stops = 0
-    @State private var isShowingTray = UserDefaults.standard.bool(forKey: "snapshotTray")
+    @AppStorage("quickReplies") private var replies = QuickReply.defaults
     @State private var confirmedCommand: SlashCommand?
     @FocusState private var isFocused: Bool
     @ScaledMetric private var rowHeight = 48
@@ -154,28 +154,30 @@ private struct Composer: View {
 
         GlassEffectContainer(spacing: 8) {
             HStack(alignment: .bottom, spacing: 8) {
-                Group {
+                Menu("Attach", systemImage: "plus") {
                     if client.features.contains(RemoteUpload.feature) {
-                        Menu("Attach", systemImage: "plus") {
-                            Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
-                            Button("Files", systemImage: "folder") { isImportingFiles = true }
-                        }
+                        Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
+                        Button("Files", systemImage: "folder") { isImportingFiles = true }
                     } else {
-                        Button("Attach", systemImage: "plus") { client.notice = "Update Berth on your Mac to send attachments" }
+                        Button("Attach", systemImage: "paperclip") { client.notice = "Update Berth on your Mac to send attachments" }
+                    }
+                    if !replies.isEmpty {
+                        Section("Replies") {
+                            ForEach(replies) { reply in
+                                Button(reply.text) { insert(reply.text) }
+                            }
+                        }
+                    }
+                    Section("Commands") {
+                        ForEach(SlashCommand.all) { command in
+                            Button(command.name, systemImage: command.symbol, role: command.isDestructive ? .destructive : nil) { run(command) }
+                        }
                     }
                 }
                 .labelStyle(.iconOnly)
                 .font(.title3)
                 .frame(width: rowHeight, height: rowHeight)
                 .glassEffect(.regular.interactive(), in: .circle)
-                Button("Quick Replies", systemImage: "text.bubble") { isShowingTray = true }
-                    .labelStyle(.iconOnly)
-                    .font(.title3)
-                    .frame(width: rowHeight, height: rowHeight)
-                    .glassEffect(.regular.interactive(), in: .circle)
-                    .popover(isPresented: $isShowingTray) {
-                        QuickReplyTray(onInsert: insert, onCommand: run)
-                    }
                 VStack(alignment: .leading, spacing: 0) {
                     if !attachments.isEmpty {
                         ScrollView(.horizontal) {
@@ -213,7 +215,6 @@ private struct Composer: View {
         }
         .disabled(client.state != .connected)
         .sensoryFeedback(.impact(weight: .light), trigger: sends)
-        .sensoryFeedback(.selection, trigger: isShowingTray)
         .confirmationDialog("Clear this conversation?", isPresented: Binding { confirmedCommand != nil } set: { if !$0 { confirmedCommand = nil } }, titleVisibility: .visible) {
             Button("Clear", role: .destructive) {
                 guard let confirmedCommand else { return }
@@ -300,13 +301,11 @@ private struct Composer: View {
     #endif
 
     private func insert(_ text: String) {
-        isShowingTray = false
         draft = draft.isEmpty || draft.last?.isWhitespace == true ? draft + text : draft + " " + text
         isFocused = true
     }
 
     private func run(_ command: SlashCommand) {
-        isShowingTray = false
         if command.isDestructive {
             confirmedCommand = command
             return

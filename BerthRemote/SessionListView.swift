@@ -215,31 +215,52 @@ private struct SessionSummaryView: View {
 
     var body: some View {
         let isProminent = session.status != nil || session.isUnread == true
-        let layout = dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 8))
         let folder = URL(filePath: session.folder).lastPathComponent
+        let isAccessibility = dynamicTypeSize.isAccessibilitySize
+
+        let title = Text(session.title)
+            .font(.body.weight(isProminent ? .semibold : .regular))
+            .foregroundStyle(isProminent ? .primary : .secondary)
+            .lineLimit(isAccessibility ? 2 : 1, reservesSpace: true)
+        let time = SessionTime(session: session)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+        let location = Text("\(session.isLocked ? Text(Image(systemName: "lock.fill")).accessibilityLabel("Locked") : Text(""))\(session.isLocked ? " " : "")\(folder)\(session.branch.map { " · \($0)" } ?? "")")
+            .font(.footnote)
+            .monospaced()
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
 
         HStack(alignment: .top, spacing: 10) {
             SessionStatusIcon(session: session)
             VStack(alignment: .leading, spacing: 3) {
-                layout {
-                    Text(session.title)
-                        .font(.body.weight(isProminent ? .semibold : .regular))
-                        .foregroundStyle(isProminent ? .primary : .secondary)
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 5 : 2)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
-                    SessionTime(session: session)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                Text("\(session.isLocked ? Text(Image(systemName: "lock.fill")).accessibilityLabel("Locked") : Text(""))\(session.isLocked ? " " : "")\(folder)\(session.branch.map { " · \($0)" } ?? "")")
-                    .font(.footnote)
-                    .monospaced()
-                    .foregroundStyle(.secondary)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
-                    .truncationMode(.middle)
-                if let pullRequest = session.pullRequest {
-                    PullRequestTag(pullRequest: pullRequest)
+                if isAccessibility {
+                    title
+                    time
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    location
+                    if let pullRequest = session.pullRequest {
+                        PullRequestTag(pullRequest: pullRequest)
+                    } else {
+                        Text(" ")
+                            .font(.caption.weight(.medium))
+                            .accessibilityHidden(true)
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        title
+                        Spacer(minLength: 0)
+                        time
+                    }
+                    HStack(spacing: 8) {
+                        location
+                        Spacer(minLength: 0)
+                        if let pullRequest = session.pullRequest {
+                            PullRequestTag(pullRequest: pullRequest)
+                        }
+                    }
                 }
             }
         }
@@ -269,8 +290,7 @@ private struct PullRequestTag: View {
         .font(.caption.weight(.medium))
         .foregroundStyle(color)
         .padding(.horizontal, 8)
-        .padding(.vertical, 2)
-        .background(color.opacity(0.15), in: .capsule)
+        .background { Capsule().fill(color.opacity(0.15)).padding(.vertical, -2) }
         .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Pull request \(String(pullRequest.number)), \(pullRequest.state)\(pullRequest.checks.map { ", " + ChecksStyle.title($0) } ?? "")")

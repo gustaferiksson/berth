@@ -38,66 +38,6 @@ struct SlashCommand: Identifiable {
     ]
 }
 
-struct QuickReplyTray: View {
-    let onInsert: (String) -> Void
-    let onCommand: (SlashCommand) -> Void
-
-    @AppStorage("quickReplies") private var replies = QuickReply.defaults
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                if !replies.isEmpty {
-                    Text("Replies")
-                        .font(.footnote.bold())
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 12)
-                    ForEach(replies) { reply in
-                        Button { onInsert(reply.text) } label: {
-                            Text(reply.text)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                Text("Commands")
-                    .font(.footnote.bold())
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                ForEach(SlashCommand.all) { command in
-                    Button { onCommand(command) } label: {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(command.name)
-                                    .monospaced()
-                                Text(command.summary)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: command.symbol)
-                                .frame(width: 24)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(command.isDestructive ? .red : .primary)
-                }
-            }
-            .padding(.vertical, 8)
-        }
-        .frame(minWidth: 280, maxHeight: 520)
-        .presentationCompactAdaptation(.popover)
-    }
-}
-
 struct QuickRepliesEditor: View {
     @AppStorage("quickReplies") private var replies = QuickReply.defaults
     @State private var newText = ""
@@ -118,7 +58,7 @@ struct QuickRepliesEditor: View {
                         .disabled(newText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             } footer: {
-                Text("Tapping a reply in the composer’s tray puts it in the message box. Slash commands are built in and send at once.")
+                Text("Tapping a reply in the composer’s + menu puts it in the message box. Slash commands are built in and send at once.")
             }
         }
         .navigationTitle("Quick Replies")
