@@ -69,6 +69,7 @@ final class RemoteClient {
     private(set) var changes: [String: ChangesLoad] = [:]
     private(set) var diffs: [ChangeKey: DiffLoad] = [:]
     private(set) var features: [String] = []
+    private(set) var usage: PlanUsage?
     private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
     private(set) var uploads: [String: UploadState] = [:]
     var draftTexts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:] {
@@ -129,6 +130,7 @@ final class RemoteClient {
         let before = sessionsReceived
         let deadline = ContinuousClock.now + .seconds(5)
         send(.refresh)
+        loadUsage()
         while sessionsReceived == before, ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(100))
         }
@@ -157,6 +159,12 @@ final class RemoteClient {
 
     func loadPullRequest(of sessionID: String) {
         send(.pullRequest(sessionID: sessionID))
+    }
+
+    func loadUsage() {
+        guard features.contains(RemoteUsageFeature.name) else { return }
+
+        send(.usage)
     }
 
     func loadChanges(of sessionID: String) {
@@ -267,10 +275,12 @@ final class RemoteClient {
             self.groups = groups
             self.folders = folders
             self.features = features ?? []
+            if !self.features.contains(RemoteUsageFeature.name) { usage = nil }
             guard state != .connected else { return }
 
             state = .connected
             failures = 0
+            loadUsage()
             if let subscribedSessionID { send(.subscribe(sessionID: subscribedSessionID)) }
 
         case let .transcript(sessionID, chunk, isContinuation, queued, activity):
@@ -303,6 +313,9 @@ final class RemoteClient {
 
         case let .changeDiff(sessionID, path, isCommitted, diff):
             diffs[ChangeKey(sessionID: sessionID, path: path, isCommitted: isCommitted)] = diff.map(DiffLoad.loaded) ?? .failed
+
+        case let .usage(usage):
+            self.usage = usage
 
         case .challenge:
             return

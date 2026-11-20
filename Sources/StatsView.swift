@@ -6,16 +6,20 @@ struct StatsView: View {
     @Environment(Store.self) private var store
     @State private var stats: UsageStats?
     @State private var selectedDay: Date?
+    @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
 
     private var theme: GhosttyTheme { store.theme }
 
     var body: some View {
         ScrollView {
-            if let stats, !stats.projects.isEmpty {
-                content(stats)
-            } else {
-                ContentUnavailableView(store.searchIndexing == nil && stats != nil ? "No Activity in the Last 30 Days" : "Reading Transcripts…", systemImage: "chart.bar.xaxis")
-                    .frame(maxWidth: .infinity, minHeight: 480)
+            VStack(spacing: 0) {
+                if showsPlanUsage, let usage = store.planUsage { usageSection(usage) }
+                if let stats, !stats.projects.isEmpty {
+                    content(stats)
+                } else {
+                    ContentUnavailableView(store.searchIndexing == nil && stats != nil ? "No Activity in the Last 30 Days" : "Reading Transcripts…", systemImage: "chart.bar.xaxis")
+                        .frame(maxWidth: .infinity, minHeight: 480)
+                }
             }
         }
         .foregroundStyle(theme.foreground)
@@ -33,6 +37,37 @@ struct StatsView: View {
                 let activities = index.activities
                 return UsageStats(sessions: sessions.compactMap { summary in activities[summary.id].map { (summary: summary, activity: $0) } })
             }.value
+        }
+    }
+
+    private func usageSection(_ usage: PlanUsage) -> some View {
+        TimelineView(.everyMinute) { timeline in
+            let windows = usage.current(at: timeline.date)
+            if !windows.isEmpty {
+                section("Plan usage", "The line marks how much of each window has passed") {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(windows) { window in
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text(window.title)
+                                    Spacer()
+                                    Text(window.used, format: .percent.precision(.fractionLength(0))).monospacedDigit()
+                                }
+                                .font(.callout.weight(.semibold))
+                                UsageTrack(window: window, now: timeline.date)
+                                Text(window.summary(at: timeline.date))
+                                    .font(.caption)
+                                    .foregroundStyle(theme.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
+                            .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 12))
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
+                .padding([.horizontal, .top], 24)
+            }
         }
     }
 

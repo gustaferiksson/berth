@@ -132,6 +132,7 @@ struct ContentView: View {
             store.isAppActive = true
             store.refreshPullRequests()
             store.refreshInbox()
+            Task { await store.refreshPlanUsage() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
         .task(id: reviewRoots) { await store.watchReview(reviewRoots) }

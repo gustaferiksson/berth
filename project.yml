@@ -107,6 +107,7 @@ targets:
     sources:
       - path: BerthRemote
       - path: Packages/BerthCore/Sources/BerthCore/RemoteProtocol.swift
+      - path: Packages/BerthCore/Sources/BerthCore/PlanUsage.swift
       - path: Resources/AppIcon.icon
     settings:
       base:

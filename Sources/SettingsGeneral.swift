@@ -12,6 +12,7 @@ struct GeneralSettings: View {
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
     @AppStorage(worktreeKey) private var startsInWorktree = false
+    @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
     @AppStorage(reviewKey) private var isReviewEnabled = false
     @AppStorage(languageServersKey) private var areLanguageServersEnabled = false
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
@@ -29,6 +30,13 @@ struct GeneralSettings: View {
                 Text("Notifications")
             } footer: {
                 Text("The Dock icon always shows how many sessions need you.")
+            }
+            Section {
+                Toggle("Show plan usage", isOn: $showsPlanUsage)
+            } header: {
+                Text("Plan Usage")
+            } footer: {
+                Text("Shows the 5-hour and weekly limits with a pace marker. Berth reads Claude Code’s sign-in from the Keychain (macOS may ask once), asks Anthropic for your usage at most once a minute and never stores the token.")
             }
             Section {
                 Toggle("Start new sessions in a worktree", isOn: $startsInWorktree)
@@ -121,6 +129,7 @@ struct GeneralSettings: View {
             store.remote.update()
         }
         .onChange(of: remoteToken) { store.remote.update() }
+        .onChange(of: showsPlanUsage) { Task { await store.refreshPlanUsage() } }
     }
 
     private var servers: Binding<[LanguageServerEntry]> {
