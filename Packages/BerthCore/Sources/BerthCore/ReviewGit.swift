@@ -170,7 +170,7 @@ public enum ReviewGit {
         let upstreamSides = if let ownUpstream { try await line(["rev-list", "--left-right", "\(ownUpstream)...\(head)"], in: root).split(separator: "\n") } else { [Substring]() }
         let unpushed = Set(upstreamSides.filter { $0.hasPrefix(">") }.map { $0.dropFirst() })
 
-        let range = changes.isDefaultBranch || changes.base == nil ? ["-n", "2", head] : ["\(changes.mergeBase)..\(head)"]
+        let range = changes.isDefaultBranch || changes.base == nil ? ["-n", "2", head] : ["-n", "50", "\(changes.mergeBase)..\(head)"]
         let log = try await git(["log", "-z", "--format=%H%x1f%h%x1f%at%x1f%s"] + range, in: root)
         let commits = log.split(separator: 0).compactMap { record -> ReviewCommit? in
             let fields = record.split(separator: 0x1F, maxSplits: 3, omittingEmptySubsequences: false).map { String(decoding: $0, as: UTF8.self) }

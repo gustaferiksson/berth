@@ -389,6 +389,7 @@ enum Snapshot {
         window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
         window.orderFrontRegardless()
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { await captureTasksReview(store: store, window: window, output: output) }
+        if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotReviewCommitsExpanded") { store.reviewModels["snapshot-review"]?.showsCommits = true }
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30
             while Date.now < deadline, model.error == nil, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
