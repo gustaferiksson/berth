@@ -13,9 +13,9 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
   other slots by recency, then Archived. A group saved without a slot sits right after
   the custom group before it, so new groups land under the last one.
 - Modes: Project (one group per folder), Repository (one group per git root; worktrees
-  and subfolders merge into it), Recent (Today, Yesterday, This Week, Older).
+  and subfolders merge into it), Recent (Today, Yesterday, This Week, Older), Recent (One List) (one newest-first group, 15 rows before Show More).
 - Line 2 shows the project name first whenever the row's folder differs from its group's
-  folder: always in custom groups and Recent, in Repository only for worktrees and
+  folder: always in custom groups and both Recent modes, in Repository only for worktrees and
   subfolders, never in Project groups.
 - Custom groups, mode and Show Custom Groups persist in UserDefaults; snapshots never
   write them.
@@ -24,7 +24,7 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
 
 | Entry point | Pointer | Keyboard | Result |
 |---|---|---|---|
-| Switch mode | View ▸ Group By, palette | ⌃⌘1 / ⌃⌘2 / ⌃⌘3, View ▸ Group By | Regroups at once; collapse state per group id |
+| Switch mode | View ▸ Group By, palette | ⌃⌘1 to ⌃⌘4, View ▸ Group By | Regroups at once; collapse state per group id |
 | Show Custom Groups | View ▸ Group By | none | Off: custom groups hidden, their sessions fall back to the mode |
 | New Group… | File menu, palette, C2 ▸ Add to Group ▸ New Group from X… | menu bar | C3 sheet (empty, or prefilled with X's folder) |
 | Edit Group… | Custom header context menu | none | C3 sheet for that group |
@@ -63,6 +63,6 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
   only sessions this group would actually get.
 - Archived sessions: archived first, so no custom group or mode shows them; Archived stays
   at the bottom in every mode.
-- Recent: buckets without sessions are hidden; headers have no +; Older starts collapsed.
+- Recent: buckets without sessions are hidden; headers have no +; Older starts collapsed. Recent (One List) has the single group `flat`, titled Recent, also without +.
 - Not a git repo (Repository mode): the folder is its own root.
 - Without `gh`: no PR tags.
