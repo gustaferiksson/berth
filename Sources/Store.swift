@@ -881,11 +881,13 @@ final class Store {
 
     func pullRequests(inRoot root: String?, of sessionID: String, branch: String?) -> [PullRequest] {
         let own = root ?? sessionsByID[sessionID].flatMap { repositoryRoots[$0.checkout] }
+        let repository = own.flatMap { repositories[$0] ?? nil }
         let members = task(containing: sessionID)?.sessionIDs.compactMap { sessionsByID[$0] } ?? []
-        let fromMembers = members.filter { repositoryRoots[$0.checkout] == own }.compactMap(pullRequest(for:))
-        let fromBranch = own.flatMap { repositories[$0] ?? nil }.flatMap { repository in branch.flatMap { pullRequests[PullRequestBranch(repository: repository, branch: $0)] ?? nil } }
+        let fromMembers = members.filter { repositoryRoots[$0.checkout] == own }.compactMap { member in pullRequests(of: member).first { $0.repository.lowercased() == repository?.lowercased() }?.pullRequest }
+        let fromLinks = sessionsByID[sessionID].map { pullRequests(of: $0).filter { $0.repository.lowercased() == repository?.lowercased() }.map(\.pullRequest) } ?? []
+        let fromBranch = repository.flatMap { repository in branch.flatMap { pullRequests[PullRequestBranch(repository: repository, branch: $0)] ?? nil } }
         var seen: Set<Int> = []
-        return (fromMembers + [fromBranch].compactMap(\.self)).filter { seen.insert($0.number).inserted }.sorted { $0.number < $1.number }
+        return (fromMembers + fromLinks + [fromBranch].compactMap(\.self)).filter { seen.insert($0.number).inserted }.sorted { $0.number < $1.number }
     }
 
     func pullRequestBranch(inRoot root: String, branch: String) -> PullRequestBranch? {

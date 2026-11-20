@@ -127,7 +127,7 @@ enum Snapshot {
         let rounding = IssueRef(repository: "acme/billing", number: 58)
         let cleanup = (212...217).map { PullRequestLink(repository: "acme/billing", number: $0) }
         let sessions = [
-            SessionSummary(id: "task-usage-api", cwd: "\(code)/billing", title: "Add the usage export CSV endpoint", lastActivity: .now - 300, branch: "usage-export", issueRefs: [usage]),
+            SessionSummary(id: "task-usage-api", cwd: "\(code)/billing", title: "Add the usage export CSV endpoint", lastActivity: .now - 300, branch: "usage-export", pullRequests: linkedFixtureLinks, issueRefs: [usage]),
             SessionSummary(id: "task-usage-web", cwd: "\(code)/web", title: "Add the usage export button to the dashboard", lastActivity: .now - 1200, branch: "feat/export-button", issueRefs: [usage]),
             SessionSummary(id: "task-rounding", cwd: "\(code)/billing", title: "Fix rounding in invoice totals", lastActivity: .now - 2400, branch: "fix/invoice-rounding", pullRequests: [cleanup[0]]),
             SessionSummary(id: "task-rounding-web", cwd: "\(code)/web", title: "Show rounded totals on the invoice page", lastActivity: .now - 3600, branch: "feat/rounded-totals", pullRequests: [cleanup[0]]),
