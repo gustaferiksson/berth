@@ -1337,6 +1337,8 @@ struct ReviewDiffColumn: View {
                     .foregroundStyle(Color(nsColor: style.secondary))
                     .frame(height: 32)
                     Divider()
+                    ReviewPathBar(model: model, document: document, style: style)
+                    Divider()
                     if let contents = model.contents[document], isReadOnly || model.editors[path] != nil {
                         ReviewDiffPane(
                             path: path,
