@@ -37,7 +37,7 @@ enum Snapshot {
         let legacy = "\(code)/acme-platform-billing-reconciliation-pipeline-service-legacy-adapter"
         for folder in [billing, onboarding, legacy, "\(code)/api"] { try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
         return [
-            (SessionSummary(id: "fixture-1", cwd: billing, title: "Reconcile ledger entries against settlement exports and flag every mismatch", lastActivity: .now - 120, branch: "feature/reconcile-settlement-exports-with-ledger-entries", pullRequests: linkedFixtureLinks), PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries", state: .open)),
+            (SessionSummary(id: "fixture-1", cwd: billing, title: "Reconcile ledger entries against settlement exports and flag every mismatch", lastActivity: .now - 120, branch: "feature/reconcile-settlement-exports-with-ledger-entries", pullRequests: linkedFixtureLinks), PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries", state: .open, baseRefName: "main")),
             (SessionSummary(id: "fixture-2", cwd: billing, title: "Fix rounding", lastActivity: .now - 900, branch: "fix/rounding"), PullRequest(number: 4790, url: URL(string: "https://github.com/acme/billing/pull/4790")!, title: "Fix rounding", state: .merged)),
             (SessionSummary(id: "fixture-3", cwd: onboarding, title: "Retry document verification when the upstream provider times out", lastActivity: .now - 2400, branch: "chore/upgrade-document-verification-provider-sdk-to-latest-major"), nil),
             (SessionSummary(id: "fixture-4", cwd: "\(code)/api", title: "Draft the webhook signature check", lastActivity: .now - 3000, branch: "feature/webhook-signature-verification-with-rotating-secrets"), PullRequest(number: 12, url: URL(string: "https://github.com/acme/billing/pull/12")!, title: "Webhook signatures", state: .draft)),
@@ -60,7 +60,7 @@ enum Snapshot {
 
         let state = counts[1] > 0 ? "FAILURE" : counts[2] > 0 ? "PENDING" : "SUCCESS"
         let threads = Array(repeating: #"{"isResolved":false}"#, count: counts[3]) + [#"{"isResolved":true}"#]
-        let response = #"{"data":{"repository":{"pullRequest":{"statusCheckRollup":{"state":"\#(state)","contexts":{"checkRunCountsByState":[{"state":"SUCCESS","count":\#(counts[0])},{"state":"FAILURE","count":\#(counts[1])},{"state":"IN_PROGRESS","count":\#(counts[2])}]}},"reviewThreads":{"nodes":[\#(threads.joined(separator: ","))]}}}}}"#
+        let response = #"{"data":{"repository":{"pullRequest":{"statusCheckRollup":{"state":"\#(state)","contexts":{"checkRunCountsByState":[{"state":"SUCCESS","count":\#(counts[0])},{"state":"FAILURE","count":\#(counts[1])},{"state":"IN_PROGRESS","count":\#(counts[2])}]}},"reviewThreads":{"nodes":[\#(threads.joined(separator: ","))]},"headRefName":"feature/reconcile-settlement-exports","reviewDecision":"CHANGES_REQUESTED","additions":412,"deletions":87,"changedFiles":9,"commits":{"totalCount":5}}}}}"#
         return PullRequestDetail.parse(Data(response.utf8))
     }()
 

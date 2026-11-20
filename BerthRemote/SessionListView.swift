@@ -84,6 +84,7 @@ private struct SessionRow: View {
     let isPinned: Bool
 
     @Environment(RemoteClient.self) private var client
+    @State private var isShowingPullRequest = false
 
     var body: some View {
         NavigationLink(value: session.id) {
@@ -103,13 +104,18 @@ private struct SessionRow: View {
             }
             .tint(.blue)
         }
+        .sheet(isPresented: $isShowingPullRequest) {
+            PullRequestSheet(sessionID: session.id)
+        }
         .contextMenu {
             Button("Open on Mac", systemImage: "macbook") { perform(.show) }
             Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") { perform(isPinned ? .unpin : .pin) }
             Button(session.isUnread == true ? "Mark as Read" : "Mark as Unread", systemImage: session.isUnread == true ? "envelope.open" : "envelope.badge") {
                 perform(session.isUnread == true ? .markRead : .markUnread)
             }
-            if let pullRequest = session.pullRequest, pullRequest.url.scheme == "https" {
+            if let pullRequest = session.pullRequest, client.features.contains(RemotePullRequestFeature.name) {
+                Button("Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull") { isShowingPullRequest = true }
+            } else if let pullRequest = session.pullRequest, pullRequest.url.scheme == "https" {
                 Link(destination: pullRequest.url) {
                     Label("Open Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull")
                 }
@@ -153,6 +159,11 @@ private struct SessionSummaryView: View {
                     Text("\(Text(Image(systemName: "arrow.triangle.pull")).accessibilityLabel("Pull request")) \(String(pullRequest.number))")
                         .foregroundStyle(pullRequest.state == "Open" ? .green : pullRequest.state == "Merged" ? .purple : pullRequest.state == "Closed" ? .red : .secondary)
                         .fixedSize()
+                    if let checks = pullRequest.checks {
+                        Image(systemName: ChecksStyle.symbol(checks))
+                            .foregroundStyle(ChecksStyle.color(checks))
+                            .accessibilityLabel(ChecksStyle.title(checks))
+                    }
                 }
             }
             .font(.footnote)

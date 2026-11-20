@@ -49,6 +49,7 @@ final class RemoteServer {
     @ObservationIgnored private var token = ""
     @ObservationIgnored private var submitting: Set<String> = []
     @ObservationIgnored private var uploads: [String: Upload] = [:]
+    @ObservationIgnored private var pullRequestLoads: [String: (task: Task<PullRequestDetail?, Never>, date: Date)] = [:]
 
     init(store: Store) {
         self.store = store
@@ -198,7 +199,49 @@ final class RemoteServer {
 
         case let .upload(uploadID, name, offset, chunk, isLast):
             receiveUpload(uploadID, name: name, offset: offset, chunk: chunk, isLast: isLast, from: connection)
+
+        case let .pullRequest(sessionID):
+            Task { await sendPullRequest(of: sessionID, to: connection) }
         }
+    }
+
+    private func sendPullRequest(of sessionID: String, to connection: NWConnection) async {
+        let reply = { (detail: RemotePullRequestDetail?) in self.send(try? JSONEncoder().encode(RemoteServerMessage.pullRequest(sessionID: sessionID, detail: detail)), to: connection) }
+        guard let target = store.pullRequestTarget(forSession: sessionID) else { return reply(nil) }
+
+        let key = "\(target.repository)#\(target.pullRequest.number)"
+        let cached = pullRequestLoads[key].flatMap { Date.now.timeIntervalSince($0.date) < 60 ? $0 : nil }
+        let isSnapshot = Snapshot.output != nil
+        let fixture = Snapshot.fixturePullRequestDetail
+        let load = cached ?? (task: Task.detached { [repository = target.repository, number = target.pullRequest.number] in
+            isSnapshot ? fixture : PullRequestStatus.detail(repository: repository, number: number)
+        }, date: Date.now)
+        pullRequestLoads[key] = load
+        guard let detail = await load.task.value else {
+            if pullRequestLoads[key]?.date == load.date { pullRequestLoads[key] = nil }
+            return reply(nil)
+        }
+
+        let pullRequest = target.pullRequest
+        reply(RemotePullRequestDetail(
+            number: pullRequest.number,
+            title: pullRequest.title,
+            state: pullRequest.state.rawValue,
+            url: pullRequest.url,
+            repository: target.repository,
+            head: detail.headRefName,
+            base: pullRequest.baseRefName,
+            checks: detail.checks?.state.rawValue,
+            checksPassed: detail.checks?.passed,
+            checksFailed: detail.checks?.failed,
+            checksRunning: detail.checks?.running,
+            reviewDecision: detail.reviewDecision,
+            unresolvedThreads: detail.unresolvedThreads,
+            additions: detail.additions,
+            deletions: detail.deletions,
+            changedFiles: detail.changedFiles,
+            commits: detail.commits
+        ))
     }
 
     private func receiveUpload(_ uploadID: String, name: String, offset: Int, chunk: Data, isLast: Bool, from connection: NWConnection) {
@@ -263,7 +306,7 @@ final class RemoteServer {
                 isOpen: open.contains(session.id),
                 isLocked: live.map { $0.attachID == nil } ?? false && !open.contains(session.id),
                 lastPrompt: session.lastPrompt,
-                pullRequest: self.store.pullRequest(for: session).map { RemotePullRequest(number: $0.number, state: $0.state.rawValue, url: $0.url) },
+                pullRequest: self.store.pullRequest(for: session).map { RemotePullRequest(number: $0.number, state: $0.state.rawValue, url: $0.url, checks: $0.checks?.rawValue) },
                 isUnread: self.store.isUnread(session)
             )
         }
@@ -272,7 +315,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature])
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name])
     }
 
     private func observeSessions() {

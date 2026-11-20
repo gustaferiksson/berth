@@ -522,6 +522,12 @@ final class Store {
         pullRequests(of: session).first?.pullRequest
     }
 
+    func pullRequestTarget(forSession sessionID: String) -> (repository: String, pullRequest: PullRequest)? {
+        guard let first = sessionsByID[sessionID].flatMap({ pullRequests(of: $0).first }) else { return nil }
+
+        return (first.repository, first.pullRequest)
+    }
+
     func pullRequest(in folder: String, branch: String) -> (repository: String, pullRequest: PullRequest?)? {
         guard let repository = repositoryRoots[folder].flatMap({ repositories[$0] ?? nil }), let pullRequest = pullRequests[PullRequestBranch(repository: repository, branch: branch)] else { return nil }
 
