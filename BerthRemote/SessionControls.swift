@@ -38,16 +38,22 @@ private struct ApprovalCard: View {
 
     @Environment(RemoteClient.self) private var client
     @State private var answers = 0
-    @State private var cancels = 0
+    @State private var denials = 0
+    @State private var isExpanded = false
 
     var body: some View {
-        let isPermission = session.waitingFor == "permission prompt"
+        let name = pendingCall?.use.name ?? ""
+        let input = pendingCall.flatMap { try? JSONSerialization.jsonObject(with: Data($0.use.text.utf8)) as? [String: Any] }
+        let questions = input?["questions"] as? [[String: Any]] ?? []
+        let choices = questions.count == 1 && questions[0]["multiSelect"] as? Bool != true ? questions[0]["options"] as? [[String: Any]] ?? [] : []
+        let plan = input?["plan"] as? String
+        let target = pendingCall.flatMap { $0.use.command ?? $0.use.filePath ?? input?["url"] as? String ?? $0.use.text }
 
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Label(session.waitingFor.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? "Needs you", systemImage: "exclamationmark.bubble.fill")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.orange)
+                Text(verbatim: name.isEmpty ? "Needs you" : name)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(.secondary)
                 Spacer()
                 if let since = session.waitingSince {
                     Text(Date(timeIntervalSince1970: since / 1000), style: .timer)
@@ -57,76 +63,106 @@ private struct ApprovalCard: View {
                         .accessibilityLabel("Waiting for \(Duration.seconds(max(0, Date.now.timeIntervalSince1970 - since / 1000).rounded()).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide, maximumUnitCount: 2)))")
                 }
             }
-            if let pendingCall {
-                Text(pendingCall.use.detail ?? pendingCall.use.name ?? "Tool")
-                    .font(.headline)
-                if let target = pendingCall.use.command ?? pendingCall.use.filePath {
-                    Text(verbatim: target)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(6)
-                }
-            } else {
-                Text("Claude is waiting for an answer in Berth.")
-                    .font(.headline)
-            }
-            Button {
-                press(.digit1)
-            } label: {
-                VStack(spacing: 2) {
-                    Text("Option 1")
+            if name == "AskUserQuestion" {
+                ForEach(Array(questions.enumerated()), id: \.offset) { _, question in
+                    Text(question["question"] as? String ?? "Claude has a question")
                         .font(.headline)
-                    Text("Usually yes")
-                        .font(.caption)
                 }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.glassProminent)
-            .controlSize(.large)
-            .accessibilityLabel("Option 1, usually yes")
-            HStack(spacing: 8) {
-                ForEach([("Option 2", RemoteKey.digit2), ("Option 3", .digit3)], id: \.0) { title, key in
-                    Button(title) { press(key) }
-                        .frame(maxWidth: .infinity)
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
-                }
-            }
-            HStack(spacing: 8) {
-                Button(role: .cancel) {
-                    cancels += 1
-                    client.send(.key(sessionID: session.id, key: .escape, waitingFor: session.waitingFor, waitingSince: session.waitingSince))
-                } label: {
-                    Label("Cancel", systemImage: "xmark")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(.red)
-                .accessibilityLabel("Cancel, sends Escape")
-                if isPermission {
-                    Button {
-                        press(.shiftTab)
-                    } label: {
-                        Label("Shift-Tab", systemImage: "arrow.left.arrow.right")
-                            .frame(maxWidth: .infinity)
+                if choices.isEmpty || choices.count > 9 {
+                    Text("This one needs more than a tap, so answer it on your Mac.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    GlassEffectContainer(spacing: 8) {
+                        VStack(spacing: 8) {
+                            ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
+                                Button {
+                                    press(RemoteKey(rawValue: "digit\(index + 1)") ?? .digit1)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(choice["label"] as? String ?? "Option \(index + 1)")
+                                            .font(.body.weight(.semibold))
+                                        if let detail = choice["description"] as? String {
+                                            Text(detail)
+                                                .font(.footnote)
+                                                .foregroundStyle(.secondary)
+                                                .multilineTextAlignment(.leading)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.glass)
+                                .buttonBorderShape(.roundedRectangle(radius: 16))
+                            }
+                        }
                     }
-                    .buttonStyle(.bordered)
-                    .accessibilityLabel("Shift-Tab, switches Claude’s permission mode")
                 }
+                Button("Dismiss", role: .destructive, action: deny)
+                    .buttonStyle(.borderless)
+                    .frame(maxWidth: .infinity)
+            } else if let plan {
+                Text("Ready to start?")
+                    .font(.headline)
+                Text(plan)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(isExpanded ? nil : 6)
+                if plan.count > 240 || plan.filter(\.isNewline).count > 5 {
+                    Button(isExpanded ? "Show Less" : "Show More") { isExpanded.toggle() }
+                        .font(.footnote)
+                }
+                actions(allow: "Approve Plan", deny: "Keep Planning")
+            } else if let pendingCall, let target {
+                Text(pendingCall.use.detail ?? ["Bash": "Run this command?", "Edit": "Edit this file?", "Write": "Write this file?", "WebFetch": "Fetch this page?"][name, default: "Allow this tool call?"])
+                    .font(.headline)
+                Text(verbatim: target)
+                    .font(.footnote.monospaced())
+                    .lineLimit(isExpanded ? nil : 4)
+                    .truncationMode(pendingCall.use.filePath == nil ? .tail : .middle)
+                    .textSelection(.enabled)
+                if target.count > 160 || target.filter(\.isNewline).count > 3 {
+                    Button(isExpanded ? "Show Less" : "Show More") { isExpanded.toggle() }
+                        .font(.footnote)
+                }
+                actions(allow: "Allow", deny: "Deny")
+            } else {
+                Text("Claude is waiting for an answer on your Mac.")
+                    .font(.headline)
+                Button("Dismiss", role: .destructive, action: deny)
+                    .buttonStyle(.borderless)
+                    .frame(maxWidth: .infinity)
             }
-            .controlSize(.large)
         }
         .disabled(client.state != .connected)
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular.tint(.orange.opacity(0.08)), in: .rect(cornerRadius: 24))
         .sensoryFeedback(.selection, trigger: answers)
-        .sensoryFeedback(.warning, trigger: cancels)
+        .sensoryFeedback(.warning, trigger: denials)
+    }
+
+    private func actions(allow: String, deny title: String) -> some View {
+        HStack(spacing: 12) {
+            Button(title, role: .destructive, action: deny)
+                .buttonStyle(.borderless)
+                .frame(maxWidth: .infinity)
+            Button { press(.digit1) } label: {
+                Text(allow)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+        }
     }
 
     private func press(_ key: RemoteKey) {
         answers += 1
         client.send(.key(sessionID: session.id, key: key, waitingFor: session.waitingFor, waitingSince: session.waitingSince))
+    }
+
+    private func deny() {
+        denials += 1
+        client.send(.key(sessionID: session.id, key: .escape, waitingFor: session.waitingFor, waitingSince: session.waitingSince))
     }
 }
 
