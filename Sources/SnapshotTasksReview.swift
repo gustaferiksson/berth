@@ -80,6 +80,9 @@ extension Snapshot {
         }
         let deadline = Date.now + 30
         while Date.now < deadline, store.sessionReviewModels.count < 3 || store.sessionReviewModels.contains(where: { $0.changes == nil && $0.error == nil }) { try? await Task.sleep(for: .milliseconds(100)) }
+        if let name = UserDefaults.standard.string(forKey: "snapshotReviewRepoTab"), let task = store.task(containing: own) {
+            store.reviewRepoTabs[task.id] = name == "all" ? name : RepositoryRoot.resolve(tasksReviewFolder + "/" + name)
+        }
         if UserDefaults.standard.bool(forKey: "snapshotReviewCommitsExpanded") { store.sessionReviewModels.forEach { $0.showsCommits = true } }
         try? await Task.sleep(for: .seconds(2))
         print("transcript of \(own): \(store.index.url(ofSession: own)?.lastPathComponent ?? "not indexed") (claude directory \(Store.claudeDirectory.path)), edited repositories \(store.editedRepositories[own]?.keys.map { URL(filePath: $0).lastPathComponent } ?? [])")
@@ -111,6 +114,39 @@ extension Snapshot {
         }
         describeRepositories("at start")
         save(".stack.png")
+        if UserDefaults.standard.bool(forKey: "snapshotTasksReviewTransition"), let task = store.task(containing: own) {
+            let infra = RepositoryRoot.resolve(tasksReviewFolder + "/infra")
+            store.reviewRepoTabs[task.id] = infra
+            try? await Task.sleep(for: .seconds(2))
+            save(".infra-tab.png")
+            store.editedRepositories[own] = [:]
+            store.refreshEditedRepositories()
+            try? await Task.sleep(for: .seconds(3))
+            print("transition: repositories \(store.reviewRepositories[own]?.map(\.name) ?? []), picked \(store.reviewRepoTabs[task.id].map { URL(filePath: $0).lastPathComponent } ?? "-")")
+            save(".infra-gone.png")
+            if let tab = store.tabs.first(where: { $0.id == store.selectedTabID }), let index = store.tabs.firstIndex(where: { $0.id == tab.id }) {
+                store.tabs[index].cwd = tasksReviewFolder + "/web"
+                store.prepareReviewModel()
+                try? await Task.sleep(for: .seconds(3))
+                print("transition: relocated model folder \(store.reviewModels[own]?.folder ?? "-")")
+                save(".relocated.png")
+            }
+        }
+        if let names = UserDefaults.standard.string(forKey: "snapshotTasksReviewCollapse") {
+            store.collapsedReviewRepositories.formUnion(names.split(separator: "|").map { RepositoryRoot.resolve(tasksReviewFolder + "/" + $0) })
+            try? await Task.sleep(for: .seconds(2))
+            save(".collapsed.png")
+        }
+        for step in (UserDefaults.standard.string(forKey: "snapshotTasksReviewDefaults") ?? "").split(separator: "|") {
+            let pair = step.split(separator: "=")
+            guard pair.count == 2 else { continue }
+
+            var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            arguments[String(pair[0])] = String(pair[1])
+            UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            try? await Task.sleep(for: .seconds(2))
+            save(".\(pair[0])-\(pair[1]).png")
+        }
         let points = Dictionary(uniqueKeysWithValues: (UserDefaults.standard.string(forKey: "snapshotTasksReviewPoints") ?? "").split(separator: "|").compactMap { entry -> (String, [Double])? in
             let parts = entry.split(separator: "=")
             return parts.count == 2 ? (String(parts[0]), parts[1].split(separator: ",").compactMap { Double($0) }) : nil

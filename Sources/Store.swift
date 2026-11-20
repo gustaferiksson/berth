@@ -121,6 +121,7 @@ final class Store {
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
     var activeReviewRoots: [String: String] = [:]
     var collapsedReviewRepositories: Set<String> = []
+    var reviewRepoTabs: [String: String] = [:]
     var reviewModels: [String: ReviewModel] = [:] {
         didSet {
             for (id, model) in oldValue where reviewModels[id] !== model { model.language?.stop() }

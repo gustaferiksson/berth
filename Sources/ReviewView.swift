@@ -313,7 +313,8 @@ private struct ReviewFileList: View {
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedReviewSections") private var collapsedSections = ""
     @AppStorage("reviewChangesAsTree") private var changesAsTree = false
-    @AppStorage("reviewPanelTab") private var panelTab = ReviewPanelTab.changes
+    @AppStorage("reviewPanelTab") private var storedPanelTab = ReviewPanelTab.changes
+    @State private var unpersistedPanelTab: ReviewPanelTab?
     @FocusState private var focusedList: String?
 
     var body: some View {
@@ -328,6 +329,11 @@ private struct ReviewFileList: View {
                 await model.load()
             }
             .onChange(of: model.filesReveal) { if $1 != nil { panelTab = .files } }
+            .onChange(of: store.activeReviewRoots[sessionID]) { _, root in
+                guard let task = store.task(containing: sessionID), shownRepo != nil else { return }
+
+                store.reviewRepoTabs[task.id] = root ?? ownRoot
+            }
             .onChange(of: owners.contains { $0.model.hasUnsavedEdits || !$0.model.comments.isEmpty }) { store.prepareReviewModel() }
             .task(id: selection) { await (store.reviewModel ?? model).loadSelectedContents() }
             .task(id: extraStates) { for extra in extras { await prepare(extra.repository, extra.model) } }
@@ -426,10 +432,10 @@ private struct ReviewFileList: View {
         }
 
         let own = changes.flatMap { changes in
-            repositoryExpansion(store.repositoryRoot(ofSession: sessionID) ?? model.folder).wrappedValue ? documents(changes.uncommitted, compare: .uncommitted, in: model, root: nil) + documents(changes.committed, compare: .committed, in: model, root: nil) : nil
+            (shownRepo.map { $0 == ownRoot } ?? repositoryExpansion(ownRoot).wrappedValue) ? documents(changes.uncommitted, compare: .uncommitted, in: model, root: nil) + documents(changes.committed, compare: .committed, in: model, root: nil) : nil
         } ?? []
         let others = extras.flatMap { extra -> [ReviewDocument] in
-            guard repositoryExpansion(extra.repository.root).wrappedValue, let changes = extra.model.changes else { return [] }
+            guard shownRepo.map({ $0 == extra.repository.root }) ?? repositoryExpansion(extra.repository.root).wrappedValue, let changes = extra.model.changes else { return [] }
 
             return documents(changes.uncommitted, compare: .uncommitted, in: extra.model, root: extra.repository.root) + documents(changes.committed, compare: .committed, in: extra.model, root: extra.repository.root)
         }
@@ -564,25 +570,67 @@ private struct ReviewFileList: View {
         }
     }
 
+    private func taskCard(_ task: StoredTask) -> some View {
+        let ownRoot = store.repositoryRoot(ofSession: sessionID) ?? model.folder
+        let members = task.sessionIDs.compactMap { store.sessionsByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt }
+        return ReviewTaskCard(
+            title: store.title(of: task),
+            issue: task.issue,
+            members: members,
+            currentID: sessionID,
+            pullRequestCount: store.pullRequestCount(of: members),
+            repositoryCount: Set(members.compactMap { store.repositoryRoot(ofSession: $0.id) } + [ownRoot] + extras.map(\.repository.root)).count,
+            isExpanded: repositoryExpansion(task.id),
+            activate: { store.activate(.session($0)) }
+        )
+        .padding(.horizontal, 8)
+        .padding(.bottom, 6)
+    }
+
+    private func extraCard(_ extra: (repository: ReviewRepository, model: ReviewModel), _ changes: ReviewChanges) -> some View {
+        let found = extraPullRequest(extra.repository.root, changes.branch)
+        return ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil, showsCommits: Bindable(extra.model).showsCommits)
+    }
+
+    private var ownRoot: String { store.repositoryRoot(ofSession: sessionID) ?? model.folder }
+
+    private var shownRepo: String? {
+        guard let task = store.task(containing: sessionID), !extras.isEmpty else { return nil }
+
+        let picked = store.reviewRepoTabs[task.id] ?? ownRoot
+        guard picked != "all" else { return nil }
+
+        return extras.contains { $0.repository.root == picked } ? picked : ownRoot
+    }
+
+    private func repoTabs(_ task: StoredTask) -> some View {
+        let repositories: [(root: String?, id: String, name: String, branch: String?)] = [(nil, ownRoot, URL(filePath: ownRoot).lastPathComponent, model.changes?.branch)]
+            + extras.map { ($0.repository.root, $0.repository.root, $0.repository.name, $0.model.changes?.branch) }
+        var tabs = repositories.map { repository -> (id: String, title: String) in
+            guard let number = store.pullRequests(inRoot: repository.root, of: sessionID, branch: repository.branch).first?.number else { return (repository.id, repository.name) }
+
+            return (repository.id, "\(repository.name) #\(number)")
+        }
+        tabs.append((id: "all", title: "All"))
+        return ReviewRepoTabs(tabs: tabs, selection: Binding(get: { shownRepo ?? "all" }, set: { store.reviewRepoTabs[task.id] = $0 }))
+    }
+
+    @ViewBuilder
+    private func repoRows(_ root: String, indent: Double) -> some View {
+        if root == ownRoot, let changes = model.changes {
+            stackedRows(changes, in: model, root: nil, indent: indent)
+        } else if let extra = extras.first(where: { $0.repository.root == root }), let changes = extra.model.changes {
+            stackedRows(changes, in: extra.model, root: root, indent: indent)
+        } else {
+            Text("Loading changes…")
+                .foregroundStyle(theme.secondary)
+        }
+    }
+
     @ViewBuilder
     private func stackedSections(_ changes: ReviewChanges?) -> some View {
         let ownRoot = store.repositoryRoot(ofSession: sessionID) ?? model.folder
         let inset = changesAsTree ? 9.0 : 0.0
-        if let task = store.task(containing: sessionID) {
-            let members = task.sessionIDs.compactMap { store.sessionsByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt }
-            ReviewTaskCard(
-                title: store.title(of: task),
-                issue: task.issue,
-                members: members,
-                currentID: sessionID,
-                pullRequestCount: store.pullRequestCount(of: members),
-                repositoryCount: Set(members.compactMap { store.repositoryRoot(ofSession: $0.id) } + [ownRoot] + extras.map(\.repository.root)).count,
-                isExpanded: repositoryExpansion(task.id),
-                activate: { store.activate(.session($0)) }
-            )
-            .listRowInsets(EdgeInsets(top: 0, leading: -7.5 - inset, bottom: 4, trailing: -8))
-            .listRowSeparator(.hidden)
-        }
         if let changes {
             Section(isExpanded: repositoryExpansion(ownRoot)) {
                 branchCard(changes, model.status ?? .unknown)
@@ -597,8 +645,7 @@ private struct ReviewFileList: View {
         ForEach(extras, id: \.repository.root) { extra in
             Section(isExpanded: repositoryExpansion(extra.repository.root)) {
                 if let changes = extra.model.changes {
-                    let found = extraPullRequest(extra.repository.root, changes.branch)
-                    ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil, showsCommits: Bindable(extra.model).showsCommits)
+                    extraCard(extra, changes)
                         .listRowInsets(EdgeInsets(top: 0, leading: -7.5 - inset, bottom: 6, trailing: -8))
                     stackedRows(changes, in: extra.model, root: extra.repository.root, indent: inset)
                 } else {
@@ -661,22 +708,45 @@ private struct ReviewFileList: View {
         }
     }
 
+    private var panelTab: ReviewPanelTab {
+        get { unpersistedPanelTab ?? storedPanelTab }
+        nonmutating set { if store.persistsTabs { storedPanelTab = newValue } else { unpersistedPanelTab = newValue } }
+    }
+
     private var commentCount: Int { owners.reduce(0) { $0 + $1.model.comments.count } }
 
     private func changesTab(_ changes: ReviewChanges?) -> some View {
         VStack(spacing: 0) {
+            if let task = store.task(containing: sessionID) {
+                taskCard(task)
+                if !extras.isEmpty { repoTabs(task) }
+            }
             if !isStacked, let changes, let status = model.status {
                 branchCard(changes, status)
                     .padding(.horizontal, 8)
                     .padding(.bottom, 6)
             }
-            list(name: "changes", order: order(changes)) { if isStacked { stackedSections(changes) } else if let changes { changeSections(changes) } }
-                .id(changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
-                .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
-                    guard let document, let compare = document.compare, let active = store.reviewModel else { return }
-
-                    active.collapsedChangeFolders = active.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
+            if let shownRepo {
+                if shownRepo == ownRoot, let changes {
+                    branchCard(changes, model.status ?? .unknown)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 6)
+                } else if let extra = extras.first(where: { $0.repository.root == shownRepo }), let changes = extra.model.changes {
+                    extraCard(extra, changes)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 6)
                 }
+            }
+            list(name: "changes", order: order(changes)) {
+                if let shownRepo { repoRows(shownRepo, indent: changesAsTree ? 9 : 0) } else if isStacked { stackedSections(changes) } else if let changes { changeSections(changes) }
+            }
+            .id(changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
+            .id([shownRepo] + extras.map(\.repository.root))
+            .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
+                guard let document, let compare = document.compare, let active = store.reviewModel else { return }
+
+                active.collapsedChangeFolders = active.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
+            }
         }
     }
 

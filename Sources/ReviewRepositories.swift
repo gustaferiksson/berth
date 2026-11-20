@@ -83,6 +83,37 @@ struct ReviewTaskCard: View {
     }
 }
 
+struct ReviewRepoTabs: View {
+    let tabs: [(id: String, title: String)]
+    @Binding var selection: String
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 14) {
+                ForEach(tabs, id: \.id) { tab in
+                    Button { selection = tab.id } label: {
+                        Text(tab.title)
+                            .font(.caption)
+                            .fontWeight(selection == tab.id ? .semibold : .regular)
+                            .foregroundStyle(selection == tab.id ? theme.foreground : theme.secondary)
+                            .lineLimit(1)
+                            .frame(height: 24)
+                            .overlay(alignment: .bottom) {
+                                if selection == tab.id { Rectangle().fill(theme.foreground).frame(height: 2) }
+                            }
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+        .frame(height: 24)
+        .padding(.bottom, 4)
+    }
+}
+
 struct ReviewRepositoryAccessory: View {
     let branch: String?
     let base: String?
@@ -104,11 +135,9 @@ struct ReviewRepositoryAccessory: View {
                 PullRequestTag(pullRequest: pullRequest)
                     .fixedSize()
                     .opacity(pullRequest.number == hiding ? 0 : 1)
-                    .frame(maxWidth: pullRequest.number == hiding ? 0 : nil)
-                    .clipped()
             }
         }
-        .animation(.default, value: hiding)
+        .animation(.easeInOut(duration: 0.2), value: hiding)
     }
 }
 
