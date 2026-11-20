@@ -273,9 +273,18 @@ enum Snapshot {
             let isOpen = store.tab(forSession: session.id) != nil || store.liveBySession[session.id] != nil
             let card = SessionHoverCard(session: session, pullRequest: store.pullRequest(for: session), context: isOpen ? session.context : nil)
                 .environment(\.ghosttyTheme, store.theme)
+                .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
+                .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
                 .background(store.theme.background ?? .black, in: .rect(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(store.theme.foreground.opacity(0.15)))
                 .padding(8)
+            let size = NSHostingView(rootView: card).fittingSize
+            let screen = NSRect(x: 0, y: 0, width: 1800, height: 1100)
+            for trailing in [true, false] {
+                let column = trailing ? NSRect(x: 0, y: 0, width: 300, height: 1000) : NSRect(x: 1500, y: 0, width: 300, height: 1000)
+                let row = NSRect(x: column.minX + 8, y: 700, width: 284, height: 48)
+                print("hover frame \(trailing ? "left sidebar" : "right sidebar"): row \(row) column edge \(trailing ? column.maxX : column.minX) panel \(HoverCardPanel.frame(size: size, row: row, column: column, trailing: trailing, screen: screen))")
+            }
             let renderer = ImageRenderer(content: card)
             renderer.scale = 2
             if let image = renderer.cgImage { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(output.path).hover-\(session.id).png")) }
