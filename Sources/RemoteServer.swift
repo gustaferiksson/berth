@@ -50,6 +50,7 @@ final class RemoteServer {
     @ObservationIgnored private var token = ""
     @ObservationIgnored private var submitting: Set<String> = []
     @ObservationIgnored private var uploads: [String: Upload] = [:]
+    @ObservationIgnored private var reviewChanges: [String: ReviewChanges] = [:]
     @ObservationIgnored private var pullRequestLoads: [String: (task: Task<PullRequestDetail?, Never>, date: Date)] = [:]
 
     init(store: Store) {
@@ -206,6 +207,12 @@ final class RemoteServer {
 
         case let .search(query):
             Task { await search(query, for: id) }
+
+        case let .changes(sessionID):
+            Task { await sendChanges(of: sessionID, to: connection) }
+
+        case let .changeDiff(sessionID, path, isCommitted):
+            Task { await sendChangeDiff(of: path, isCommitted: isCommitted, in: sessionID, to: connection) }
         }
     }
 
@@ -236,6 +243,30 @@ final class RemoteServer {
 
             try? await Task.sleep(for: .seconds(1))
         }
+    }
+
+    private func sendChanges(of sessionID: String, to connection: NWConnection) async {
+        let reply = { (changes: RemoteChanges?) in self.send(try? JSONEncoder().encode(RemoteServerMessage.changes(sessionID: sessionID, changes: changes)), to: connection) }
+        let folder = store.sessionsByID[sessionID].map { FileManager.default.fileExists(atPath: $0.cwd) ? $0.cwd : $0.checkout } ?? store.tab(forSession: sessionID)?.cwd
+        guard let folder else { return reply(nil) }
+
+        let picks = UserDefaults.standard.dictionary(forKey: ReviewModel.baseBranchesKey) as? [String: [String: String]] ?? [:]
+        let pullRequest = store.pullRequestTarget(forSession: sessionID)?.pullRequest
+        let loaded = await Task.detached {
+            try? await ReviewGit.changes(in: folder) { root, branch in (picks[root]?[branch], pullRequest?.headRefName == branch ? pullRequest?.baseRefName : nil) }
+        }.value
+        guard let loaded else { return reply(nil) }
+
+        reviewChanges[sessionID] = loaded
+        reply(RemoteChanges(loaded))
+    }
+
+    private func sendChangeDiff(of path: String, isCommitted: Bool, in sessionID: String, to connection: NWConnection) async {
+        let reply = { (diff: RemoteFileDiff?) in self.send(try? JSONEncoder().encode(RemoteServerMessage.changeDiff(sessionID: sessionID, path: path, isCommitted: isCommitted, diff: diff)), to: connection) }
+        guard let changes = reviewChanges[sessionID], let file = (isCommitted ? changes.committed : changes.uncommitted).first(where: { $0.path == path }) else { return reply(nil) }
+
+        let contents = await Task.detached { try? await ReviewGit.contents(of: file, compare: isCommitted ? .committed : .uncommitted, in: changes) }.value
+        reply(contents.map { RemoteFileDiff($0) })
     }
 
     private func sendPullRequest(of sessionID: String, to connection: NWConnection) async {
@@ -348,7 +379,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name])
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name])
     }
 
     private func observeSessions() {

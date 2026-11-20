@@ -229,6 +229,76 @@ public struct RemoteSearchHit: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+public nonisolated enum RemoteChangesFeature {
+    public static let name = "changes"
+    public static let maxFiles = 200
+    public static let maxDiffBytes = 300_000
+}
+
+public struct RemoteChangedFile: Codable, Sendable, Hashable, Identifiable {
+    public let path: String
+    public let oldPath: String?
+    public let status: String
+    public let additions: Int?
+    public let deletions: Int?
+
+    public var id: String { path }
+
+    public init(path: String, oldPath: String?, status: String, additions: Int?, deletions: Int?) {
+        self.path = path
+        self.oldPath = oldPath
+        self.status = status
+        self.additions = additions
+        self.deletions = deletions
+    }
+}
+
+public struct RemoteChanges: Codable, Sendable, Hashable {
+    public let branch: String
+    public let base: String?
+    public let uncommitted: [RemoteChangedFile]
+    public let committed: [RemoteChangedFile]
+    public let isTruncated: Bool
+
+    public init(branch: String, base: String?, uncommitted: [RemoteChangedFile], committed: [RemoteChangedFile], isTruncated: Bool) {
+        self.branch = branch
+        self.base = base
+        self.uncommitted = uncommitted
+        self.committed = committed
+        self.isTruncated = isTruncated
+    }
+}
+
+public struct RemoteDiffLine: Codable, Sendable, Hashable {
+    public enum Kind: String, Codable, Sendable {
+        case context, added, removed, hunk
+    }
+
+    public let kind: Kind
+    public let old: Int?
+    public let new: Int?
+    public let text: String
+
+    public init(kind: Kind, old: Int?, new: Int?, text: String) {
+        self.kind = kind
+        self.old = old
+        self.new = new
+        self.text = text
+    }
+}
+
+public struct RemoteFileDiff: Codable, Sendable, Hashable {
+    public let lines: [RemoteDiffLine]
+    public let isBinary: Bool
+    public let isTruncated: Bool
+
+    public init(lines: [RemoteDiffLine], isBinary: Bool, isTruncated: Bool) {
+        self.lines = lines
+        self.isBinary = isBinary
+        self.isTruncated = isTruncated
+    }
+}
+
 public enum RemoteClientMessage: Codable, Sendable {
     case auth(hmac: Data)
     case subscribe(sessionID: String)
@@ -240,6 +310,8 @@ public enum RemoteClientMessage: Codable, Sendable {
     case upload(id: String, name: String, offset: Int, chunk: Data, isLast: Bool)
     case pullRequest(sessionID: String)
     case search(query: String)
+    case changes(sessionID: String)
+    case changeDiff(sessionID: String, path: String, isCommitted: Bool)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
@@ -251,4 +323,6 @@ public enum RemoteServerMessage: Codable, Sendable {
     case uploaded(id: String, error: String?)
     case pullRequest(sessionID: String, detail: RemotePullRequestDetail?)
     case searchResults(query: String, hits: [RemoteSearchHit], isIndexing: Bool)
+    case changes(sessionID: String, changes: RemoteChanges?)
+    case changeDiff(sessionID: String, path: String, isCommitted: Bool, diff: RemoteFileDiff?)
 }
