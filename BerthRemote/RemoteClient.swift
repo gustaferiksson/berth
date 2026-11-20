@@ -16,6 +16,22 @@ final class RemoteClient {
         case failed
     }
 
+    enum ChangesLoad: Equatable {
+        case loaded(RemoteChanges)
+        case failed
+    }
+
+    enum DiffLoad: Equatable {
+        case loaded(RemoteFileDiff)
+        case failed
+    }
+
+    struct ChangeKey: Hashable {
+        let sessionID: String
+        let path: String
+        let isCommitted: Bool
+    }
+
     enum State: Equatable {
         case disconnected(String?)
         case connecting
@@ -38,6 +54,8 @@ final class RemoteClient {
 
             activity = [:]
             pullRequests = [:]
+            changes = [:]
+            diffs = [:]
             for (id, upload) in uploads where upload == .uploading { uploads[id] = .failed("The connection dropped") }
         }
     }
@@ -48,6 +66,8 @@ final class RemoteClient {
     private(set) var queued: [String: [String]] = [:]
     private(set) var activity: [String: RemoteActivity] = [:]
     private(set) var pullRequests: [String: PullRequestLoad] = [:]
+    private(set) var changes: [String: ChangesLoad] = [:]
+    private(set) var diffs: [ChangeKey: DiffLoad] = [:]
     private(set) var features: [String] = []
     private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
     private(set) var uploads: [String: UploadState] = [:]
@@ -137,6 +157,14 @@ final class RemoteClient {
 
     func loadPullRequest(of sessionID: String) {
         send(.pullRequest(sessionID: sessionID))
+    }
+
+    func loadChanges(of sessionID: String) {
+        send(.changes(sessionID: sessionID))
+    }
+
+    func loadDiff(_ key: ChangeKey) {
+        send(.changeDiff(sessionID: key.sessionID, path: key.path, isCommitted: key.isCommitted))
     }
 
     @discardableResult
@@ -269,6 +297,12 @@ final class RemoteClient {
 
         case let .searchResults(query, hits, isIndexing):
             transcriptSearch = (query, hits, isIndexing)
+
+        case let .changes(sessionID, changes):
+            self.changes[sessionID] = changes.map(ChangesLoad.loaded) ?? .failed
+
+        case let .changeDiff(sessionID, path, isCommitted, diff):
+            diffs[ChangeKey(sessionID: sessionID, path: path, isCommitted: isCommitted)] = diff.map(DiffLoad.loaded) ?? .failed
 
         case .challenge:
             return

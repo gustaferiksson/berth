@@ -10,6 +10,7 @@ struct SessionView: View {
     @State private var isShowingRunning = UserDefaults.standard.bool(forKey: "snapshotRunning")
     @State private var isShowingContext = UserDefaults.standard.bool(forKey: "snapshotContext")
     @State private var isShowingPullRequest = UserDefaults.standard.bool(forKey: "snapshotPullRequest")
+    @State private var isShowingChanges = UserDefaults.standard.bool(forKey: "snapshotChanges")
 
     var body: some View {
         let session = client.groups.lazy.flatMap(\.sessions).first { $0.id == sessionID }
@@ -108,6 +109,9 @@ struct SessionView: View {
         .sheet(isPresented: $isShowingPullRequest) {
             PullRequestSheet(sessionID: sessionID)
         }
+        .sheet(isPresented: $isShowingChanges) {
+            ChangesSheet(sessionID: sessionID)
+        }
         .navigationTitle(session?.title ?? "Session")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -125,6 +129,9 @@ struct SessionView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu("Session Actions", systemImage: "ellipsis") {
                     Button("Open on Mac", systemImage: "macbook", action: openOnMac)
+                    if client.features.contains(RemoteChangesFeature.name) {
+                        Button("Changes", systemImage: "plusminus") { isShowingChanges = true }
+                    }
                     if let pullRequest = session?.pullRequest, client.features.contains(RemotePullRequestFeature.name) {
                         Button("Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull") { isShowingPullRequest = true }
                     } else if let pullRequest = session?.pullRequest, pullRequest.url.scheme == "https" {
