@@ -261,8 +261,8 @@ final class ReviewGitTests {
 
         let changes = try await ReviewGit.changes(in: repo.path)
         let status = try await ReviewGit.branchStatus(of: changes)
-        #expect(changes.defaultBase == "origin/main" && changes.base == "feature" && changes.baseReason == .nearest)
-        #expect(changes.bases.map(\.ref) == ["feature", "origin/feature", "origin/main"])
+        #expect(changes.defaultBase == "origin/main" && changes.base == "origin/feature" && changes.baseReason == .nearest)
+        #expect(changes.bases.map(\.ref) == ["origin/feature", "feature", "origin/main"])
         #expect(status.upstream == nil)
         #expect(status.commits.map(\.subject) == ["Spike"])
         #expect(status.commits.allSatisfy { !$0.isPushed })
@@ -308,6 +308,11 @@ final class ReviewGitTests {
         #expect(pullRequest.base == "feat/a" && pullRequest.baseReason == .pullRequest)
 
         try await git(repo, "update-ref", "refs/remotes/origin/feat/a", "feat/a")
+        try await git(repo, "update-ref", "refs/remotes/origin/feat/a", "feat/a~1")
+        let originFirst = try await ReviewGit.changes(in: repo.path)
+        #expect(originFirst.bases.map(\.ref) == ["origin/feat/a", "feat/a", "main"] && originFirst.base == "origin/feat/a" && originFirst.baseReason == .nearest)
+        try await git(repo, "update-ref", "refs/remotes/origin/feat/a", "feat/a")
+
         let twins = try await ReviewGit.changes(in: repo.path) { _, _ in (nil, "feat/a") }
         #expect(twins.bases.map(\.ref) == ["origin/feat/a", "main"] && twins.base == "origin/feat/a" && twins.baseReason == .pullRequest)
 
