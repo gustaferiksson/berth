@@ -32,8 +32,6 @@ enum ReviewPanelTab: String, CaseIterable {
     case comments
 
     var title: String { rawValue.capitalized }
-
-    var symbol: String { [Self.changes: "plusminus", .files: "folder", .preview: "globe", .comments: "text.bubble"][self] ?? "" }
 }
 
 @Observable
@@ -671,7 +669,7 @@ private struct ReviewFileList: View {
 
     private func tabs(_ changes: ReviewChanges?) -> some View {
         VStack(spacing: 0) {
-            IconTabBar(tabs: ReviewPanelTab.allCases, selection: Binding(get: { panelTab }, set: { panelTab = $0 }), symbol: \.symbol, title: \.title) { $0 == .comments ? commentCount : 0 }
+            PanelTabs(tabs: ReviewPanelTab.allCases, selection: Binding(get: { panelTab }, set: { panelTab = $0 }), title: \.title) { $0 == .comments ? commentCount : 0 }
             if let movedFolder = model.movedFolder {
                 Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits and send or delete your comments to follow it.", systemImage: "exclamationmark.triangle")
                     .font(.caption)

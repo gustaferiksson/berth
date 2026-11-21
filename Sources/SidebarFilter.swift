@@ -48,12 +48,23 @@ extension Store {
         return sessionsByID.values.count(where: { !archived.contains($0.id) && matchesStatus(status, $0) })
     }
 
-    func attentionRank(_ session: SessionSummary) -> Int? {
-        if case .needsInput = liveBySession[session.id]?.activity { return 0 }
+    var attentionSessions: [SessionSummary] {
+        let liveIDs = Set(liveSessions.map(\.id))
+        let pinned = pinnedSessions.filter { !liveIDs.contains($0.id) }.map { GroupEntry.session($0.id) }
+        let entries = (sidebarActive.map { [$0.entries] } ?? []) + sidebarGroups.map(\.entries) + [pinned]
+        return entries
+            .joined()
+            .compactMap { entry -> (session: SessionSummary, rank: Int)? in
+                guard case let .session(id) = entry, let session = sessionsByID[id] else { return nil }
 
-        if let pullRequest = pullRequest(for: session), [.open, .draft].contains(pullRequest.state), pullRequest.checks == .failed { return 1 }
+                if case .needsInput = liveBySession[id]?.activity { return (session, 0) }
 
-        return isUnread(session) ? 2 : nil
+                guard let pullRequest = pullRequest(for: session), [.open, .draft].contains(pullRequest.state), pullRequest.checks == .failed else { return nil }
+
+                return (session, 1)
+            }
+            .sorted { ($0.rank, $1.session.lastActivity) < ($1.rank, $0.session.lastActivity) }
+            .map(\.session)
     }
 
     var sidebarLayout: SidebarLayout {
@@ -67,15 +78,7 @@ extension Store {
             self.sidebarStatus == .all && (words.isEmpty || matches([tab.title(terminalTitle: tab.terminal.title, sessionTitle: self.sessionTitle(of: tab)), URL(filePath: tab.folder).lastPathComponent]))
         }
         let source = (sidebarActive.map { [$0] } ?? []) + sidebarGroups
-        let attentionIDs = source
-            .flatMap(\.entries)
-            .compactMap { entry -> (session: SessionSummary, rank: Int)? in
-                guard case let .session(id) = entry, let session = sessionsByID[id], matchesSession(session), let rank = attentionRank(session) else { return nil }
-
-                return (session, rank)
-            }
-            .sorted { ($0.rank, $1.session.lastActivity) < ($1.rank, $0.session.lastActivity) }
-            .map(\.session.id)
+        let attentionIDs = attentionSessions.filter(matchesSession).map(\.id)
         let attention = Set(attentionIDs)
         let sidebarGroups = source.compactMap { group, tabs, entries -> SidebarLayout.Group? in
             let tabs = tabs.filter(matchesTab)
@@ -96,7 +99,7 @@ extension Store {
             let lastInUse = entries.lastIndex { entry in
                 guard case let .session(id) = entry else { return false }
 
-                return tab(forSession: id) != nil || (liveBySession[id]?.activity ?? .idle) != .idle
+                return selectedSessionID == id || (liveBySession[id]?.activity ?? .idle) != .idle
             }
             let visibleLimit = switch group.kind {
             case .flat: 15
@@ -114,7 +117,7 @@ extension Store {
         }
         let terminalIDs = terminals.filter(matchesTab).map(\.id)
         let liveIDs = Set(liveSessions.map(\.id))
-        let pinnedIDs = pinnedSessions.filter { !liveIDs.contains($0.id) && matchesSession($0) }.map(\.id)
+        let pinnedIDs = pinnedSessions.filter { !liveIDs.contains($0.id) && !attention.contains($0.id) && matchesSession($0) }.map(\.id)
         let archivedIDs = archivedSessions.filter(matchesSession).map(\.id)
         return SidebarLayout(
             terminalIDs: terminalIDs,

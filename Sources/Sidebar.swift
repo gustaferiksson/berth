@@ -72,6 +72,7 @@ struct Sidebar: View, Equatable {
 
     static let collapsedByDefault: Set = ["recent:older"]
     static let terminalsID = "terminals"
+    static let attentionID = "attention"
 
     // Its property wrappers never compare equal, so SwiftUI would re-render it on every ContentView update.
     static func == (_: Self, _: Self) -> Bool { true }
@@ -129,24 +130,22 @@ private struct SidebarFilterField: View {
                 }
                 .pickerStyle(.inline)
             } label: {
-                Label("Show", systemImage: store.sidebarStatus == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
-                    .labelStyle(.iconOnly)
-                    .foregroundStyle(store.sidebarStatus == .all ? Color.secondary : Color.accentColor)
+                HStack(spacing: 3) {
+                    Image(systemName: store.sidebarStatus == .all ? "line.3.horizontal.decrease" : store.sidebarStatus.symbol)
+                        .accessibilityHidden(true)
+                    if store.sidebarStatus != .all {
+                        Text("\(store.sidebarStatus.title) \(store.sidebarCount(store.sidebarStatus))")
+                    }
+                }
+                .foregroundStyle(store.sidebarStatus == .all ? Color.secondary : Color.accentColor)
             }
             .menuStyle(.button)
-            .menuIndicator(.hidden)
+            .menuIndicator(.visible)
+            .accessibilityLabel("Show")
             .buttonStyle(.plain)
             .fixedSize()
             .help("Show only working, needs-you, unread or flagged sessions")
-            if store.sidebarStatus != .all {
-                Text(store.sidebarStatus.title)
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(Color.accentColor.opacity(0.16), in: .capsule)
-            }
-            TextField(store.sidebarStatus == .all ? "Filter" : "", text: $store.sidebarFilter)
+            TextField("Filter", text: $store.sidebarFilter)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
                 .onKeyPress(.escape) {
@@ -195,7 +194,6 @@ private struct SidebarList: View, Equatable {
     @FocusState private var isFocused: Bool
 
     private static let pinnedID = "pinned"
-    private static let attentionID = "attention"
 
     private struct Group {
         let layout: SidebarLayout.Group
@@ -248,7 +246,7 @@ private struct SidebarList: View, Equatable {
     }
 
     private var items: [SidebarItem] {
-        (isCollapsed(Self.attentionID) ? [] : layout.attentionIDs).map(SidebarItem.session)
+        (isCollapsed(Sidebar.attentionID) ? [] : layout.attentionIDs).map(SidebarItem.session)
             + (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
             + activeItems
             + (isCollapsed(Self.pinnedID) ? [] : layout.pinnedIDs).map(SidebarItem.session)
@@ -260,13 +258,14 @@ private struct SidebarList: View, Equatable {
         let groups = groups
         List {
             if !layout.attentionIDs.isEmpty {
-                Section(isExpanded: expansion(of: Self.attentionID)) {
+                Section(isExpanded: expansion(of: Sidebar.attentionID)) {
                     ForEach(layout.attentionIDs, id: \.self) { id in
                         SessionItem(id: id, place: .attention, select: select)
+                            .environment(\.sidebarDensity, .compact)
                             .id(SidebarItem.session(id))
                     }
                 } header: {
-                    GroupHeader(title: "Needs Attention", help: "Needs you, failing checks or unread", count: layout.attentionIDs.count) { EmptyView() } accessory: { _ in EmptyView() }
+                    GroupHeader(title: "Needs Attention", help: "Needs you or failing checks", count: layout.attentionIDs.count, tint: theme.needsYou) { EmptyView() } accessory: { _ in EmptyView() }
                 }
             }
             if !layout.terminalIDs.isEmpty {
@@ -396,7 +395,7 @@ private struct SidebarList: View, Equatable {
             return .handled
         }
         if case let .session(id) = item, layout.attentionIDs.contains(id) {
-            expansion(of: Self.attentionID).wrappedValue = expanded
+            expansion(of: Sidebar.attentionID).wrappedValue = expanded
             return .handled
         }
         if case let .session(id) = item, layout.pinnedIDs.contains(id) {
@@ -624,11 +623,13 @@ private struct TabItem: View {
         HStack(spacing: 0) {
             if let tab, tab.kind == .shell {
                 TabRow(tab: tab, live: nil, terminal: tab.terminal) { store.close(tab.id) }
+                    .help((tab.folder as NSString).abbreviatingWithTildeInPath)
             } else if let tab {
                 TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
             }
         }
         .modifier(RowChrome(item: .tab(id), hoverID: id.uuidString, isLocked: false) { select(.tab(id)) })
+        .help(tab?.kind == .shell ? (tab?.folder as NSString?)?.abbreviatingWithTildeInPath ?? "" : "")
         .contextMenu {
             if store.multiSelection.contains(.tab(id)) {
                 MultiSelectionMenu()
@@ -670,7 +671,7 @@ private struct SessionItem: View {
             if let session {
                 SessionRow(
                     session: session,
-                    projectName: place == .archived || place == .group(folder: session.checkout) ? nil : URL(filePath: session.checkout).lastPathComponent,
+                    projectName: place == .archived || place == .attention || place == .group(folder: session.checkout) ? nil : URL(filePath: session.checkout).lastPathComponent,
                     live: live,
                     isOpen: tab != nil,
                     hasBackgroundShell: store.backgroundShellIDs.contains(id),
@@ -823,6 +824,7 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
     let title: String
     let help: String
     let count: Int?
+    var tint: Color?
     var renaming: Binding<CustomGroup?>?
     var commitRename: (CustomGroup) -> Void = { _ in }
     var dragID: String?
@@ -874,13 +876,13 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
             } else {
                 Text(title)
                     .fontWeight(.semibold)
-                    .foregroundStyle(theme.secondary)
+                    .foregroundStyle(tint ?? theme.secondary)
                     .lineLimit(1)
                     .help(help)
                 if let count {
                     Text(count, format: .number)
                         .monospacedDigit()
-                        .foregroundStyle(theme.secondary.opacity(0.6))
+                        .foregroundStyle((tint ?? theme.secondary).opacity(0.6))
                 }
             }
             Spacer(minLength: 4)

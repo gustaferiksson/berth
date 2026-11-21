@@ -1052,17 +1052,19 @@ final class Store {
 
     var sidebarOrderedTabs: [Tab] {
         let liveIDs = Set(liveSessions.map(\.id))
+        let attentionIDs = attentionSessions.map(\.id)
+        let attention = Set(attentionIDs)
         let tabs = { (entries: [GroupEntry]) -> [Tab] in
             entries.flatMap { entry in
                 switch entry {
                 case let .session(id): [id]
                 case let .task(id): self.sessionTasks.first { $0.id == id }?.sessions.map(\.id) ?? []
                 }
-            }.compactMap { self.tab(forSession: $0) }
+            }.filter { !attention.contains($0) }.compactMap { self.tab(forSession: $0) }
         }
         let active = sidebarActive
-        return terminals + (active?.tabs ?? []) + tabs(active?.entries ?? [])
-            + pinnedSessions.filter { !liveIDs.contains($0.id) }.compactMap { tab(forSession: $0.id) }
+        return attentionIDs.compactMap { tab(forSession: $0) } + terminals + (active?.tabs ?? []) + tabs(active?.entries ?? [])
+            + pinnedSessions.filter { !liveIDs.contains($0.id) && !attention.contains($0.id) }.compactMap { tab(forSession: $0.id) }
             + sidebarGroups.flatMap { $0.tabs + tabs($0.entries) }
     }
 
@@ -1170,7 +1172,7 @@ final class Store {
     func setGroupsExpanded(_ expanded: Bool) {
         guard persistsTabs else { return }
 
-        let current = Set(sidebarGroups.map(\.group.id) + [Sidebar.terminalsID] + (sidebarActive.map { [$0.group.id] } ?? []))
+        let current = Set(sidebarGroups.map(\.group.id) + [Sidebar.terminalsID, Sidebar.attentionID] + (sidebarActive.map { [$0.group.id] } ?? []))
         let others = (UserDefaults.standard.string(forKey: "collapsedGroups") ?? "").split(separator: "\n").map(String.init).filter { !current.contains($0) }
         let listed = current.filter { Sidebar.collapsedByDefault.contains($0) == expanded }.sorted()
         UserDefaults.standard.set((others + listed).joined(separator: "\n"), forKey: "collapsedGroups")
