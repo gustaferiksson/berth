@@ -53,10 +53,13 @@ struct UsageTrack: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(.quaternary)
-            Capsule()
-                .fill(fill)
-                .frame(width: width * window.used)
+            ZStack(alignment: .leading) {
+                Rectangle().fill(.quaternary)
+                Rectangle()
+                    .fill(fill)
+                    .frame(width: width * window.used)
+            }
+            .clipShape(.capsule)
             Capsule()
                 .fill(.primary)
                 .frame(width: 2, height: height + 6)

@@ -69,10 +69,13 @@ struct UsageTrack: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(theme.foreground.opacity(0.14))
-            Capsule()
-                .fill(fill)
-                .frame(width: width * window.used)
+            ZStack(alignment: .leading) {
+                Color(theme.foreground.opacity(0.14))
+                Rectangle()
+                    .fill(fill)
+                    .frame(width: width * window.used)
+            }
+            .clipShape(.capsule)
             Capsule()
                 .fill(theme.foreground)
                 .frame(width: 1.5, height: 10)
