@@ -23,4 +23,8 @@ public enum PullRequestSelection {
         }
         return unique.enumerated().sorted { key($0).lexicographicallyPrecedes(key($1)) }.map(\.element)
     }
+
+    public static func current<Candidate: PullRequestCandidate>(_ candidates: [Candidate], branch: String?, closes: (Candidate) -> Bool) -> [Candidate] {
+        candidates.filter { $0.state != .closed || $0.head == branch || closes($0) }
+    }
 }

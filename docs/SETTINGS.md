@@ -26,7 +26,7 @@ Changes apply to a running Berth without a relaunch, except where the table says
 | `reviewEnabled` | `-bool` | `false` | Turn on Review (⇧⌘R). |
 | `languageServersEnabled` | `-bool` | `false` | Run language servers in Review. Needs `reviewEnabled`. |
 | `languageServers` | `-string` | unset | JSON array of server entries, see below. Unset means the built-ins. |
-| `reviewColorScheme` | `-string` | `oneDark` | `oneDark`, `oneLight`, `gitHubDark`, `gitHubLight` or `terminal` (match the Ghostty theme). |
+| `reviewColorScheme` | `-string` | `terminal` | `oneDark`, `oneLight`, `gitHubDark`, `gitHubLight` or `terminal` (match the Ghostty theme). |
 | `reviewFontFamily` | `-string` | empty | A monospaced font family; empty uses the terminal font. |
 | `reviewFontSize` | `-float` | `0` | Points; `0` uses the terminal font size. Settings offers 9 to 24. |
 | `reviewLineHeight` | `-float` | `1.3` | Line height multiple, 1.0 to 2.0. |

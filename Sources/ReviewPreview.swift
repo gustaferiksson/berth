@@ -120,6 +120,7 @@ final class ReviewPreviewModel: NSObject, WKNavigationDelegate, WKUIDelegate {
         guard let pick, let url = webView.url else { return }
 
         model.comments.append(ReviewComment(id: UUID().uuidString, path: url.absoluteString, line: 0, endLine: 0, text: pickText, snippet: "", compare: nil, element: .init(url: url.absoluteString, selector: pick.selector, html: pick.html, imagePath: pick.imagePath)))
+        model.showsCommentList = true
         self.pick = nil
         pickText = ""
     }
@@ -303,13 +304,20 @@ struct ReviewPreviewView: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
             }
-            GlassCapsule {
-                Button("Pick Element", systemImage: preview.isPicking ? "scope" : "cursorarrow.rays") {
-                    Task { await preview.setPicking(!preview.isPicking) }
-                }
-                .foregroundStyle(preview.isPicking ? Color.accentColor : theme.secondary)
-                .disabled(preview.webView.url == nil)
+            Button {
+                Task { await preview.setPicking(!preview.isPicking) }
+            } label: {
+                Label(preview.isPicking ? "Picking" : "Pick", systemImage: preview.isPicking ? "scope" : "cursorarrow.click")
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .foregroundStyle(preview.isPicking ? Color.accentColor : theme.secondary)
+                    .glassEffect(.regular, in: .capsule)
+                    .contentShape(.capsule)
             }
+            .buttonStyle(.plain)
+            .disabled(preview.webView.url == nil)
+            .help("Pick an element on the page to comment on it")
         }
         .padding(8)
     }

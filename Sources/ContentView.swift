@@ -407,50 +407,6 @@ private struct TabTitle: View {
     }
 }
 
-struct IconTabBar<Tab: Hashable>: View {
-    let tabs: [Tab]
-    @Binding var selection: Tab
-    let symbol: (Tab) -> String
-    let title: (Tab) -> String
-    let count: (Tab) -> Int
-    @Environment(\.ghosttyTheme) private var theme
-
-    var body: some View {
-        VStack(spacing: 0) {
-            buttons
-                .frame(height: 32)
-            Divider()
-        }
-    }
-
-    private var buttons: some View {
-        HStack(spacing: 0) {
-            ForEach(tabs, id: \.self) { tab in
-                let isSelected = selection == tab
-                let badge = count(tab)
-                Button { selection = tab } label: {
-                    HStack(spacing: 3) {
-                        Image(systemName: symbol(tab))
-                            .symbolVariant(isSelected ? .fill : .none)
-                            .font(.system(size: 13))
-                        if badge > 0 {
-                            Text("\(badge)")
-                                .font(.caption2.monospacedDigit())
-                        }
-                    }
-                    .foregroundStyle(isSelected ? Color.accentColor : theme.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .help(title(tab))
-                .accessibilityLabel(badge > 0 ? "\(title(tab)), \(badge)" : title(tab))
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-            }
-        }
-    }
-}
-
 struct Hairline: View {
     let axis: Axis
     @Environment(\.ghosttyTheme) private var theme

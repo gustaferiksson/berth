@@ -122,6 +122,7 @@ final class Store {
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
     var activeReviewRoots: [String: String] = [:]
     var collapsedReviewRepositories: Set<String> = []
+    var expandedReviewTasks: Set<String> = []
     var reviewRepoTabs: [String: String] = [:]
     var reviewModels: [String: ReviewModel] = [:] {
         didSet {
@@ -390,11 +391,14 @@ final class Store {
         return task.name ?? task.issue.flatMap { issueTitles[$0] } ?? newest?.title ?? "Task"
     }
 
-    func pullRequestCount(of members: [SessionSummary]) -> Int {
-        Set(members.flatMap { member in
-            let repository = repositoryRoots[member.checkout].flatMap { repositories[$0] ?? nil }?.lowercased() ?? ""
-            return member.pullRequests.map { "\($0.repository.lowercased())#\($0.number)" } + [pullRequest(for: member)].compactMap(\.self).map { "\(repository)#\($0.number)" }
-        }).count
+    func pullRequestCount(of members: [SessionSummary], in task: StoredTask) -> Int {
+        Set(members.flatMap { currentPullRequests(of: $0, in: task) }.map { "\($0.repository.lowercased())#\($0.number)" }).count
+    }
+
+    private func currentPullRequests(of session: SessionSummary, in task: StoredTask?) -> [SessionPullRequest] {
+        PullRequestSelection.current(pullRequests(of: session), branch: session.branches.first) { candidate in
+            task?.issue.map { issue in candidate.pullRequest.closingIssues.contains { $0.ref == issue } } ?? false
+        }
     }
 
     func repositoryRoot(ofSession sessionID: String) -> String? {
@@ -912,12 +916,12 @@ final class Store {
     func pullRequests(inRoot root: String?, of sessionID: String, branch: String?) -> [PullRequest] {
         let own = root ?? sessionsByID[sessionID].flatMap { repositoryRoots[$0.checkout] }
         let repository = own.flatMap { repositories[$0] ?? nil }
-        let members = task(containing: sessionID)?.sessionIDs.compactMap { sessionsByID[$0] } ?? []
-        let fromMembers = members.filter { repositoryRoots[$0.checkout] == own }.compactMap { member in pullRequests(of: member).first { $0.repository.lowercased() == repository?.lowercased() }?.pullRequest }
-        let fromLinks = sessionsByID[sessionID].map { pullRequests(of: $0).filter { $0.repository.lowercased() == repository?.lowercased() }.map(\.pullRequest) } ?? []
+        let task = task(containing: sessionID)
+        let sessions = (task?.sessionIDs ?? [sessionID]).compactMap { sessionsByID[$0] }.filter { $0.id == sessionID || repositoryRoots[$0.checkout] == own }
+        let fromSessions = sessions.flatMap { currentPullRequests(of: $0, in: task) }.filter { $0.repository.lowercased() == repository?.lowercased() }.map(\.pullRequest)
         let fromBranch = repository.flatMap { repository in branch.flatMap { pullRequests[PullRequestBranch(repository: repository, branch: $0)] ?? nil } }
         var seen: Set<Int> = []
-        return (fromMembers + fromLinks + [fromBranch].compactMap(\.self)).filter { seen.insert($0.number).inserted }.sorted { $0.number < $1.number }
+        return (fromSessions + [fromBranch].compactMap(\.self)).filter { seen.insert($0.number).inserted }.sorted { $0.number < $1.number }
     }
 
     func pullRequestBranch(inRoot root: String, branch: String) -> PullRequestBranch? {
@@ -992,7 +996,13 @@ final class Store {
     }
 
     func closeDiff(tab id: ReviewTab.ID? = nil) {
-        guard let model = reviewModel, let id = id ?? model.selectedTabID else { return }
+        guard let model = reviewModel else { return }
+
+        if id == nil, model.isPreviewSelected {
+            model.closePreview()
+            return
+        }
+        guard let id = id ?? model.selectedTabID else { return }
 
         let isSelected = id == model.selectedTabID
         model.close(id)
@@ -1052,17 +1062,19 @@ final class Store {
 
     var sidebarOrderedTabs: [Tab] {
         let liveIDs = Set(liveSessions.map(\.id))
+        let attentionIDs = attentionSessions.map(\.id)
+        let attention = Set(attentionIDs)
         let tabs = { (entries: [GroupEntry]) -> [Tab] in
             entries.flatMap { entry in
                 switch entry {
                 case let .session(id): [id]
                 case let .task(id): self.sessionTasks.first { $0.id == id }?.sessions.map(\.id) ?? []
                 }
-            }.compactMap { self.tab(forSession: $0) }
+            }.filter { !attention.contains($0) }.compactMap { self.tab(forSession: $0) }
         }
         let active = sidebarActive
-        return terminals + (active?.tabs ?? []) + tabs(active?.entries ?? [])
-            + pinnedSessions.filter { !liveIDs.contains($0.id) }.compactMap { tab(forSession: $0.id) }
+        return attentionIDs.compactMap { tab(forSession: $0) } + terminals + (active?.tabs ?? []) + tabs(active?.entries ?? [])
+            + pinnedSessions.filter { !liveIDs.contains($0.id) && !attention.contains($0.id) }.compactMap { tab(forSession: $0.id) }
             + sidebarGroups.flatMap { $0.tabs + tabs($0.entries) }
     }
 
@@ -1170,7 +1182,7 @@ final class Store {
     func setGroupsExpanded(_ expanded: Bool) {
         guard persistsTabs else { return }
 
-        let current = Set(sidebarGroups.map(\.group.id) + [Sidebar.terminalsID] + (sidebarActive.map { [$0.group.id] } ?? []))
+        let current = Set(sidebarGroups.map(\.group.id) + [Sidebar.terminalsID, Sidebar.attentionID] + (sidebarActive.map { [$0.group.id] } ?? []))
         let others = (UserDefaults.standard.string(forKey: "collapsedGroups") ?? "").split(separator: "\n").map(String.init).filter { !current.contains($0) }
         let listed = current.filter { Sidebar.collapsedByDefault.contains($0) == expanded }.sorted()
         UserDefaults.standard.set((others + listed).joined(separator: "\n"), forKey: "collapsedGroups")

@@ -50,12 +50,13 @@ struct SidebarLayout: Equatable {
         let source: SessionGroup
         let tabIDs: [Tab.ID]
         let entries: [Entry]
+        let visibleLimit: Int
         let folders: [String]
         var id: String { source.id }
-        var visibleLimit: Int { source.kind == .flat ? 15 : 5 }
     }
 
     let terminalIDs: [Tab.ID]
+    let attentionIDs: [String]
     let pinnedIDs: [String]
     let active: Group?
     let groups: [Group]
@@ -71,6 +72,7 @@ struct Sidebar: View, Equatable {
 
     static let collapsedByDefault: Set = ["recent:older"]
     static let terminalsID = "terminals"
+    static let attentionID = "attention"
 
     // Its property wrappers never compare equal, so SwiftUI would re-render it on every ContentView update.
     static func == (_: Self, _: Self) -> Bool { true }
@@ -101,22 +103,14 @@ struct Sidebar: View, Equatable {
                     withAnimation { proxy.scrollTo(cursor) }
                 }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { SidebarStatusRow() }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
-                UsageBar()
                 SidebarFilterField()
+                    .frame(height: 32)
+                Divider()
             }
         }
-    }
-}
-
-private struct SidebarStatusRow: View {
-    @Environment(Store.self) private var store
-
-    var body: some View {
-        @Bindable var store = store
-        IconTabBar(tabs: SidebarStatus.allCases, selection: $store.sidebarStatus, symbol: \.symbol, title: \.title) { $0 == .all ? 0 : store.sidebarCount($0) }
+        .safeAreaInset(edge: .bottom, spacing: 0) { UsageBar() }
     }
 }
 
@@ -127,9 +121,30 @@ private struct SidebarFilterField: View {
     var body: some View {
         @Bindable var store = store
         HStack(spacing: 6) {
-            Image(systemName: "line.3.horizontal.decrease")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
+            Menu {
+                Picker("Show", selection: $store.sidebarStatus) {
+                    ForEach(SidebarStatus.allCases) { status in
+                        let count = status == .all ? 0 : store.sidebarCount(status)
+                        Label(count > 0 ? "\(status.title) (\(count))" : status.title, systemImage: status.symbol).tag(status)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: store.sidebarStatus == .all ? "line.3.horizontal.decrease" : store.sidebarStatus.symbol)
+                        .accessibilityHidden(true)
+                    if store.sidebarStatus != .all {
+                        Text("\(store.sidebarStatus.title) \(store.sidebarCount(store.sidebarStatus))")
+                    }
+                }
+                .foregroundStyle(store.sidebarStatus == .all ? Color.secondary : Color.accentColor)
+            }
+            .menuStyle(.button)
+            .menuIndicator(.visible)
+            .accessibilityLabel("Show")
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help("Show only the sessions a status dot marks: needs you, working, background shell, unread or flagged")
             TextField("Filter", text: $store.sidebarFilter)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
@@ -143,20 +158,21 @@ private struct SidebarFilterField: View {
                     }
                     return .handled
                 }
-            if !store.sidebarFilter.isEmpty {
-                Button("Clear Filter", systemImage: "xmark.circle.fill") { store.sidebarFilter = "" }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+            if !store.sidebarFilter.isEmpty || store.sidebarStatus != .all {
+                Button("Clear Filter", systemImage: "xmark.circle.fill") {
+                    store.sidebarFilter = ""
+                    store.sidebarStatus = .all
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
             }
         }
         .font(.callout)
         .padding(.horizontal, 10)
-        .frame(height: 28)
+        .frame(height: 24)
         .glassEffect(.regular, in: .capsule)
         .padding(.horizontal, 10)
-        .padding(.top, 4)
-        .padding(.bottom, 8)
         .onChange(of: store.sidebarFilterFocusRequests) { isFocused = true }
     }
 }
@@ -203,14 +219,16 @@ private struct SidebarList: View, Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.layout == rhs.layout }
 
     private var groups: [Group] {
-        layout.groups.map { group in
-            let entries = expandedGroups.contains(group.id) || !layout.filter.isEmpty ? group.entries : Array(group.entries.prefix(group.visibleLimit))
-            return Group(layout: group, entries: entries, hiddenSessions: group.entries.count - entries.count)
-        }
+        layout.groups.map(visible)
     }
 
     private var active: Group? {
-        layout.active.map { Group(layout: $0, entries: $0.entries, hiddenSessions: 0) }
+        layout.active.map(visible)
+    }
+
+    private func visible(_ group: SidebarLayout.Group) -> Group {
+        let entries = expandedGroups.contains(group.id) || !layout.filter.isEmpty ? group.entries : Array(group.entries.prefix(group.visibleLimit))
+        return Group(layout: group, entries: entries, hiddenSessions: group.entries.count - entries.count)
     }
 
     private func rows(of entries: [SidebarLayout.Entry]) -> [Row] {
@@ -228,7 +246,8 @@ private struct SidebarList: View, Equatable {
     }
 
     private var items: [SidebarItem] {
-        (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
+        (isCollapsed(Sidebar.attentionID) ? [] : layout.attentionIDs).map(SidebarItem.session)
+            + (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
             + activeItems
             + (isCollapsed(Self.pinnedID) ? [] : layout.pinnedIDs).map(SidebarItem.session)
             + groups.filter { !isCollapsed($0.id) }.flatMap { $0.layout.tabIDs.map(SidebarItem.tab) + rows(of: $0.entries).map(\.item) }
@@ -238,6 +257,16 @@ private struct SidebarList: View, Equatable {
     var body: some View {
         let groups = groups
         List {
+            if !layout.attentionIDs.isEmpty {
+                Section(isExpanded: expansion(of: Sidebar.attentionID)) {
+                    ForEach(layout.attentionIDs, id: \.self) { id in
+                        SessionItem(id: id, place: .attention, select: select)
+                            .id(SidebarItem.session(id))
+                    }
+                } header: {
+                    GroupHeader(title: "Needs Attention", help: "Needs you or failing checks", count: layout.attentionIDs.count, tint: theme.needsYou) { EmptyView() } accessory: { _ in EmptyView() }
+                }
+            }
             if !layout.terminalIDs.isEmpty {
                 terminalsSection
             }
@@ -364,6 +393,10 @@ private struct SidebarList: View, Equatable {
             expansion(of: Sidebar.terminalsID).wrappedValue = expanded
             return .handled
         }
+        if case let .session(id) = item, layout.attentionIDs.contains(id) {
+            expansion(of: Sidebar.attentionID).wrappedValue = expanded
+            return .handled
+        }
         if case let .session(id) = item, layout.pinnedIDs.contains(id) {
             expansion(of: Self.pinnedID).wrappedValue = expanded
             return .handled
@@ -420,6 +453,7 @@ private struct SidebarList: View, Equatable {
         Section(isExpanded: expansion(of: Sidebar.terminalsID)) {
             ForEach(layout.terminalIDs, id: \.self) { id in
                 TabItem(id: id, select: select)
+                    .environment(\.sidebarDensity, .compact)
                     .id(SidebarItem.tab(id))
             }
         } header: {
@@ -588,11 +622,13 @@ private struct TabItem: View {
         HStack(spacing: 0) {
             if let tab, tab.kind == .shell {
                 TabRow(tab: tab, live: nil, terminal: tab.terminal) { store.close(tab.id) }
+                    .help((tab.folder as NSString).abbreviatingWithTildeInPath)
             } else if let tab {
                 TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
             }
         }
         .modifier(RowChrome(item: .tab(id), hoverID: id.uuidString, isLocked: false) { select(.tab(id)) })
+        .help(tab?.kind == .shell ? (tab?.folder as NSString?)?.abbreviatingWithTildeInPath ?? "" : "")
         .contextMenu {
             if store.multiSelection.contains(.tab(id)) {
                 MultiSelectionMenu()
@@ -608,6 +644,7 @@ private struct TabItem: View {
 
 private struct SessionItem: View {
     enum Place: Equatable {
+        case attention
         case pinned
         case group(folder: String?)
         case task
@@ -640,7 +677,11 @@ private struct SessionItem: View {
                     isUnread: store.isUnread(session),
                     isFlagged: store.flaggedIDs.contains(id),
                     context: tab != nil || live != nil ? session.context : nil,
-                    pullRequest: pullRequests.first?.pullRequest,
+                    pullRequest: pullRequests.first.map { link in
+                        var pullRequest = link.pullRequest
+                        if pullRequest.checks == .passed { pullRequest.checks = nil }
+                        return pullRequest
+                    },
                     morePullRequests: max(pullRequests.count - 1, 0),
                     suggestion: suggestionLabel,
                     showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
@@ -782,6 +823,7 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
     let title: String
     let help: String
     let count: Int?
+    var tint: Color?
     var renaming: Binding<CustomGroup?>?
     var commitRename: (CustomGroup) -> Void = { _ in }
     var dragID: String?
@@ -833,13 +875,13 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
             } else {
                 Text(title)
                     .fontWeight(.semibold)
-                    .foregroundStyle(theme.secondary)
+                    .foregroundStyle(tint ?? theme.secondary)
                     .lineLimit(1)
                     .help(help)
                 if let count {
                     Text(count, format: .number)
                         .monospacedDigit()
-                        .foregroundStyle(theme.secondary.opacity(0.6))
+                        .foregroundStyle((tint ?? theme.secondary).opacity(0.6))
                 }
             }
             Spacer(minLength: 4)
@@ -1017,9 +1059,8 @@ private struct SessionRow: View {
             title: session.title,
             state: RowState(live: live),
             isLocked: isLocked,
-            isLoaded: isOpen,
             modified: session.lastPrompt,
-            lastActivity: session.lastActivity,
+            isOpen: isOpen,
             hasBackgroundShell: hasBackgroundShell,
             isUnread: isUnread,
             isFlagged: isFlagged,
@@ -1040,6 +1081,7 @@ private struct SessionRow: View {
                         }
                     }
                 } else if pullRequest != nil || session.branch != nil || projectName != nil {
+                    let branch = pullRequest != nil && projectName != nil ? nil : session.branch
                     HStack(spacing: 8) {
                         HStack(spacing: 4) {
                             if let projectName {
@@ -1055,7 +1097,7 @@ private struct SessionRow: View {
                                         }
                                     }
                                     .foregroundStyle(theme.secondary)
-                                    if session.branch != nil {
+                                    if branch != nil {
                                         Text(verbatim: "·")
                                             .foregroundStyle(theme.secondary.opacity(0.6))
                                             .fixedSize()
@@ -1065,7 +1107,7 @@ private struct SessionRow: View {
                                 .font(.caption)
                                 .layoutPriority(1)
                             }
-                            if let branch = session.branch {
+                            if let branch {
                                 BranchText(branch: branch)
                                     .frame(minWidth: 48, alignment: .leading)
                             }
@@ -1149,7 +1191,6 @@ private struct TaskRow: View {
             title: task.title,
             state: isExpanded ? nil : state,
             isLocked: false,
-            isLoaded: false,
             modified: task.sessions[0].lastPrompt,
             isUnread: !isExpanded && isUnread,
             chevron: isExpanded ? "chevron.down" : "chevron.right"
@@ -1252,11 +1293,11 @@ private struct TabRow: View {
     var body: some View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         if tab.kind == .claude {
-            CardRow(title: title, state: RowState(live: live), isLocked: false, isLoaded: true, modified: nil) {
+            CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil, isOpen: true) {
                 if !density.isCompact { Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary) }
             }
         } else {
-            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, isLoaded: false, modified: nil, close: close) {
+            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, modified: nil, close: close) {
                 let folder = (tab.folder as NSString).abbreviatingWithTildeInPath
                 if density.isCompact {
                     ViewThatFits(in: .horizontal) {
@@ -1278,9 +1319,8 @@ private struct CardRow<Detail: View>: View {
     let title: String
     let state: RowState?
     let isLocked: Bool
-    let isLoaded: Bool
     let modified: Date?
-    var lastActivity: Date?
+    var isOpen = false
     var hasBackgroundShell = false
     var isUnread = false
     var isFlagged = false
@@ -1294,10 +1334,11 @@ private struct CardRow<Detail: View>: View {
     var body: some View {
         let isWorking = chevron != nil && state == .working
         let hasMemberDot = chevron != nil && (state != nil || isUnread)
-        let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 10 >= $0 * 6 && context.tokens <= $0 ? $0 : nil } }
+        let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 5 >= $0 * 4 && context.tokens <= $0 ? $0 : nil } }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
+                    .fontWeight(isUnread ? .semibold : .regular)
                     .foregroundStyle(theme.foreground)
                     .lineLimit(1)
                     .layoutPriority(density.isCompact ? 1 : 0)
@@ -1316,6 +1357,13 @@ private struct CardRow<Detail: View>: View {
                         .contentShape(.rect)
                         .help("Close terminal")
                         .padding(.trailing, 21)
+                }
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(theme.secondary)
+                        .help("Running in another terminal")
+                        .accessibilityHidden(true)
                 }
                 if isFlagged {
                     Image(systemName: "flag.fill")
@@ -1359,12 +1407,12 @@ private struct CardRow<Detail: View>: View {
                 .frame(height: 16)
             }
         }
-        .opacity(isLocked ? 0.55 : 1)
+        .opacity(isLocked && state == nil ? 0.55 : 1)
         .padding(.leading, 8)
         .padding(.trailing, -8)
         .padding(.vertical, density.rowPadding)
         .overlay(alignment: .topLeading) {
-            StatusSlot(state: state, isUnread: isUnread, hasBackgroundShell: hasBackgroundShell, activity: isLoaded ? lastActivity : nil, chevron: chevron).offset(x: -8, y: density.rowPadding)
+            StatusSlot(state: state, isUnread: isUnread, isOpen: isOpen, hasBackgroundShell: hasBackgroundShell, chevron: chevron).offset(x: -8, y: density.rowPadding)
         }
     }
 }
@@ -1395,8 +1443,8 @@ private struct MemberDot: View {
 private struct StatusSlot: View {
     let state: RowState?
     let isUnread: Bool
+    var isOpen = false
     var hasBackgroundShell = false
-    var activity: Date?
     var chevron: String?
     @Environment(\.ghosttyTheme) private var theme
 
@@ -1427,17 +1475,12 @@ private struct StatusSlot: View {
                     .frame(width: 8, height: 8)
                     .help("Unread")
                     .accessibilityLabel("Unread")
-            } else if let activity {
-                let inactiveFrom = activity.addingTimeInterval(15 * 60)
-                TimelineView(.explicit([inactiveFrom])) { _ in
-                    let isActive = Date.now < inactiveFrom
-                    Circle()
-                        .strokeBorder(theme.working, lineWidth: 1.25)
-                        .background(Circle().fill(isActive ? theme.working : .clear))
-                        .frame(width: 6, height: 6)
-                        .help(isActive ? "Active" : "Inactive for 15 minutes")
-                        .accessibilityLabel(isActive ? "Active" : "Inactive")
-                }
+            } else if isOpen {
+                Circle()
+                    .strokeBorder(theme.secondary, lineWidth: 1)
+                    .frame(width: 6, height: 6)
+                    .help("Open in a tab")
+                    .accessibilityLabel("Open in a tab")
             }
         }
         .frame(width: 8, height: 16)

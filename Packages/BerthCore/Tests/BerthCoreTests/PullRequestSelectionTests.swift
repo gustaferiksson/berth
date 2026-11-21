@@ -56,4 +56,16 @@ struct PullRequestSelectionTests {
         ]
         #expect(PullRequestSelection.order(candidates, currentRepository: nil, branches: []) == [candidates[0], candidates[2]])
     }
+
+    @Test func aClosedPullRequestFromAnEarlierBranchIsDropped() {
+        let candidates = [
+            Candidate(repository: "acme/billing", number: 1, head: "feat/old", state: .closed),
+            Candidate(repository: "acme/billing", number: 2, head: "feat/old", state: .merged),
+            Candidate(repository: "acme/billing", number: 3, head: "feat/new", state: .closed),
+            Candidate(repository: "acme/billing", number: 4, head: "feat/other", state: .closed),
+            Candidate(repository: "acme/billing", number: 5, head: "feat/new", state: .open),
+        ]
+        let kept = PullRequestSelection.current(candidates, branch: "feat/new") { $0.number == 4 }
+        #expect(kept.map(\.number) == [2, 3, 4, 5])
+    }
 }

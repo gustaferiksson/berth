@@ -10,6 +10,8 @@ final class ReviewInlineComment: NSView {
     private let kind: Kind
     let header: NSTextField
     private let buttons: [NSButton]
+    private var restingBackground: CGColor?
+    private var hoverBackground: CGColor?
     private let padding: CGFloat = 8
     private let headerHeight: CGFloat = 16
 
@@ -21,13 +23,11 @@ final class ReviewInlineComment: NSView {
             buttons[1].keyEquivalent = "\r"
             buttons[1].isEnabled = !text.isEmpty
         } else {
-            buttons = [("xmark", "Delete Comment", #selector(delete)), ("pencil", "Edit Comment", #selector(edit))].map { symbol, title, action in
-                let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: title) ?? NSImage(), target: nil, action: action)
-                button.isBordered = false
-                button.isHidden = true
-                button.toolTip = title
-                return button
-            }
+            let delete = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Delete Comment") ?? NSImage(), target: nil, action: #selector(delete))
+            delete.isBordered = false
+            delete.isHidden = true
+            delete.toolTip = "Delete Comment"
+            buttons = [delete]
         }
         super.init(frame: .zero)
 
@@ -52,7 +52,8 @@ final class ReviewInlineComment: NSView {
         field.onSubmit = { [weak self] in self?.add() }
         field.onCancel = { [weak self] in self?.cancel() }
         field.onChange = { [weak self] in self?.fieldDidChange() }
-        field.onDoubleClick = { [weak self] in self?.edit() }
+        field.onClick = { [weak self] in self?.edit() }
+        if case .card = kind { field.menu = cardMenu() }
 
         for button in buttons {
             button.target = self
@@ -73,7 +74,9 @@ final class ReviewInlineComment: NSView {
     func apply(_ style: ReviewStyle) {
         appearance = NSAppearance(named: style.isDark ? .darkAqua : .aqua)
         layer?.borderColor = style.commentBorder.cgColor
-        layer?.backgroundColor = style.commentBackground.cgColor
+        restingBackground = style.commentBackground.cgColor
+        hoverBackground = style.commentBackground.blended(withFraction: 0.1, of: style.foreground)?.cgColor
+        layer?.backgroundColor = restingBackground
         header.textColor = style.secondary
         if case .card = kind { buttons.forEach { $0.contentTintColor = style.secondary } }
         field.font = style.font
@@ -93,11 +96,10 @@ final class ReviewInlineComment: NSView {
     override func layout() {
         super.layout()
         let width = bounds.width - 2 * padding
-        header.frame = NSRect(x: padding, y: padding, width: width - 40, height: headerHeight)
+        header.frame = NSRect(x: padding, y: padding, width: width - 24, height: headerHeight)
         field.frame = NSRect(x: padding, y: padding + headerHeight + 4, width: width, height: textHeight(forWidth: width))
         guard case .draft = kind else {
             buttons[0].frame = NSRect(x: bounds.width - padding - 16, y: padding, width: 16, height: 16)
-            buttons[1].frame = NSRect(x: bounds.width - padding - 36, y: padding, width: 16, height: 16)
             return
         }
 
@@ -107,21 +109,41 @@ final class ReviewInlineComment: NSView {
         buttons[0].frame = NSRect(origin: NSPoint(x: buttons[1].frame.minX - 8 - cancel.width, y: bounds.height - padding - cancel.height), size: cancel)
     }
 
-    override func mouseDown(with event: NSEvent) {
-        if case .card = kind, event.clickCount == 2 { return edit() }
+    override func mouseDown(with _: NSEvent) {
+        if case .card = kind { return edit() }
         window?.makeFirstResponder(field)
     }
 
     override func resetCursorRects() {
+        if case .card = kind { return addCursorRect(bounds, cursor: .pointingHand) }
+
         addCursorRect(bounds, cursor: .arrow)
     }
 
     override func mouseEntered(with _: NSEvent) {
-        if case .card = kind { buttons.forEach { $0.isHidden = false } }
+        guard case .card = kind else { return }
+
+        buttons.forEach { $0.isHidden = false }
+        layer?.backgroundColor = hoverBackground
     }
 
     override func mouseExited(with _: NSEvent) {
-        if case .card = kind { buttons.forEach { $0.isHidden = true } }
+        guard case .card = kind else { return }
+
+        buttons.forEach { $0.isHidden = true }
+        layer?.backgroundColor = restingBackground
+    }
+
+    private func cardMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Edit Comment", action: #selector(edit), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Copy Comment", action: #selector(copyText), keyEquivalent: "").target = self
+        return menu
+    }
+
+    @objc private func copyText() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(field.string, forType: .string)
     }
 
     private func textHeight(forWidth width: CGFloat) -> CGFloat {
@@ -155,6 +177,7 @@ final class ReviewInlineComment: NSView {
         guard case let .card(onEdit, _) = kind else { return }
 
         buttons.forEach { $0.isHidden = true }
+        layer?.backgroundColor = restingBackground
         onEdit()
     }
 
@@ -170,10 +193,22 @@ final class ReviewCommentField: NSTextView {
     var onSubmit: () -> Void = {}
     var onCancel: () -> Void = {}
     var onChange: () -> Void = {}
-    var onDoubleClick: () -> Void = {}
+    var onClick: () -> Void = {}
+
+    override func resetCursorRects() {
+        if !isEditable { return addCursorRect(bounds, cursor: .pointingHand) }
+
+        super.resetCursorRects()
+    }
+
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        isEditable ? super.menu(for: event) : menu
+    }
 
     override func mouseDown(with event: NSEvent) {
-        if !isEditable, event.clickCount == 2 { return onDoubleClick() }
+        if !isEditable { return onClick() }
         super.mouseDown(with: event)
     }
 

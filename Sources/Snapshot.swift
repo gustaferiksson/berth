@@ -317,7 +317,7 @@ enum Snapshot {
                 let title = { (id: String) in store.sessionsByID[id]?.title ?? id }
                 let terminals = layout.terminalIDs.compactMap { id in store.tabs.first { $0.id == id }?.terminal.title }
                 let groups = layout.groups.map { group in "\(group.source.title): \(group.entries.map { entry in entry.memberIDs.isEmpty ? title(entry.id) : "task \(store.sessionTasks.first { $0.id == entry.id }?.title ?? "?") \(entry.memberIDs.map(title))" })" }
-                print("filter \(filter.debugDescription): terminals \(terminals), pinned \(layout.pinnedIDs.map(title)), groups \(groups), archived \(layout.archivedIDs.map(title)), no matches \(layout.hasNoMatches)")
+                print("filter \(filter.debugDescription): terminals \(terminals), attention \(layout.attentionIDs.map(title)), pinned \(layout.pinnedIDs.map(title)), groups \(groups), archived \(layout.archivedIDs.map(title)), no matches \(layout.hasNoMatches)")
             }
         }
         if UserDefaults.standard.bool(forKey: "snapshotUnread") {
@@ -1030,15 +1030,13 @@ enum Snapshot {
                     event(.leftMouseDown).map(window.sendEvent)
                 }
                 let doubleClick = {
-                    guard let field = card()?.field else { return print("edit: no card to double-click") }
+                    guard let field = card()?.field else { return print("edit: no card to click") }
 
                     press(field, 1)
-                    try? await Task.sleep(for: .milliseconds(100))
-                    press(field, 2)
                     try? await Task.sleep(for: .milliseconds(500))
                 }
                 let pencil = {
-                    card()?.subviews.compactMap { $0 as? NSButton }.first { $0.toolTip == "Edit Comment" }?.performClick(nil)
+                    if let field = card()?.field { press(field, 1) }
                     try? await Task.sleep(for: .milliseconds(500))
                 }
                 state("before")
@@ -1084,11 +1082,9 @@ enum Snapshot {
                 store.closeDiff()
                 try? await Task.sleep(for: .milliseconds(500))
                 print("edit closed diff: \(describe(model))")
-                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
-                arguments["reviewPanelTab"] = ReviewPanelTab.comments.rawValue
-                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                model.showsCommentList = true
                 try? await Task.sleep(for: .milliseconds(500))
-                let row = NSPoint(x: 100, y: (window.contentView?.frame.height ?? 0) - 150)
+                let row = NSPoint(x: 100, y: 90)
                 for clicks in [1, 2] {
                     let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: row, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
                     event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
@@ -1228,6 +1224,7 @@ enum Snapshot {
         }
         if let address = UserDefaults.standard.string(forKey: "snapshotPreview"), let model = store.reviewModels["snapshot-review"] {
             let preview = model.preview
+            model.showPreview()
             await preview.load(address)
             for _ in 0..<100 where preview.webView.url == nil || preview.webView.isLoading { try? await Task.sleep(for: .milliseconds(100)) }
             try? await Task.sleep(for: .milliseconds(500))
