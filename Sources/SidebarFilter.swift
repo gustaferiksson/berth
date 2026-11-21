@@ -8,6 +8,7 @@ enum SidebarStatus: String, CaseIterable, Identifiable {
     case needsYou
     case unread
     case flagged
+    case shell
 
     var id: Self { self }
 
@@ -18,6 +19,7 @@ enum SidebarStatus: String, CaseIterable, Identifiable {
         case .needsYou: "Needs You"
         case .unread: "Unread"
         case .flagged: "Flagged"
+        case .shell: "Background Shell"
         }
     }
 
@@ -28,6 +30,7 @@ enum SidebarStatus: String, CaseIterable, Identifiable {
         case .needsYou: "exclamationmark.circle"
         case .unread: "circlebadge"
         case .flagged: "flag"
+        case .shell: "terminal"
         }
     }
 }
@@ -40,6 +43,7 @@ extension Store {
         case .needsYou: if case .needsInput = liveBySession[session.id]?.activity { true } else { false }
         case .unread: isUnread(session)
         case .flagged: flaggedIDs.contains(session.id)
+        case .shell: backgroundShellIDs.contains(session.id)
         }
     }
 

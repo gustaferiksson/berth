@@ -144,7 +144,7 @@ private struct SidebarFilterField: View {
             .accessibilityLabel("Show")
             .buttonStyle(.plain)
             .fixedSize()
-            .help("Show only working, needs-you, unread or flagged sessions")
+            .help("Show only the sessions a status dot marks: needs you, working, background shell, unread or flagged")
             TextField("Filter", text: $store.sidebarFilter)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
@@ -261,7 +261,6 @@ private struct SidebarList: View, Equatable {
                 Section(isExpanded: expansion(of: Sidebar.attentionID)) {
                     ForEach(layout.attentionIDs, id: \.self) { id in
                         SessionItem(id: id, place: .attention, select: select)
-                            .environment(\.sidebarDensity, .compact)
                             .id(SidebarItem.session(id))
                     }
                 } header: {
@@ -671,7 +670,7 @@ private struct SessionItem: View {
             if let session {
                 SessionRow(
                     session: session,
-                    projectName: place == .archived || place == .attention || place == .group(folder: session.checkout) ? nil : URL(filePath: session.checkout).lastPathComponent,
+                    projectName: place == .archived || place == .group(folder: session.checkout) ? nil : URL(filePath: session.checkout).lastPathComponent,
                     live: live,
                     isOpen: tab != nil,
                     hasBackgroundShell: store.backgroundShellIDs.contains(id),
@@ -1061,6 +1060,7 @@ private struct SessionRow: View {
             state: RowState(live: live),
             isLocked: isLocked,
             modified: session.lastPrompt,
+            isOpen: isOpen,
             hasBackgroundShell: hasBackgroundShell,
             isUnread: isUnread,
             isFlagged: isFlagged,
@@ -1081,6 +1081,7 @@ private struct SessionRow: View {
                         }
                     }
                 } else if pullRequest != nil || session.branch != nil || projectName != nil {
+                    let branch = pullRequest != nil && projectName != nil ? nil : session.branch
                     HStack(spacing: 8) {
                         HStack(spacing: 4) {
                             if let projectName {
@@ -1096,7 +1097,7 @@ private struct SessionRow: View {
                                         }
                                     }
                                     .foregroundStyle(theme.secondary)
-                                    if session.branch != nil {
+                                    if branch != nil {
                                         Text(verbatim: "·")
                                             .foregroundStyle(theme.secondary.opacity(0.6))
                                             .fixedSize()
@@ -1106,7 +1107,7 @@ private struct SessionRow: View {
                                 .font(.caption)
                                 .layoutPriority(1)
                             }
-                            if let branch = session.branch {
+                            if let branch {
                                 BranchText(branch: branch)
                                     .frame(minWidth: 48, alignment: .leading)
                             }
@@ -1292,7 +1293,7 @@ private struct TabRow: View {
     var body: some View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         if tab.kind == .claude {
-            CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil) {
+            CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil, isOpen: true) {
                 if !density.isCompact { Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary) }
             }
         } else {
@@ -1319,6 +1320,7 @@ private struct CardRow<Detail: View>: View {
     let state: RowState?
     let isLocked: Bool
     let modified: Date?
+    var isOpen = false
     var hasBackgroundShell = false
     var isUnread = false
     var isFlagged = false
@@ -1355,6 +1357,13 @@ private struct CardRow<Detail: View>: View {
                         .contentShape(.rect)
                         .help("Close terminal")
                         .padding(.trailing, 21)
+                }
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 9))
+                        .foregroundStyle(theme.secondary)
+                        .help("Running in another terminal")
+                        .accessibilityHidden(true)
                 }
                 if isFlagged {
                     Image(systemName: "flag.fill")
@@ -1398,12 +1407,12 @@ private struct CardRow<Detail: View>: View {
                 .frame(height: 16)
             }
         }
-        .opacity(isLocked ? 0.55 : 1)
+        .opacity(isLocked && state == nil ? 0.55 : 1)
         .padding(.leading, 8)
         .padding(.trailing, -8)
         .padding(.vertical, density.rowPadding)
         .overlay(alignment: .topLeading) {
-            StatusSlot(state: state, isUnread: isUnread, hasBackgroundShell: hasBackgroundShell, chevron: chevron).offset(x: -8, y: density.rowPadding)
+            StatusSlot(state: state, isUnread: isUnread, isOpen: isOpen, hasBackgroundShell: hasBackgroundShell, chevron: chevron).offset(x: -8, y: density.rowPadding)
         }
     }
 }
@@ -1434,6 +1443,7 @@ private struct MemberDot: View {
 private struct StatusSlot: View {
     let state: RowState?
     let isUnread: Bool
+    var isOpen = false
     var hasBackgroundShell = false
     var chevron: String?
     @Environment(\.ghosttyTheme) private var theme
@@ -1465,6 +1475,12 @@ private struct StatusSlot: View {
                     .frame(width: 8, height: 8)
                     .help("Unread")
                     .accessibilityLabel("Unread")
+            } else if isOpen {
+                Circle()
+                    .strokeBorder(theme.secondary, lineWidth: 1)
+                    .frame(width: 6, height: 6)
+                    .help("Open in a tab")
+                    .accessibilityLabel("Open in a tab")
             }
         }
         .frame(width: 8, height: 16)

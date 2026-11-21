@@ -36,15 +36,17 @@ struct ReviewTaskHeader: View {
             if isExpanded {
                 ForEach(members.prefix(6)) { member in
                     Button { activate(member.id) } label: {
-                        HStack(spacing: 8) {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 8) {
+                                Text(member.title).fixedSize()
+                                Spacer(minLength: 4)
+                                Text(URL(filePath: member.checkout).lastPathComponent)
+                                    .font(.caption)
+                                    .foregroundStyle(theme.secondary)
+                            }
                             Text(member.title)
                                 .lineLimit(1)
-                                .truncationMode(.tail)
-                            Spacer(minLength: 4)
-                            Text(URL(filePath: member.checkout).lastPathComponent)
-                                .font(.caption)
-                                .foregroundStyle(theme.secondary)
-                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .font(.callout)
                         .fontWeight(member.id == currentID ? .semibold : .regular)
@@ -71,37 +73,44 @@ struct ReviewTaskHeader: View {
 struct ReviewRepoTabs: View {
     let tabs: [(id: String, title: String)]
     @Binding var selection: String
+
+    var body: some View {
+        let options = ForEach(tabs, id: \.id) { Text($0.title).tag($0.id) }
+        Group {
+            if tabs.count <= 4 {
+                Picker("Repository", selection: $selection) { options }
+                    .pickerStyle(.segmented)
+            } else {
+                Picker("Repository", selection: $selection) { options }
+                    .pickerStyle(.menu)
+            }
+        }
+        .labelsHidden()
+        .controlSize(.small)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 6)
+    }
+}
+
+struct ReviewOtherPullRequests: View {
+    let pullRequests: [PullRequest]
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 14) {
-                ForEach(tabs, id: \.id) { tab in
-                    Button { selection = tab.id } label: {
-                        Text(tab.title)
-                            .fontWeight(.semibold)
-                            .hidden()
-                            .overlay {
-                                Text(tab.title)
-                                    .fontWeight(selection == tab.id ? .semibold : .regular)
-                                    .foregroundStyle(selection == tab.id ? theme.foreground : theme.secondary)
-                            }
-                            .font(.caption)
-                            .lineLimit(1)
-                            .frame(height: 24)
-                            .overlay(alignment: .bottom) {
-                                if selection == tab.id { Rectangle().fill(theme.foreground).frame(height: 2) }
-                            }
-                            .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                }
+        ForEach(pullRequests, id: \.number) { pullRequest in
+            HStack(spacing: 6) {
+                PullRequestTag(pullRequest: pullRequest)
+                    .fixedSize()
+                Text(pullRequest.title)
+                    .font(.caption)
+                    .foregroundStyle(theme.secondary)
+                    .lineLimit(1)
+                    .help(pullRequest.title)
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 6)
         }
-        .scrollIndicators(.hidden)
-        .frame(height: 24)
-        .padding(.bottom, 4)
     }
 }
 

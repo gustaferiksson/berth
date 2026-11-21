@@ -586,9 +586,13 @@ private struct ReviewFileList: View {
             currentID: sessionID,
             pullRequestCount: store.pullRequestCount(of: members, in: task),
             repositoryCount: Set(members.compactMap { store.repositoryRoot(ofSession: $0.id) } + [ownRoot] + extras.map(\.repository.root)).count,
-            isExpanded: repositoryExpansion(task.id),
+            isExpanded: Binding(get: { store.expandedReviewTasks.contains(task.id) }, set: { if $0 { store.expandedReviewTasks.insert(task.id) } else { store.expandedReviewTasks.remove(task.id) } }),
             activate: { store.activate(.session($0)) }
         )
+    }
+
+    private func otherPullRequests(root: String?, branch: String, shown: Int?) -> some View {
+        ReviewOtherPullRequests(pullRequests: store.pullRequests(inRoot: root, of: sessionID, branch: branch).filter { $0.number != shown })
     }
 
     private func extraCard(_ extra: (repository: ReviewRepository, model: ReviewModel), _ changes: ReviewChanges) -> some View {
@@ -608,13 +612,7 @@ private struct ReviewFileList: View {
     }
 
     private func repoTabs(_ task: StoredTask) -> some View {
-        let repositories: [(root: String?, id: String, name: String, branch: String?)] = [(nil, ownRoot, URL(filePath: ownRoot).lastPathComponent, model.changes?.branch)]
-            + extras.map { ($0.repository.root, $0.repository.root, $0.repository.name, $0.model.changes?.branch) }
-        var tabs = repositories.map { repository -> (id: String, title: String) in
-            let linked = store.pullRequests(inRoot: repository.root, of: sessionID, branch: repository.branch)
-            return (repository.id, ([repository.name] + linked.map { "#\($0.number)" }).joined(separator: " "))
-        }
-        tabs.append((id: "all", title: "All"))
+        let tabs = [(id: ownRoot, title: URL(filePath: ownRoot).lastPathComponent)] + extras.map { (id: $0.repository.root, title: $0.repository.name) } + [(id: "all", title: "All")]
         return ReviewRepoTabs(tabs: tabs, selection: Binding(get: { shownRepo ?? "all" }, set: { store.reviewRepoTabs[task.id] = $0 }))
     }
 
@@ -741,16 +739,19 @@ private struct ReviewFileList: View {
                 branchCard(changes, status)
                     .padding(.horizontal, 8)
                     .padding(.bottom, 6)
+                otherPullRequests(root: nil, branch: changes.branch, shown: pullRequest?.pullRequest?.number)
             }
             if let shownRepo {
                 if shownRepo == ownRoot, let changes {
                     branchCard(changes, model.status ?? .unknown)
                         .padding(.horizontal, 8)
                         .padding(.bottom, 6)
+                    otherPullRequests(root: nil, branch: changes.branch, shown: pullRequest?.pullRequest?.number)
                 } else if let extra = extras.first(where: { $0.repository.root == shownRepo }), let changes = extra.model.changes {
                     extraCard(extra, changes)
                         .padding(.horizontal, 8)
                         .padding(.bottom, 6)
+                    otherPullRequests(root: extra.repository.root, branch: changes.branch, shown: extraPullRequest(extra.repository.root, changes.branch)?.pullRequest?.number)
                 }
             }
             list(name: "changes", order: order(changes)) {
@@ -806,19 +807,26 @@ private struct ReviewFileList: View {
                     Button {
                         model.showsCommentList.toggle()
                     } label: {
-                        Label("Comments", systemImage: model.showsCommentList ? "chevron.down" : "chevron.up")
+                        Label("Comments \(commentCount)", systemImage: model.showsCommentList ? "chevron.down" : "chevron.up")
                             .lineLimit(1)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(theme.secondary)
                     .help(model.showsCommentList ? "Hide the comment list" : "Show the comment list")
                     Spacer(minLength: 4)
-                    Button("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")", action: sendComments)
-                        .buttonStyle(.borderedProminent)
-                        .tint(.accentColor)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                        .help("Paste every pending comment into the session")
+                    Button(action: sendComments) {
+                        Text("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")")
+                            .fontWeight(.medium)
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .padding(.horizontal, 12)
+                            .frame(height: 24)
+                            .background(Color.accentColor, in: .capsule)
+                            .contentShape(.capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .layoutPriority(1)
+                    .help("Paste every pending comment into the session")
                 }
                 .padding(10)
             }
@@ -1015,6 +1023,7 @@ private struct ReviewRowChrome: ViewModifier {
 private struct ReviewChangeRow: View {
     let file: ReviewFile
     let model: ReviewModel
+    @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -1037,7 +1046,7 @@ private struct ReviewChangeRow: View {
             }
             .fixedSize()
             ZStack {
-                if file.status != .deleted {
+                if file.status != .deleted, isHovering || model.selectedDocument?.path == file.path {
                     Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
@@ -1049,6 +1058,7 @@ private struct ReviewChangeRow: View {
         }
         .font(.callout)
         .monospacedDigit()
+        .onHover { isHovering = $0 }
         .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 }
@@ -1162,14 +1172,13 @@ private struct ReviewBranchCard: View {
                         .lineLimit(2)
                         .help(found.title)
                 } else {
-                    Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits") ahead of \(changes.base ?? "")")
+                    Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits")")
                         .fontWeight(.semibold)
                 }
                 HStack(spacing: 10) {
-                    if found == nil {
-                        Text("↑\(status.ahead) ↓\(status.behind)")
-                            .monospaced()
-                            .help("\(status.ahead) ahead of \(changes.base ?? ""), \(status.behind) behind")
+                    if found == nil, status.behind > 0 {
+                        Text("↓\(status.behind) behind")
+                            .help("\(status.behind) behind \(changes.base ?? "")")
                     }
                     if let total = changes.total {
                         Text("+\(total.additions) −\(total.deletions)")
@@ -1229,7 +1238,7 @@ private struct ReviewBranchCard: View {
                 Label("Up to date with \(upstream.name)", systemImage: "checkmark")
                     .foregroundStyle(theme.working)
             } else {
-                Label(changes.isDefaultBranch || changes.base == nil ? "No upstream" : "Not pushed, no upstream", systemImage: "arrow.up")
+                Label(changes.isDefaultBranch || changes.base == nil ? "No upstream" : "Not pushed", systemImage: "arrow.up")
                     .foregroundStyle(theme.needsYou)
                     .help("\(changes.branch) has no upstream branch")
             }
@@ -1312,7 +1321,7 @@ private struct GlassCapsuleButtonStyle: ButtonStyle {
 
 struct ReviewDiffColumn: View {
     let store: Store
-    @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.oneDark
+    @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.terminal
     @AppStorage(ReviewStyle.fontFamilyKey) private var fontFamily = ""
     @AppStorage(ReviewStyle.fontSizeKey) private var fontSize = 0.0
     @AppStorage(ReviewStyle.lineHeightKey) private var lineHeight = 1.3
@@ -1414,15 +1423,24 @@ struct ReviewDiffColumn: View {
                     }
                     .padding(.leading, 10)
                 }
-                ScrollView(.horizontal) {
-                    HStack(spacing: 2) {
-                        ForEach(model.tabs) { tabButton($0, in: model, style: style) }
-                        if model.isPreviewOpen { previewTabButton(in: model, style: style) }
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 2) {
+                            ForEach(model.tabs) { tabButton($0, in: model, style: style).id($0.id) }
+                        }
+                        .padding(.leading, 6)
+                        .padding(.vertical, 4)
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
+                    .scrollIndicators(.hidden)
+                    .onChange(of: model.selectedTabID, initial: true) { _, id in
+                        guard let id else { return }
+
+                        withAnimation { proxy.scrollTo(id) }
+                    }
                 }
-                .scrollIndicators(.hidden)
+                previewTabButton(in: model, style: style)
+                    .padding(.trailing, 2)
+                    .padding(.vertical, 4)
                 if tab?.document.compare != nil {
                     GlassCapsule {
                         Button("Previous Change", systemImage: "chevron.up") { model.changeStep = -1 }
@@ -1433,18 +1451,6 @@ struct ReviewDiffColumn: View {
                     .padding(.leading, 6)
                 }
                 HStack(spacing: 6) {
-                    if !model.isPreviewOpen {
-                        Button { model.showPreview() } label: {
-                            Label("Preview", systemImage: "globe")
-                                .font(.caption)
-                                .padding(.horizontal, 8)
-                                .frame(height: 24)
-                                .glassEffect(.regular, in: .capsule)
-                                .contentShape(.capsule)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Open Preview (View ▸ Open Preview)")
-                    }
                     if tab != nil, model.selectedDocumentHasBothSides || AppAction.save.isAvailable(in: store) {
                         GlassCapsule {
                             if model.selectedDocumentHasBothSides {
@@ -1475,19 +1481,22 @@ struct ReviewDiffColumn: View {
                 .accessibilityHidden(true)
             Text("Preview")
                 .lineLimit(1)
-            Button("Close Preview", systemImage: "xmark") { model.closePreview() }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .font(.caption2)
+            if model.isPreviewOpen {
+                Button("Close Preview", systemImage: "xmark") { model.closePreview() }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .font(.caption2)
+            }
         }
         .font(.callout)
         .foregroundStyle(Color(nsColor: model.isPreviewSelected ? style.foreground : style.secondary))
+        .opacity(model.isPreviewOpen ? 1 : 0.6)
         .padding(.horizontal, 10)
         .frame(maxHeight: .infinity)
         .background(Color(nsColor: style.foreground).opacity(model.isPreviewSelected ? 0.1 : 0), in: .rect(cornerRadius: 8))
         .contentShape(.rect)
-        .onTapGesture { model.isPreviewSelected = true }
-        .help("Preview")
+        .onTapGesture { model.showPreview() }
+        .help(model.isPreviewOpen ? "Preview" : "Open Preview (View ▸ Open Preview)")
     }
 
     private func tabButton(_ tab: ReviewTab, in model: ReviewModel, style: ReviewStyle) -> some View {

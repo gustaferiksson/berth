@@ -97,7 +97,7 @@ extension Snapshot {
         let models = [("billing", store.reviewModels[own]), ("web", store.reviewModels[key("web")]), ("infra", store.reviewModels[key("infra")])]
         if let task = store.task(containing: own) {
             let members = task.sessionIDs.compactMap { store.sessionsByID[$0] }
-            print("task card: \(store.title(of: task)) | issue \(task.issue.map { "\($0.repository)#\($0.number)" } ?? "none") | members \(members.map(\.id)) | PRs \(store.pullRequestCount(of: members, in: task)) | collapsed \(store.collapsedReviewRepositories.contains(task.id))")
+            print("task card: \(store.title(of: task)) | issue \(task.issue.map { "\($0.repository)#\($0.number)" } ?? "none") | members \(members.map(\.id)) | PRs \(store.pullRequestCount(of: members, in: task)) | members shown \(store.expandedReviewTasks.contains(task.id))")
         } else {
             print("task card: none")
         }
@@ -183,10 +183,10 @@ extension Snapshot {
         store.collapsedReviewRepositories.remove(webRoot)
         if let task = store.task(containing: own) {
             await click("chevron", 1)
-            print("after clicking the card's chevron: folded \(store.collapsedReviewRepositories.contains(task.id))")
+            print("after clicking the card's chevron: members shown \(store.expandedReviewTasks.contains(task.id))")
             save(".card-folded.png")
             await click("chevron", 1)
-            print("after clicking it again: folded \(store.collapsedReviewRepositories.contains(task.id))")
+            print("after clicking it again: members shown \(store.expandedReviewTasks.contains(task.id))")
             await click("member", 1)
             print("after clicking the current member's row: selected session \(store.selectedSessionID ?? "-"), tabs \(store.tabs.count)")
         }

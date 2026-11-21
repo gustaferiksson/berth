@@ -122,6 +122,7 @@ final class Store {
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
     var activeReviewRoots: [String: String] = [:]
     var collapsedReviewRepositories: Set<String> = []
+    var expandedReviewTasks: Set<String> = []
     var reviewRepoTabs: [String: String] = [:]
     var reviewModels: [String: ReviewModel] = [:] {
         didSet {

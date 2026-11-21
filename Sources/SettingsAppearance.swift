@@ -5,7 +5,7 @@ struct AppearanceSettings: View {
     @Environment(Store.self) private var store
     @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
-    @AppStorage(ReviewStyle.colorSchemeKey) private var reviewColorScheme = ReviewColorScheme.oneDark
+    @AppStorage(ReviewStyle.colorSchemeKey) private var reviewColorScheme = ReviewColorScheme.terminal
     @AppStorage(ReviewStyle.fontFamilyKey) private var reviewFontFamily = ""
     @AppStorage(ReviewStyle.fontSizeKey) private var reviewFontSize = 0.0
     @AppStorage(ReviewStyle.lineHeightKey) private var reviewLineHeight = 1.3

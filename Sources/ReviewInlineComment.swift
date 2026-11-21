@@ -10,6 +10,8 @@ final class ReviewInlineComment: NSView {
     private let kind: Kind
     let header: NSTextField
     private let buttons: [NSButton]
+    private var restingBackground: CGColor?
+    private var hoverBackground: CGColor?
     private let padding: CGFloat = 8
     private let headerHeight: CGFloat = 16
 
@@ -51,6 +53,7 @@ final class ReviewInlineComment: NSView {
         field.onCancel = { [weak self] in self?.cancel() }
         field.onChange = { [weak self] in self?.fieldDidChange() }
         field.onClick = { [weak self] in self?.edit() }
+        if case .card = kind { field.menu = cardMenu() }
 
         for button in buttons {
             button.target = self
@@ -71,7 +74,9 @@ final class ReviewInlineComment: NSView {
     func apply(_ style: ReviewStyle) {
         appearance = NSAppearance(named: style.isDark ? .darkAqua : .aqua)
         layer?.borderColor = style.commentBorder.cgColor
-        layer?.backgroundColor = style.commentBackground.cgColor
+        restingBackground = style.commentBackground.cgColor
+        hoverBackground = style.commentBackground.blended(withFraction: 0.1, of: style.foreground)?.cgColor
+        layer?.backgroundColor = restingBackground
         header.textColor = style.secondary
         if case .card = kind { buttons.forEach { $0.contentTintColor = style.secondary } }
         field.font = style.font
@@ -110,15 +115,35 @@ final class ReviewInlineComment: NSView {
     }
 
     override func resetCursorRects() {
+        if case .card = kind { return addCursorRect(bounds, cursor: .pointingHand) }
+
         addCursorRect(bounds, cursor: .arrow)
     }
 
     override func mouseEntered(with _: NSEvent) {
-        if case .card = kind { buttons.forEach { $0.isHidden = false } }
+        guard case .card = kind else { return }
+
+        buttons.forEach { $0.isHidden = false }
+        layer?.backgroundColor = hoverBackground
     }
 
     override func mouseExited(with _: NSEvent) {
-        if case .card = kind { buttons.forEach { $0.isHidden = true } }
+        guard case .card = kind else { return }
+
+        buttons.forEach { $0.isHidden = true }
+        layer?.backgroundColor = restingBackground
+    }
+
+    private func cardMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Edit Comment", action: #selector(edit), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Copy Comment", action: #selector(copyText), keyEquivalent: "").target = self
+        return menu
+    }
+
+    @objc private func copyText() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(field.string, forType: .string)
     }
 
     private func textHeight(forWidth width: CGFloat) -> CGFloat {
@@ -152,6 +177,7 @@ final class ReviewInlineComment: NSView {
         guard case let .card(onEdit, _) = kind else { return }
 
         buttons.forEach { $0.isHidden = true }
+        layer?.backgroundColor = restingBackground
         onEdit()
     }
 
@@ -168,6 +194,18 @@ final class ReviewCommentField: NSTextView {
     var onCancel: () -> Void = {}
     var onChange: () -> Void = {}
     var onClick: () -> Void = {}
+
+    override func resetCursorRects() {
+        if !isEditable { return addCursorRect(bounds, cursor: .pointingHand) }
+
+        super.resetCursorRects()
+    }
+
+    override func acceptsFirstMouse(for _: NSEvent?) -> Bool { true }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        isEditable ? super.menu(for: event) : menu
+    }
 
     override func mouseDown(with event: NSEvent) {
         if !isEditable { return onClick() }
