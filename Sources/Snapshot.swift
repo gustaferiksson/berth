@@ -317,7 +317,7 @@ enum Snapshot {
                 let title = { (id: String) in store.sessionsByID[id]?.title ?? id }
                 let terminals = layout.terminalIDs.compactMap { id in store.tabs.first { $0.id == id }?.terminal.title }
                 let groups = layout.groups.map { group in "\(group.source.title): \(group.entries.map { entry in entry.memberIDs.isEmpty ? title(entry.id) : "task \(store.sessionTasks.first { $0.id == entry.id }?.title ?? "?") \(entry.memberIDs.map(title))" })" }
-                print("filter \(filter.debugDescription): terminals \(terminals), pinned \(layout.pinnedIDs.map(title)), groups \(groups), archived \(layout.archivedIDs.map(title)), no matches \(layout.hasNoMatches)")
+                print("filter \(filter.debugDescription): terminals \(terminals), attention \(layout.attentionIDs.map(title)), pinned \(layout.pinnedIDs.map(title)), groups \(groups), archived \(layout.archivedIDs.map(title)), no matches \(layout.hasNoMatches)")
             }
         }
         if UserDefaults.standard.bool(forKey: "snapshotUnread") {

@@ -50,12 +50,13 @@ struct SidebarLayout: Equatable {
         let source: SessionGroup
         let tabIDs: [Tab.ID]
         let entries: [Entry]
+        let visibleLimit: Int
         let folders: [String]
         var id: String { source.id }
-        var visibleLimit: Int { source.kind == .flat ? 15 : 5 }
     }
 
     let terminalIDs: [Tab.ID]
+    let attentionIDs: [String]
     let pinnedIDs: [String]
     let active: Group?
     let groups: [Group]
@@ -101,22 +102,14 @@ struct Sidebar: View, Equatable {
                     withAnimation { proxy.scrollTo(cursor) }
                 }
         }
-        .safeAreaInset(edge: .top, spacing: 0) { SidebarStatusRow() }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
-                UsageBar()
                 SidebarFilterField()
+                    .frame(height: 32)
+                Divider()
             }
         }
-    }
-}
-
-private struct SidebarStatusRow: View {
-    @Environment(Store.self) private var store
-
-    var body: some View {
-        @Bindable var store = store
-        IconTabBar(tabs: SidebarStatus.allCases, selection: $store.sidebarStatus, symbol: \.symbol, title: \.title) { $0 == .all ? 0 : store.sidebarCount($0) }
+        .safeAreaInset(edge: .bottom, spacing: 0) { UsageBar() }
     }
 }
 
@@ -127,10 +120,33 @@ private struct SidebarFilterField: View {
     var body: some View {
         @Bindable var store = store
         HStack(spacing: 6) {
-            Image(systemName: "line.3.horizontal.decrease")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            TextField("Filter", text: $store.sidebarFilter)
+            Menu {
+                Picker("Show", selection: $store.sidebarStatus) {
+                    ForEach(SidebarStatus.allCases) { status in
+                        let count = status == .all ? 0 : store.sidebarCount(status)
+                        Label(count > 0 ? "\(status.title) (\(count))" : status.title, systemImage: status.symbol).tag(status)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Label("Show", systemImage: store.sidebarStatus == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(store.sidebarStatus == .all ? Color.secondary : Color.accentColor)
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help("Show only working, needs-you, unread or flagged sessions")
+            if store.sidebarStatus != .all {
+                Text(store.sidebarStatus.title)
+                    .font(.caption)
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Color.accentColor.opacity(0.16), in: .capsule)
+            }
+            TextField(store.sidebarStatus == .all ? "Filter" : "", text: $store.sidebarFilter)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
                 .onKeyPress(.escape) {
@@ -143,20 +159,21 @@ private struct SidebarFilterField: View {
                     }
                     return .handled
                 }
-            if !store.sidebarFilter.isEmpty {
-                Button("Clear Filter", systemImage: "xmark.circle.fill") { store.sidebarFilter = "" }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+            if !store.sidebarFilter.isEmpty || store.sidebarStatus != .all {
+                Button("Clear Filter", systemImage: "xmark.circle.fill") {
+                    store.sidebarFilter = ""
+                    store.sidebarStatus = .all
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
             }
         }
         .font(.callout)
         .padding(.horizontal, 10)
-        .frame(height: 28)
+        .frame(height: 24)
         .glassEffect(.regular, in: .capsule)
         .padding(.horizontal, 10)
-        .padding(.top, 4)
-        .padding(.bottom, 8)
         .onChange(of: store.sidebarFilterFocusRequests) { isFocused = true }
     }
 }
@@ -178,6 +195,7 @@ private struct SidebarList: View, Equatable {
     @FocusState private var isFocused: Bool
 
     private static let pinnedID = "pinned"
+    private static let attentionID = "attention"
 
     private struct Group {
         let layout: SidebarLayout.Group
@@ -203,14 +221,16 @@ private struct SidebarList: View, Equatable {
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.layout == rhs.layout }
 
     private var groups: [Group] {
-        layout.groups.map { group in
-            let entries = expandedGroups.contains(group.id) || !layout.filter.isEmpty ? group.entries : Array(group.entries.prefix(group.visibleLimit))
-            return Group(layout: group, entries: entries, hiddenSessions: group.entries.count - entries.count)
-        }
+        layout.groups.map(visible)
     }
 
     private var active: Group? {
-        layout.active.map { Group(layout: $0, entries: $0.entries, hiddenSessions: 0) }
+        layout.active.map(visible)
+    }
+
+    private func visible(_ group: SidebarLayout.Group) -> Group {
+        let entries = expandedGroups.contains(group.id) || !layout.filter.isEmpty ? group.entries : Array(group.entries.prefix(group.visibleLimit))
+        return Group(layout: group, entries: entries, hiddenSessions: group.entries.count - entries.count)
     }
 
     private func rows(of entries: [SidebarLayout.Entry]) -> [Row] {
@@ -228,7 +248,8 @@ private struct SidebarList: View, Equatable {
     }
 
     private var items: [SidebarItem] {
-        (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
+        (isCollapsed(Self.attentionID) ? [] : layout.attentionIDs).map(SidebarItem.session)
+            + (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
             + activeItems
             + (isCollapsed(Self.pinnedID) ? [] : layout.pinnedIDs).map(SidebarItem.session)
             + groups.filter { !isCollapsed($0.id) }.flatMap { $0.layout.tabIDs.map(SidebarItem.tab) + rows(of: $0.entries).map(\.item) }
@@ -238,6 +259,16 @@ private struct SidebarList: View, Equatable {
     var body: some View {
         let groups = groups
         List {
+            if !layout.attentionIDs.isEmpty {
+                Section(isExpanded: expansion(of: Self.attentionID)) {
+                    ForEach(layout.attentionIDs, id: \.self) { id in
+                        SessionItem(id: id, place: .attention, select: select)
+                            .id(SidebarItem.session(id))
+                    }
+                } header: {
+                    GroupHeader(title: "Needs Attention", help: "Needs you, failing checks or unread", count: layout.attentionIDs.count) { EmptyView() } accessory: { _ in EmptyView() }
+                }
+            }
             if !layout.terminalIDs.isEmpty {
                 terminalsSection
             }
@@ -364,6 +395,10 @@ private struct SidebarList: View, Equatable {
             expansion(of: Sidebar.terminalsID).wrappedValue = expanded
             return .handled
         }
+        if case let .session(id) = item, layout.attentionIDs.contains(id) {
+            expansion(of: Self.attentionID).wrappedValue = expanded
+            return .handled
+        }
         if case let .session(id) = item, layout.pinnedIDs.contains(id) {
             expansion(of: Self.pinnedID).wrappedValue = expanded
             return .handled
@@ -420,6 +455,7 @@ private struct SidebarList: View, Equatable {
         Section(isExpanded: expansion(of: Sidebar.terminalsID)) {
             ForEach(layout.terminalIDs, id: \.self) { id in
                 TabItem(id: id, select: select)
+                    .environment(\.sidebarDensity, .compact)
                     .id(SidebarItem.tab(id))
             }
         } header: {
@@ -608,6 +644,7 @@ private struct TabItem: View {
 
 private struct SessionItem: View {
     enum Place: Equatable {
+        case attention
         case pinned
         case group(folder: String?)
         case task
@@ -640,7 +677,11 @@ private struct SessionItem: View {
                     isUnread: store.isUnread(session),
                     isFlagged: store.flaggedIDs.contains(id),
                     context: tab != nil || live != nil ? session.context : nil,
-                    pullRequest: pullRequests.first?.pullRequest,
+                    pullRequest: pullRequests.first.map { link in
+                        var pullRequest = link.pullRequest
+                        if pullRequest.checks == .passed { pullRequest.checks = nil }
+                        return pullRequest
+                    },
                     morePullRequests: max(pullRequests.count - 1, 0),
                     suggestion: suggestionLabel,
                     showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
@@ -1294,7 +1335,7 @@ private struct CardRow<Detail: View>: View {
     var body: some View {
         let isWorking = chevron != nil && state == .working
         let hasMemberDot = chevron != nil && (state != nil || isUnread)
-        let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 10 >= $0 * 6 && context.tokens <= $0 ? $0 : nil } }
+        let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 5 >= $0 * 4 && context.tokens <= $0 ? $0 : nil } }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
