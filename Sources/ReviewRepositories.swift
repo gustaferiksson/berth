@@ -36,7 +36,7 @@ struct ReviewTaskHeader: View {
             if let issue {
                 Group {
                     if let url = issue.url {
-                        Link("#\(issue.number) · \(issue.repository)", destination: url)
+                        Link(destination: url) { Text(verbatim: "#\(issue.number) · \(issue.repository)") }
                     } else {
                         Text(verbatim: "#\(issue.number) · \(issue.repository)")
                     }
