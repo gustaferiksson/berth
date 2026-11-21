@@ -337,6 +337,7 @@ private struct ReviewFileList: View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .task { await model.load() }
+            .task { movePersistedPanelTab() }
             .task(id: [model.changes?.branch, pullRequest?.pullRequest?.baseRefName]) {
                 let base = model.changes.flatMap { changes in pullRequest?.pullRequest?.baseRefName.map { (branch: changes.branch, base: $0) } }
                 guard base?.branch != model.pullRequestBase?.branch || base?.base != model.pullRequestBase?.base else { return }
@@ -685,11 +686,19 @@ private struct ReviewFileList: View {
 
     private func tabs(_ changes: ReviewChanges?) -> some View {
         VStack(spacing: 0) {
-            Picker("Panel", selection: Binding(get: { panelTab }, set: { panelTab = $0 })) {
-                ForEach(ReviewPanelTab.allCases, id: \.self) { Text($0.title) }
+            HStack(spacing: 8) {
+                Picker("Panel", selection: Binding(get: { panelTab }, set: { panelTab = $0 })) {
+                    ForEach(ReviewPanelTab.allCases, id: \.self) { Text($0.title) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+                GlassCapsule {
+                    Button("Refresh", systemImage: "arrow.clockwise", action: refresh)
+                        .disabled(model.isLoading)
+                        .help("Refresh")
+                }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .padding(.horizontal, 8)
             .frame(height: 32)
             Divider()
@@ -713,6 +722,15 @@ private struct ReviewFileList: View {
     private var panelTab: ReviewPanelTab {
         get { unpersistedPanelTab ?? storedPanelTab }
         nonmutating set { if store.persistsTabs { storedPanelTab = newValue } else { unpersistedPanelTab = newValue } }
+    }
+
+    private func movePersistedPanelTab() {
+        switch UserDefaults.standard.string(forKey: "reviewPanelTab") {
+        case "preview": model.showPreview()
+        case "comments": model.showsCommentList = true
+        default: return
+        }
+        if store.persistsTabs { storedPanelTab = .changes }
     }
 
     private var commentCount: Int { owners.reduce(0) { $0 + $1.model.comments.count } }
@@ -794,17 +812,23 @@ private struct ReviewFileList: View {
                         model.showsCommentList.toggle()
                     } label: {
                         Label("Comments", systemImage: model.showsCommentList ? "chevron.down" : "chevron.up")
+                            .lineLimit(1)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(theme.secondary)
+                    .help(model.showsCommentList ? "Hide the comment list" : "Show the comment list")
                     Spacer(minLength: 4)
                     Button("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")", action: sendComments)
                         .buttonStyle(.borderedProminent)
+                        .tint(.accentColor)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        .help("Paste every pending comment into the session")
                 }
                 .padding(10)
             }
-            .glassEffect(.regular, in: .rect(cornerRadius: 14))
-            .padding(8)
+            .background(theme.foreground.opacity(0.05))
+            .overlay(alignment: .top) { Divider() }
         }
     }
 
@@ -817,17 +841,18 @@ private struct ReviewFileList: View {
                             Text(comment.element.map { "Preview \($0.selector)" } ?? "\(owner.repository.map { "\($0.name):" } ?? "")\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")\(comment.compare == .committed ? ", committed" : "")")
                                 .font(.caption)
                                 .foregroundStyle(theme.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                             Text(comment.text)
                                 .lineLimit(3)
                         }
                         .contentShape(.rect)
-                        .onTapGesture(count: 2) {
-                            guard comment.element == nil else { return }
-
-                            owner.model.open(ReviewDocument(path: comment.path, compare: comment.compare))
-                            owner.model.editingComment = comment.id
-                        }
+                        .onTapGesture { open(comment, in: owner.model) }
                         Spacer(minLength: 4)
+                        Button("Open", systemImage: "arrow.up.forward.square") { open(comment, in: owner.model) }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .help(comment.element == nil ? "Open in the diff" : "Open Preview")
                         Button("Delete Comment", systemImage: "xmark") {
                             owner.model.comments.removeAll { $0.id == comment.id }
                         }
@@ -838,6 +863,16 @@ private struct ReviewFileList: View {
             }
             .padding(12)
         }
+    }
+
+    private func open(_ comment: ReviewComment, in model: ReviewModel) {
+        guard comment.element == nil else {
+            model.showPreview()
+            return
+        }
+
+        model.open(ReviewDocument(path: comment.path, compare: comment.compare))
+        model.editingComment = comment.id
     }
 
     private var pullRequest: (repository: String, pullRequest: PullRequest?)? {
@@ -903,23 +938,16 @@ private struct ReviewFileList: View {
                     .help("Couldn’t refresh, showing the last changes: \(failure.detail ?? failure.description)")
                     .accessibilityLabel("Refresh failed")
             }
-            GlassCapsule {
-                if !changes.uncommitted.isEmpty || !changes.committed.isEmpty {
+            if !changes.uncommitted.isEmpty || !changes.committed.isEmpty {
+                GlassCapsule {
                     Button(changesAsTree ? "View as List" : "View as Tree", systemImage: changesAsTree ? "list.bullet" : "list.bullet.indent") { changesAsTree.toggle() }
                         .help(changesAsTree ? "View as List" : "View as Tree")
                 }
-                refreshButton
             }
         }
         .font(.callout)
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-    }
-
-    private var refreshButton: some View {
-        Button("Refresh", systemImage: "arrow.clockwise", action: refresh)
-            .disabled(model.isLoading)
-            .help("Refresh")
     }
 
     private func refresh() {
@@ -1411,10 +1439,16 @@ struct ReviewDiffColumn: View {
                 }
                 HStack(spacing: 6) {
                     if !model.isPreviewOpen {
-                        GlassCapsule {
-                            Button("Open Preview", systemImage: "globe") { model.showPreview() }
-                                .help("Open Preview")
+                        Button { model.showPreview() } label: {
+                            Label("Preview", systemImage: "globe")
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .frame(height: 24)
+                                .glassEffect(.regular, in: .capsule)
+                                .contentShape(.capsule)
                         }
+                        .buttonStyle(.plain)
+                        .help("Open Preview (View ▸ Open Preview)")
                     }
                     if tab != nil, model.selectedDocumentHasBothSides || AppAction.save.isAvailable(in: store) {
                         GlassCapsule {

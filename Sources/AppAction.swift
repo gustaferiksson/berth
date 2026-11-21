@@ -5,13 +5,13 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, filterSidebar, newSession, pullRequests, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showSideBySide, showInline, showClaudeBelow, showClaudeBeside, save, settings, checkForUpdates
+    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, showClaudeBelow, showClaudeBeside, save, settings, checkForUpdates
     case goBack, goForward, previousChange, nextChange
     case caret(CaretAction)
 
     static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
-        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showSideBySide, .showInline, .showClaudeBelow, .showClaudeBeside, .save, .settings, .checkForUpdates]
+        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .showClaudeBelow, .showClaudeBeside, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
     static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward, .previousChange, .nextChange]).filter { $0.shortcut != nil }
 
@@ -37,6 +37,7 @@ enum AppAction: Hashable {
         case .harbor: "Harbor"
         case .showChanges: "Show Changes"
         case .hideChanges: "Hide Changes"
+        case .openPreview: "Open Preview"
         case .showSideBySide: "Show Side by Side"
         case .showInline: "Show Inline"
         case .showClaudeBelow: "Show Claude Below Diff"
@@ -67,6 +68,7 @@ enum AppAction: Hashable {
         case .showStats: "usage tokens charts activity"
         case .harbor: "ambient boats piers overview"
         case .showChanges, .hideChanges: "review diff branch changes comments panel"
+        case .openPreview: "browser web localhost dev server pick element review"
         case .showSideBySide, .showInline: "review diff layout split unified inline toggle"
         case .showClaudeBelow, .showClaudeBeside: "review terminal claude diff layout below beside under vertical horizontal"
         case .save: "review file edits write disk"
@@ -97,6 +99,7 @@ enum AppAction: Hashable {
         case .showStats: "chart.bar.xaxis"
         case .harbor: "sailboat"
         case .showChanges, .hideChanges: "plus.forwardslash.minus"
+        case .openPreview: "globe"
         case .showSideBySide: "rectangle.split.2x1"
         case .showInline: "rectangle"
         case .showClaudeBelow: "rectangle.bottomhalf.inset.filled"
@@ -144,6 +147,7 @@ enum AppAction: Hashable {
         case let .groupBy(mode): store.groupingMode != mode
         case .showChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && (!store.showsReviewPanel || store.isHarborShown)
         case .hideChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.showsReviewPanel && !store.isHarborShown
+        case .openPreview: Self.hideChanges.isAvailable(in: store) && store.reviewModel?.isPreviewSelected == false
         case .showSideBySide, .showInline:
             Self.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocumentHasBothSides == true && store.isReviewDiffUnified == (self == .showSideBySide)
         case .showClaudeBelow, .showClaudeBeside:
@@ -202,6 +206,8 @@ enum AppAction: Hashable {
             store.isHarborShown = false
 
         case .hideChanges: store.showsReviewPanel = false
+
+        case .openPreview: store.reviewModel?.showPreview()
 
         case .showSideBySide: UserDefaults.standard.set(ReviewDiffLayout.sideBySide.rawValue, forKey: ReviewDiffLayout.key)
 

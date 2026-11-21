@@ -435,13 +435,20 @@ struct IconTabBar<Tab: Hashable>: View {
                             .symbolVariant(isSelected ? .fill : .none)
                             .font(.system(size: 13))
                             .accessibilityHidden(true)
+                        if isSelected {
+                            Text(title(tab))
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
                         if badge > 0 {
                             Text("\(badge)")
                                 .font(.caption2.monospacedDigit())
                         }
                     }
                     .foregroundStyle(isSelected ? Color.accentColor : theme.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 24, maxHeight: 24)
+                    .padding(.horizontal, 6)
+                    .frame(maxWidth: isSelected ? nil : .infinity, minHeight: 24, maxHeight: 24)
+                    .layoutPriority(isSelected ? 1 : 0)
                     .background(theme.foreground.opacity(isSelected ? 0.1 : 0), in: .rect(cornerRadius: 6))
                     .contentShape(.rect)
                 }
