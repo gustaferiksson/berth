@@ -32,18 +32,17 @@ struct ContentView: View {
             if isTrailing {
                 ReviewPanel()
                     .glassSidebarTint(store.theme)
-                    .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
                     .navigationSplitViewColumnWidth(min: 220, ideal: 272, max: 440)
             } else {
                 Sidebar()
                     .glassSidebarTint(store.theme)
-                    .overlay(alignment: .trailing) { Hairline(axis: .vertical).ignoresSafeArea() }
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
             TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel, isTerminalBelow: isTerminalBelow)
                 .background { SplitWidthSettled(isActive: showsPanel, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
+                .padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
                 .overlay {
                     if let mode = store.launcherMode {
                         ZStack(alignment: .top) {
@@ -68,19 +67,17 @@ struct ContentView: View {
                         Sidebar()
                             .listStyle(.sidebar)
                             .glassSidebarTint(store.theme)
-                            .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
                             .background(ScrollPocketSeparatorRemover())
                             .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs, $0 >= 220 { trailingSidebarWidth = $0 } }
                             .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
                     } else {
                         ReviewPanel()
                             .glassSidebarTint(store.theme)
-                            .overlay(alignment: .leading) { Hairline(axis: .vertical).ignoresSafeArea() }
                             .background(ScrollPocketSeparatorRemover())
                             .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
                     }
                 }
-                .background(store.theme.background ?? .clear)
+                .background(store.theme.chrome ?? .clear)
                 .background {
                     if let selected, !store.isHarborShown {
                         TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
@@ -124,10 +121,10 @@ struct ContentView: View {
                     }
                 }
         }
-        .containerBackground(store.theme.background ?? .clear, for: .window)
+        .containerBackground(store.theme.chrome ?? .clear, for: .window)
         .environment(\.ghosttyTheme, store.theme)
         .preferredColorScheme(store.theme.isDark ? .dark : .light)
-        .background(WindowChrome(color: store.theme.background))
+        .background(WindowChrome(color: store.theme.chrome))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             store.isAppActive = true
             store.refreshPullRequests()
@@ -254,6 +251,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     static let diffMinimum = 440.0
     static let terminalMinimum = 360.0
     static let belowMinimum = 160.0
+    static let gap = 8.0
 
     let store: Store
     let isDiffLeading: Bool
@@ -262,11 +260,18 @@ private struct TerminalSplit: NSViewControllerRepresentable {
 
     func makeNSViewController(context _: Context) -> TerminalSplitController {
         let split = TerminalSplitController()
+        split.splitView = GapSplitView()
         split.splitView.identifier = NSUserInterfaceItemIdentifier("terminalSplit")
         let terminal = NSHostingController(rootView: TerminalArea(store: store))
         let diff = NSHostingController(rootView: ReviewDiffColumn(store: store))
         terminal.sizingOptions = []
         diff.sizingOptions = []
+        for card in [terminal.view, diff.view] {
+            card.wantsLayer = true
+            card.layer?.cornerRadius = CardBorder.radius
+            card.layer?.cornerCurve = .continuous
+            card.layer?.masksToBounds = true
+        }
         let terminalItem = NSSplitViewItem(viewController: terminal)
         let diffItem = NSSplitViewItem(viewController: diff)
         diffItem.canCollapse = true
@@ -303,6 +308,12 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         split.splitView.layoutSubtreeIfNeeded()
         split.fitDiff(preferring: 760)
     }
+}
+
+private final class GapSplitView: NSSplitView {
+    override var dividerThickness: CGFloat { TerminalSplit.gap }
+
+    override func drawDivider(in _: NSRect) {}
 }
 
 // Width minimums as constraints (minimumThickness too) loop AppKit's constraint pass until it throws once the window can't fit them, so the divider is moved after layout instead.
@@ -355,14 +366,14 @@ private final class TerminalSplitController: NSSplitViewController {
 
 private struct TerminalArea: View {
     let store: Store
-    @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
-    @AppStorage(GeneralSettings.terminalBelowKey) private var isTerminalBelow = false
 
     var body: some View {
         ZStack {
             ForEach(store.tabs) { tab in
                 let isSelected = tab.id == store.selectedTabID && !store.isHarborShown
                 TerminalSurfaceView(context: tab.terminal)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
                     .opacity(isSelected ? 1 : 0)
                     .allowsHitTesting(isSelected)
                     .onChange(of: isSelected, initial: true) { tab.terminal.isSurfaceVisible = isSelected }
@@ -380,16 +391,8 @@ private struct TerminalArea: View {
                     .padding(12)
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if isReviewEnabled, store.showsReviewPanel, !store.isHarborShown, !isTerminalBelow {
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    Divider()
-                }
-                .frame(height: 33)
-                .overlay(alignment: .top) { Divider() }
-            }
-        }
+        .background(store.theme.background ?? Color(nsColor: .textBackgroundColor))
+        .overlay { CardBorder() }
         .environment(store)
         .environment(\.ghosttyTheme, store.theme)
     }
@@ -404,6 +407,18 @@ private struct TabTitle: View {
         Color.clear
             .navigationTitle(tab.title(terminalTitle: terminal.title, sessionTitle: sessionTitle))
             .navigationSubtitle((tab.folder as NSString).abbreviatingWithTildeInPath)
+    }
+}
+
+struct CardBorder: View {
+    static let radius = 12.0
+
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: Self.radius, style: .continuous)
+            .strokeBorder(theme.foreground.opacity(0.1))
+            .allowsHitTesting(false)
     }
 }
 
@@ -422,7 +437,7 @@ struct Hairline: View {
 private extension View {
     // The column's own material is the glass; a low-opacity theme colour over it keeps dark custom themes reading right.
     func glassSidebarTint(_ theme: GhosttyTheme) -> some View {
-        scrollContentBackground(.hidden).background((theme.background ?? .clear).opacity(0.4))
+        scrollContentBackground(.hidden).background((theme.chrome ?? .clear).opacity(0.4))
     }
 }
 
