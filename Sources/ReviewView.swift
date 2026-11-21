@@ -1133,94 +1133,137 @@ private struct ReviewBranchCard: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let found = pullRequest ?? nil
+        VStack(alignment: .leading, spacing: 10) {
             if changes.isDefaultBranch || changes.base == nil {
                 Text(changes.uncommitted.isEmpty ? "No uncommitted changes on \(changes.branch)" : "Uncommitted changes on \(changes.branch)")
-                    .fontWeight(.semibold)
+                    .font(.headline)
                 pushState
                     .font(.caption)
             } else {
-                let found = pullRequest ?? nil
-                if pullRequest != nil {
-                    let color = found?.state.color(in: theme) ?? theme.secondary
-                    HStack(spacing: 6) {
-                        Label(found?.state.rawValue ?? "No pull request", systemImage: found.map { [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][$0.state] ?? "arrow.triangle.pull" } ?? "arrow.triangle.branch")
-                            .labelStyle(CompactLabel())
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(color)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 2)
-                            .background(color.opacity(0.16), in: .rect(cornerRadius: 4))
-                            .fixedSize()
-                        if let found {
-                            Text(verbatim: "#\(found.number)")
-                                .font(.caption.monospaced())
-                                .foregroundStyle(theme.secondary)
-                            Spacer(minLength: 4)
-                            Link(destination: found.url) {
-                                Label("Open on GitHub", systemImage: "arrow.up.right.square")
-                            }
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
-                            .help("Open on GitHub")
+                headline(found)
+                Text(verbatim: found.map { "#\($0.number) · \(changes.branch) → \(changes.base ?? "")" } ?? "\(changes.branch) → \(changes.base ?? "")")
+                    .font(.caption)
+                    .foregroundStyle(Color.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let checks = detail?.checks {
+                    HStack(spacing: 12) {
+                        if checks.passed > 0 {
+                            Label("\(checks.passed)", systemImage: "checkmark.circle.fill").foregroundStyle(theme.working)
+                        }
+                        if checks.failed > 0 {
+                            Label("\(checks.failed)", systemImage: "xmark.circle.fill").foregroundStyle(theme.closed)
+                        }
+                        if checks.running > 0 {
+                            Label("\(checks.running)", systemImage: "clock.fill").foregroundStyle(theme.needsYou)
+                        }
+                        if let detail {
+                            Label("\(detail.unresolvedThreads)", systemImage: "bubble.left").foregroundStyle(Color.secondary)
+                                .help("Unresolved review threads")
                         }
                     }
+                    .font(.callout.weight(.medium))
+                    .help("Checks: \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
                 }
-                if let found {
-                    Text(found.title)
-                        .fontWeight(.semibold)
-                        .lineLimit(2)
-                        .help(found.title)
-                } else {
-                    Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits")")
-                        .fontWeight(.semibold)
+                ViewThatFits(in: .horizontal) {
+                    facts(found)
+                    VStack(alignment: .leading, spacing: 2) { facts(found) }
                 }
-                HStack(spacing: 10) {
-                    if found == nil, status.behind > 0 {
-                        Text("↓\(status.behind) behind")
-                            .help("\(status.behind) behind \(changes.base ?? "")")
-                    }
-                    if let total = changes.total {
-                        Text("+\(total.additions) −\(total.deletions)")
-                            .monospacedDigit()
-                            .help("Changes against \(changes.base ?? ""), uncommitted included")
-                    }
-                    if found == nil, status.ahead > 0 {
-                        pushState
-                    }
-                    if let checks = detail?.checks {
-                        let failed = checks.state == .failed
-                        let running = checks.state == .running
-                        Label(failed ? "\(checks.failed) failed" : running ? "\(checks.running) running" : "Checks passed", systemImage: failed ? "xmark" : running ? "clock" : "checkmark")
-                            .foregroundStyle(failed ? theme.closed : running ? theme.needsYou : theme.working)
-                            .help("Checks: \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
-                    }
-                    if let detail {
-                        Label("\(detail.unresolvedThreads) open", systemImage: "bubble.left")
-                            .help("Unresolved review threads")
-                    }
-                }
-                .labelStyle(CompactLabel())
                 .font(.caption)
-                .foregroundStyle(theme.secondary)
+                .foregroundStyle(Color.secondary)
             }
             if !status.commits.isEmpty {
                 commits
             }
-            if let createPullRequest, pullRequest != nil, (pullRequest ?? nil) == nil, !changes.isDefaultBranch, changes.base != nil, status.ahead > 0 {
-                Button("Create Pull Request…", action: createPullRequest)
-                    .frame(maxWidth: .infinity)
-                    .disabled(!isClaudeLive)
-                    .help(isClaudeLive ? "Paste a prompt asking Claude to push this branch and open a pull request" : "Claude isn’t running in this tab")
-                    .padding(.top, 4)
-            }
+            actions(found)
         }
         .lineLimit(1)
-        .font(.callout)
         .padding(.horizontal, 4)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .geometryGroup()
+    }
+
+    @ViewBuilder
+    private func headline(_ found: PullRequest?) -> some View {
+        let color = found?.state.color(in: theme) ?? Color.secondary
+        VStack(alignment: .leading, spacing: 6) {
+            if pullRequest != nil {
+                Label(found?.state.rawValue ?? "No pull request", systemImage: found.map { [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][$0.state] ?? "arrow.triangle.pull" } ?? "arrow.triangle.branch")
+                    .labelStyle(CompactLabel())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(color)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(color.opacity(0.16), in: .capsule)
+            }
+            if let found {
+                Text(found.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                    .help(found.title)
+            } else {
+                Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits")")
+                    .font(.headline)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func facts(_ found: PullRequest?) -> some View {
+        if found == nil, status.behind > 0 {
+            Label("\(status.behind) behind", systemImage: "arrow.down")
+                .help("\(status.behind) behind \(changes.base ?? "")")
+        }
+        if let total = changes.total {
+            Text("+\(total.additions) −\(total.deletions)")
+                .monospacedDigit()
+                .help("Changes against \(changes.base ?? ""), uncommitted included")
+        }
+        if found == nil, status.ahead > 0 {
+            pushState
+        }
+    }
+
+    @ViewBuilder
+    private func actions(_ found: PullRequest?) -> some View {
+        let canCreate = createPullRequest != nil && pullRequest != nil && found == nil && !changes.isDefaultBranch && changes.base != nil && status.ahead > 0
+        if canCreate || found != nil {
+            HStack(spacing: 8) {
+                if let found {
+                    Link(destination: found.url) {
+                        Label("Open on GitHub", systemImage: "arrow.up.right.square")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .help("Open pull request #\(found.number) on GitHub")
+                    Menu("More", systemImage: "ellipsis") {
+                        Button("Copy Link", systemImage: "link") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(found.url.absoluteString, forType: .string)
+                        }
+                        Button("Copy Number", systemImage: "number") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString("#\(found.number)", forType: .string)
+                        }
+                    }
+                    .labelStyle(.iconOnly)
+                    .menuStyle(.button)
+                    .menuIndicator(.hidden)
+                    .buttonStyle(.glass)
+                    .fixedSize()
+                } else if let createPullRequest {
+                    Button(action: createPullRequest) {
+                        Text("Create Pull Request…").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .disabled(!isClaudeLive)
+                    .help(isClaudeLive ? "Paste a prompt asking Claude to push this branch and open a pull request" : "Claude isn’t running in this tab")
+                }
+            }
+            .controlSize(.large)
+        }
     }
 
     private var pushState: some View {
@@ -1286,9 +1329,6 @@ private struct ReviewBranchCard: View {
                 }
             }
         }
-        .padding(.top, 4)
-        .overlay(alignment: .top) { Hairline(axis: .horizontal) }
-        .padding(.top, 2)
     }
 }
 
