@@ -102,6 +102,8 @@ private struct ChangesMenuItem: View {
 
     var body: some View {
         (AppAction.hideChanges.isAvailable(in: store) ? AppAction.hideChanges : .showChanges).menuButton(store)
+        AppAction.openPreview.menuButton(store)
+            .disabled(!AppAction.openPreview.isAvailable(in: store))
         let layout = AppAction.showInline.isAvailable(in: store) ? AppAction.showInline : .showSideBySide
         layout.menuButton(store)
             .disabled(!layout.isAvailable(in: store))

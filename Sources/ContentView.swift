@@ -407,29 +407,6 @@ private struct TabTitle: View {
     }
 }
 
-struct PanelTabs<Tab: Hashable>: View {
-    let tabs: [Tab]
-    @Binding var selection: Tab
-    let title: (Tab) -> String
-    let count: (Tab) -> Int
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("Panel", selection: $selection) {
-                ForEach(tabs, id: \.self) { tab in
-                    Text(count(tab) > 0 ? "\(title(tab)) \(count(tab))" : title(tab)).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .padding(.horizontal, 8)
-            .frame(height: 32)
-            Divider()
-        }
-    }
-}
-
 struct Hairline: View {
     let axis: Axis
     @Environment(\.ghosttyTheme) private var theme

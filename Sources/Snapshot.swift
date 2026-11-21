@@ -1084,11 +1084,9 @@ enum Snapshot {
                 store.closeDiff()
                 try? await Task.sleep(for: .milliseconds(500))
                 print("edit closed diff: \(describe(model))")
-                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
-                arguments["reviewPanelTab"] = ReviewPanelTab.comments.rawValue
-                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                model.showsCommentList = true
                 try? await Task.sleep(for: .milliseconds(500))
-                let row = NSPoint(x: 100, y: (window.contentView?.frame.height ?? 0) - 150)
+                let row = NSPoint(x: 100, y: 90)
                 for clicks in [1, 2] {
                     let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: row, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
                     event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
@@ -1228,6 +1226,7 @@ enum Snapshot {
         }
         if let address = UserDefaults.standard.string(forKey: "snapshotPreview"), let model = store.reviewModels["snapshot-review"] {
             let preview = model.preview
+            model.showPreview()
             await preview.load(address)
             for _ in 0..<100 where preview.webView.url == nil || preview.webView.isLoading { try? await Task.sleep(for: .milliseconds(100)) }
             try? await Task.sleep(for: .milliseconds(500))
