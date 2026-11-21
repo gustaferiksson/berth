@@ -103,9 +103,6 @@ struct Sidebar: View, Equatable {
                     withAnimation { proxy.scrollTo(cursor) }
                 }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            SidebarTiles()
-        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             GlassEffectContainer(spacing: 8) {
                 VStack(spacing: 8) {
@@ -115,51 +112,6 @@ struct Sidebar: View, Equatable {
             }
             .padding(10)
         }
-    }
-}
-
-private struct SidebarTiles: View {
-    @Environment(Store.self) private var store
-    @Environment(\.ghosttyTheme) private var theme
-
-    var body: some View {
-        let tiles: [(SidebarStatus, Color)] = [(.needsYou, theme.needsYou), (.working, theme.working), (.unread, .blue), (.flagged, theme.closed)]
-        GlassEffectContainer(spacing: 8) {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible())], spacing: 8) {
-                ForEach(tiles, id: \.0) { status, color in
-                    let isSelected = store.sidebarStatus == status
-                    Button {
-                        store.sidebarStatus = isSelected ? .all : status
-                    } label: {
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Image(systemName: status.symbol)
-                                    .font(.callout.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 26, height: 26)
-                                    .background(color, in: .circle)
-                                    .accessibilityHidden(true)
-                                Text(status.title)
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
-                            Text(store.sidebarCount(status), format: .number)
-                                .font(.title2.bold())
-                                .monospacedDigit()
-                        }
-                        .padding(10)
-                        .contentShape(.rect(cornerRadius: 14))
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(isSelected ? .regular.tint(color.opacity(0.4)).interactive() : .regular.interactive(), in: .rect(cornerRadius: 14))
-                    .help(isSelected ? "Show all sessions" : "Show only \(status.title.lowercased()) sessions")
-                }
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 4)
     }
 }
 
@@ -186,15 +138,30 @@ private struct SidebarFilterField: View {
                     }
                     return .handled
                 }
-            if !store.sidebarFilter.isEmpty || store.sidebarStatus != .all {
-                Button("Clear Filter", systemImage: "xmark.circle.fill") {
-                    store.sidebarFilter = ""
-                    store.sidebarStatus = .all
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+            if !store.sidebarFilter.isEmpty {
+                Button("Clear Filter", systemImage: "xmark.circle.fill") { store.sidebarFilter = "" }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
             }
+            Menu {
+                Picker("Show", selection: $store.sidebarStatus) {
+                    ForEach(SidebarStatus.allCases) { status in
+                        let count = status == .all ? 0 : store.sidebarCount(status)
+                        Label(count > 0 ? "\(status.title) (\(count))" : status.title, systemImage: status.symbol).tag(status)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Image(systemName: store.sidebarStatus == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                    .foregroundStyle(store.sidebarStatus == .all ? Color.secondary : Color.accentColor)
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .accessibilityLabel("Show")
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help(store.sidebarStatus == .all ? "Show only the sessions a status dot marks: needs you, working, background shell, unread or flagged" : "Showing \(store.sidebarStatus.title.lowercased()) sessions")
         }
         .font(.body)
         .padding(.horizontal, 10)

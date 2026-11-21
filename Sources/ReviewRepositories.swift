@@ -10,47 +10,84 @@ struct ReviewTaskHeader: View {
     let repositoryCount: Int
     @Binding var isExpanded: Bool
     let activate: (String) -> Void
+    @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if let issue { IssueTag(issue: issue).fixedSize() }
+        let state = issue.map(store.state(of:))
+        let color = state == .open ? theme.working : state == .completed ? theme.merged : Color.secondary
+        let repositories = members.reduce(into: [String]()) { names, member in
+            let name = URL(filePath: member.checkout).lastPathComponent
+            if !names.contains(name) { names.append(name) }
+        }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if issue != nil {
+                    Image(systemName: state == .completed ? "checkmark.circle.fill" : state == .notPlanned ? "slash.circle.fill" : "smallcircle.filled.circle")
+                        .font(.title3)
+                        .foregroundStyle(color)
+                        .accessibilityHidden(true)
+                }
                 Text(title)
                     .font(.headline)
                     .lineLimit(2)
                     .help(title)
             }
+            if let issue {
+                Group {
+                    if let url = issue.url {
+                        Link(destination: url) { Text(verbatim: "#\(issue.number) · \(issue.repository)") }
+                    } else {
+                        Text(verbatim: "#\(issue.number) · \(issue.repository)")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(Color.secondary)
+                .help("Open issue \(issue.repository)#\(issue.number)")
+            }
+            HStack(spacing: 4) {
+                ForEach(repositories.prefix(3), id: \.self) { name in
+                    Text(name)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(Color.primary.opacity(0.08), in: .capsule)
+                }
+            }
             Button { isExpanded.toggle() } label: {
                 HStack(spacing: 4) {
                     Text("^[\(members.count) session](inflect: true) · \(pullRequestCount) \(pullRequestCount == 1 ? "PR" : "PRs") · ^[\(repositoryCount) repo](inflect: true)")
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.caption2.weight(.semibold))
                         .accessibilityLabel(isExpanded ? "Hide Sessions" : "Show Sessions")
                 }
                 .font(.caption)
-                .foregroundStyle(theme.secondary)
+                .foregroundStyle(Color.secondary)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
             if isExpanded {
                 ForEach(members.prefix(6)) { member in
+                    let activity = store.liveBySession[member.id]?.activity
                     Button { activate(member.id) } label: {
-                        ViewThatFits(in: .horizontal) {
-                            HStack(spacing: 8) {
-                                Text(member.title).fixedSize()
-                                Spacer(minLength: 4)
-                                Text(URL(filePath: member.checkout).lastPathComponent)
-                                    .font(.caption)
-                                    .foregroundStyle(theme.secondary)
-                            }
+                        HStack(spacing: 8) {
+                            Circle()
+                                .fill(activity == .working ? theme.working : activity.map { if case .needsInput = $0 { true } else { false } } == true ? theme.needsYou : Color.secondary.opacity(0.4))
+                                .frame(width: 7, height: 7)
                             Text(member.title)
                                 .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 4)
+                            Text(URL(filePath: member.checkout).lastPathComponent)
+                                .font(.caption)
+                                .foregroundStyle(Color.secondary)
+                                .lineLimit(1)
+                                .layoutPriority(-1)
                         }
                         .font(.callout)
                         .fontWeight(member.id == currentID ? .semibold : .regular)
-                        .frame(height: 20)
+                        .frame(height: 22)
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
@@ -59,13 +96,13 @@ struct ReviewTaskHeader: View {
                 if members.count > 6 {
                     Text("\(members.count - 6) more")
                         .font(.caption)
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(Color.secondary)
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)
-        .padding(.bottom, 8)
+        .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
