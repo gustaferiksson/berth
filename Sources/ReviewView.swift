@@ -1018,11 +1018,6 @@ private struct ReviewRowChrome: ViewModifier {
 }
 
 private struct ReviewChangeRow: View {
-    static func symbol(for path: String) -> String {
-        let types = ["swift": "swift", "json": "curlybraces", "md": "doc.richtext", "yml": "gearshape", "yaml": "gearshape", "sh": "terminal", "png": "photo", "jpg": "photo", "svg": "photo"]
-        return types[(path as NSString).pathExtension.lowercased()] ?? "doc.text"
-    }
-
     let file: ReviewFile
     let model: ReviewModel
     @State private var isHovering = false
@@ -1030,10 +1025,12 @@ private struct ReviewChangeRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: Self.symbol(for: file.path))
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
-                .accessibilityHidden(true)
+            let tint = [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary
+            Text(file.status.rawValue)
+                .font(.caption.weight(.semibold).monospaced())
+                .foregroundStyle(tint)
+                .frame(width: 18, height: 18)
+                .background(tint.opacity(0.18), in: .rect(cornerRadius: 5, style: .continuous))
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1058,12 +1055,6 @@ private struct ReviewChangeRow: View {
                 }
             }
             .frame(width: 16, alignment: .trailing)
-            let tint = [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary
-            Text(file.status.rawValue)
-                .font(.caption.weight(.semibold).monospaced())
-                .foregroundStyle(tint)
-                .frame(width: 18, height: 18)
-                .background(tint.opacity(0.18), in: .rect(cornerRadius: 5, style: .continuous))
         }
         .font(.callout)
         .monospacedDigit()
