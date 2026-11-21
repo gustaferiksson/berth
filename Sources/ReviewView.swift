@@ -25,15 +25,6 @@ enum ReviewDiffLayout: String {
     static let key = "reviewDiffLayout"
 }
 
-enum ReviewPanelTab: String, CaseIterable {
-    case changes
-    case files
-
-    var title: String { rawValue.capitalized }
-
-    var symbol: String { self == .changes ? "plusminus.circle" : "folder" }
-}
-
 @Observable
 final class ReviewModel {
     let folder: String
@@ -53,6 +44,7 @@ final class ReviewModel {
     var isPreviewOpen = false
     var isPreviewSelected = false
     var showsCommentList = false
+    var showsFiles = false
     var reveal: (document: ReviewDocument, range: LanguageServerRange)?
     var changeStep: Int?
     var drafts: [String: String] = [:]
@@ -331,8 +323,6 @@ private struct ReviewFileList: View {
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedReviewSections") private var collapsedSections = ""
     @AppStorage("reviewChangesAsTree") private var changesAsTree = false
-    @AppStorage("reviewPanelTab") private var storedPanelTab = ReviewPanelTab.changes
-    @State private var unpersistedPanelTab: ReviewPanelTab?
     @FocusState private var focusedList: String?
 
     var body: some View {
@@ -347,7 +337,7 @@ private struct ReviewFileList: View {
                 model.pullRequestBase = base
                 await model.load()
             }
-            .onChange(of: model.filesReveal) { if $1 != nil { panelTab = .files } }
+            .onChange(of: model.filesReveal) { if $1 != nil { model.showsFiles = true } }
             .onChange(of: store.activeReviewRoots[sessionID]) { _, root in
                 guard let task = store.task(containing: sessionID), shownRepo != nil else { return }
 
@@ -418,6 +408,13 @@ private struct ReviewFileList: View {
                 .environment(\.sidebarRowSize, .small)
                 .scrollContentBackground(.hidden)
                 .scrollEdgeEffectStyle(.soft, for: .top)
+                .onChange(of: [model.selectedDocument?.path, model.filesReveal], initial: true) {
+                    guard let path = model.filesReveal ?? (model.showsFiles ? model.selectedDocument?.path : nil) else { return }
+
+                    model.filesReveal = nil
+                    model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
+                    Task { proxy.scrollTo("file:" + path) }
+                }
         }
     }
 
@@ -427,11 +424,16 @@ private struct ReviewFileList: View {
         let current = selection.flatMap(order.firstIndex(of:))
         let next = order[min(max((current ?? (offset > 0 ? -1 : order.count)) + offset, 0), order.count - 1)]
         open(next)
-        proxy.scrollTo(next.path)
+        proxy.scrollTo(next.compare == nil ? "file:" + next.path : next.path)
         return .handled
     }
 
     private func order(_ changes: ReviewChanges?) -> [ReviewDocument] {
+        let files = showsFiles(changes) && model.showsFiles ? model.tree.flatMap { leaves(of: $0, compare: nil, in: model, root: nil) } : []
+        return changeOrder(changes) + files
+    }
+
+    private func changeOrder(_ changes: ReviewChanges?) -> [ReviewDocument] {
         guard isStacked else {
             guard let changes else { return [] }
 
@@ -681,23 +683,16 @@ private struct ReviewFileList: View {
 
     private func tabs(_ changes: ReviewChanges?) -> some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Picker("Panel", selection: Binding(get: { panelTab }, set: { panelTab = $0 })) {
-                    ForEach(ReviewPanelTab.allCases, id: \.self) { tab in
-                        Image(systemName: tab.symbol).accessibilityLabel(tab.title).help(tab.title).tag(tab)
-                    }
+            if let changes {
+                header(changes)
+            } else {
+                HStack {
+                    Spacer(minLength: 0)
+                    GlassCapsule { refreshButton }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
-                GlassCapsule {
-                    Button("Refresh", systemImage: "arrow.clockwise", action: refresh)
-                        .disabled(model.isLoading)
-                        .help("Refresh")
-                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
             }
-            .padding(.horizontal, 8)
-            .frame(height: 32)
             if let movedFolder = model.movedFolder {
                 Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits and send or delete your comments to follow it.", systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -706,59 +701,40 @@ private struct ReviewFileList: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
             }
-            switch panelTab {
-            case .changes: changesTab(changes)
-            case .files: filesTab(changes)
-            }
+            inspector(changes)
             commentsBar
         }
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    private var panelTab: ReviewPanelTab {
-        get { unpersistedPanelTab ?? storedPanelTab }
-        nonmutating set { if store.persistsTabs { storedPanelTab = newValue } else { unpersistedPanelTab = newValue } }
+    private var refreshButton: some View {
+        Button("Refresh", systemImage: "arrow.clockwise", action: refresh)
+            .disabled(model.isLoading)
+            .help("Refresh")
     }
 
     private func movePersistedPanelTab() {
         switch UserDefaults.standard.string(forKey: "reviewPanelTab") {
         case "preview": model.showPreview()
         case "comments": model.showsCommentList = true
+        case "files": model.showsFiles = true
         default: return
         }
-        if store.persistsTabs { storedPanelTab = .changes }
+        if store.persistsTabs { UserDefaults.standard.removeObject(forKey: "reviewPanelTab") }
     }
 
     private var commentCount: Int { owners.reduce(0) { $0 + $1.model.comments.count } }
 
-    private func changesTab(_ changes: ReviewChanges?) -> some View {
+    private func inspector(_ changes: ReviewChanges?) -> some View {
         VStack(spacing: 0) {
-            if let changes { header(changes) }
             if let task = store.task(containing: sessionID) {
                 taskCard(task)
                 if !extras.isEmpty { repoTabs(task) }
             }
-            if !isStacked, let changes, let status = model.status {
-                branchCard(changes, status)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 6)
-                otherPullRequests(root: nil, branch: changes.branch, shown: pullRequest?.pullRequest?.number)
-            }
-            if let shownRepo {
-                if shownRepo == ownRoot, let changes {
-                    branchCard(changes, model.status ?? .unknown)
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 6)
-                    otherPullRequests(root: nil, branch: changes.branch, shown: pullRequest?.pullRequest?.number)
-                } else if let extra = extras.first(where: { $0.repository.root == shownRepo }), let changes = extra.model.changes {
-                    extraCard(extra, changes)
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 6)
-                    otherPullRequests(root: extra.repository.root, branch: changes.branch, shown: extraPullRequest(extra.repository.root, changes.branch)?.pullRequest?.number)
-                }
-            }
-            list(name: "changes", order: order(changes)) {
+            list(name: "review", order: order(changes)) {
+                pullRequestSection(changes)
                 if let shownRepo { repoRows(shownRepo, indent: changesAsTree ? 9 : 0) } else if isStacked { stackedSections(changes) } else if let changes { changeSections(changes) }
+                filesSection(changes)
             }
             .id(changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
             .id([shownRepo] + extras.map(\.repository.root))
@@ -771,20 +747,44 @@ private struct ReviewFileList: View {
     }
 
     @ViewBuilder
-    private func filesTab(_ changes: ReviewChanges?) -> some View {
-        if let changes {
-            ScrollViewReader { proxy in
-                list(name: "files", order: model.tree.flatMap { leaves(of: $0, compare: nil, in: model, root: nil) }) { ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) } }
-                    .onChange(of: [model.selectedDocument?.path, model.filesReveal], initial: true) {
-                        guard let path = model.filesReveal ?? model.selectedDocument?.path else { return }
-
-                        model.filesReveal = nil
-                        model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
-                        Task { proxy.scrollTo(path) }
-                    }
+    private func pullRequestSection(_ changes: ReviewChanges?) -> some View {
+        let inset = changesAsTree ? 9.0 : 0.0
+        let edges = EdgeInsets(top: 0, leading: -11 - inset, bottom: 6, trailing: -8)
+        if !isStacked || shownRepo == ownRoot, isStacked || model.status != nil, let changes {
+            Section(isExpanded: expansion(of: "pullRequest")) {
+                branchCard(changes, model.status ?? .unknown)
+                    .listRowInsets(edges)
+                otherPullRequests(root: nil, branch: changes.branch, shown: pullRequest?.pullRequest?.number)
+            } header: {
+                pullRequestHeader
             }
-        } else {
-            ContentUnavailableView("No Git Repository", systemImage: "folder")
+        } else if let shownRepo, let extra = extras.first(where: { $0.repository.root == shownRepo }), let changes = extra.model.changes {
+            Section(isExpanded: expansion(of: "pullRequest")) {
+                extraCard(extra, changes)
+                    .listRowInsets(edges)
+                otherPullRequests(root: extra.repository.root, branch: changes.branch, shown: extraPullRequest(extra.repository.root, changes.branch)?.pullRequest?.number)
+            } header: {
+                pullRequestHeader
+            }
+        }
+    }
+
+    private var pullRequestHeader: some View {
+        GroupHeader(title: "Pull Request", help: "The branch's pull request, checks and commits", count: nil) { EmptyView() } accessory: { _ in EmptyView() }
+    }
+
+    private func showsFiles(_ changes: ReviewChanges?) -> Bool {
+        changes != nil && (shownRepo == nil || shownRepo == ownRoot)
+    }
+
+    @ViewBuilder
+    private func filesSection(_ changes: ReviewChanges?) -> some View {
+        if let changes, showsFiles(changes) {
+            Section(isExpanded: $model.showsFiles) {
+                ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) }
+            } header: {
+                GroupHeader(title: "Files", help: "Every file in the repository", count: nil) { EmptyView() } accessory: { _ in EmptyView() }
+            }
         }
     }
 
@@ -938,11 +938,12 @@ private struct ReviewFileList: View {
                     .help("Couldn’t refresh, showing the last changes: \(failure.detail ?? failure.description)")
                     .accessibilityLabel("Refresh failed")
             }
-            if !changes.uncommitted.isEmpty || !changes.committed.isEmpty {
-                GlassCapsule {
+            GlassCapsule {
+                if !changes.uncommitted.isEmpty || !changes.committed.isEmpty {
                     Button(changesAsTree ? "View as List" : "View as Tree", systemImage: changesAsTree ? "list.bullet" : "list.bullet.indent") { changesAsTree.toggle() }
                         .help(changesAsTree ? "View as List" : "View as Tree")
                 }
+                refreshButton
             }
         }
         .font(.callout)
@@ -1096,6 +1097,7 @@ private struct ReviewFileNode: View {
             let document = ReviewDocument(path: node.path, compare: nil)
             label
                 .modifier(ReviewRowChrome(document: document, model: model))
+                .id("file:" + node.path)
         }
     }
 
