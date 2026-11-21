@@ -49,18 +49,28 @@ struct SessionHoverTrigger: ViewModifier {
     let session: SessionSummary
     let pullRequests: [SessionPullRequest]
     let context: SessionContext?
+    let isNoticeShown: Bool
     @State private var anchor: NSView?
     @State private var pending: Task<Void, Never>?
+    @State private var isDismissed = false
     @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @Environment(\.ghosttyTheme) private var theme
 
     func body(content: Content) -> some View {
         content
             .background(ViewAnchor { anchor = $0 })
+            .onChange(of: isNoticeShown) { _, isShown in
+                guard isShown else { return }
+
+                isDismissed = true
+                pending?.cancel()
+                HoverCardPanel.shared.hide()
+            }
             .onHover { isHovering in
                 pending?.cancel()
                 HoverCardPanel.shared.hide()
-                guard isHovering, Snapshot.output == nil else { return }
+                if !isHovering { isDismissed = false }
+                guard isHovering, !isDismissed, Snapshot.output == nil else { return }
 
                 pending = Task {
                     try? await Task.sleep(for: .milliseconds(600))

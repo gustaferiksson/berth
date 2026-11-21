@@ -755,6 +755,33 @@ struct CommandPaletteTests {
     }
 }
 
+struct OrphanedSessionsTests {
+    private func live(_ pid: Int32, kind: String?) -> LiveSession {
+        LiveSession(pid: pid, sessionId: "s\(pid)", cwd: "/", kind: kind, jobId: nil, status: "idle", waitingFor: nil, statusUpdatedAt: nil, startedAt: nil)
+    }
+
+    @Test func aDetachedInteractiveProcessUnderLaunchdIsOrphaned() {
+        let ids = OrphanedSessions.ids(live: [live(1, kind: "interactive")], processes: [1: .init(parent: 1, hasTerminal: false)])
+        #expect(ids == ["s1"])
+    }
+
+    @Test func aProcessWithATerminalOrAnotherParentIsNot() {
+        let ids = OrphanedSessions.ids(
+            live: [live(1, kind: "interactive"), live(2, kind: "interactive")],
+            processes: [1: .init(parent: 1, hasTerminal: true), 2: .init(parent: 500, hasTerminal: false)]
+        )
+        #expect(ids.isEmpty)
+    }
+
+    @Test func backgroundAndUnknownKindsAndUnreadableProcessesAreNot() {
+        let ids = OrphanedSessions.ids(
+            live: [live(1, kind: "bg"), live(2, kind: nil), live(3, kind: "interactive")],
+            processes: [1: .init(parent: 1, hasTerminal: false), 2: .init(parent: 1, hasTerminal: false)]
+        )
+        #expect(ids.isEmpty)
+    }
+}
+
 struct IdleTabsTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private let hour: TimeInterval = 3600

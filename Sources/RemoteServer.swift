@@ -418,7 +418,7 @@ final class RemoteServer {
                 waitingFor: live?.waitingFor,
                 waitingSince: live?.status == "waiting" ? live?.statusUpdatedAt : nil,
                 isOpen: open.contains(session.id),
-                isLocked: live.map { $0.attachID == nil } ?? false && !open.contains(session.id),
+                isLocked: self.store.isLockedElsewhere(live) && !open.contains(session.id),
                 lastPrompt: session.lastPrompt,
                 pullRequest: self.store.pullRequest(for: session).map { RemotePullRequest(number: $0.number, state: $0.state.rawValue, url: $0.url, checks: $0.checks?.rawValue) },
                 isUnread: self.store.isUnread(session),
@@ -518,7 +518,7 @@ final class RemoteServer {
         guard store.liveBySession[sessionID]?.status != "waiting" else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude is waiting for an answer, so the message wasn’t sent")), to: connection) }
 
         if store.tab(forSession: sessionID) == nil || store.liveBySession[sessionID] == nil {
-            if let live = store.liveBySession[sessionID], live.attachID == nil, store.tab(forSession: sessionID) == nil {
+            if store.isLockedElsewhere(store.liveBySession[sessionID]), store.tab(forSession: sessionID) == nil {
                 return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "This session is running in another terminal, so it is read-only here")), to: connection)
             }
             store.activate(.session(sessionID))
