@@ -103,14 +103,15 @@ struct Sidebar: View, Equatable {
                     withAnimation { proxy.scrollTo(cursor) }
                 }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(spacing: 0) {
-                SidebarFilterField()
-                    .frame(height: 32)
-                Divider()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            GlassEffectContainer(spacing: 8) {
+                VStack(spacing: 8) {
+                    UsageBar()
+                    SidebarFilterField()
+                }
             }
+            .padding(10)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { UsageBar() }
     }
 }
 
@@ -172,7 +173,6 @@ private struct SidebarFilterField: View {
         .padding(.horizontal, 10)
         .frame(height: 24)
         .glassEffect(.regular, in: .capsule)
-        .padding(.horizontal, 10)
         .onChange(of: store.sidebarFilterFocusRequests) { isFocused = true }
     }
 }
