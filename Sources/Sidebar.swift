@@ -122,30 +122,9 @@ private struct SidebarFilterField: View {
     var body: some View {
         @Bindable var store = store
         HStack(spacing: 6) {
-            Menu {
-                Picker("Show", selection: $store.sidebarStatus) {
-                    ForEach(SidebarStatus.allCases) { status in
-                        let count = status == .all ? 0 : store.sidebarCount(status)
-                        Label(count > 0 ? "\(status.title) (\(count))" : status.title, systemImage: status.symbol).tag(status)
-                    }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: store.sidebarStatus == .all ? "line.3.horizontal.decrease" : store.sidebarStatus.symbol)
-                        .accessibilityHidden(true)
-                    if store.sidebarStatus != .all {
-                        Text("\(store.sidebarStatus.title) \(store.sidebarCount(store.sidebarStatus))")
-                    }
-                }
-                .foregroundStyle(store.sidebarStatus == .all ? Color.secondary : Color.accentColor)
-            }
-            .menuStyle(.button)
-            .menuIndicator(.visible)
-            .accessibilityLabel("Show")
-            .buttonStyle(.plain)
-            .fixedSize()
-            .help("Show only the sessions a status dot marks: needs you, working, background shell, unread or flagged")
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             TextField("Filter", text: $store.sidebarFilter)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
@@ -159,15 +138,30 @@ private struct SidebarFilterField: View {
                     }
                     return .handled
                 }
-            if !store.sidebarFilter.isEmpty || store.sidebarStatus != .all {
-                Button("Clear Filter", systemImage: "xmark.circle.fill") {
-                    store.sidebarFilter = ""
-                    store.sidebarStatus = .all
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+            if !store.sidebarFilter.isEmpty {
+                Button("Clear Filter", systemImage: "xmark.circle.fill") { store.sidebarFilter = "" }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
             }
+            Menu {
+                Picker("Show", selection: $store.sidebarStatus) {
+                    ForEach(SidebarStatus.allCases) { status in
+                        let count = status == .all ? 0 : store.sidebarCount(status)
+                        Label(count > 0 ? "\(status.title) (\(count))" : status.title, systemImage: status.symbol).tag(status)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Image(systemName: store.sidebarStatus == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                    .foregroundStyle(store.sidebarStatus == .all ? Color.secondary : Color.accentColor)
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .accessibilityLabel("Show")
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help(store.sidebarStatus == .all ? "Show only the sessions a status dot marks: needs you, working, background shell, unread or flagged" : "Showing \(store.sidebarStatus.title.lowercased()) sessions")
         }
         .font(.body)
         .padding(.horizontal, 10)
