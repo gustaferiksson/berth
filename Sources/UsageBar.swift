@@ -20,8 +20,6 @@ struct UsageBar: View {
                     .accessibilityHint("Opens Stats")
                     .padding(10)
                     .glassEffect(.regular, in: .rect(cornerRadius: 14))
-                    .padding(.horizontal, 10)
-                    .padding(.top, 4)
                 }
             }
         }

@@ -323,6 +323,12 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotUnread") {
             for session in topSessions.enumerated().filter({ [1, 3].contains($0.offset) }).map(\.element) { store.markUnread(session.id) }
         }
+        if UserDefaults.standard.bool(forKey: "snapshotPlanUsage") {
+            store.planUsage = PlanUsage(windows: [
+                UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: .now.addingTimeInterval(2 * 3600)),
+                UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.81, resetsAt: .now.addingTimeInterval(3 * 86_400)),
+            ])
+        }
         if UserDefaults.standard.bool(forKey: "snapshotFakeContext") {
             let sessions = Array(topSessions.prefix(4))
             store.fakeContexts = Dictionary(uniqueKeysWithValues: zip(sessions, [68_000, 126_000, 162_000, 188_000]).map { session, tokens in
