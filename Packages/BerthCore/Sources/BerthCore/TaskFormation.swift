@@ -280,12 +280,23 @@ public struct SessionTask: Identifiable, Equatable, Sendable {
         self.sessions = sessions
     }
 
-    public static func entries(of sessions: [SessionSummary], tasks: [Self]) -> [GroupEntry] {
+    public static func entries(of sessions: [SessionSummary], tasks: [Self], liveIDs: Set<String> = []) -> [GroupEntry] {
         let taskOf = Dictionary(tasks.flatMap { task in task.sessions.map { ($0.id, task) } }) { first, _ in first }
         return sessions.compactMap { session in
-            guard let task = taskOf[session.id] else { return .session(session.id) }
+            guard let task = taskOf[session.id] else { return liveIDs.contains(session.id) ? nil : .session(session.id) }
+            guard !task.sessions.contains(where: { liveIDs.contains($0.id) }) else { return nil }
 
             return task.sessions.first?.id == session.id ? .task(task.id) : nil
+        }
+    }
+
+    public static func activeEntries(of live: [SessionSummary], tasks: [Self]) -> [GroupEntry] {
+        let taskOf = Dictionary(tasks.flatMap { task in task.sessions.map { ($0.id, task) } }) { first, _ in first }
+        var shown = Set<String>()
+        return live.compactMap { session in
+            guard let task = taskOf[session.id] else { return .session(session.id) }
+
+            return shown.insert(task.id).inserted ? .task(task.id) : nil
         }
     }
 }

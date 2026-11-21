@@ -286,6 +286,7 @@ enum Snapshot {
             }
             print("stored: \(store.tasks.tasks.map { "\($0.id) \($0.sessionIDs) excluded \($0.excluded)" })")
             print("suggestions: \(store.taskSuggestions.map { "\($0.key) -> \($0.value.key) task \($0.value.taskID ?? "new") sessions \($0.value.sessionIDs)" }.sorted())")
+            print("active: \(store.sidebarActive.map { $0.entries.map { "\($0)" } } ?? [])")
             print("sidebar: \(store.sidebarGroups.map { "\($0.group.title) \($0.entries.map { "\($0)" })" })")
         }
         if let status = UserDefaults.standard.string(forKey: "snapshotSidebarStatus").flatMap(SidebarStatus.init(rawValue:)) { store.sidebarStatus = status }
