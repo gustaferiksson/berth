@@ -30,6 +30,8 @@ enum ReviewPanelTab: String, CaseIterable {
     case files
 
     var title: String { rawValue.capitalized }
+
+    var symbol: String { self == .changes ? "plusminus.circle" : "folder" }
 }
 
 @Observable
@@ -681,7 +683,9 @@ private struct ReviewFileList: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Picker("Panel", selection: Binding(get: { panelTab }, set: { panelTab = $0 })) {
-                    ForEach(ReviewPanelTab.allCases, id: \.self) { Text($0.title) }
+                    ForEach(ReviewPanelTab.allCases, id: \.self) { tab in
+                        Image(systemName: tab.symbol).accessibilityLabel(tab.title).help(tab.title).tag(tab)
+                    }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -815,21 +819,15 @@ private struct ReviewFileList: View {
                     Spacer(minLength: 4)
                     Button(action: sendComments) {
                         Text("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")")
-                            .fontWeight(.medium)
-                            .foregroundStyle(.white)
                             .lineLimit(1)
-                            .padding(.horizontal, 12)
-                            .frame(height: 24)
-                            .background(Color.accentColor, in: .capsule)
-                            .contentShape(.capsule)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.glassProminent)
+                    .controlSize(.large)
                     .layoutPriority(1)
                     .help("Paste every pending comment into the session")
                 }
                 .padding(10)
             }
-            .background(theme.foreground.opacity(0.05))
             .overlay(alignment: .top) { Divider() }
         }
     }
@@ -1020,6 +1018,11 @@ private struct ReviewRowChrome: ViewModifier {
 }
 
 private struct ReviewChangeRow: View {
+    static func symbol(for path: String) -> String {
+        let types = ["swift": "swift", "json": "curlybraces", "md": "doc.richtext", "yml": "gearshape", "yaml": "gearshape", "sh": "terminal", "png": "photo", "jpg": "photo", "svg": "photo"]
+        return types[(path as NSString).pathExtension.lowercased()] ?? "doc.text"
+    }
+
     let file: ReviewFile
     let model: ReviewModel
     @State private var isHovering = false
@@ -1027,9 +1030,10 @@ private struct ReviewChangeRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(file.status.rawValue)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
+            Image(systemName: Self.symbol(for: file.path))
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+                .accessibilityHidden(true)
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1054,6 +1058,12 @@ private struct ReviewChangeRow: View {
                 }
             }
             .frame(width: 16, alignment: .trailing)
+            let tint = [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary
+            Text(file.status.rawValue)
+                .font(.caption.weight(.semibold).monospaced())
+                .foregroundStyle(tint)
+                .frame(width: 18, height: 18)
+                .background(tint.opacity(0.18), in: .rect(cornerRadius: 5, style: .continuous))
         }
         .font(.callout)
         .monospacedDigit()
@@ -1216,11 +1226,9 @@ private struct ReviewBranchCard: View {
         }
         .lineLimit(1)
         .font(.callout)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.foreground.opacity(0.13)))
         .geometryGroup()
     }
 

@@ -103,6 +103,9 @@ struct Sidebar: View, Equatable {
                     withAnimation { proxy.scrollTo(cursor) }
                 }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            SidebarTiles()
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             GlassEffectContainer(spacing: 8) {
                 VStack(spacing: 8) {
@@ -115,6 +118,51 @@ struct Sidebar: View, Equatable {
     }
 }
 
+private struct SidebarTiles: View {
+    @Environment(Store.self) private var store
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        let tiles: [(SidebarStatus, Color)] = [(.needsYou, theme.needsYou), (.working, theme.working), (.unread, .blue), (.flagged, theme.closed)]
+        GlassEffectContainer(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible())], spacing: 8) {
+                ForEach(tiles, id: \.0) { status, color in
+                    let isSelected = store.sidebarStatus == status
+                    Button {
+                        store.sidebarStatus = isSelected ? .all : status
+                    } label: {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Image(systemName: status.symbol)
+                                    .font(.callout.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 26, height: 26)
+                                    .background(color, in: .circle)
+                                    .accessibilityHidden(true)
+                                Text(status.title)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                            Text(store.sidebarCount(status), format: .number)
+                                .font(.title2.bold())
+                                .monospacedDigit()
+                        }
+                        .padding(10)
+                        .contentShape(.rect(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(isSelected ? .regular.tint(color.opacity(0.4)).interactive() : .regular.interactive(), in: .rect(cornerRadius: 14))
+                    .help(isSelected ? "Show all sessions" : "Show only \(status.title.lowercased()) sessions")
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.bottom, 4)
+    }
+}
+
 private struct SidebarFilterField: View {
     @Environment(Store.self) private var store
     @FocusState private var isFocused: Bool
@@ -122,30 +170,9 @@ private struct SidebarFilterField: View {
     var body: some View {
         @Bindable var store = store
         HStack(spacing: 6) {
-            Menu {
-                Picker("Show", selection: $store.sidebarStatus) {
-                    ForEach(SidebarStatus.allCases) { status in
-                        let count = status == .all ? 0 : store.sidebarCount(status)
-                        Label(count > 0 ? "\(status.title) (\(count))" : status.title, systemImage: status.symbol).tag(status)
-                    }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: store.sidebarStatus == .all ? "line.3.horizontal.decrease" : store.sidebarStatus.symbol)
-                        .accessibilityHidden(true)
-                    if store.sidebarStatus != .all {
-                        Text("\(store.sidebarStatus.title) \(store.sidebarCount(store.sidebarStatus))")
-                    }
-                }
-                .foregroundStyle(store.sidebarStatus == .all ? Color.secondary : Color.accentColor)
-            }
-            .menuStyle(.button)
-            .menuIndicator(.visible)
-            .accessibilityLabel("Show")
-            .buttonStyle(.plain)
-            .fixedSize()
-            .help("Show only the sessions a status dot marks: needs you, working, background shell, unread or flagged")
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             TextField("Filter", text: $store.sidebarFilter)
                 .textFieldStyle(.plain)
                 .focused($isFocused)
@@ -169,9 +196,9 @@ private struct SidebarFilterField: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .font(.callout)
+        .font(.body)
         .padding(.horizontal, 10)
-        .frame(height: 24)
+        .frame(height: 28)
         .glassEffect(.regular, in: .capsule)
         .onChange(of: store.sidebarFilterFocusRequests) { isFocused = true }
     }
@@ -494,7 +521,7 @@ private struct SidebarList: View, Equatable {
                 }
                 .buttonStyle(.plain)
                 .font(.subheadline)
-                .foregroundStyle(theme.secondary)
+                .foregroundStyle(Color.secondary)
                 .padding(.leading, 8)
                 .listRowInsets(EdgeInsets(top: density.showMoreInset, leading: 8, bottom: density.showMoreInset, trailing: 8))
             }
@@ -847,7 +874,7 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
                 label
             }
         }
-        .font(.system(size: 11))
+        .font(.subheadline)
         .padding(.top, density.headerTopPadding)
         .padding(.leading, -6)
         .padding(.trailing, 6)
@@ -877,13 +904,13 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
             } else {
                 Text(title)
                     .fontWeight(.semibold)
-                    .foregroundStyle(tint ?? theme.secondary)
+                    .foregroundStyle(tint ?? Color.secondary)
                     .lineLimit(1)
                     .help(help)
                 if let count {
                     Text(count, format: .number)
                         .monospacedDigit()
-                        .foregroundStyle((tint ?? theme.secondary).opacity(0.6))
+                        .foregroundStyle((tint ?? Color.secondary).opacity(0.6))
                 }
             }
             Spacer(minLength: 4)
@@ -968,9 +995,9 @@ private struct HeaderButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(.body.weight(.medium))
-                .foregroundStyle(theme.secondary.opacity(isHeaderHovered ? 1 : 0.6))
+                .foregroundStyle(Color.secondary.opacity(isHeaderHovered ? 1 : 0.6))
                 .frame(width: 24, height: 24)
-                .background(theme.foreground.opacity(configuration.isPressed ? 0.12 : isHovering ? 0.06 : 0), in: .rect(cornerRadius: 8))
+                .background(Color.primary.opacity(configuration.isPressed ? 0.12 : isHovering ? 0.06 : 0), in: .rect(cornerRadius: 8))
                 .contentShape(.rect)
                 .onHover { isHovering = $0 }
         }
@@ -1016,8 +1043,8 @@ struct RowFill: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(theme.foreground.opacity(opacity))
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.primary.opacity(opacity))
             .padding(.leading, 8 + indent)
             .padding(.trailing, 8)
             .padding(.vertical, 2)
@@ -1073,7 +1100,7 @@ private struct SessionRow: View {
                         if let suggestion {
                             Image(systemName: "sparkle")
                                 .font(.caption)
-                                .foregroundStyle(theme.secondary)
+                                .foregroundStyle(Color.secondary)
                                 .help(suggestion)
                                 .accessibilityLabel(suggestion)
                         }
@@ -1098,10 +1125,10 @@ private struct SessionRow: View {
                                                 .truncationMode(.tail)
                                         }
                                     }
-                                    .foregroundStyle(theme.secondary)
+                                    .foregroundStyle(Color.secondary)
                                     if branch != nil {
                                         Text(verbatim: "·")
-                                            .foregroundStyle(theme.secondary.opacity(0.6))
+                                            .foregroundStyle(Color.secondary.opacity(0.6))
                                             .fixedSize()
                                             .offset(y: -1)
                                     }
@@ -1123,7 +1150,7 @@ private struct SessionRow: View {
                 } else {
                     Text(verbatim: "–")
                         .font(.caption.monospaced())
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(Color.secondary)
                 }
             }
         )
@@ -1203,12 +1230,12 @@ private struct TaskRow: View {
                     Text(task.sessions.count, format: .number)
                         .font(.caption)
                         .monospacedDigit()
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(Color.secondary)
                         .help("^[\(task.sessions.count) session](inflect: true)")
                 } else {
                     Text("^[\(task.sessions.count) session](inflect: true)")
                         .font(.caption)
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(Color.secondary)
                 }
             }
             .fixedSize(horizontal: density.isCompact, vertical: false)
@@ -1228,7 +1255,7 @@ struct IssueTag: View {
 
     var body: some View {
         let state = store.state(of: issue)
-        let color = state == .open ? theme.working : state == .completed ? theme.merged : theme.secondary
+        let color = state == .open ? theme.working : state == .completed ? theme.merged : Color.secondary
         Button {
             if let url = issue.url { openURL(url) }
         } label: {
@@ -1276,7 +1303,7 @@ private struct SuggestionLine: View {
             .allowsHitTesting(isHovering)
         }
         .font(.caption)
-        .foregroundStyle(theme.secondary)
+        .foregroundStyle(Color.secondary)
         .padding(.leading, 8)
         .padding(.top, -4)
         .padding(.bottom, density.suggestionBottomPadding)
@@ -1296,20 +1323,20 @@ private struct TabRow: View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         if tab.kind == .claude {
             CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil, isOpen: true) {
-                if !density.isCompact { Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary) }
+                if !density.isCompact { Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(Color.secondary) }
             }
         } else {
             CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, modified: nil, close: close) {
                 let folder = (tab.folder as NSString).abbreviatingWithTildeInPath
                 if density.isCompact {
                     ViewThatFits(in: .horizontal) {
-                        Text(folder).font(.caption).foregroundStyle(theme.secondary).fixedSize()
+                        Text(folder).font(.caption).foregroundStyle(Color.secondary).fixedSize()
                         Color.clear.frame(width: 0)
                     }
                 } else {
                     Text(folder)
                         .font(.caption)
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(Color.secondary)
                         .truncationMode(.middle)
                 }
             }
@@ -1341,7 +1368,7 @@ private struct CardRow<Detail: View>: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
                     .fontWeight(isUnread ? .semibold : .regular)
-                    .foregroundStyle(theme.foreground)
+                    .foregroundStyle(Color.primary)
                     .lineLimit(1)
                     .layoutPriority(density.isCompact ? 1 : 0)
                 Spacer(minLength: 0)
@@ -1354,7 +1381,7 @@ private struct CardRow<Detail: View>: View {
                         .labelStyle(.iconOnly)
                         .buttonStyle(.plain)
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(Color.secondary)
                         .frame(width: 16, height: 16)
                         .contentShape(.rect)
                         .help("Close terminal")
@@ -1363,7 +1390,7 @@ private struct CardRow<Detail: View>: View {
                 if isLocked {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 9))
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(Color.secondary)
                         .help("Running in another terminal")
                         .accessibilityHidden(true)
                 }
@@ -1389,7 +1416,7 @@ private struct CardRow<Detail: View>: View {
                         .font(.caption)
                         .monospacedDigit()
                         .fixedSize()
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(Color.secondary)
                         .padding(.leading, isWorking ? 20 : hasMemberDot ? 10 : 0)
                         .overlay(alignment: .leading) {
                             if hasMemberDot {
@@ -1455,7 +1482,7 @@ private struct StatusSlot: View {
             if let chevron {
                 Image(systemName: chevron)
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(theme.secondary)
+                    .foregroundStyle(Color.secondary)
                     .accessibilityHidden(true)
             } else if case let .needsYou(reason) = state {
                 Circle()
@@ -1479,7 +1506,7 @@ private struct StatusSlot: View {
                     .accessibilityLabel("Unread")
             } else if isOpen {
                 Circle()
-                    .strokeBorder(theme.secondary, lineWidth: 1)
+                    .strokeBorder(Color.secondary, lineWidth: 1)
                     .frame(width: 6, height: 6)
                     .help("Open in a tab")
                     .accessibilityLabel("Open in a tab")
@@ -1498,11 +1525,11 @@ private struct ContextRing: View {
         let fill = Double(context.tokens) / Double(window)
         ZStack {
             Circle()
-                .strokeBorder(theme.foreground.opacity(0.2), lineWidth: 2)
+                .strokeBorder(Color.primary.opacity(0.2), lineWidth: 2)
             Circle()
                 .inset(by: 1)
                 .trim(from: 0, to: fill)
-                .stroke(fill >= 0.9 ? theme.closed : fill >= 0.7 ? theme.needsYou : theme.secondary, lineWidth: 2)
+                .stroke(fill >= 0.9 ? theme.closed : fill >= 0.7 ? theme.needsYou : Color.secondary, lineWidth: 2)
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: 13, height: 13)
@@ -1556,7 +1583,7 @@ struct PullRequestTag: View {
                 }
                 if more > 0 {
                     Text(verbatim: "+\(more)")
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(Color.secondary)
                 }
             }
             .font(.caption.monospaced())
@@ -1576,7 +1603,7 @@ extension PullRequestState {
         if self == .open { return theme.working }
         if self == .merged { return theme.merged }
         if self == .closed { return theme.closed }
-        return theme.secondary
+        return Color.secondary
     }
 }
 
@@ -1600,7 +1627,7 @@ private struct BranchText: View {
                 .truncationMode(.middle)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 2)
-                .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 4))
+                .background(Color.primary.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 4))
                 .padding(.horizontal, -4)
         }
         .buttonStyle(.plain)
