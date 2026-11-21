@@ -694,7 +694,6 @@ private struct ReviewFileList: View {
             }
             .padding(.horizontal, 8)
             .frame(height: 32)
-            Divider()
             if let movedFolder = model.movedFolder {
                 Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits and send or delete your comments to follow it.", systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -1394,9 +1393,9 @@ struct ReviewDiffColumn: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(alignment: .top) { Divider() }
         .foregroundStyle(Color(nsColor: style.foreground))
         .background(Color(nsColor: style.background))
+        .overlay { CardBorder() }
         .environment(\.colorScheme, style.isDark ? .dark : .light)
         .onGeometryChange(for: Bool.self) { $0.size.width < 760 } action: { measuredNarrow = $0 }
         .task(id: [measuredNarrow, store.showsReviewPanel && !store.isHarborShown]) {

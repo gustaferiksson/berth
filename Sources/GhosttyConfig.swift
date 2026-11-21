@@ -83,6 +83,7 @@ enum GhosttyConfig {
 struct GhosttyTheme: Equatable {
     let isDark: Bool
     let background: Color?
+    let chrome: Color?
     let foreground: Color
     let secondary: Color
     let needsYou: Color
@@ -105,6 +106,7 @@ struct GhosttyTheme: Equatable {
         }
         isDark = surface.luminance < 0.18
         self.background = background?.color
+        chrome = background?.color.mix(with: .black, by: isDark ? 0.4 : 0.05)
         foreground = readable("foreground", .primary, 4.5)
         secondary = foreground.opacity(0.6)
         needsYou = readable("palette-3", .orange, 4.5)
