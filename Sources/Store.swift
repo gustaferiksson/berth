@@ -993,7 +993,13 @@ final class Store {
     }
 
     func closeDiff(tab id: ReviewTab.ID? = nil) {
-        guard let model = reviewModel, let id = id ?? model.selectedTabID else { return }
+        guard let model = reviewModel else { return }
+
+        if id == nil, model.isPreviewSelected {
+            model.closePreview()
+            return
+        }
+        guard let id = id ?? model.selectedTabID else { return }
 
         let isSelected = id == model.selectedTabID
         model.close(id)

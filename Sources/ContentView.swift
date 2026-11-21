@@ -418,6 +418,7 @@ struct IconTabBar<Tab: Hashable>: View {
     var body: some View {
         VStack(spacing: 0) {
             buttons
+                .padding(.horizontal, 8)
                 .frame(height: 32)
             Divider()
         }
@@ -433,13 +434,15 @@ struct IconTabBar<Tab: Hashable>: View {
                         Image(systemName: symbol(tab))
                             .symbolVariant(isSelected ? .fill : .none)
                             .font(.system(size: 13))
+                            .accessibilityHidden(true)
                         if badge > 0 {
                             Text("\(badge)")
                                 .font(.caption2.monospacedDigit())
                         }
                     }
                     .foregroundStyle(isSelected ? Color.accentColor : theme.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, minHeight: 24, maxHeight: 24)
+                    .background(theme.foreground.opacity(isSelected ? 0.1 : 0), in: .rect(cornerRadius: 6))
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)

@@ -28,12 +28,8 @@ enum ReviewDiffLayout: String {
 enum ReviewPanelTab: String, CaseIterable {
     case changes
     case files
-    case preview
-    case comments
 
     var title: String { rawValue.capitalized }
-
-    var symbol: String { [Self.changes: "plusminus", .files: "folder", .preview: "globe", .comments: "text.bubble"][self] ?? "" }
 }
 
 @Observable
@@ -48,7 +44,13 @@ final class ReviewModel {
     private(set) var contents: [ReviewDocument: ReviewContents] = [:]
     private(set) var language: ReviewLanguage?
     private(set) var tabs: [ReviewTab] = []
-    var selectedTabID: UUID?
+    var selectedTabID: UUID? {
+        didSet { if selectedTabID != nil { isPreviewSelected = false } }
+    }
+
+    var isPreviewOpen = false
+    var isPreviewSelected = false
+    var showsCommentList = false
     var reveal: (document: ReviewDocument, range: LanguageServerRange)?
     var changeStep: Int?
     var drafts: [String: String] = [:]
@@ -177,6 +179,16 @@ final class ReviewModel {
         selectedTabID = tabs[preview].id
     }
 
+    func showPreview() {
+        isPreviewOpen = true
+        isPreviewSelected = true
+    }
+
+    func closePreview() {
+        isPreviewOpen = false
+        isPreviewSelected = false
+    }
+
     func keep(_ id: ReviewTab.ID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
 
@@ -194,8 +206,10 @@ final class ReviewModel {
     func close(_ id: ReviewTab.ID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
 
+        let showsPreview = isPreviewSelected
         tabs.remove(at: index)
         if selectedTabID == id { selectedTabID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id }
+        isPreviewSelected = showsPreview
     }
 
     func workingDocument(_ path: String) -> ReviewDocument {
@@ -671,7 +685,14 @@ private struct ReviewFileList: View {
 
     private func tabs(_ changes: ReviewChanges?) -> some View {
         VStack(spacing: 0) {
-            IconTabBar(tabs: ReviewPanelTab.allCases, selection: Binding(get: { panelTab }, set: { panelTab = $0 }), symbol: \.symbol, title: \.title) { $0 == .comments ? commentCount : 0 }
+            Picker("Panel", selection: Binding(get: { panelTab }, set: { panelTab = $0 })) {
+                ForEach(ReviewPanelTab.allCases, id: \.self) { Text($0.title) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 8)
+            .frame(height: 32)
+            Divider()
             if let movedFolder = model.movedFolder {
                 Label("This session moved to \((movedFolder as NSString).abbreviatingWithTildeInPath). Save or undo your edits and send or delete your comments to follow it.", systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -683,9 +704,8 @@ private struct ReviewFileList: View {
             switch panelTab {
             case .changes: changesTab(changes)
             case .files: filesTab(changes)
-            case .preview: ReviewPreviewView(model: model, rootPID: store.liveBySession[sessionID]?.pid)
-            case .comments: comments
             }
+            commentsBar
         }
         .frame(maxHeight: .infinity, alignment: .top)
     }
@@ -760,43 +780,63 @@ private struct ReviewFileList: View {
         }
     }
 
-    @ViewBuilder private var comments: some View {
-        if commentCount == 0 {
-            ContentUnavailableView("No Comments", systemImage: "text.bubble", description: Text("Select lines in a diff to comment on them."))
-        } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(owners.flatMap { owner in owner.model.comments.map { (owner: owner, comment: $0) } }, id: \.comment.id) { owner, comment in
-                        HStack(alignment: .firstTextBaseline) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(comment.element.map { "Preview \($0.selector)" } ?? "\(owner.repository.map { "\($0.name):" } ?? "")\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")\(comment.compare == .committed ? ", committed" : "")")
-                                    .font(.caption)
-                                    .foregroundStyle(theme.secondary)
-                                Text(comment.text)
-                                    .lineLimit(3)
-                            }
-                            .contentShape(.rect)
-                            .onTapGesture(count: 2) {
-                                guard comment.element == nil else { return }
+    @ViewBuilder private var commentsBar: some View {
+        if commentCount > 0 {
+            VStack(spacing: 0) {
+                if model.showsCommentList {
+                    commentList
+                        .frame(maxHeight: 220)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Divider()
+                }
+                HStack {
+                    Button {
+                        model.showsCommentList.toggle()
+                    } label: {
+                        Label("Comments", systemImage: model.showsCommentList ? "chevron.down" : "chevron.up")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.secondary)
+                    Spacer(minLength: 4)
+                    Button("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")", action: sendComments)
+                        .buttonStyle(.borderedProminent)
+                }
+                .padding(10)
+            }
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .padding(8)
+        }
+    }
 
-                                owner.model.open(ReviewDocument(path: comment.path, compare: comment.compare))
-                                owner.model.editingComment = comment.id
-                            }
-                            Spacer(minLength: 4)
-                            Button("Delete Comment", systemImage: "xmark") {
-                                owner.model.comments.removeAll { $0.id == comment.id }
-                            }
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
+    private var commentList: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(owners.flatMap { owner in owner.model.comments.map { (owner: owner, comment: $0) } }, id: \.comment.id) { owner, comment in
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(comment.element.map { "Preview \($0.selector)" } ?? "\(owner.repository.map { "\($0.name):" } ?? "")\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")\(comment.compare == .committed ? ", committed" : "")")
+                                .font(.caption)
+                                .foregroundStyle(theme.secondary)
+                            Text(comment.text)
+                                .lineLimit(3)
                         }
+                        .contentShape(.rect)
+                        .onTapGesture(count: 2) {
+                            guard comment.element == nil else { return }
+
+                            owner.model.open(ReviewDocument(path: comment.path, compare: comment.compare))
+                            owner.model.editingComment = comment.id
+                        }
+                        Spacer(minLength: 4)
+                        Button("Delete Comment", systemImage: "xmark") {
+                            owner.model.comments.removeAll { $0.id == comment.id }
+                        }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
                     }
                 }
-                .padding(12)
             }
-            Hairline(axis: .horizontal)
-            Button("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")", action: sendComments)
-                .frame(maxWidth: .infinity)
-                .padding(10)
+            .padding(12)
         }
     }
 
@@ -1263,58 +1303,18 @@ struct ReviewDiffColumn: View {
     var body: some View {
         let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme)
         Group {
-            if let model = store.reviewModel, let tab = model.selectedTab {
+            if let model = store.reviewModel, model.isPreviewSelected {
+                VStack(spacing: 0) {
+                    strip(model, tab: nil, style: style)
+                    Divider()
+                    ReviewPreviewView(model: model, rootPID: store.selectedSessionID.flatMap { store.liveBySession[$0]?.pid })
+                }
+            } else if let model = store.reviewModel, let tab = model.selectedTab {
                 let document = tab.document
                 let path = document.path
                 let isReadOnly = document.compare == .committed && model.changes?.uncommitted.contains { $0.path == path } != false
                 VStack(spacing: 0) {
-                    GlassEffectContainer {
-                        HStack {
-                            GlassCapsule {
-                                Button(AppAction.goBack.title, systemImage: AppAction.goBack.symbol) { model.go(by: -1) }
-                                    .disabled(tab.index == 0)
-                                    .help("\(AppAction.goBack.title) (⌃-)")
-                                Button(AppAction.goForward.title, systemImage: AppAction.goForward.symbol) { model.go(by: 1) }
-                                    .disabled(tab.index == tab.history.count - 1)
-                                    .help("\(AppAction.goForward.title) (⌃⇧-)")
-                            }
-                            .padding(.leading, 10)
-                            ScrollView(.horizontal) {
-                                HStack(spacing: 2) {
-                                    ForEach(model.tabs) { tabButton($0, in: model, style: style) }
-                                }
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                            }
-                            .scrollIndicators(.hidden)
-                            if document.compare != nil {
-                                GlassCapsule {
-                                    Button("Previous Change", systemImage: "chevron.up") { model.changeStep = -1 }
-                                        .help("Previous Change (⌃⌥↑)")
-                                    Button("Next Change", systemImage: "chevron.down") { model.changeStep = 1 }
-                                        .help("Next Change (⌃⌥↓)")
-                                }
-                                .padding(.leading, 6)
-                            }
-                            if model.selectedDocumentHasBothSides || AppAction.save.isAvailable(in: store) {
-                                GlassCapsule {
-                                    if model.selectedDocumentHasBothSides {
-                                        Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
-                                            diffLayout = isUnified ? .sideBySide : .inline
-                                        }
-                                        .help(isUnified ? "Show Side by Side" : "Show Inline")
-                                    }
-                                    if AppAction.save.isAvailable(in: store) {
-                                        Button(AppAction.save.title, systemImage: AppAction.save.symbol) { AppAction.save.perform(on: store) }
-                                            .help("\(AppAction.save.title) (⌘S)")
-                                    }
-                                }
-                                .padding(.trailing, 10)
-                            }
-                        }
-                    }
-                    .foregroundStyle(Color(nsColor: style.secondary))
-                    .frame(height: 32)
+                    strip(model, tab: tab, style: style)
                     Divider()
                     ReviewPathBar(model: model, document: document, style: style)
                     Divider()
@@ -1352,8 +1352,7 @@ struct ReviewDiffColumn: View {
                 }
             } else {
                 VStack(spacing: 0) {
-                    Spacer()
-                        .frame(height: 32)
+                    if let model = store.reviewModel { strip(model, tab: nil, style: style) } else { Spacer().frame(height: 32) }
                     Divider()
                     Text("No File Open")
                         .font(.title2)
@@ -1378,9 +1377,93 @@ struct ReviewDiffColumn: View {
         .environment(\.ghosttyTheme, store.theme)
     }
 
+    private func strip(_ model: ReviewModel, tab: ReviewTab?, style: ReviewStyle) -> some View {
+        GlassEffectContainer {
+            HStack {
+                if let tab {
+                    GlassCapsule {
+                        Button(AppAction.goBack.title, systemImage: AppAction.goBack.symbol) { model.go(by: -1) }
+                            .disabled(tab.index == 0)
+                            .help("\(AppAction.goBack.title) (⌃-)")
+                        Button(AppAction.goForward.title, systemImage: AppAction.goForward.symbol) { model.go(by: 1) }
+                            .disabled(tab.index == tab.history.count - 1)
+                            .help("\(AppAction.goForward.title) (⌃⇧-)")
+                    }
+                    .padding(.leading, 10)
+                }
+                ScrollView(.horizontal) {
+                    HStack(spacing: 2) {
+                        ForEach(model.tabs) { tabButton($0, in: model, style: style) }
+                        if model.isPreviewOpen { previewTabButton(in: model, style: style) }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                }
+                .scrollIndicators(.hidden)
+                if tab?.document.compare != nil {
+                    GlassCapsule {
+                        Button("Previous Change", systemImage: "chevron.up") { model.changeStep = -1 }
+                            .help("Previous Change (⌃⌥↑)")
+                        Button("Next Change", systemImage: "chevron.down") { model.changeStep = 1 }
+                            .help("Next Change (⌃⌥↓)")
+                    }
+                    .padding(.leading, 6)
+                }
+                HStack(spacing: 6) {
+                    if !model.isPreviewOpen {
+                        GlassCapsule {
+                            Button("Open Preview", systemImage: "globe") { model.showPreview() }
+                                .help("Open Preview")
+                        }
+                    }
+                    if tab != nil, model.selectedDocumentHasBothSides || AppAction.save.isAvailable(in: store) {
+                        GlassCapsule {
+                            if model.selectedDocumentHasBothSides {
+                                Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
+                                    diffLayout = isUnified ? .sideBySide : .inline
+                                }
+                                .help(isUnified ? "Show Side by Side" : "Show Inline")
+                            }
+                            if AppAction.save.isAvailable(in: store) {
+                                Button(AppAction.save.title, systemImage: AppAction.save.symbol) { AppAction.save.perform(on: store) }
+                                    .help("\(AppAction.save.title) (⌘S)")
+                            }
+                        }
+                    }
+                }
+                .padding(.leading, 6)
+                .padding(.trailing, 10)
+            }
+        }
+        .foregroundStyle(Color(nsColor: style.secondary))
+        .frame(height: 32)
+    }
+
+    private func previewTabButton(in model: ReviewModel, style: ReviewStyle) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "globe")
+                .font(.caption)
+                .accessibilityHidden(true)
+            Text("Preview")
+                .lineLimit(1)
+            Button("Close Preview", systemImage: "xmark") { model.closePreview() }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .font(.caption2)
+        }
+        .font(.callout)
+        .foregroundStyle(Color(nsColor: model.isPreviewSelected ? style.foreground : style.secondary))
+        .padding(.horizontal, 10)
+        .frame(maxHeight: .infinity)
+        .background(Color(nsColor: style.foreground).opacity(model.isPreviewSelected ? 0.1 : 0), in: .rect(cornerRadius: 8))
+        .contentShape(.rect)
+        .onTapGesture { model.isPreviewSelected = true }
+        .help("Preview")
+    }
+
     private func tabButton(_ tab: ReviewTab, in model: ReviewModel, style: ReviewStyle) -> some View {
         let document = tab.document
-        let isSelected = tab.id == model.selectedTabID
+        let isSelected = tab.id == model.selectedTabID && !model.isPreviewSelected
         let name = (document.path as NSString).lastPathComponent
         let folders = document.path.split(separator: "/").dropLast()
         let namesakes = Set(model.tabs.map(\.document.path)).subtracting([document.path]).filter { ($0 as NSString).lastPathComponent == name }.map { $0.split(separator: "/").dropLast() }
