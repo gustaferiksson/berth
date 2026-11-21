@@ -579,18 +579,16 @@ private struct ReviewFileList: View {
     private func taskCard(_ task: StoredTask) -> some View {
         let ownRoot = store.repositoryRoot(ofSession: sessionID) ?? model.folder
         let members = task.sessionIDs.compactMap { store.sessionsByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt }
-        return ReviewTaskCard(
+        return ReviewTaskHeader(
             title: store.title(of: task),
             issue: task.issue,
             members: members,
             currentID: sessionID,
-            pullRequestCount: store.pullRequestCount(of: members),
+            pullRequestCount: store.pullRequestCount(of: members, in: task),
             repositoryCount: Set(members.compactMap { store.repositoryRoot(ofSession: $0.id) } + [ownRoot] + extras.map(\.repository.root)).count,
             isExpanded: repositoryExpansion(task.id),
             activate: { store.activate(.session($0)) }
         )
-        .padding(.horizontal, 8)
-        .padding(.bottom, 6)
     }
 
     private func extraCard(_ extra: (repository: ReviewRepository, model: ReviewModel), _ changes: ReviewChanges) -> some View {
@@ -614,10 +612,7 @@ private struct ReviewFileList: View {
             + extras.map { ($0.repository.root, $0.repository.root, $0.repository.name, $0.model.changes?.branch) }
         var tabs = repositories.map { repository -> (id: String, title: String) in
             let linked = store.pullRequests(inRoot: repository.root, of: sessionID, branch: repository.branch)
-            let card = repository.branch.flatMap { store.pullRequestBranch(inRoot: repository.root ?? ownRoot, branch: $0) }.flatMap { store.pullRequests[$0] ?? nil }
-            guard let number = (card ?? linked.first)?.number else { return (repository.id, repository.name) }
-
-            return (repository.id, "\(repository.name) #\(number)\(linked.count > 1 ? " +\(linked.count - 1)" : "")")
+            return (repository.id, ([repository.name] + linked.map { "#\($0.number)" }).joined(separator: " "))
         }
         tabs.append((id: "all", title: "All"))
         return ReviewRepoTabs(tabs: tabs, selection: Binding(get: { shownRepo ?? "all" }, set: { store.reviewRepoTabs[task.id] = $0 }))

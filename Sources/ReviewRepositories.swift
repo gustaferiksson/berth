@@ -1,7 +1,7 @@
 import BerthCore
 import SwiftUI
 
-struct ReviewTaskCard: View {
+struct ReviewTaskHeader: View {
     let title: String
     let issue: IssueRef?
     let members: [SessionSummary]
@@ -13,73 +13,58 @@ struct ReviewTaskCard: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if let issue { IssueTag(issue: issue).fixedSize() }
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(2)
+                    .help(title)
+            }
             Button { isExpanded.toggle() } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
+                    Text("^[\(members.count) session](inflect: true) · \(pullRequestCount) \(pullRequestCount == 1 ? "PR" : "PRs") · ^[\(repositoryCount) repo](inflect: true)")
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(theme.secondary)
-                        .frame(width: 10)
-                        .accessibilityLabel(isExpanded ? "Collapse Task" : "Expand Task")
-                    if let issue { IssueTag(issue: issue).fixedSize() }
-                    Text(title)
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .help(title)
-                    if !isExpanded {
-                        Text("^[\(repositoryCount) repo](inflect: true)")
-                            .font(.caption)
-                            .foregroundStyle(theme.secondary)
-                            .fixedSize()
-                    }
+                        .font(.system(size: 9, weight: .semibold))
+                        .accessibilityLabel(isExpanded ? "Hide Sessions" : "Show Sessions")
                 }
-                .padding(.leading, 6)
+                .font(.caption)
+                .foregroundStyle(theme.secondary)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
             if isExpanded {
-                Text("^[\(members.count) session](inflect: true) · \(pullRequestCount) \(pullRequestCount == 1 ? "PR" : "PRs") · ^[\(repositoryCount) repo](inflect: true)")
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(members.prefix(6)) { member in
-                        Button { activate(member.id) } label: {
-                            HStack(spacing: 8) {
-                                Text(member.title)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Spacer(minLength: 4)
-                                Text(URL(filePath: member.checkout).lastPathComponent)
-                                    .font(.caption)
-                                    .foregroundStyle(theme.secondary)
-                                    .lineLimit(1)
-                            }
-                            .fontWeight(member.id == currentID ? .semibold : .regular)
-                            .frame(height: 22)
-                            .contentShape(.rect)
+                ForEach(members.prefix(6)) { member in
+                    Button { activate(member.id) } label: {
+                        HStack(spacing: 8) {
+                            Text(member.title)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer(minLength: 4)
+                            Text(URL(filePath: member.checkout).lastPathComponent)
+                                .font(.caption)
+                                .foregroundStyle(theme.secondary)
+                                .lineLimit(1)
                         }
-                        .buttonStyle(.plain)
-                        .help(member.title)
+                        .font(.callout)
+                        .fontWeight(member.id == currentID ? .semibold : .regular)
+                        .frame(height: 20)
+                        .contentShape(.rect)
                     }
-                    if members.count > 6 {
-                        Text("\(members.count - 6) more")
-                            .font(.caption)
-                            .foregroundStyle(theme.secondary)
-                            .frame(height: 22)
-                    }
+                    .buttonStyle(.plain)
+                    .help(member.title)
                 }
-                .padding(.top, 4)
-                .overlay(alignment: .top) { Hairline(axis: .horizontal) }
-                .padding(.top, 2)
+                if members.count > 6 {
+                    Text("\(members.count - 6) more")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
+                }
             }
         }
-        .font(.callout)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.unread.opacity(0.08), in: .rect(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.unread.opacity(0.3)))
     }
 }
 
@@ -94,9 +79,14 @@ struct ReviewRepoTabs: View {
                 ForEach(tabs, id: \.id) { tab in
                     Button { selection = tab.id } label: {
                         Text(tab.title)
+                            .fontWeight(.semibold)
+                            .hidden()
+                            .overlay {
+                                Text(tab.title)
+                                    .fontWeight(selection == tab.id ? .semibold : .regular)
+                                    .foregroundStyle(selection == tab.id ? theme.foreground : theme.secondary)
+                            }
                             .font(.caption)
-                            .fontWeight(selection == tab.id ? .semibold : .regular)
-                            .foregroundStyle(selection == tab.id ? theme.foreground : theme.secondary)
                             .lineLimit(1)
                             .frame(height: 24)
                             .overlay(alignment: .bottom) {

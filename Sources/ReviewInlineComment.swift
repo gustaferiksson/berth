@@ -21,13 +21,11 @@ final class ReviewInlineComment: NSView {
             buttons[1].keyEquivalent = "\r"
             buttons[1].isEnabled = !text.isEmpty
         } else {
-            buttons = [("xmark", "Delete Comment", #selector(delete)), ("pencil", "Edit Comment", #selector(edit))].map { symbol, title, action in
-                let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: title) ?? NSImage(), target: nil, action: action)
-                button.isBordered = false
-                button.isHidden = true
-                button.toolTip = title
-                return button
-            }
+            let delete = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Delete Comment") ?? NSImage(), target: nil, action: #selector(delete))
+            delete.isBordered = false
+            delete.isHidden = true
+            delete.toolTip = "Delete Comment"
+            buttons = [delete]
         }
         super.init(frame: .zero)
 
@@ -52,7 +50,7 @@ final class ReviewInlineComment: NSView {
         field.onSubmit = { [weak self] in self?.add() }
         field.onCancel = { [weak self] in self?.cancel() }
         field.onChange = { [weak self] in self?.fieldDidChange() }
-        field.onDoubleClick = { [weak self] in self?.edit() }
+        field.onClick = { [weak self] in self?.edit() }
 
         for button in buttons {
             button.target = self
@@ -93,11 +91,10 @@ final class ReviewInlineComment: NSView {
     override func layout() {
         super.layout()
         let width = bounds.width - 2 * padding
-        header.frame = NSRect(x: padding, y: padding, width: width - 40, height: headerHeight)
+        header.frame = NSRect(x: padding, y: padding, width: width - 24, height: headerHeight)
         field.frame = NSRect(x: padding, y: padding + headerHeight + 4, width: width, height: textHeight(forWidth: width))
         guard case .draft = kind else {
             buttons[0].frame = NSRect(x: bounds.width - padding - 16, y: padding, width: 16, height: 16)
-            buttons[1].frame = NSRect(x: bounds.width - padding - 36, y: padding, width: 16, height: 16)
             return
         }
 
@@ -107,8 +104,8 @@ final class ReviewInlineComment: NSView {
         buttons[0].frame = NSRect(origin: NSPoint(x: buttons[1].frame.minX - 8 - cancel.width, y: bounds.height - padding - cancel.height), size: cancel)
     }
 
-    override func mouseDown(with event: NSEvent) {
-        if case .card = kind, event.clickCount == 2 { return edit() }
+    override func mouseDown(with _: NSEvent) {
+        if case .card = kind { return edit() }
         window?.makeFirstResponder(field)
     }
 
@@ -170,10 +167,10 @@ final class ReviewCommentField: NSTextView {
     var onSubmit: () -> Void = {}
     var onCancel: () -> Void = {}
     var onChange: () -> Void = {}
-    var onDoubleClick: () -> Void = {}
+    var onClick: () -> Void = {}
 
     override func mouseDown(with event: NSEvent) {
-        if !isEditable, event.clickCount == 2 { return onDoubleClick() }
+        if !isEditable { return onClick() }
         super.mouseDown(with: event)
     }
 

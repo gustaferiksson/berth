@@ -97,7 +97,7 @@ extension Snapshot {
         let models = [("billing", store.reviewModels[own]), ("web", store.reviewModels[key("web")]), ("infra", store.reviewModels[key("infra")])]
         if let task = store.task(containing: own) {
             let members = task.sessionIDs.compactMap { store.sessionsByID[$0] }
-            print("task card: \(store.title(of: task)) | issue \(task.issue.map { "\($0.repository)#\($0.number)" } ?? "none") | members \(members.map(\.id)) | PRs \(store.pullRequestCount(of: members)) | collapsed \(store.collapsedReviewRepositories.contains(task.id))")
+            print("task card: \(store.title(of: task)) | issue \(task.issue.map { "\($0.repository)#\($0.number)" } ?? "none") | members \(members.map(\.id)) | PRs \(store.pullRequestCount(of: members, in: task)) | collapsed \(store.collapsedReviewRepositories.contains(task.id))")
         } else {
             print("task card: none")
         }

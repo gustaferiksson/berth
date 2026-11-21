@@ -1060,9 +1060,7 @@ private struct SessionRow: View {
             title: session.title,
             state: RowState(live: live),
             isLocked: isLocked,
-            isLoaded: isOpen,
             modified: session.lastPrompt,
-            lastActivity: session.lastActivity,
             hasBackgroundShell: hasBackgroundShell,
             isUnread: isUnread,
             isFlagged: isFlagged,
@@ -1192,7 +1190,6 @@ private struct TaskRow: View {
             title: task.title,
             state: isExpanded ? nil : state,
             isLocked: false,
-            isLoaded: false,
             modified: task.sessions[0].lastPrompt,
             isUnread: !isExpanded && isUnread,
             chevron: isExpanded ? "chevron.down" : "chevron.right"
@@ -1295,11 +1292,11 @@ private struct TabRow: View {
     var body: some View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         if tab.kind == .claude {
-            CardRow(title: title, state: RowState(live: live), isLocked: false, isLoaded: true, modified: nil) {
+            CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil) {
                 if !density.isCompact { Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(theme.secondary) }
             }
         } else {
-            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, isLoaded: false, modified: nil, close: close) {
+            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, modified: nil, close: close) {
                 let folder = (tab.folder as NSString).abbreviatingWithTildeInPath
                 if density.isCompact {
                     ViewThatFits(in: .horizontal) {
@@ -1321,9 +1318,7 @@ private struct CardRow<Detail: View>: View {
     let title: String
     let state: RowState?
     let isLocked: Bool
-    let isLoaded: Bool
     let modified: Date?
-    var lastActivity: Date?
     var hasBackgroundShell = false
     var isUnread = false
     var isFlagged = false
@@ -1341,6 +1336,7 @@ private struct CardRow<Detail: View>: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
+                    .fontWeight(isUnread ? .semibold : .regular)
                     .foregroundStyle(theme.foreground)
                     .lineLimit(1)
                     .layoutPriority(density.isCompact ? 1 : 0)
@@ -1407,7 +1403,7 @@ private struct CardRow<Detail: View>: View {
         .padding(.trailing, -8)
         .padding(.vertical, density.rowPadding)
         .overlay(alignment: .topLeading) {
-            StatusSlot(state: state, isUnread: isUnread, hasBackgroundShell: hasBackgroundShell, activity: isLoaded ? lastActivity : nil, chevron: chevron).offset(x: -8, y: density.rowPadding)
+            StatusSlot(state: state, isUnread: isUnread, hasBackgroundShell: hasBackgroundShell, chevron: chevron).offset(x: -8, y: density.rowPadding)
         }
     }
 }
@@ -1439,7 +1435,6 @@ private struct StatusSlot: View {
     let state: RowState?
     let isUnread: Bool
     var hasBackgroundShell = false
-    var activity: Date?
     var chevron: String?
     @Environment(\.ghosttyTheme) private var theme
 
@@ -1470,17 +1465,6 @@ private struct StatusSlot: View {
                     .frame(width: 8, height: 8)
                     .help("Unread")
                     .accessibilityLabel("Unread")
-            } else if let activity {
-                let inactiveFrom = activity.addingTimeInterval(15 * 60)
-                TimelineView(.explicit([inactiveFrom])) { _ in
-                    let isActive = Date.now < inactiveFrom
-                    Circle()
-                        .strokeBorder(theme.working, lineWidth: 1.25)
-                        .background(Circle().fill(isActive ? theme.working : .clear))
-                        .frame(width: 6, height: 6)
-                        .help(isActive ? "Active" : "Inactive for 15 minutes")
-                        .accessibilityLabel(isActive ? "Active" : "Inactive")
-                }
             }
         }
         .frame(width: 8, height: 16)

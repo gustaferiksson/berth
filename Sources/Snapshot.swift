@@ -1030,15 +1030,13 @@ enum Snapshot {
                     event(.leftMouseDown).map(window.sendEvent)
                 }
                 let doubleClick = {
-                    guard let field = card()?.field else { return print("edit: no card to double-click") }
+                    guard let field = card()?.field else { return print("edit: no card to click") }
 
                     press(field, 1)
-                    try? await Task.sleep(for: .milliseconds(100))
-                    press(field, 2)
                     try? await Task.sleep(for: .milliseconds(500))
                 }
                 let pencil = {
-                    card()?.subviews.compactMap { $0 as? NSButton }.first { $0.toolTip == "Edit Comment" }?.performClick(nil)
+                    if let field = card()?.field { press(field, 1) }
                     try? await Task.sleep(for: .milliseconds(500))
                 }
                 state("before")
