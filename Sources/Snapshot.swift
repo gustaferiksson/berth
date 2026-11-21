@@ -384,6 +384,13 @@ enum Snapshot {
             let kept = store.tabs.map(label)
             print("after 3 s, unloaded: \(before.filter { !kept.contains($0) }), kept: \(kept), selected: \(store.tabs.first { $0.id == store.selectedTabID }.map(label) ?? "-")")
         }
+        if let pid = UserDefaults.standard.string(forKey: "snapshotOrphan").flatMap(Int32.init), let session = store.activeSessions.first {
+            store.refreshLive()
+            print("orphan probe: pid \(pid), orphaned \(store.orphanedSessionIDs.contains(session.id)), locked \(store.isLockedElsewhere(store.liveBySession[session.id]))")
+            store.activate(.session(session.id))
+            try? await Task.sleep(for: .seconds(4))
+            print("orphan probe after click: alive \(kill(pid, 0) == 0), live \(store.liveBySession[session.id] != nil), notice \(store.lockedSessionID != nil), openClaude calls \(store.probeOpenedClaude.map { "\($0.start)" })")
+        }
         if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
             store.activate(.session(sessionID))
         }

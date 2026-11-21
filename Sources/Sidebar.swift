@@ -662,6 +662,7 @@ private struct SessionItem: View {
         let session = store.sessionsByID[id]
         let tab = store.tab(forSession: id)
         let live = store.liveBySession[id]
+        let isLocked = tab == nil && store.isLockedElsewhere(live)
         let suggestion = store.taskSuggestions[id]
         let suggestionLabel = suggestion.flatMap(suggestionText)
         let pullRequests = session.map(store.pullRequests(of:)) ?? []
@@ -673,6 +674,7 @@ private struct SessionItem: View {
                     projectName: place == .archived || place == .group(folder: session.checkout) ? nil : URL(filePath: session.checkout).lastPathComponent,
                     live: live,
                     isOpen: tab != nil,
+                    isLocked: isLocked,
                     hasBackgroundShell: store.backgroundShellIDs.contains(id),
                     isUnread: store.isUnread(session),
                     isFlagged: store.flaggedIDs.contains(id),
@@ -686,7 +688,7 @@ private struct SessionItem: View {
                     suggestion: suggestionLabel,
                     showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
                 )
-                .modifier(SessionHoverTrigger(session: session, pullRequests: pullRequests, context: tab != nil || live != nil ? session.context : nil))
+                .modifier(SessionHoverTrigger(session: session, pullRequests: pullRequests, context: tab != nil || live != nil ? session.context : nil, isNoticeShown: store.lockedSessionID == id))
                 .padding(.leading, place == .task ? Self.taskIndent : 0)
                 if let suggestion, let suggestionLabel, !density.isCompact {
                     SuggestionLine(text: suggestionLabel, accept: { store.accept(suggestion) }, dismiss: { store.dismiss(suggestion) })
@@ -694,7 +696,7 @@ private struct SessionItem: View {
                 }
             }
         }
-        .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: tab == nil && live.map { $0.attachID == nil } ?? false, indent: place == .task ? Self.taskIndent : 0) {
+        .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: isLocked, indent: place == .task ? Self.taskIndent : 0) {
             select(.session(id))
         })
         .contextMenu {
@@ -1042,6 +1044,7 @@ private struct SessionRow: View {
     let projectName: String?
     let live: LiveSession?
     let isOpen: Bool
+    let isLocked: Bool
     let hasBackgroundShell: Bool
     let isUnread: Bool
     let isFlagged: Bool
@@ -1054,7 +1057,6 @@ private struct SessionRow: View {
     @Environment(\.sidebarDensity) private var density
 
     var body: some View {
-        let isLocked = !isOpen && live.map { $0.attachID == nil } ?? false
         CardRow(
             title: session.title,
             state: RowState(live: live),

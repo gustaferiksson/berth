@@ -1,3 +1,4 @@
+import AppKit
 import BerthCore
 import CoreGraphics
 import Darwin
@@ -85,6 +86,8 @@ final class Store {
     }
 
     var lockedSessionID: String?
+    private(set) var orphanedSessionIDs: Set<String> = []
+    @ObservationIgnored private var resumingOrphans: Set<String> = []
     var sidebarCursor: SidebarItem?
     var multiSelection: [SidebarItem] = []
     @ObservationIgnored private var multiSelectionAnchor: SidebarItem?
@@ -298,7 +301,7 @@ final class Store {
 
         Task {
             await refreshTask?.value
-            restoreOpenTabs()
+            await restoreOpenTabs()
         }
     }
 
@@ -666,6 +669,9 @@ final class Store {
         // Claude reports `shell` only while idle; a turn shows `busy`, so keep the mark until it reports plain idle.
         let shells = Set(liveBySession.values.filter { $0.activity == .shell || $0.activity != .idle && backgroundShellIDs.contains($0.sessionId) }.map(\.sessionId))
         if shells != backgroundShellIDs { backgroundShellIDs = shells }
+        let processes = Dictionary(liveBySession.values.compactMap { session in ProcessAncestry.facts(of: session.pid).map { (session.pid, $0) } }) { first, _ in first }
+        let orphans = OrphanedSessions.ids(live: Array(liveBySession.values), processes: processes)
+        if orphans != orphanedSessionIDs { orphanedSessionIDs = orphans }
         turnStarts.update(live: liveBySession, sessions: sessionsByID)
         let claimed = Set(tabs.compactMap(\.sessionID))
         for session in live where !claimed.contains(session.sessionId) {
@@ -761,13 +767,57 @@ final class Store {
 
             close(tab.id)
         }
-        guard liveBySession[session.id].map({ $0.attachID != nil }) ?? true else {
+        if let live = liveBySession[session.id], orphanedSessionIDs.contains(session.id) {
+            resumeOrphan(session, live: live)
+            return nil
+        }
+        guard !isLockedElsewhere(liveBySession[session.id]) else {
             lockedSessionID = session.id
             return nil
         }
 
-        openClaude(cwd: session.originalCwd ?? (FileManager.default.fileExists(atPath: session.cwd) ? session.cwd : session.checkout), resuming: session.id)
+        openClaude(cwd: resumeFolder(of: session), resuming: session.id)
         return tabs.first { $0.id == selectedTabID }
+    }
+
+    func isLockedElsewhere(_ live: LiveSession?) -> Bool {
+        live.map { $0.attachID == nil && !orphanedSessionIDs.contains($0.sessionId) } ?? false
+    }
+
+    private func resumeFolder(of session: SessionSummary) -> String {
+        session.originalCwd ?? (FileManager.default.fileExists(atPath: session.cwd) ? session.cwd : session.checkout)
+    }
+
+    private func end(orphan live: LiveSession) async -> Bool {
+        if let facts = ProcessAncestry.facts(of: live.pid), OrphanedSessions.ids(live: [live], processes: [live.pid: facts]).contains(live.sessionId) {
+            _ = await ProcessAncestry.end(live.pid)
+        }
+        refreshLive()
+        return liveBySession[live.sessionId] == nil
+    }
+
+    private func resumeOrphan(_ session: SessionSummary, live: LiveSession) {
+        guard resumingOrphans.insert(session.id).inserted else { return }
+
+        Task {
+            defer { resumingOrphans.remove(session.id) }
+
+            if live.activity != .idle {
+                let panel = NSAlert()
+                panel.messageText = "“\(session.title)” is still running without a terminal. End it and resume here?"
+                panel.addButton(withTitle: "End and Resume")
+                panel.addButton(withTitle: "Cancel")
+                guard panel.runModal() == .alertFirstButtonReturn else { return }
+            }
+            guard await end(orphan: live) else {
+                lockedSessionID = session.id
+                return
+            }
+
+            openClaude(cwd: resumeFolder(of: session), resuming: session.id)
+            isHarborShown = false
+            tabs.first { $0.id == selectedTabID }?.terminal.requestFocus()
+        }
     }
 
     func toggleMultiSelection(_ item: SidebarItem) {
@@ -1109,7 +1159,7 @@ final class Store {
             .new
         }
         #if DEBUG
-        if Snapshot.launcherKeys != nil { return probeOpenedClaude.append((cwd, start)) }
+        if Snapshot.launcherKeys != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil { return probeOpenedClaude.append((cwd, start)) }
         #endif
         guard FileManager.default.fileExists(atPath: cwd) else {
             missingFolder = cwd
@@ -1284,7 +1334,7 @@ final class Store {
         UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: "openTabs")
     }
 
-    private func restoreOpenTabs() {
+    private func restoreOpenTabs() async {
         guard let data = UserDefaults.standard.data(forKey: "openTabs"),
               let saved = try? JSONDecoder().decode([SavedTab].self, from: data)
         else { return }
@@ -1294,10 +1344,14 @@ final class Store {
             if tab.kind == .shell {
                 openShell(cwd: tab.cwd)
             } else {
-                guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), liveBySession[session.id].map({ $0.attachID != nil }) ?? true else { continue }
+                guard let session = activeSessions.first(where: { $0.id == tab.sessionID }), !isLockedElsewhere(liveBySession[session.id]) else { continue }
 
-                let folder = session.originalCwd ?? (FileManager.default.fileExists(atPath: session.cwd) ? session.cwd : session.checkout)
+                let folder = resumeFolder(of: session)
                 guard FileManager.default.fileExists(atPath: folder) else { continue }
+
+                if let live = liveBySession[session.id], orphanedSessionIDs.contains(session.id) {
+                    guard live.activity == .idle, await end(orphan: live) else { continue }
+                }
 
                 openClaude(cwd: folder, resuming: session.id)
             }

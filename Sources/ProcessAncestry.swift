@@ -1,3 +1,4 @@
+import BerthCore
 import Darwin
 
 enum ProcessAncestry {
@@ -66,7 +67,42 @@ enum ProcessAncestry {
     }
 
     static func hangUpDescendants() {
-        hangUp(descendants())
+        let processes = descendants()
+        hangUp(processes)
+        for _ in 0..<20 where processes.contains(where: { isRunning($0.pid) }) { Darwin.usleep(50_000) }
+        for process in processes where isRunning(process.pid) { kill(process.pid, SIGKILL) }
+    }
+
+    static func facts(of pid: Int32) -> OrphanedSessions.Process? {
+        guard let info = info(of: pid) else { return nil }
+
+        return OrphanedSessions.Process(parent: info.kp_eproc.e_ppid, hasTerminal: info.kp_eproc.e_tdev != -1)
+    }
+
+    static func end(_ pid: Int32) async -> Bool {
+        for signal in [SIGHUP, SIGTERM, SIGKILL] {
+            kill(pid, signal)
+            for _ in 0..<10 {
+                try? await Task.sleep(for: .milliseconds(100))
+                if !isRunning(pid) { return true }
+            }
+        }
+        return !isRunning(pid)
+    }
+
+    private static func isRunning(_ pid: Int32) -> Bool {
+        guard let info = info(of: pid) else { return false }
+
+        return Int32(info.kp_proc.p_stat) != SZOMB
+    }
+
+    private static func info(of pid: Int32) -> kinfo_proc? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+
+        return info
     }
 
     static func hangUpOrphans(of before: Set<Process>) {
