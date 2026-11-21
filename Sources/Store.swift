@@ -325,8 +325,7 @@ final class Store {
         let liveRank = Dictionary(uniqueKeysWithValues: liveSessions.enumerated().map { ($1.id, $0) })
         let shownLive = isPointerInSidebar ? live.sorted { liveRank[$0.id, default: -1] < liveRank[$1.id, default: -1] } : live
         if shownLive != liveSessions { liveSessions = shownLive }
-        let liveIDs = Set(live.map(\.id))
-        let restByID = Dictionary(pins.rest.filter { !liveIDs.contains($0.id) }.map { ($0.id, $0) }) { first, _ in first }
+        let restByID = Dictionary(pins.rest.map { ($0.id, $0) }) { first, _ in first }
         let issueTitles = Dictionary(pullRequests.values.compactMap(\.self).flatMap(\.closingIssues).map { ($0.ref, $0.title) }) { first, _ in first }
         let rows = shownTasks.compactMap { task -> SessionTask? in
             let members = task.sessionIDs.compactMap { restByID[$0] }.sorted { $0.lastPrompt > $1.lastPrompt }
@@ -1028,7 +1027,7 @@ final class Store {
         let starting = unlistedClaudeTabs
         guard !liveSessions.isEmpty || !starting.isEmpty else { return nil }
 
-        return (SessionGroup(kind: .active, sessions: liveSessions), starting, liveSessions.map { .session($0.id) })
+        return (SessionGroup(kind: .active, sessions: liveSessions), starting, SessionTask.activeEntries(of: liveSessions, tasks: sessionTasks))
     }
 
     private var unlistedClaudeTabs: [Tab] {
@@ -1047,21 +1046,24 @@ final class Store {
             .filter { !known.contains($0.id) }
             .sorted { $0.id < $1.id }
         return SessionGrouping.place(groups.filter { $0.custom != nil }, among: extra + groups.filter { $0.custom == nil })
-            .map { group in (group, placed[group.id] ?? [], SessionTask.entries(of: group.sessions.filter { !liveIDs.contains($0.id) }, tasks: sessionTasks)) }
+            .map { group in (group, placed[group.id] ?? [], SessionTask.entries(of: group.sessions, tasks: sessionTasks, liveIDs: liveIDs)) }
             .filter { $0.0.custom != nil || !$0.1.isEmpty || !$0.2.isEmpty }
     }
 
     var sidebarOrderedTabs: [Tab] {
         let liveIDs = Set(liveSessions.map(\.id))
-        return terminals + (sidebarActive?.tabs ?? []) + liveSessions.compactMap { tab(forSession: $0.id) }
-            + pinnedSessions.filter { !liveIDs.contains($0.id) }.compactMap { tab(forSession: $0.id) } + sidebarGroups.flatMap { group in
-                group.tabs + group.entries.flatMap { entry in
-                    switch entry {
-                    case let .session(id): [id]
-                    case let .task(id): sessionTasks.first { $0.id == id }?.sessions.map(\.id) ?? []
-                    }
-                }.compactMap { tab(forSession: $0) }
-            }
+        let tabs = { (entries: [GroupEntry]) -> [Tab] in
+            entries.flatMap { entry in
+                switch entry {
+                case let .session(id): [id]
+                case let .task(id): self.sessionTasks.first { $0.id == id }?.sessions.map(\.id) ?? []
+                }
+            }.compactMap { self.tab(forSession: $0) }
+        }
+        let active = sidebarActive
+        return terminals + (active?.tabs ?? []) + tabs(active?.entries ?? [])
+            + pinnedSessions.filter { !liveIDs.contains($0.id) }.compactMap { tab(forSession: $0.id) }
+            + sidebarGroups.flatMap { $0.tabs + tabs($0.entries) }
     }
 
     func selectTab(number: Int) {

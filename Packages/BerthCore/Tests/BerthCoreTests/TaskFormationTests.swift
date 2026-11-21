@@ -201,4 +201,14 @@ struct TaskFormationTests {
         #expect(SessionTask.entries(of: sessions, tasks: [task]) == [.session("a"), .task("t"), .session("c")])
         #expect(SessionTask.entries(of: [sessions[3], sessions[0]], tasks: [task]) == [.session("a")])
     }
+
+    @Test func aTaskWithALiveMemberGoesToActiveOnceAndLeavesTheBuckets() {
+        let sessions = ["a", "b", "c", "d", "e"].map { SessionSummary(id: $0, cwd: "/x", title: $0, lastActivity: .now) }
+        let live = SessionTask(id: "live", title: "L", issue: nil, sessions: [sessions[1], sessions[3]])
+        let idle = SessionTask(id: "idle", title: "I", issue: nil, sessions: [sessions[2], sessions[4]])
+        let liveIDs: Set = ["a", "d"]
+        let liveSessions = [sessions[3], sessions[0], sessions[1]]
+        #expect(SessionTask.activeEntries(of: liveSessions.filter { liveIDs.contains($0.id) }, tasks: [live, idle]) == [.task("live"), .session("a")])
+        #expect(SessionTask.entries(of: sessions, tasks: [live, idle], liveIDs: liveIDs) == [.task("idle")])
+    }
 }
