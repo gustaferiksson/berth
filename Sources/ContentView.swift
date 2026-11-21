@@ -435,9 +435,8 @@ struct Hairline: View {
 }
 
 private extension View {
-    // The column's own material is the glass; a low-opacity theme colour over it keeps dark custom themes reading right.
-    func glassSidebarTint(_ theme: GhosttyTheme) -> some View {
-        scrollContentBackground(.hidden).background((theme.chrome ?? .clear).opacity(0.4))
+    func glassSidebarTint(_: GhosttyTheme) -> some View {
+        scrollContentBackground(.hidden)
     }
 }
 

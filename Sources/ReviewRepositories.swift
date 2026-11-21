@@ -162,8 +162,8 @@ struct ReviewSubheading: View {
                 .foregroundStyle(theme.secondary)
                 .padding(.trailing, 14)
         }
-        .font(.system(size: 11))
-        .frame(height: 20)
+        .font(.subheadline)
+        .frame(height: 22)
         .listRowInsets(EdgeInsets(top: 2, leading: -8 - indent, bottom: 0, trailing: 8))
     }
 }
