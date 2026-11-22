@@ -477,7 +477,7 @@ private struct ConversationTaskList: View {
                 }
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(width: 320, alignment: .leading)
         .transaction { $0.animation = nil }
     }

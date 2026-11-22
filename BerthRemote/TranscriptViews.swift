@@ -273,7 +273,7 @@ private struct MarkdownTable: View {
                 }
             }
             .font(.subheadline)
-            .padding(14)
+            .padding(12)
         }
         .scrollIndicators(.hidden)
         .background(.fill.quaternary, in: .rect(cornerRadius: 12))
