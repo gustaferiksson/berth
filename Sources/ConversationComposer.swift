@@ -72,18 +72,26 @@ struct ConversationComposer: View {
                             modelMenu(context)
                         }
                         Spacer(minLength: 0)
-                        Button {
-                            if stops { model.interrupt() } else { send() }
-                        } label: {
-                            Image(systemName: stops ? "stop.fill" : "arrow.up")
+                        if stops || !(draft.isEmpty || model.isSending) {
+                            Button {
+                                if stops { model.interrupt() } else { send() }
+                            } label: {
+                                Image(systemName: stops ? "stop.fill" : "arrow.up")
+                                    .font(.body.weight(.semibold))
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .buttonBorderShape(.circle)
+                            .frame(width: Self.controlHeight, height: Self.controlHeight)
+                            .accessibilityLabel(stops ? "Stop" : "Send")
+                            .help(stops ? "Stop Claude" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
+                        } else {
+                            Image(systemName: "arrow.up")
                                 .font(.body.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: Self.controlHeight, height: Self.controlHeight)
+                                .background(.quaternary, in: .circle)
+                                .accessibilityLabel("Send, unavailable")
                         }
-                        .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.circle)
-                        .frame(width: Self.controlHeight, height: Self.controlHeight)
-                        .accessibilityLabel(stops ? "Stop" : "Send")
-                        .disabled(!stops && (draft.isEmpty || model.isSending))
-                        .help(stops ? "Stop Claude" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
                     }
                 }
                 .padding(Self.inset)

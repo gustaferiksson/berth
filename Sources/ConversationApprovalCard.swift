@@ -102,7 +102,7 @@ struct ConversationApprovalCard: View {
                             }
                             .padding(.vertical, 2)
                         }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.bordered)
                         .buttonBorderShape(.roundedRectangle(radius: 14))
                         .help("Choose \(option.label) (\(index + 1))")
                     }
@@ -147,14 +147,14 @@ struct ConversationApprovalCard: View {
             Button(action: deny) {
                 keyLabel(title, "⎋")
             }
-            .buttonStyle(.glass)
+            .buttonStyle(.bordered)
             .help("\(title) (⎋)")
             Button {
                 answer(.digit1)
             } label: {
                 keyLabel(allow, "↩")
             }
-            .buttonStyle(.glassProminent)
+            .buttonStyle(.borderedProminent)
             .help("\(allow) (↩)")
         }
         .controlSize(.large)

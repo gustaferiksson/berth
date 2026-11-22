@@ -103,7 +103,7 @@ private struct ApprovalCard: View {
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .buttonStyle(.glass)
+                                .buttonStyle(.bordered)
                                 .buttonBorderShape(.roundedRectangle(radius: 16))
                             }
                         }
@@ -170,7 +170,7 @@ private struct ApprovalCard: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glassProminent)
+            .buttonStyle(.borderedProminent)
             .controlSize(.large)
             Button(title, role: .destructive, action: deny)
                 .buttonStyle(.borderless)
@@ -267,17 +267,25 @@ private struct Composer: View {
                         modelMenu(context, openContext: openContext)
                     }
                     Spacer(minLength: 0)
-                    Button {
-                        if stops { stop() } else { send() }
-                    } label: {
-                        Image(systemName: stops ? "stop.fill" : "arrow.up")
+                    if stops || !(isEmpty || !isUploaded) {
+                        Button {
+                            if stops { stop() } else { send() }
+                        } label: {
+                            Image(systemName: stops ? "stop.fill" : "arrow.up")
+                                .font(.body.weight(.semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.circle)
+                        .frame(width: Self.controlHeight, height: Self.controlHeight)
+                        .accessibilityLabel(stops ? "Stop" : "Send")
+                    } else {
+                        Image(systemName: "arrow.up")
                             .font(.body.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: Self.controlHeight, height: Self.controlHeight)
+                            .background(.quaternary, in: .circle)
+                            .accessibilityLabel("Send, unavailable")
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.circle)
-                    .frame(width: Self.controlHeight, height: Self.controlHeight)
-                    .accessibilityLabel(stops ? "Stop" : "Send")
-                    .disabled(!stops && (isEmpty || !isUploaded))
                 }
             }
             .padding(Self.inset)
