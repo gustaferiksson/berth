@@ -235,7 +235,8 @@ private struct SessionSummaryView: View {
         let time = SessionTime(session: session)
             .font(.footnote)
             .foregroundStyle(.secondary)
-        let location = Text("\(session.isLocked ? Text(Image(systemName: "lock.fill")).accessibilityLabel("Locked") : Text(""))\(session.isLocked ? " " : "")\(folder)\(session.branch.map { " · \($0)" } ?? "")")
+        let branch = session.branch.map { Text("  \(Text(Image(systemName: "arrow.triangle.branch")).accessibilityLabel("Branch")) \($0)") }
+        let location = Text("\(session.isLocked ? Text(Image(systemName: "lock.fill")).accessibilityLabel("Locked") : Text(""))\(session.isLocked ? " " : "")\(folder)\(branch ?? Text(""))")
             .font(.footnote)
             .monospaced()
             .foregroundStyle(.secondary)
@@ -243,34 +244,29 @@ private struct SessionSummaryView: View {
             .truncationMode(.middle)
 
         HStack(alignment: .top, spacing: 4) {
-            SessionStatusIcon(session: session, width: gutterWidth)
+            Image(systemName: "circle.fill")
+                .font(.caption2)
+                .foregroundStyle(.blue)
+                .opacity(session.isUnread == true ? 1 : 0)
+                .frame(width: gutterWidth, height: 22)
+                .accessibilityLabel("Unread")
+                .accessibilityHidden(session.isUnread != true)
             VStack(alignment: .leading, spacing: 3) {
                 if isAccessibility {
                     title
                     time
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                    location
-                    if let pullRequest = session.pullRequest {
-                        PullRequestTag(pullRequest: pullRequest)
-                    } else {
-                        Text(" ")
-                            .font(.caption.weight(.medium))
-                            .accessibilityHidden(true)
-                    }
                 } else {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         title
                         Spacer(minLength: 0)
                         time
                     }
-                    HStack(spacing: 8) {
-                        location
-                        Spacer(minLength: 0)
-                        if let pullRequest = session.pullRequest {
-                            PullRequestTag(pullRequest: pullRequest)
-                        }
-                    }
+                }
+                location
+                if let pullRequest = session.pullRequest {
+                    PullRequestTag(pullRequest: pullRequest)
                 }
             }
         }
@@ -308,40 +304,6 @@ private struct PullRequestTag: View {
     }
 }
 
-private struct SessionStatusIcon: View {
-    let session: RemoteSession
-    let width: CGFloat
-
-    var body: some View {
-        Group {
-            if session.status == "waiting" {
-                Image(systemName: "circle.fill")
-                    .foregroundStyle(.orange)
-                    .accessibilityLabel("Needs you")
-            } else if session.status == "busy" {
-                Image(systemName: "ellipsis")
-                    .font(.caption)
-                    .symbolEffect(.variableColor.iterative)
-                    .foregroundStyle(.green)
-                    .accessibilityLabel("Working")
-            } else if session.status == "shell" {
-                Image(systemName: "circle.fill")
-                    .foregroundStyle(.teal)
-                    .accessibilityLabel("Task running")
-            } else if session.isUnread == true {
-                Image(systemName: "circle.fill")
-                    .foregroundStyle(.blue)
-                    .accessibilityLabel("Unread")
-            } else {
-                Color.clear
-                    .accessibilityHidden(true)
-            }
-        }
-        .font(.caption2)
-        .frame(width: width, height: 22)
-    }
-}
-
 private struct SessionTime: View {
     let session: RemoteSession
 
@@ -351,11 +313,15 @@ private struct SessionTime: View {
                 .bold()
                 .foregroundStyle(.orange)
         } else if session.status == "busy" {
-            Text(session.turnStartedAt ?? session.lastPrompt ?? session.lastActivity, style: .timer)
-                .monospacedDigit()
-                .foregroundStyle(.green)
+            let since = session.turnStartedAt ?? session.lastPrompt ?? session.lastActivity
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text("Working \(Duration.seconds(max(0, context.date.timeIntervalSince(since)).rounded(.down)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 1)))")
+                    .monospacedDigit()
+            }
+            .foregroundStyle(.green)
         } else if session.status == "shell" {
             Text("Task running")
+                .foregroundStyle(.teal)
         } else {
             TimelineView(.everyMinute) { context in
                 Text(age(at: context.date))

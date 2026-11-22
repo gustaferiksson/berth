@@ -1,6 +1,6 @@
 import SwiftUI
 
-private extension RemoteTask {
+extension RemoteTask {
     var symbol: String {
         kind == Self.agent ? "person.2" : kind == Self.monitor ? "eye" : "terminal"
     }
@@ -83,7 +83,12 @@ struct RunningSheet: View {
 
     @Environment(RemoteClient.self) private var client
     @Environment(\.dismiss) private var dismiss
-    @State private var path = [UserDefaults.standard.string(forKey: "snapshotRunningTask")].compactMap(\.self)
+    @State private var path: [String]
+
+    init(sessionID: String, taskID: String? = nil) {
+        self.sessionID = sessionID
+        _path = State(initialValue: [taskID ?? UserDefaults.standard.string(forKey: "snapshotRunningTask")].compactMap(\.self))
+    }
 
     var body: some View {
         let tasks = client.activity[sessionID]?.tasks ?? []
@@ -151,8 +156,8 @@ private struct TaskRow: View {
                 }
             }
             Spacer(minLength: 8)
-            Text(task.started, style: .timer)
-                .font(.footnote.monospacedDigit())
+            ElapsedText(since: task.started)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.trailing)
         }
@@ -180,8 +185,7 @@ private struct TaskDetailView: View {
                 if let task {
                     Section {
                         LabeledContent("Running for") {
-                            Text(task.started, style: .timer)
-                                .monospacedDigit()
+                            ElapsedText(since: task.started)
                         }
                         if task.command != task.title {
                             Text(task.title)

@@ -8,6 +8,18 @@ struct ToolCall: Identifiable {
 
     var kind: ToolKind { ToolKind(name: use.name ?? "") }
 
+    var isBackgroundShell: Bool { kind == .command && result?.text.contains("running in background with ID") == true }
+
+    var isCard: Bool { kind == .agent || isBackgroundShell }
+
+    var isAsyncLaunch: Bool { result?.text.hasPrefix("Async agent launched") == true }
+
+    var cardTitle: String { use.detail.flatMap { $0.isEmpty ? nil : $0 } ?? use.command.map { String($0.prefix { $0 != "\n" }) } ?? (kind == .agent ? "Agent" : "Background shell") }
+
+    var agentType: String? {
+        (try? JSONSerialization.jsonObject(with: Data(use.text.utf8)) as? [String: Any])?["subagent_type"] as? String
+    }
+
     var verb: (past: String, present: String) {
         switch use.name {
         case "Write": ("Wrote", "Writing")
@@ -113,13 +125,24 @@ enum LiveCall: Equatable {
 enum TurnPart: Identifiable {
     case reply(RemoteEntry)
     case work([ToolCall])
+    case cards([ToolCall])
 
     var id: String {
         switch self {
         case let .reply(entry): entry.id
-        case let .work(calls): calls.first?.id ?? ""
+        case let .work(calls), let .cards(calls): calls.first?.id ?? ""
         }
     }
+
+    var isCards: Bool {
+        if case .cards = self { true } else { false }
+    }
+}
+
+struct FileChanges {
+    let files: Int
+    let added: Int?
+    let removed: Int?
 }
 
 struct Turn: Identifiable {
@@ -130,9 +153,31 @@ struct Turn: Identifiable {
     var isInterrupted = false
 
     var openCall: ToolCall? {
-        guard case let .work(calls) = parts.last, let call = calls.last, call.result == nil else { return nil }
+        let calls: [ToolCall] = switch parts.last {
+        case let .work(calls), let .cards(calls): calls
+        default: []
+        }
+        guard let call = calls.last, call.result == nil else { return nil }
 
         return call
+    }
+
+    var fileChanges: FileChanges? {
+        let edits = parts.flatMap { part -> [ToolCall] in
+            guard case let .work(calls) = part else { return [] }
+
+            return calls.filter { $0.kind == .edit && $0.result != nil && $0.result?.isError != true }
+        }
+        guard !edits.isEmpty else { return nil }
+
+        let lines = { (text: String?) in (text ?? "").split(separator: "\n", omittingEmptySubsequences: false).map(String.init) }
+        let isCounted = edits.allSatisfy { $0.use.name == "Edit" && $0.use.oldText != nil && $0.use.newText != nil }
+        let diffs = edits.map { lines($0.use.newText).difference(from: lines($0.use.oldText)) }
+        return FileChanges(
+            files: Set(edits.map { $0.use.filePath ?? $0.id }).count,
+            added: isCounted ? diffs.map(\.insertions.count).reduce(0, +) : nil,
+            removed: isCounted ? diffs.map(\.removals.count).reduce(0, +) : nil
+        )
     }
 
     var duration: Duration? {
@@ -159,10 +204,13 @@ struct Turn: Identifiable {
             guard entry.kind == .toolUse else { continue }
 
             let call = ToolCall(use: entry, result: entry.toolID.flatMap { results[$0] })
-            if case let .work(calls) = turns[last].parts.last {
+            switch turns[last].parts.last {
+            case let .work(calls)? where !call.isCard:
                 turns[last].parts[turns[last].parts.count - 1] = .work(calls + [call])
-            } else {
-                turns[last].parts.append(.work([call]))
+            case let .cards(calls)? where call.isCard:
+                turns[last].parts[turns[last].parts.count - 1] = .cards(calls + [call])
+            default:
+                turns[last].parts.append(call.isCard ? .cards([call]) : .work([call]))
             }
         }
         return turns

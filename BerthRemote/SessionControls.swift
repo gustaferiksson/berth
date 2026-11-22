@@ -16,15 +16,19 @@ struct SessionControls: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 8)
-            } else if let session, session.status == "waiting" {
-                ApprovalCard(session: session, pendingCall: session.waitingFor == "permission prompt" ? pendingCall : nil)
             } else {
-                Composer(
-                    sessionID: sessionID,
-                    isWorking: session?.status == "busy",
-                    draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
-                    attachments: Binding { client.draftAttachments[sessionID, default: []] } set: { client.draftAttachments[sessionID] = $0 }
-                )
+                VStack(spacing: 8) {
+                    if let session, session.status == "waiting" {
+                        ApprovalCard(session: session, pendingCall: session.waitingFor == "permission prompt" ? pendingCall : nil)
+                    }
+                    Composer(
+                        sessionID: sessionID,
+                        isWorking: session?.status == "busy",
+                        declining: session?.status == "waiting" ? session : nil,
+                        draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
+                        attachments: Binding { client.draftAttachments[sessionID, default: []] } set: { client.draftAttachments[sessionID] = $0 }
+                    )
+                }
             }
         }
         .padding(.horizontal)
@@ -51,12 +55,14 @@ private struct ApprovalCard: View {
 
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text(verbatim: name.isEmpty ? "Needs you" : name)
-                    .font(.footnote.monospaced())
-                    .foregroundStyle(.secondary)
+                Text(name == "AskUserQuestion" ? "Question" : pendingCall == nil ? "Needs You" : "Needs Approval")
+                    .font(.caption2.weight(.semibold))
+                    .tracking(0.5)
+                    .textCase(.uppercase)
+                    .foregroundStyle(.orange)
                 Spacer()
                 if let since = session.waitingSince {
-                    Text(Date(timeIntervalSince1970: since / 1000), style: .timer)
+                    ElapsedText(since: Date(timeIntervalSince1970: since / 1000))
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.trailing)
@@ -113,8 +119,13 @@ private struct ApprovalCard: View {
                 }
                 actions(allow: "Approve Plan", detail: "Auto-accept edits", deny: "Keep Planning")
             } else if let pendingCall, let target {
-                Text(pendingCall.use.detail ?? ["Bash": "Run this command?", "Edit": "Edit this file?", "Write": "Write this file?", "WebFetch": "Fetch this page?"][name, default: "Allow this tool call?"])
+                Text(verbatim: name)
                     .font(.headline)
+                if let detail = pendingCall.use.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 Text(verbatim: target)
                     .font(.footnote.monospaced())
                     .lineLimit(isExpanded ? nil : 4)
@@ -142,10 +153,7 @@ private struct ApprovalCard: View {
     }
 
     private func actions(allow: String, detail: String? = nil, deny title: String) -> some View {
-        HStack(spacing: 12) {
-            Button(title, role: .destructive, action: deny)
-                .buttonStyle(.borderless)
-                .frame(maxWidth: .infinity)
+        VStack(spacing: 4) {
             Button { press(.digit1) } label: {
                 VStack(spacing: 0) {
                     Text(allow)
@@ -158,6 +166,9 @@ private struct ApprovalCard: View {
             }
             .buttonStyle(.glassProminent)
             .controlSize(.large)
+            Button(title, role: .destructive, action: deny)
+                .buttonStyle(.borderless)
+                .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
 
@@ -175,6 +186,7 @@ private struct ApprovalCard: View {
 private struct Composer: View {
     let sessionID: String
     let isWorking: Bool
+    let declining: RemoteSession?
     @Binding var draft: String
     @Binding var attachments: [Attachment]
 
@@ -235,7 +247,7 @@ private struct Composer: View {
                         .scrollIndicators(.hidden)
                     }
                     HStack(alignment: .bottom, spacing: 8) {
-                        TextField(isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
+                        TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
                             .lineLimit(1...6)
                             .focused($isFocused)
                             .padding(.leading, 16)
@@ -363,9 +375,27 @@ private struct Composer: View {
     }
 
     private func send() {
+        if let declining {
+            Task { await decline(declining) }
+            return
+        }
+
         guard client.sendDraft(to: sessionID) else { return }
 
         sends += 1
+    }
+
+    private func decline(_ waiting: RemoteSession) async {
+        guard client.send(.key(sessionID: sessionID, key: .escape, waitingFor: waiting.waitingFor, waitingSince: waiting.waitingSince)) else { return }
+
+        for _ in 0..<50 {
+            try? await Task.sleep(for: .milliseconds(100))
+            guard client.groups.lazy.flatMap(\.sessions).first(where: { $0.id == sessionID })?.status == "waiting" else {
+                if client.sendDraft(to: sessionID) { sends += 1 }
+                return
+            }
+        }
+        client.notice = "Claude is still waiting, so your message wasn’t sent"
     }
 
     private func stop() {
