@@ -8,6 +8,7 @@ struct ReviewTaskHeader: View {
     let currentID: String
     let pullRequestCount: Int
     let repositoryCount: Int
+    let showsRepositories: Bool
     @Binding var isExpanded: Bool
     let activate: (String) -> Void
     @Environment(Store.self) private var store
@@ -16,10 +17,6 @@ struct ReviewTaskHeader: View {
     var body: some View {
         let state = issue.map(store.state(of:))
         let color = state == .open ? theme.working : state == .completed ? theme.merged : Color.secondary
-        let repositories = members.reduce(into: [String]()) { names, member in
-            let name = URL(filePath: member.checkout).lastPathComponent
-            if !names.contains(name) { names.append(name) }
-        }
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if issue != nil {
@@ -45,16 +42,6 @@ struct ReviewTaskHeader: View {
                 .foregroundStyle(Color.secondary)
                 .help("Open issue \(issue.repository)#\(issue.number)")
             }
-            HStack(spacing: 4) {
-                ForEach(repositories.prefix(3), id: \.self) { name in
-                    Text(name)
-                        .font(.caption)
-                        .lineLimit(1)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(Color.primary.opacity(0.08), in: .capsule)
-                }
-            }
             Button { isExpanded.toggle() } label: {
                 HStack(spacing: 4) {
                     Text("^[\(members.count) session](inflect: true) · \(pullRequestCount) \(pullRequestCount == 1 ? "PR" : "PRs") · ^[\(repositoryCount) repo](inflect: true)")
@@ -79,11 +66,13 @@ struct ReviewTaskHeader: View {
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                             Spacer(minLength: 4)
-                            Text(URL(filePath: member.checkout).lastPathComponent)
-                                .font(.caption)
-                                .foregroundStyle(Color.secondary)
-                                .lineLimit(1)
-                                .layoutPriority(-1)
+                            if showsRepositories {
+                                Text(URL(filePath: member.checkout).lastPathComponent)
+                                    .font(.caption)
+                                    .foregroundStyle(Color.secondary)
+                                    .lineLimit(1)
+                                    .layoutPriority(-1)
+                            }
                         }
                         .font(.callout)
                         .fontWeight(member.id == currentID ? .semibold : .regular)
@@ -131,22 +120,29 @@ struct ReviewRepoTabs: View {
 
 struct ReviewOtherPullRequests: View {
     let pullRequests: [PullRequest]
+    let insets: EdgeInsets
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         ForEach(pullRequests, id: \.number) { pullRequest in
-            HStack(spacing: 6) {
-                PullRequestTag(pullRequest: pullRequest)
-                    .fixedSize()
-                Text(pullRequest.title)
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
-                    .lineLimit(1)
-                    .help(pullRequest.title)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "circle.fill")
+                    .font(.system(size: 7))
+                    .foregroundStyle(pullRequest.state.color(in: theme))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: "#\(pullRequest.number) \(pullRequest.title)")
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    Text(verbatim: [pullRequest.state.rawValue, [.open, .draft].contains(pullRequest.state) ? pullRequest.checks.map { "checks \($0.rawValue)" } : nil].compactMap(\.self).joined(separator: " · "))
+                        .font(.caption)
+                        .foregroundStyle(Color.secondary)
+                }
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 6)
+            .help(pullRequest.title)
+            .padding(.horizontal, 4)
+            .listRowInsets(insets)
         }
     }
 }
