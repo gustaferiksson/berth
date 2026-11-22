@@ -17,6 +17,7 @@ struct Tab: Identifiable {
     var cwd: String
     var sessionID: String?
     var agent = Agent.claude
+    var parentTabID: Self.ID?
     let terminal: TerminalViewState
     let opened = Date.now
     var isHosted = false
@@ -806,7 +807,7 @@ final class Store {
     var isIdle: Bool {
         busySessionCount == 0
             && lastKeyInput.timeIntervalSinceNow < -30
-            && !terminals.contains { !$0.isHosted && $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
+            && !tabs.contains { $0.kind == .shell && !$0.isHosted && $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
             && !reviewModels.values.contains(where: \.hasUnsavedEdits)
     }
 
@@ -1006,18 +1007,26 @@ final class Store {
     }
 
     var terminals: [Tab] {
-        tabs.filter { $0.kind == .shell }
+        tabs.filter { $0.kind == .shell && $0.parentTabID == nil }
     }
 
-    func openShell(cwd: String, command: String? = nil, id: UUID = UUID()) {
+    func openShell(cwd: String, command: String? = nil, id: UUID = UUID(), parent: Tab.ID? = nil) {
         let launch = hostLaunch(command, id: id)
-        tabs.append(Tab(id: id, kind: .shell, cwd: cwd, sessionID: nil, terminal: terminal(id: id, cwd: cwd, command: launch.command) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
+        tabs.append(Tab(id: id, kind: .shell, cwd: cwd, sessionID: nil, parentTabID: parent, terminal: terminal(id: id, cwd: cwd, command: launch.command) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
         selectedTabID = id
     }
 
     func newTerminal() {
         launcherMode = nil
         openShell(cwd: currentCwd)
+        activate(selectedTabID.map(SidebarItem.tab))
+    }
+
+    func newTerminal(for parent: Tab.ID) {
+        guard let tab = tabs.first(where: { $0.id == parent && $0.kind == .claude }) else { return }
+
+        launcherMode = nil
+        openShell(cwd: tab.folder, parent: parent)
         activate(selectedTabID.map(SidebarItem.tab))
     }
 
@@ -1270,10 +1279,11 @@ final class Store {
             }.filter { !attention.contains($0) }.compactMap { self.tab(forSession: $0) }
         }
         let active = sidebarActive
-        return attentionIDs.compactMap { tab(forSession: $0) } + terminals + (active?.tabs ?? []) + tabs(active?.entries ?? [])
+        let ordered = attentionIDs.compactMap { tab(forSession: $0) } + terminals + (active?.tabs ?? []) + tabs(active?.entries ?? [])
             + triageIDs.compactMap { tab(forSession: $0) }
             + pinnedSessions.filter { !liveIDs.contains($0.id) && !attention.contains($0.id) }.compactMap { tab(forSession: $0.id) }
             + sidebarGroups.flatMap { $0.tabs + tabs($0.entries) }
+        return ordered.flatMap { owner in [owner] + self.tabs.filter { $0.parentTabID == owner.id } }
     }
 
     func selectTab(number: Int) {
@@ -1503,6 +1513,7 @@ final class Store {
     }
 
     func close(_ id: Tab.ID) {
+        for terminal in tabs.filter({ $0.parentTabID == id }) { close(terminal.id) }
         let processes = ProcessAncestry.descendants()
         let sessionID = tabs.first { $0.id == id }?.sessionID
         if !isTerminating, tabs.first(where: { $0.id == id })?.isHosted == true { hangUpHost(of: id) }
@@ -1542,20 +1553,21 @@ final class Store {
         let sessionID: String?
         let isSelected: Bool?
         let agent: Agent?
+        let parentID: Tab.ID?
     }
 
     func saveOpenTabs() {
         guard persistsTabs else { return }
 
-        let saved = tabs.map { SavedTab(id: $0.id, kind: $0.kind, cwd: $0.folder, sessionID: $0.sessionID, isSelected: $0.id == selectedTabID, agent: $0.agent) }
+        let saved = tabs.map { SavedTab(id: $0.id, kind: $0.kind, cwd: $0.folder, sessionID: $0.sessionID, isSelected: $0.id == selectedTabID, agent: $0.agent, parentID: $0.parentTabID) }
         UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: "openTabs")
     }
 
-    func reattach(id: UUID, kind: Tab.Kind, cwd: String, sessionID: String?, agent: Agent = .claude) {
+    func reattach(id: UUID, kind: Tab.Kind, cwd: String, sessionID: String?, agent: Agent = .claude, parent: Tab.ID? = nil) {
         guard let command = attachCommand(of: id) else { return }
 
         let environment = sessionID.map { [ClaudeLaunch.sessionVariable: $0] } ?? [:]
-        tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, agent: agent, terminal: terminal(id: id, cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }, isHosted: true))
+        tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, agent: agent, parentTabID: parent, terminal: terminal(id: id, cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }, isHosted: true))
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
         if kind == .claude { restoredTabIDs.insert(id) }
@@ -1568,9 +1580,11 @@ final class Store {
 
         let threshold = unloadIdleThreshold
         var selected: Tab.ID?
+        var restored: [Tab.ID: Tab.ID] = [:]
         for tab in saved {
             if let id = tab.id, let socket = hostSocket(of: id), SessionHost.probe(socketPath: socket) != nil {
-                reattach(id: id, kind: tab.kind, cwd: tab.cwd, sessionID: tab.sessionID, agent: tab.agent ?? .claude)
+                reattach(id: id, kind: tab.kind, cwd: tab.cwd, sessionID: tab.sessionID, agent: tab.agent ?? .claude, parent: tab.parentID)
+                if tabs.contains(where: { $0.id == id }) { restored[id] = id }
                 if tab.isSelected == true { selected = id }
                 continue
             }
@@ -1592,7 +1606,19 @@ final class Store {
                 resume(session)
                 if let id = selectedTabID { restoredTabIDs.insert(id) }
             }
+            if let id = tab.id { restored[id] = selectedTabID }
             if tab.isSelected == true { selected = selectedTabID }
+        }
+        let parents = Dictionary(uniqueKeysWithValues: saved.compactMap { tab -> (Tab.ID, Tab.ID)? in
+            guard let id = tab.id.flatMap({ restored[$0] }), let parent = tab.parentID.flatMap({ restored[$0] }),
+                  tabs.contains(where: { $0.id == parent && $0.kind == .claude }) else { return nil }
+
+            return (id, parent)
+        })
+        tabs = tabs.map { tab in
+            var tab = tab
+            if tab.kind == .shell { tab.parentTabID = parents[tab.id] }
+            return tab
         }
         activate((selected ?? tabs.first { $0.kind == .claude }?.id ?? tabs.first?.id).map(SidebarItem.tab))
         for id in restoredTabIDs { tabTouches[id] = nil }
