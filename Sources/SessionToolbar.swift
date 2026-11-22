@@ -49,14 +49,14 @@ struct SessionToolbar: ToolbarContent {
         }
         if store.showsSessionToolbar, let sessionID = store.selectedSessionID {
             let pullRequests = store.sessionsByID[sessionID].map { store.pullRequests(of: $0) } ?? []
-            ToolbarSpacer(.fixed, placement: .primaryAction)
+            ToolbarSpacer(.fixed, placement: .automatic)
             if isReviewEnabled || !pullRequests.isEmpty {
-                ToolbarItemGroup(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .automatic) {
                     if let first = pullRequests.first { PullRequestTag(pullRequest: first.pullRequest, more: pullRequests.count - 1) }
                     if isReviewEnabled { ChangesToggle(store: store) }
                 }
             }
-            ToolbarItem(placement: .primaryAction) { ContextButton(context: store.sessionsByID[sessionID]?.context) }
+            ToolbarItem(placement: .automatic) { ContextButton(context: store.sessionsByID[sessionID]?.context) }
         }
     }
 }
