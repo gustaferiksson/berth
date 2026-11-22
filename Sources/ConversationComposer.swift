@@ -10,8 +10,9 @@ struct ConversationComposer: View {
     let context: RemoteContext?
     let focusRequest: Int
 
-    private static let inset = 12.0
-    private static let controlHeight = 30.0
+    private static let inset = 6.0
+    private static let controlHeight = 28.0
+    private static let fieldHeight = 41.0
 
     @Environment(\.ghosttyTheme) private var theme
     @State private var isImporting = false
@@ -36,7 +37,7 @@ struct ConversationComposer: View {
                             model.notice = nil
                         }
                 }
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 0) {
                     if !draft.files.isEmpty {
                         ScrollView(.horizontal) {
                             HStack(spacing: 8) {
@@ -46,6 +47,7 @@ struct ConversationComposer: View {
                             }
                         }
                         .scrollIndicators(.hidden)
+                        .padding(.top, Self.inset)
                     }
                     ConversationComposerField(
                         text: Binding { model.draft.text } set: { model.draft.text = $0 },
@@ -56,6 +58,8 @@ struct ConversationComposer: View {
                         submit: send,
                         attach: { model.draft.files += $0.filter { !model.draft.files.contains($0) } }
                     )
+                    .padding(.horizontal, 4)
+                    .frame(minHeight: Self.fieldHeight)
                     HStack(spacing: 8) {
                         Menu {
                             Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
@@ -96,7 +100,7 @@ struct ConversationComposer: View {
                         }
                     }
                 }
-                .padding(Self.inset)
+                .padding([.horizontal, .bottom], Self.inset)
                 .glassEffect(.regular, in: .rect(cornerRadius: Self.controlHeight / 2 + Self.inset))
             }
         }
@@ -130,7 +134,6 @@ struct ConversationComposer: View {
             Task { await model.choose(.effort(level)) }
         }
         let modelTitle = model.pickedModel.flatMap { $0 == .default ? nil : $0.title } ?? modelName(context.model)
-        let label = [modelTitle, effortChoice.wrappedValue?.title].compactMap(\.self).joined(separator: " · ")
 
         return Menu {
             Section("Model") {
@@ -153,21 +156,12 @@ struct ConversationComposer: View {
             Button("Context", systemImage: "chart.pie") { showsContext = true }
             Text(canChange ? "Changes apply to this session only" : "Available while Claude is idle")
         } label: {
-            HStack(spacing: 6) {
-                if let tokens = context.tokens, let window = context.window {
-                    ContextRing(context: SessionContext(model: context.model, tokens: tokens, window: window), window: window)
-                }
-                Text(label)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-            }
-            .font(.subheadline)
-            .padding(.horizontal, 12)
-            .frame(height: Self.controlHeight)
-            .background(.quaternary, in: .capsule)
+            Text("\(Text(modelTitle)) \(Text(effortChoice.wrappedValue?.title ?? "").foregroundStyle(.secondary))")
+                .lineLimit(1)
+                .font(.subheadline)
+                .padding(.horizontal, 12)
+                .frame(height: Self.controlHeight)
+                .background(.quaternary, in: .capsule)
         }
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
