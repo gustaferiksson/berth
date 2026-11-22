@@ -11,7 +11,7 @@ struct ConversationComposer: View {
     let focusRequest: Int
 
     private static let inset = 12.0
-    private static let controlHeight = 28.0
+    private static let controlHeight = 30.0
 
     @Environment(\.ghosttyTheme) private var theme
     @State private var isImporting = false
@@ -77,17 +77,19 @@ struct ConversationComposer: View {
                                 if stops { model.interrupt() } else { send() }
                             } label: {
                                 Image(systemName: stops ? "stop.fill" : "arrow.up")
-                                    .font(.body.weight(.semibold))
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundStyle(.background)
+                                    .frame(width: Self.controlHeight, height: Self.controlHeight)
+                                    .background(Color.accentColor, in: .circle)
+                                    .contentShape(.circle)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .buttonBorderShape(.circle)
-                            .frame(width: Self.controlHeight, height: Self.controlHeight)
+                            .buttonStyle(.plain)
                             .accessibilityLabel(stops ? "Stop" : "Send")
                             .help(stops ? "Stop Claude" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
                         } else {
                             Image(systemName: "arrow.up")
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(.tertiary)
                                 .frame(width: Self.controlHeight, height: Self.controlHeight)
                                 .background(.quaternary, in: .circle)
                                 .accessibilityLabel("Send, unavailable")

@@ -142,6 +142,10 @@ public enum TurnPart: Identifiable, Sendable {
     public var isCards: Bool {
         if case .cards = self { true } else { false }
     }
+
+    public var isWork: Bool {
+        if case .work = self { true } else { false }
+    }
 }
 
 public struct FileChanges: Sendable {
@@ -214,7 +218,7 @@ public struct Turn: Identifiable, Sendable {
             turns[last].end = entry.date ?? turns[last].end
             turns[last].isInterrupted = turns[last].isInterrupted || isInterruption
             if entry.kind == .reply { turns[last].parts.append(.reply(entry)) }
-            guard entry.kind == .toolUse else { continue }
+            guard entry.kind == .toolUse, entry.name != "Poll" else { continue }
 
             let call = ToolCall(use: entry, result: entry.toolID.flatMap { results[$0] })
             switch turns[last].parts.last {

@@ -14,6 +14,9 @@ public extension ToolCall {
         let first = lines.first.map { String($0.prefix(200)) } ?? ""
         if result.isError { return ToolResultSummary(text: first.isEmpty ? "Failed" : first, moreLines: max(0, lines.count - 1), isError: true) }
 
+        if use.name == "REPL" { return nil }
+        if first.hasPrefix("<system>") { return ToolResultSummary(text: "Done", moreLines: 0, isError: false) }
+
         if use.name == "Edit", let old = use.oldText, let new = use.newText {
             let rows = ToolDiff.rows(old: old, new: new)
             let added = rows.count { $0.kind == .added }
@@ -37,8 +40,10 @@ public extension ToolCall {
     }
 
     var displayName: String {
-        let renamed = ["Edit": "Update", "MultiEdit": "Update", "Grep": "Search", "Glob": "Search", "Task": "Agent", "WebFetch": "Fetch", "WebSearch": "Web Search"]
+        let renamed = ["Edit": "Update", "MultiEdit": "Update", "Grep": "Search", "Glob": "Search", "Task": "Agent", "WebFetch": "Fetch", "WebSearch": "Web Search", "SendMessage": "Message"]
         guard let name = use.name else { return "Tool" }
+
+        if name == "REPL" { return use.detail.flatMap { $0.isEmpty ? nil : $0 } ?? "Script" }
 
         if let renamed = renamed[name] { return renamed }
 
@@ -47,6 +52,7 @@ public extension ToolCall {
     }
 
     var arguments: String {
+        if use.name == "REPL" { return "" }
         if let command = use.command { return String(command.prefix { $0 != "\n" }) }
         if let path = use.filePath { return path.replacing(FileManager.default.homeDirectoryForCurrentUser.path, with: "~") }
         return use.detail ?? ""

@@ -1,14 +1,6 @@
 import SwiftUI
 
 extension RemoteTask {
-    var symbol: String {
-        kind == Self.agent ? "person.2" : kind == Self.monitor ? "eye" : "terminal"
-    }
-
-    var kindName: String {
-        kind == Self.agent ? "Agent" : kind == Self.shell ? "Shell" : kind == Self.monitor ? "Monitor" : "Task"
-    }
-
     var stats: Text? {
         guard let toolCount else { return nil }
 
@@ -21,14 +13,7 @@ struct RunningStrip: View {
     let tasks: [RemoteTask]
     let action: () -> Void
 
-    private var summary: String {
-        let counts = [(RemoteTask.agent, "agent", "agents"), (RemoteTask.shell, "shell", "shells"), (RemoteTask.monitor, "monitor", "monitors")]
-            .compactMap { kind, one, many -> String? in
-                let count = tasks.count(where: { $0.kind == kind })
-                return count == 0 ? nil : "\(count) \(count == 1 ? one : many)"
-            }
-        return counts.isEmpty ? "\(tasks.count) running" : counts.joined(separator: " · ")
-    }
+    private var summary: String { RemoteTask.summary(of: tasks) }
 
     var body: some View {
         let kinds = [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor].filter { kind in tasks.contains { $0.kind == kind } }
