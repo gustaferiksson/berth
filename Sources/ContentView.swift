@@ -109,17 +109,12 @@ struct ContentView: View {
                         }
                         .help("Switch between terminal and Claude (⌘J)")
                     }
-                    if isConversationEnabled, store.canShowConversation {
-                        ToolbarItem(placement: .automatic) {
-                            let action = AppAction.showTerminal.isAvailable(in: store) ? AppAction.showTerminal : .showConversation
-                            Button(action.title, systemImage: action.symbol) { action.perform(on: store) }
-                                .help("\(action.title) (⌥⌘J)")
-                        }
-                    }
-                    if isReviewEnabled, !isTrailing {
+                    SessionToolbar(store: store, isReviewEnabled: isReviewEnabled)
+                    if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
                         ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
                     if isTrailing {
+                        if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
                         ToolbarItem(placement: .primaryAction) {
                             Button(showsSessions ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right") {
                                 setSessions(showsSessions ? .detailOnly : .all)
@@ -140,6 +135,11 @@ struct ContentView: View {
             Task { await store.refreshPlanUsage() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
+        .task(id: "\(selected?.sessionID ?? "")\n\(selected?.cwd ?? "")\(isReviewEnabled)") {
+            guard isReviewEnabled, let selected, selected.kind == .claude, let sessionID = selected.sessionID else { return }
+
+            await store.trackChangeSize(sessionID: sessionID, folder: selected.cwd)
+        }
         .task(id: reviewRoots) { await store.watchReview(reviewRoots) }
         .task(id: folderWithoutRepository) { store.watchForRepository(in: folderWithoutRepository) }
         .onChange(of: showsPanel) {
