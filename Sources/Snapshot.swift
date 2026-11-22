@@ -433,7 +433,7 @@ enum Snapshot {
             print("orphan probe: pid \(pid), orphaned \(store.orphanedSessionIDs.contains(session.id)), locked \(store.isLockedElsewhere(store.liveBySession[session.id]))")
             store.activate(.session(session.id))
             try? await Task.sleep(for: .seconds(4))
-            print("orphan probe after click: alive \(kill(pid, 0) == 0), live \(store.liveBySession[session.id] != nil), notice \(store.lockedSessionID != nil), openClaude calls \(store.probeOpenedClaude.map { "\($0.start)" })")
+            print("orphan probe after click: alive \(kill(pid, 0) == 0), live \(store.liveBySession[session.id] != nil), notice \(store.lockedSessionID != nil), openClaude calls \(store.probeOpened.map { "\($0.start)" })")
         }
         if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
             store.activate(.session(sessionID))
@@ -458,7 +458,7 @@ enum Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { prepareTasksReview(store: store) }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
-            store.openClaude(cwd: cwd, checkout: .main)
+            store.openSession(cwd: cwd, checkout: .main)
         }
         if let version = UserDefaults.standard.string(forKey: "snapshotRestartBanner") {
             store.updater.showPendingRestart(version: version, deadline: .now + 18)
@@ -1596,8 +1596,10 @@ enum Snapshot {
                 }
                 print("\(spec): launcher \(String(describing: store.launcherMode))")
             }
-            print("openClaude calls: \(store.probeOpenedClaude.count) \(store.probeOpenedClaude.map { "\(URL(filePath: $0.cwd).lastPathComponent) \($0.start)" })")
-            print("openCodex calls: \(store.probeOpenedCodex.map { URL(filePath: $0).lastPathComponent })")
+            for harness in Harness.all {
+                let calls = store.probeOpened.filter { $0.agent == harness.agent }
+                print("open\(harness.name) calls: \(calls.count) \(calls.map { "\(URL(filePath: $0.cwd).lastPathComponent) \($0.start)" })")
+            }
             print("opened URLs: \(store.probeOpenedURLs.map(\.absoluteString))")
         }
         let tab = store.tabs.first { $0.id == store.selectedTabID }

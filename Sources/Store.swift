@@ -256,8 +256,7 @@ final class Store {
     @ObservationIgnored var submittingSessions: Set<String> = []
 
     #if DEBUG
-    @ObservationIgnored var probeOpenedClaude: [(cwd: String, start: ClaudeLaunch.Start)] = []
-    @ObservationIgnored var probeOpenedCodex: [String] = []
+    @ObservationIgnored var probeOpened: [(agent: Agent, cwd: String, start: LaunchStart)] = []
     @ObservationIgnored var probeOpenedURLs: [URL] = []
     #endif
 
@@ -353,7 +352,7 @@ final class Store {
 
     private func applyGroups() {
         if hasScanned, isCodexEnabled {
-            let listed = Set(summaries.filter { $0.agent == .codex }.map(\.id))
+            let listed = Set(summaries.filter(\.agent.harness.isOptIn).map(\.id))
             if listed != codexIDs { codexIDs = listed }
         }
         let retained = hasScanned && !isCodexEnabled ? codexIDs : []
@@ -652,14 +651,15 @@ final class Store {
                 let refreshed = index.refresh() + (codexEnabled ? codex.refresh() : [])
                 let unchecked = Set((fixtures ?? refreshed).map(\.cwd)).filter { checkouts[$0] == nil && FileManager.default.fileExists(atPath: $0) }
                 let checkouts = checkouts.merging(unchecked.map { ($0, RepositoryRoot.checkout($0)) }) { $1 }
-                let missing = Set(refreshed.filter { $0.agent == .claude }.compactMap(\.context?.model)).subtracting(known.keys)
+                let missing = Set(refreshed.filter { $0.agent.harness.supports(.contextSize) }.compactMap(\.context?.model)).subtracting(known.keys)
                 let catalogs = missing.isEmpty ? [] : ((try? FileManager.default.contentsOfDirectory(at: catalogDirectory, includingPropertiesForKeys: nil)) ?? []).compactMap { try? Data(contentsOf: $0) }
                 let catalog = known.merging(missing.map { ($0, TranscriptActivity.catalogModel($0, catalogs: catalogs)) }) { $1 }
                 let summaries = (fixtures ?? refreshed).map { summary in
                     var summary = summary
                     summary.checkout = checkouts[summary.cwd] ?? summary.originalCwd ?? summary.cwd
-                    let model = summary.agent == .claude ? summary.context.flatMap { catalog[$0.model] } : nil
-                    if summary.agent == .claude {
+                    let resolvesWindow = summary.agent.harness.supports(.contextSize)
+                    let model = resolvesWindow ? summary.context.flatMap { catalog[$0.model] } : nil
+                    if resolvesWindow {
                         summary.context?.window = model?.window
                         summary.context?.modelName = model?.name
                     }
@@ -695,7 +695,7 @@ final class Store {
 
                 tabs[index].cwd = cwd
             }
-            claimCodexTabs()
+            claimNewSessions()
             if !hasScanned { hasScanned = true }
             formTasks()
             refreshLive()
@@ -748,7 +748,7 @@ final class Store {
         let claimed = Set(tabs.compactMap(\.sessionID))
         for session in live where !claimed.contains(session.sessionId) {
             guard let position = tabs.firstIndex(where: { tab in
-                tab.kind == .claude && tab.agent == .claude && tab.cwd == session.cwd && tab.sessionID.map { liveBySession[$0] == nil } ?? true
+                tab.kind == .claude && tab.agent.harness.liveSource == .sessionFiles && tab.cwd == session.cwd && tab.sessionID.map { liveBySession[$0] == nil } ?? true
                     && session.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) >= tab.opened } ?? false
             }), ProcessAncestry.isDescendant(session.pid, of: getpid()) else { continue }
 
@@ -766,8 +766,8 @@ final class Store {
     func unloadIdleTabs() {
         refreshLive()
         let threshold = unloadIdleThreshold
-        let lastClaude = recentTabIDs.first { id in tabs.contains { $0.id == id && $0.kind == .claude && $0.agent == .claude } }
-        let candidates = tabs.filter { $0.kind == .claude && $0.agent == .claude && $0.id != lastClaude }.compactMap { tab in tab.sessionID.map { (id: tab.id, sessionID: $0, touched: restoredTabIDs.contains(tab.id) ? tabTouches[tab.id] ?? .distantPast : max(tab.opened, tabTouches[tab.id] ?? .distantPast)) } }
+        let lastClaude = recentTabIDs.first { id in tabs.contains { $0.id == id && $0.kind == .claude && $0.agent.harness.supports(.idleUnload) } }
+        let candidates = tabs.filter { $0.kind == .claude && $0.agent.harness.supports(.idleUnload) && $0.id != lastClaude }.compactMap { tab in tab.sessionID.map { (id: tab.id, sessionID: $0, touched: restoredTabIDs.contains(tab.id) ? tabTouches[tab.id] ?? .distantPast : max(tab.opened, tabTouches[tab.id] ?? .distantPast)) } }
         let lastActivity = Dictionary(activeSessions.map { ($0.id, $0.lastActivity) }) { first, _ in first }
         for id in IdleTabs.unloadable(candidates, live: liveBySession, lastActivity: lastActivity, pinned: Set(pinnedIDs), selected: selectedTabID, now: .now, threshold: threshold) {
             close(id)
@@ -839,7 +839,7 @@ final class Store {
         if archivedAt[id] != nil { unarchive(id) }
         refreshLive()
         if let tab = tab(forSession: session.id) {
-            guard session.agent == .claude, liveBySession[session.id] == nil, tab.opened.timeIntervalSinceNow < -10 else { return tab }
+            guard session.agent.harness.liveSource == .sessionFiles, liveBySession[session.id] == nil, tab.opened.timeIntervalSinceNow < -10 else { return tab }
 
             close(tab.id)
         }
@@ -941,7 +941,7 @@ final class Store {
     }
 
     func showsConversation(_ tab: Tab) -> Bool {
-        tab.kind == .claude && tab.agent == .claude && isConversationEnabled && conversationTabIDs.contains(tab.id) && !conversationSuspended.contains(tab.id)
+        tab.kind == .claude && tab.agent.harness.supports(.conversation) && isConversationEnabled && conversationTabIDs.contains(tab.id) && !conversationSuspended.contains(tab.id)
     }
 
     var selectedShowsConversation: Bool {
@@ -949,7 +949,7 @@ final class Store {
     }
 
     var canShowConversation: Bool {
-        isConversationEnabled && !isHarborShown && tabs.first { $0.id == selectedTabID }.map { $0.kind == .claude && $0.agent == .claude } == true
+        isConversationEnabled && !isHarborShown && tabs.first { $0.id == selectedTabID }.map { $0.kind == .claude && $0.agent.harness.supports(.conversation) } == true
     }
 
     func setConversation(_ isShown: Bool) {
@@ -1293,20 +1293,21 @@ final class Store {
         activate(.tab(candidates[(current + offset + candidates.count) % candidates.count].id))
     }
 
-    func openClaude(cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil) {
-        let session = sessionID ?? UUID().uuidString.lowercased()
-        let attachID = liveBySession[session]?.attachID
-        let start: ClaudeLaunch.Start = if attachID != nil {
+    func openSession(_ agent: Agent = .claude, cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil) {
+        let harness = agent.harness
+        let session = sessionID ?? (harness.claimsNewSession ? nil : UUID().uuidString.lowercased())
+        let attachID = session.flatMap { liveBySession[$0]?.attachID }
+        let start: LaunchStart = if attachID != nil {
             .attach
         } else if sessionID != nil {
             .resume
-        } else if checkout == .worktree || checkout == .preferred && UserDefaults.standard.bool(forKey: GeneralSettings.worktreeKey), FileManager.default.fileExists(atPath: URL(filePath: RepositoryRoot.resolve(cwd)).appending(path: ".git").path) {
+        } else if harness.supports(.worktrees), checkout == .worktree || checkout == .preferred && UserDefaults.standard.bool(forKey: GeneralSettings.worktreeKey), FileManager.default.fileExists(atPath: URL(filePath: RepositoryRoot.resolve(cwd)).appending(path: ".git").path) {
             .newInWorktree
         } else {
             .new
         }
         #if DEBUG
-        if Snapshot.launcherKeys != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil { return probeOpenedClaude.append((cwd, start)) }
+        if Snapshot.launcherKeys != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil { return probeOpened.append((agent, cwd, start)) }
         #endif
         guard FileManager.default.fileExists(atPath: cwd) else {
             missingFolder = cwd
@@ -1314,43 +1315,26 @@ final class Store {
         }
 
         let id = UUID()
-        let environment = [ClaudeLaunch.sessionVariable: attachID ?? session]
-        let launch = hostLaunch(ClaudeLaunch.command(start), id: id)
-        tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: launch.command, environment: environment) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
-        if isConversationEnabled, UserDefaults.standard.string(forKey: GeneralSettings.conversationViewKey) == "conversation" { conversationTabIDs.insert(id) }
+        let environment = session.map { [ClaudeLaunch.sessionVariable: attachID ?? $0] } ?? [:]
+        let launch = hostLaunch(harness.command(start), id: id)
+        tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, agent: agent, terminal: terminal(cwd: cwd, command: launch.command, environment: environment) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
+        if isConversationEnabled, harness.supports(.conversation), UserDefaults.standard.string(forKey: GeneralSettings.conversationViewKey) == "conversation" { conversationTabIDs.insert(id) }
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
-        guard let prompt else { return }
+        guard let prompt, let session else { return }
 
         Task { await paste(prompt, intoStartingSession: session, tab: id) }
     }
 
-    func openCodex(cwd: String, resuming sessionID: String? = nil) {
-        #if DEBUG
-        if Snapshot.launcherKeys != nil { return probeOpenedCodex.append(cwd) }
-        #endif
-        guard FileManager.default.fileExists(atPath: cwd) else {
-            missingFolder = cwd
-            return
-        }
-
-        let id = UUID()
-        let environment = sessionID.map { [ClaudeLaunch.sessionVariable: $0] } ?? [:]
-        let launch = hostLaunch(CodexLaunch.command(sessionID == nil ? .new : .resume), id: id)
-        tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: sessionID, agent: .codex, terminal: terminal(cwd: cwd, command: launch.command, environment: environment) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
-        selectedTabID = id
-        recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
-    }
-
     private func resume(_ session: SessionSummary) {
         let folder = resumeFolder(of: session)
-        if session.agent == .codex { openCodex(cwd: folder, resuming: session.id) } else { openClaude(cwd: folder, resuming: session.id) }
+        openSession(session.agent, cwd: folder, resuming: session.id)
     }
 
-    private func claimCodexTabs() {
+    private func claimNewSessions() {
         var claimed = Set(tabs.compactMap(\.sessionID))
-        for index in tabs.indices where tabs[index].agent == .codex && tabs[index].sessionID == nil {
-            guard let session = CodexLaunch.claim(for: tabs[index].opened, cwd: tabs[index].cwd, in: summaries, excluding: claimed) else { continue }
+        for index in tabs.indices where tabs[index].sessionID == nil {
+            guard let claim = tabs[index].agent.harness.claim, let session = claim(tabs[index].opened, tabs[index].cwd, summaries, claimed) else { continue }
 
             tabs[index].sessionID = session.id
             claimed.insert(session.id)

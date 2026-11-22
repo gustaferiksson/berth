@@ -426,11 +426,11 @@ final class RemoteServer {
                 turnStartedAt: self.store.turnStarts[session.id]
             )
         }
-        let starting = store.tabs.filter { $0.kind == .claude && $0.agent == .claude && $0.sessionID.map { store.sessionsByID[$0] == nil } ?? false }.compactMap { tab in
+        let starting = store.tabs.filter { $0.kind == .claude && $0.agent.harness.supports(.remote) && $0.sessionID.map { store.sessionsByID[$0] == nil } ?? false }.compactMap { tab in
             tab.sessionID.map { RemoteSession(id: $0, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: store.liveBySession[$0]?.status, waitingFor: store.liveBySession[$0]?.waitingFor, waitingSince: store.liveBySession[$0].flatMap { $0.status == "waiting" ? $0.statusUpdatedAt : nil }, isOpen: true, isLocked: false) }
         }
-        let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.filter { $0.agent == .claude }.map(remote))]
-            + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.filter { $0.agent == .claude }.map(remote)) }
+        let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.filter { $0.agent.harness.supports(.remote) }.map(remote))]
+            + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.filter { $0.agent.harness.supports(.remote) }.map(remote)) }
         return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] : []))
     }
 
@@ -459,7 +459,7 @@ final class RemoteServer {
             clients[id]?.needsRead = true
             return
         }
-        guard let url = store.index.url(ofSession: sessionID) else {
+        guard let readTranscript = store.sessionsByID[sessionID]?.agent.harness.readTranscript ?? Harness.claude.readTranscript, let url = store.index.url(ofSession: sessionID) else {
             if client.end == nil { send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: [], isContinuation: false, queued: [], activity: nil)), to: client.connection) }
             clients[id]?.end = 0
             return
@@ -474,7 +474,7 @@ final class RemoteServer {
         let previous = url == client.transcript ? client.activity : TranscriptActivity()
         let previousLogs = url == client.transcript ? client.agentLogs : [:]
         let (chunk, activity, logs, report) = await Task.detached {
-            let chunk = TranscriptTail.read(url, after: after, queue: queue)
+            let chunk = readTranscript(url, after, queue)
             let result = TranscriptActivity.report(url, previous: previous, logs: previousLogs, live: live, catalogDirectory: catalogDirectory)
             return (chunk, result.activity, result.logs, result.report)
         }.value
@@ -549,7 +549,7 @@ final class RemoteServer {
     private func startSession(in folder: String, prompt: String, from connection: NWConnection) async {
         guard store.knownFolders.contains(where: { $0.path == folder }), FileManager.default.fileExists(atPath: folder) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown folder")), to: connection) }
 
-        store.openClaude(cwd: folder)
+        store.openSession(cwd: folder)
         guard let sessionID = store.tabs.first(where: { $0.id == store.selectedTabID })?.sessionID else { return }
 
         send(try? JSONEncoder().encode(RemoteServerMessage.opened(sessionID: sessionID)), to: connection)

@@ -573,7 +573,7 @@ struct Launcher: View {
 
         if case let .session(session) = opening { store.activate(.session(session.id)) }
         if case let .worktree(folder) = opening {
-            store.openClaude(cwd: folder, checkout: .worktree, pasting: "Check out PR #\(pullRequest.number) (\(pullRequest.url.absoluteString)) with gh pr checkout \(pullRequest.number) in this worktree, then summarize it.")
+            store.openSession(cwd: folder, checkout: .worktree, pasting: "Check out PR #\(pullRequest.number) (\(pullRequest.url.absoluteString)) with gh pr checkout \(pullRequest.number) in this worktree, then summarize it.")
         }
         store.launcherMode = nil
     }
@@ -587,12 +587,12 @@ struct Launcher: View {
     }
 
     private func startCodex(in path: String) {
-        store.openCodex(cwd: path)
+        store.openSession(.codex, cwd: path)
         store.launcherMode = nil
     }
 
     private func start(in path: String, checkout: NewSessionCheckout = .preferred) {
-        store.openClaude(cwd: path, checkout: checkout)
+        store.openSession(cwd: path, checkout: checkout)
         store.launcherMode = nil
     }
 }

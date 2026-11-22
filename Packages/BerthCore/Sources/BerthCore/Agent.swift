@@ -1,5 +1,5 @@
 public enum Agent: String, Sendable, Codable, Hashable {
     case claude, codex
 
-    public var name: String { self == .codex ? "Codex" : "Claude" }
+    public var name: String { harness.name }
 }
