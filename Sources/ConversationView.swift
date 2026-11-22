@@ -95,7 +95,7 @@ struct ConversationView: View {
             .frame(maxWidth: .infinity)
         }
         .contentMargins(.top, 24, for: .scrollContent)
-        .contentMargins(.bottom, 24, for: .scrollContent)
+        .contentMargins(.bottom, model.tasks.isEmpty ? 24 : 66, for: .scrollContent)
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
@@ -353,6 +353,7 @@ private struct ConversationStatusBar: View {
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsTasks = conversationShowsTasks
+    private let pillTransition = AnyTransition.opacity.combined(with: .scale(scale: 0.92))
 
     var body: some View {
         let kinds = [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor].filter { kind in tasks.contains { $0.kind == kind } }
@@ -376,6 +377,7 @@ private struct ConversationStatusBar: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .glassEffect(in: .capsule)
+                    .transition(pillTransition)
                 }
                 if !tasks.isEmpty {
                     Button { showsTasks.toggle() } label: {
@@ -410,10 +412,14 @@ private struct ConversationStatusBar: View {
                     .glassEffect(.regular.interactive(), in: .circle)
                     .accessibilityLabel("Jump to Latest")
                     .help("Jump to Latest (⌘↓)")
+                    .transition(pillTransition)
                 }
             }
         }
         .font(.subheadline)
+        .animation(.easeOut(duration: 0.15), value: isAtBottom)
+        .animation(.easeOut(duration: 0.15), value: isWorking)
+        .animation(.easeOut(duration: 0.15), value: tasks.isEmpty)
         .onChange(of: tasks.isEmpty) { if tasks.isEmpty { showsTasks = false } }
     }
 }
@@ -477,7 +483,6 @@ private struct ConversationBottomBar: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            ConversationStatusBar(since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
             if let approval, approval.isActionable || approval == .loading {
                 ConversationApprovalCard(
                     approval: approval,
@@ -494,9 +499,11 @@ private struct ConversationBottomBar: View {
         .frame(maxWidth: 860)
         .padding(.horizontal, 18)
         .padding(.bottom, 16)
+        .overlay(alignment: .top) {
+            ConversationStatusBar(since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
+                .alignmentGuide(.top) { $0[.bottom] + 10 }
+        }
         .frame(maxWidth: .infinity)
-        .animation(.smooth, value: isAtBottom)
-        .animation(.smooth, value: model.tasks.count)
         .animation(.smooth, value: isActive)
         .animation(.smooth, value: approval)
     }
