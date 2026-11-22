@@ -13,9 +13,11 @@ let package = Package(
     platforms: [.macOS("26.0")],
     products: [
         .library(name: "BerthCore", targets: ["BerthCore"]),
+        .executable(name: "berth-host", targets: ["berth-host"]),
     ],
     targets: [
         .target(name: "BerthCore", swiftSettings: strict),
+        .executableTarget(name: "berth-host", dependencies: ["BerthCore"], swiftSettings: strict),
         .testTarget(name: "BerthCoreTests", dependencies: ["BerthCore"], resources: [.copy("Fixtures")], swiftSettings: strict),
     ]
 )
