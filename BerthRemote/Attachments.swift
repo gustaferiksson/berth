@@ -25,49 +25,59 @@ struct Attachment: Identifiable, Equatable {
     }
 }
 
-struct AttachmentChip: View {
+struct AttachmentTile: View {
     let attachment: Attachment
     let state: RemoteClient.UploadState?
+    let size: Double
+    let radius: Double
     let remove: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        Group {
             if let image = attachment.thumbnail.flatMap(UIImage.init(data:)) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 36, height: 36)
-                    .clipShape(.rect(cornerRadius: 8))
                     .accessibilityHidden(true)
             } else {
                 Image(systemName: "doc.fill")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 36, height: 36)
-                    .background(.fill.tertiary, in: .rect(cornerRadius: 8))
                     .accessibilityHidden(true)
+                    .foregroundStyle(.secondary)
+                    .frame(width: size, height: size)
+                    .background(.fill.quaternary)
             }
-            VStack(alignment: .leading, spacing: 1) {
-                Text(attachment.name)
-                    .monospaced()
-                    .lineLimit(1)
-                if case let .failed(message) = state {
-                    Text(message)
-                        .foregroundStyle(.red)
-                        .lineLimit(1)
-                } else if state != .done {
-                    Text("Uploading…")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .font(.footnote)
-            .frame(maxWidth: 140, alignment: .leading)
-            Button("Remove \(attachment.name)", systemImage: "xmark.circle.fill", action: remove)
-                .labelStyle(.iconOnly)
-                .foregroundStyle(.secondary)
-                .buttonStyle(.plain)
         }
-        .padding(6)
-        .padding(.trailing, 4)
-        .background(.fill.quaternary, in: .rect(cornerRadius: 14))
+        .frame(width: size, height: size)
+        .overlay {
+            if case .failed = state {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .accessibilityHidden(true)
+                    .foregroundStyle(.red)
+                    .padding(6)
+                    .background(.background, in: .circle)
+            } else if state != .done {
+                ProgressView()
+                    .padding(6)
+                    .background(.background, in: .circle)
+            }
+        }
+        .clipShape(.rect(cornerRadius: radius))
+        .overlay(alignment: .topTrailing) {
+            Button(action: remove) {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.background)
+                    .frame(width: 22, height: 22)
+                    .background(.primary, in: .circle)
+                    .padding(4)
+                    .frame(width: 44, height: 44, alignment: .topTrailing)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(attachment.name)")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(attachment.name)
+        .accessibilityValue(state == .done ? "" : state.map { if case let .failed(message) = $0 { message } else { "Uploading" } } ?? "Uploading")
     }
 }

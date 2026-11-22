@@ -51,7 +51,9 @@ struct StatsView: View {
                                 HStack {
                                     Text(window.title)
                                     Spacer()
-                                    Text(window.used, format: .wholePercent).monospacedDigit()
+                                    Text("\(window.usedPercent)%")
+                                        .monospacedDigit()
+                                        .foregroundStyle(UsageTrack.aheadTint(window, now: timeline.date, theme: theme) ?? theme.foreground)
                                 }
                                 .font(.callout.weight(.semibold))
                                 UsageTrack(window: window, now: timeline.date)
@@ -63,6 +65,7 @@ struct StatsView: View {
                             .padding(16)
                             .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 12))
                             .accessibilityElement(children: .combine)
+                            .accessibilityValue(window.isAhead(at: timeline.date) ? "Ahead of pace" : "")
                         }
                     }
                 }

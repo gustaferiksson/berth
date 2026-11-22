@@ -47,7 +47,8 @@ extension Snapshot {
         }
         let virtual = { (record: [String: Any]) -> [String: Any] in record.merging(["isVirtual": true]) { $1 } }
         let file = "\(conversationFolder)/Sources/Export.swift"
-        return [
+        let start = clock
+        let records = [
             prompt("Why does the usage export fail on CI? It passes locally.", 0),
             assistant(4, [text("I'll start with the export code and the CI log.")]),
             assistant(3, [use("t1", "Grep", ["pattern": "func exportRows", "path": "Sources"])]),
@@ -59,7 +60,7 @@ extension Snapshot {
             assistant(20, [use("t4", "Bash", ["command": "swift test --filter ExportTests", "description": "Run the export tests"])]),
             result("t4", "Building for debugging...\n[1/3] Compiling Export.swift\nTest Suite 'ExportTests' started\nTest Case 'testRowsGroupByDay' passed (0.004 seconds)\nTest Case 'testRowsCrossMidnight' passed (0.002 seconds)\nExecuted 2 tests, with 0 failures in 0.006 seconds", 38, [:]),
             assistant(40, [text("Fixed. The export grouped rows by the machine's time zone, so I pinned it.\n\n## What changed\n\n- `Export.swift` now sets `formatter.timeZone` to **Europe/Stockholm**\n- Both export tests pass\n- Nothing else reads the formatter\n\n```swift\nformatter.timeZone = TimeZone(identifier: \"Europe/Stockholm\")\n```\n\n| Machine | Zone | Result |\n| --- | --- | --- |\n| Mac | Stockholm | passes |\n| CI | UTC | passes now |")]),
-            prompt("Nice. Now add a plan name column, start the slow migration check in the background and have an agent review the docs.", 90),
+            base("user", 90, ["role": "user", "content": [["type": "text", "text": "Nice. Now add a plan name column, start the slow migration check in the background and have an agent review the docs."], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]]]),
             assistant(5, [text("I'll add the column, then run both checks in parallel.")]),
             assistant(4, [use("t5", "Read", ["file_path": file])]),
             result("t5", (1...60).map { "\($0)\tline \($0)" }.joined(separator: "\n"), 1, [:]),
@@ -82,6 +83,40 @@ extension Snapshot {
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
         ] + pendingRecords(assistant: assistant, use: use, result: result)
+        let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
+        guard repetitions > 1 else { return records }
+
+        let duration = clock.timeIntervalSince(start) + 1
+        return (0..<repetitions).flatMap { repetition in
+            records.map { original in
+                var record = original
+                if let uuid = original["uuid"] as? String { record["uuid"] = "\(uuid)-r\(repetition)" }
+                if let timestamp = original["timestamp"] as? String, let date = try? format.parse(timestamp) {
+                    record["timestamp"] = date.addingTimeInterval(Double(repetition) * duration).formatted(format)
+                }
+                if var message = original["message"] as? [String: Any] {
+                    if let id = message["id"] as? String { message["id"] = "\(id)-r\(repetition)" }
+                    if let blocks = message["content"] as? [[String: Any]] {
+                        message["content"] = blocks.filter { repetition == 0 || $0["type"] as? String != "image" }.map { original in
+                            var block = original
+                            if original["type"] as? String == "tool_use", let id = original["id"] as? String { block["id"] = "\(id)-r\(repetition)" }
+                            if original["type"] as? String == "tool_result", let id = original["tool_use_id"] as? String { block["tool_use_id"] = "\(id)-r\(repetition)" }
+                            return block
+                        }
+                    }
+                    record["message"] = message
+                }
+                return record
+            }
+        }
+    }
+
+    private static func fixtureImage() -> Data {
+        let image = NSImage(size: NSSize(width: 240, height: 160), flipped: false) { rect in
+            NSGradient(colors: [.systemTeal, .systemIndigo])?.draw(in: rect, angle: 35)
+            return true
+        }
+        return image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) } ?? Data()
     }
 
     private static func pendingRecords(assistant: (TimeInterval, [[String: Any]]) -> [String: Any], use: (String, String, [String: Any]) -> [String: Any], result: (String, String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
@@ -122,7 +157,9 @@ extension Snapshot {
             switch name {
             case "type": store.conversationModels[tab.id]?.draft.text = argument
 
-            case "attach": store.conversationModels[tab.id]?.draft.files.append(URL(fileURLWithPath: argument))
+            case "attach": store.conversationModels[tab.id]?.append([URL(fileURLWithPath: argument)])
+
+            case "remove": store.conversationModels[tab.id]?.remove(URL(fileURLWithPath: argument))
 
             case "send": await store.conversationModels[tab.id]?.send()
 
@@ -150,6 +187,8 @@ extension Snapshot {
             case "drop": store.fakeLiveSessions = []
 
             case "snap": save(".\(argument).png")
+
+            case "preview": if let data = store.conversationModels[tab.id]?.turns.lazy.compactMap({ $0.prompt?.images?.first }).first { ConversationImagePreview.shared.show(data) }
 
             case "log": log()
 
@@ -189,6 +228,12 @@ extension Snapshot {
         while Date.now < deadline, store.conversationModels[tab.id]?.turns.isEmpty ?? true { try? await Task.sleep(for: .milliseconds(100)) }
         try? await Task.sleep(for: .seconds(2))
         surface("in conversation")
+        if UserDefaults.standard.bool(forKey: "snapshotPerf") {
+            await measurePerformance(window: window, store: store)
+            ProcessAncestry.hangUpDescendants()
+            print("conversation performance complete")
+            exit(0)
+        }
         if let model = store.conversationModels[tab.id] {
             print("conversation shows \(model.entryCount) entries in \(model.turns.count) turns, \(model.tasks.count) running tasks, queued \(model.queued.count), context \(model.context.map { "\($0.model) \($0.tokens ?? 0) tokens" } ?? "none")")
             for turn in model.turns {

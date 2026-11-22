@@ -38,7 +38,7 @@ struct UsageWindowRow: View {
                 .foregroundStyle(theme.secondary)
                 .frame(width: 52, alignment: .leading)
             UsageTrack(window: window, now: now)
-            Text(window.used, format: .wholePercent)
+            Text("\(window.usedPercent)%")
                 .monospacedDigit()
                 .foregroundStyle(UsageTrack.aheadTint(window, now: now, theme: theme) ?? theme.secondary)
                 .frame(width: 34, alignment: .trailing)
@@ -57,11 +57,14 @@ struct UsageTrack: View {
     let window: UsageWindow
     let now: Date
 
-    @AppStorage("showsUsageDivisions") private var showsDivisions = false
+    @AppStorage("showsSessionUsageDivisions") private var showsSessionDivisions = false
+    @AppStorage("showsWeeklyUsageDivisions") private var showsWeeklyDivisions = false
     @State private var width = 0.0
 
+    private var isWeekly: Bool { window.length >= 2 * 86_400 }
+
     private var divisions: Int {
-        Int((window.length / (window.length >= 2 * 86_400 ? 86_400 : 3600)).rounded())
+        Int((window.length / (isWeekly ? 86_400 : 3600)).rounded())
     }
 
     static func aheadTint(_ window: UsageWindow, now: Date, theme: GhosttyTheme) -> Color? {
@@ -86,7 +89,7 @@ struct UsageTrack: View {
         ZStack(alignment: .leading) {
             ZStack(alignment: .leading) {
                 Color(theme.foreground.opacity(0.14))
-                if showsDivisions, divisions > 1 {
+                if isWeekly ? showsWeeklyDivisions : showsSessionDivisions, divisions > 1 {
                     ForEach(1..<divisions, id: \.self) { slot in
                         Rectangle()
                             .fill(theme.foreground.opacity(0.18))

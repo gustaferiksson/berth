@@ -1,5 +1,6 @@
 import AppKit
 import BerthCore
+import QuickLookUI
 import SwiftUI
 
 let elapsedFormat = Duration.UnitsFormatStyle.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2)
@@ -53,12 +54,23 @@ struct ConversationPrompt: View {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
                         if let image = NSImage(data: data) {
-                            Image(nsImage: image)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 120, height: 80)
-                                .clipShape(.rect(cornerRadius: 8))
-                                .accessibilityLabel("Image \(index + 1)")
+                            Button { ConversationImagePreview.shared.show(data) } label: {
+                                Image(nsImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 120, height: 80)
+                                    .clipShape(.rect(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Image \(index + 1)")
+                            .accessibilityHint("Opens a preview")
+                            .contextMenu {
+                                Button("Copy Image") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.writeObjects([image])
+                                }
+                                Button("Save Image…") { ConversationImagePreview.save(data) }
+                            }
                         }
                     }
                 }
@@ -68,6 +80,7 @@ struct ConversationPrompt: View {
                     .foregroundStyle(theme.secondary)
                     .accessibilityHidden(true)
                 Text(verbatim: entry.text)
+                    .foregroundStyle(theme.foreground)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
@@ -78,7 +91,7 @@ struct ConversationPrompt: View {
             }
         }
         .font(theme.conversationFont())
-        .lineSpacing(3)
+        .lineSpacing(2)
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background(theme.foreground.opacity(0.07), in: .rect(cornerRadius: 10))
@@ -87,11 +100,53 @@ struct ConversationPrompt: View {
     }
 }
 
+@MainActor
+final class ConversationImagePreview: NSObject, QLPreviewPanelDataSource {
+    static let shared = ConversationImagePreview()
+
+    private var url: URL?
+
+    static func png(_ data: Data) -> Data {
+        NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]) ?? data
+    }
+
+    static func save(_ data: Data) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = "Image.png"
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        try? png(data).write(to: destination)
+    }
+
+    func show(_ data: Data) {
+        let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appending(path: "ConversationImages", directoryHint: .isDirectory)
+        let file = folder.appending(path: "\(UUID().uuidString).png")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        guard (try? Self.png(data).write(to: file)) != nil else { return }
+
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "snapshotConversation") { return print("snapshot quickLook \(file.path) \(Self.png(data).count) bytes") }
+        #endif
+        url = file
+        guard let panel = QLPreviewPanel.shared() else { return }
+
+        panel.dataSource = self
+        panel.reloadData()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    nonisolated func numberOfPreviewItems(in _: QLPreviewPanel?) -> Int { 1 }
+
+    nonisolated func previewPanel(_: QLPreviewPanel?, previewItemAt _: Int) -> (any QLPreviewItem)? {
+        MainActor.assumeIsolated { url as NSURL? }
+    }
+}
+
 struct ConversationReply: View {
     let text: String
 
     @Environment(\.ghosttyTheme) private var theme
-    @State private var isHovered = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -103,15 +158,6 @@ struct ConversationReply: View {
             ConversationMarkdown(text: text)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .overlay(alignment: .topTrailing) {
-            Button("Copy", systemImage: "doc.on.doc") { copyToPasteboard(text) }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .foregroundStyle(theme.secondary)
-                .help("Copy as Markdown")
-                .opacity(isHovered ? 1 : 0)
-        }
-        .onHover { isHovered = $0 }
         .contextMenu {
             Button("Copy") { copyToPasteboard(String(MarkdownBlock.inline(text).characters)) }
             Button("Copy as Markdown") { copyToPasteboard(text) }
@@ -122,82 +168,130 @@ struct ConversationReply: View {
 struct ConversationMarkdown: View {
     let text: String
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(MarkdownBlock.blocks(in: text).enumerated(), id: \.offset) { _, block in
-                ConversationMarkdownBlock(block: block)
-            }
-        }
-        .textSelection(.enabled)
-    }
-}
-
-private struct ConversationMarkdownBlock: View {
-    let block: MarkdownBlock
-
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let text = Text(styled(block.lines.joined(separator: "\n")))
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(ConversationMarkdownCache.segments(text: text, theme: theme).enumerated(), id: \.offset) { _, segment in
+                switch segment {
+                case let .code(text, language):
+                    ConversationCodeBlock(text: text, language: language)
 
-        Group {
-            switch block.kind {
-            case .paragraph:
-                text
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                case let .table(rows):
+                    ConversationTable(rows: rows)
+                        .font(theme.conversationFont())
 
-            case let .heading(level):
-                text
-                    .font(theme.conversationFont(level == 1 ? 4 : level == 2 ? 2 : 1).bold())
-                    .padding(.top, 6)
-
-            case let .item(marker, depth):
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(marker)
-                        .foregroundStyle(theme.secondary)
-                        .monospacedDigit()
-                    text
+                case let .prose(attributed):
+                    Text(attributed)
+                        .font(theme.conversationFont())
+                        .foregroundStyle(theme.foreground)
+                        .lineSpacing(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
                 }
-                .padding(.leading, CGFloat(depth) * 18 + 4)
-
-            case let .code(language):
-                ConversationCodeBlock(text: block.lines.joined(separator: "\n"), language: language)
-
-            case .table:
-                ConversationTable(lines: block.lines)
             }
         }
-        .font(theme.conversationFont())
-        .lineSpacing(3)
+    }
+}
+
+@MainActor
+private enum ConversationMarkdownCache {
+    enum Segment {
+        case prose(AttributedString)
+        case code(text: String, language: String)
+        case table(rows: [[AttributedString]])
     }
 
-    private func styled(_ source: String) -> AttributedString {
-        var attributed = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
+    private struct Key: Hashable {
+        let text: String
+        let foreground: Color
+        let secondary: Color
+        let unread: Color
+        let font: NSFont
+    }
+
+    private static var cached: [Key: [Segment]] = [:]
+
+    static func segments(text: String, theme: GhosttyTheme) -> [Segment] {
+        let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, font: theme.font)
+        if let segments = cached[key] { return segments }
+
+        var blocks: [[MarkdownBlock]] = []
+        for block in MarkdownBlock.blocks(in: text) {
+            if block.isProse, blocks.last?.last?.isProse == true {
+                blocks[blocks.count - 1].append(block)
+            } else {
+                blocks.append([block])
+            }
+        }
+        let segments: [Segment] = blocks.map { blocks in
+            if case let .code(language) = blocks[0].kind {
+                return .code(text: blocks[0].lines.joined(separator: "\n"), language: language)
+            }
+            if blocks[0].kind == .table {
+                let rows = blocks[0].lines
+                    .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "|")).components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) } }
+                    .filter { row in !row.allSatisfy { $0.allSatisfy { "-: ".contains($0) } } }
+                    .map { $0.map { MarkdownBlock.inline($0) } }
+                return .table(rows: rows)
+            }
+            return .prose(prose(blocks, theme: theme))
+        }
+        if cached.count >= 256 { cached.removeAll(keepingCapacity: true) }
+        cached[key] = segments
+        return segments
+    }
+
+    private static func prose(_ blocks: [MarkdownBlock], theme: GhosttyTheme) -> AttributedString {
+        var result = AttributedString()
+        for (index, block) in blocks.enumerated() {
+            if index > 0 {
+                var gap = AttributedString("\n")
+                gap.font = .system(size: 4)
+                result += AttributedString("\n")
+                if case .item = block.kind, case .item = blocks[index - 1].kind {} else { result += gap }
+            }
+            result += styled(block, theme: theme)
+        }
+        return result
+    }
+
+    private static func styled(_ block: MarkdownBlock, theme: GhosttyTheme) -> AttributedString {
+        var attributed = (try? AttributedString(markdown: block.lines.joined(separator: "\n"), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(block.lines.joined(separator: "\n"))
         for run in attributed.runs {
             if run.inlinePresentationIntent?.contains(.code) == true { attributed[run.range].backgroundColor = theme.foreground.opacity(0.1) }
             if run.link != nil { attributed[run.range].foregroundColor = theme.unread }
         }
-        return attributed
+        if case let .heading(level) = block.kind {
+            attributed.font = theme.conversationFont(level == 1 ? 4 : level == 2 ? 2 : 1).bold()
+        }
+        guard case let .item(marker, depth) = block.kind else { return attributed }
+
+        var prefix = AttributedString(String(repeating: " ", count: depth * 2) + marker + " ")
+        prefix.foregroundColor = theme.secondary
+        return prefix + attributed
+    }
+}
+
+private extension MarkdownBlock {
+    var isProse: Bool {
+        if case .code = kind { return false }
+        return kind != .table
     }
 }
 
 private struct ConversationTable: View {
-    let lines: [String]
+    let rows: [[AttributedString]]
 
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let rows = lines
-            .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "|")).components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) } }
-            .filter { row in !row.allSatisfy { $0.allSatisfy { "-: ".contains($0) } } }
-
         ScrollView(.horizontal) {
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 6) {
                 ForEach(rows.enumerated(), id: \.offset) { index, row in
                     GridRow {
                         ForEach(row.enumerated(), id: \.offset) { _, cell in
-                            Text(MarkdownBlock.inline(cell))
+                            Text(cell)
                                 .bold(index == 0)
                         }
                     }
@@ -277,19 +371,18 @@ enum ConversationToolState {
 
 struct ConversationToolRow: View {
     let call: ToolCall
+    let details: ToolCallDetails
     let state: ConversationToolState
 
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.conversationFolder) private var folder
     @State private var isExpanded = conversationExpandsAll
-    @State private var isHovered = false
 
     var body: some View {
-        let summary = call.resultSummary
+        let summary = details.summary
         let isError = summary?.isError == true
-        let arguments = call.arguments.replacing("\(folder)/", with: "")
-        let diff = diffRows
+        let arguments = details.arguments.replacing("\(folder)/", with: "")
+        let diff = details.diff
         let output = call.result?.text ?? ""
         let hasDetail = !output.isEmpty || call.use.command?.contains("\n") == true
 
@@ -297,21 +390,7 @@ struct ConversationToolRow: View {
             Button {
                 withAnimation(.smooth(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    marker(isError: isError)
-                    Text("\(Text(verbatim: call.displayName).bold())\(Text(verbatim: arguments.isEmpty ? "" : "(\(arguments))").foregroundStyle(theme.secondary))")
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 8)
-                    if hasDetail, isHovered || isExpanded {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(theme.secondary)
-                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                            .accessibilityHidden(true)
-                    }
-                }
-                .contentShape(.rect)
+                ConversationToolHeader(title: call.displayName, arguments: arguments, state: state, isError: isError, hasDetail: hasDetail, isExpanded: isExpanded)
             }
             .buttonStyle(.plain)
             .disabled(!hasDetail)
@@ -332,40 +411,10 @@ struct ConversationToolRow: View {
             }
         }
         .font(theme.conversationFont())
-        .onHover { isHovered = $0 }
         .contextMenu {
             if let command = call.use.command { Button("Copy Command") { copyToPasteboard(command) } }
             if let path = call.use.filePath { Button("Copy Path") { copyToPasteboard(path) } }
             if let result = call.result, !result.text.isEmpty { Button("Copy Output") { copyToPasteboard(result.text) } }
-        }
-    }
-
-    private var diffRows: [ToolDiffRow] {
-        guard call.result?.isError == false else { return [] }
-
-        if call.use.name == "Edit", let old = call.use.oldText, let new = call.use.newText { return ToolDiff.rows(old: old, new: new) }
-        if call.use.name == "Write", let content = call.use.newText { return ToolDiff.rows(old: "", new: content) }
-        return []
-    }
-
-    @ViewBuilder
-    private func marker(isError: Bool) -> some View {
-        let color = isError ? theme.closed : state == .waiting ? theme.needsYou : theme.working
-        if state == .running, !reduceMotion {
-            TimelineView(.periodic(from: .now, by: 0.6)) { context in
-                Text(verbatim: "●")
-                    .opacity(Int(context.date.timeIntervalSinceReferenceDate / 0.6).isMultiple(of: 2) ? 1 : 0.35)
-            }
-            .font(theme.conversationFont(-3))
-            .foregroundStyle(color)
-            .frame(width: markerWidth - 8, alignment: .leading)
-            .accessibilityLabel("Running")
-        } else {
-            Text(verbatim: "●")
-                .font(theme.conversationFont(-3))
-                .foregroundStyle(state == .finished && !isError ? theme.working : color)
-                .frame(width: markerWidth - 8, alignment: .leading)
-                .accessibilityLabel(isError ? "Failed" : state == .waiting ? "Waiting" : "Done")
         }
     }
 
@@ -396,6 +445,59 @@ struct ConversationToolRow: View {
                 }
             }
             .padding(.leading, 0)
+        }
+    }
+}
+
+private struct ConversationToolHeader: View {
+    let title: String
+    let arguments: String
+    let state: ConversationToolState
+    let isError: Bool
+    let hasDetail: Bool
+    let isExpanded: Bool
+
+    @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            marker(isError: isError)
+            Text("\(Text(verbatim: title).bold())\(Text(verbatim: arguments.isEmpty ? "" : "(\(arguments))").foregroundStyle(theme.secondary))")
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 8)
+            if hasDetail, isHovered || isExpanded {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(theme.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .accessibilityHidden(true)
+            }
+        }
+        .contentShape(.rect)
+        .onHover { isHovered = $0 }
+    }
+
+    @ViewBuilder
+    private func marker(isError: Bool) -> some View {
+        let color = isError ? theme.closed : state == .waiting ? theme.needsYou : theme.working
+        if state == .running, !reduceMotion {
+            TimelineView(.periodic(from: .now, by: 0.6)) { context in
+                Text(verbatim: "●")
+                    .opacity(Int(context.date.timeIntervalSinceReferenceDate / 0.6).isMultiple(of: 2) ? 1 : 0.35)
+            }
+            .font(theme.conversationFont(-3))
+            .foregroundStyle(color)
+            .frame(width: markerWidth - 8, alignment: .leading)
+            .accessibilityLabel("Running")
+        } else {
+            Text(verbatim: "●")
+                .font(theme.conversationFont(-3))
+                .foregroundStyle(state == .finished && !isError ? theme.working : color)
+                .frame(width: markerWidth - 8, alignment: .leading)
+                .accessibilityLabel(isError ? "Failed" : state == .waiting ? "Waiting" : "Done")
         }
     }
 }
@@ -480,8 +582,7 @@ struct ConversationTaskRow: View {
             }
             Spacer(minLength: 0)
             if isRunning, !reduceMotion {
-                ProgressView()
-                    .controlSize(.small)
+                ConversationSpinner()
             }
         }
         .padding(10)
@@ -504,5 +605,18 @@ struct ConversationTaskRow: View {
             Text(verbatim: parts.joined(separator: " · "))
                 .monospacedDigit()
         }
+    }
+}
+
+struct ConversationSpinner: View {
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            Circle()
+                .trim(from: 0, to: 0.75)
+                .stroke(.foreground, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * 360))
+        }
+        .frame(width: 14, height: 14)
+        .accessibilityLabel("Loading")
     }
 }

@@ -183,7 +183,15 @@ enum Snapshot {
     }()
 
     static let fixtureTasks = taskFixtures?.tasks
-    static let fixtureSessions = triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
+    private static let sessionTerminalFixtures: [SessionSummary]? = {
+        guard UserDefaults.standard.bool(forKey: "snapshotSessionTerminals") else { return nil }
+
+        let folder = NSTemporaryDirectory() + "berth-session-terminals"
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        return [SessionSummary(id: "fixture-session-terminals", cwd: folder, title: "Work on session terminals", lastActivity: .now)]
+    }()
+
+    static let fixtureSessions = triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
     private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
     static let fixtureRepositories = inboxFixtures?.repositories ?? taskFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
     private static let fixtureChecks = (UserDefaults.standard.string(forKey: "snapshotChecks") ?? "").split(separator: "|", omittingEmptySubsequences: false).map { PullRequestChecks.State(rawValue: String($0)) }
@@ -277,6 +285,15 @@ enum Snapshot {
             try? FileManager.default.removeItem(atPath: NSTemporaryDirectory() + "berth-shell-starts")
             store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
             store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path, command: "/bin/zsh -c 'printf \"\\033]2;npm run dev\\007\"; echo VITE ready; echo started >> \(NSTemporaryDirectory())berth-shell-starts; sleep 600'")
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotSessionTerminals"), let session = Self.fixtureSessions?.first {
+            let parent = UUID()
+            store.openShell(cwd: session.cwd, id: parent)
+            store.tabs = store.tabs.map { $0.id == parent ? Tab(id: parent, kind: .claude, cwd: session.cwd, sessionID: session.id, terminal: $0.terminal) : $0 }
+            store.openShell(cwd: session.cwd, parent: parent)
+            store.openShell(cwd: session.cwd, parent: parent)
+            store.openShell(cwd: session.cwd)
+            store.activate(.tab(parent))
         }
         if UserDefaults.standard.bool(forKey: "snapshotClaudeTab") {
             store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)

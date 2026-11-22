@@ -34,6 +34,7 @@ struct ContentView: View {
                 ReviewPanel()
                     .glassSidebarTint(store.theme)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
+                    .toolbar { ChangesToolbar(store: store, isReviewEnabled: isReviewEnabled) }
                     .navigationSplitViewColumnWidth(min: 220, ideal: 272, max: 440)
             } else {
                 Sidebar()
@@ -63,21 +64,6 @@ struct ContentView: View {
                     }
                 }
                 .animation(.default, value: store.updater.pendingRestart?.deadline)
-                .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsPanel }, set: setInspector)) {
-                    if isTrailing {
-                        Sidebar()
-                            .listStyle(.sidebar)
-                            .glassSidebarTint(store.theme)
-                            .background(ScrollPocketSeparatorRemover())
-                            .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs, $0 >= 220 { trailingSidebarWidth = $0 } }
-                            .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
-                    } else {
-                        ReviewPanel()
-                            .glassSidebarTint(store.theme)
-                            .background(ScrollPocketSeparatorRemover())
-                            .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
-                    }
-                }
                 .background(store.theme.chrome ?? .clear)
                 .background {
                     if let selected, !store.isHarborShown {
@@ -103,26 +89,32 @@ struct ContentView: View {
                     if reviewRequests > 0 {
                         ToolbarSpacer(.fixed, placement: .automatic)
                     }
-                    ToolbarItem(placement: .automatic) {
-                        Button(AppAction.switchTerminal.title, systemImage: AppAction.switchTerminal.symbol) {
-                            AppAction.switchTerminal.perform(on: store)
-                        }
-                        .help("Switch between terminal and Claude (⌘J)")
-                    }
                     SessionToolbar(store: store, isReviewEnabled: isReviewEnabled)
                     if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
                         ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
-                    if isTrailing {
+                    if isTrailing, !showsSessions {
                         if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
-                        ToolbarItem(placement: .primaryAction) {
-                            Button(showsSessions ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right") {
-                                setSessions(showsSessions ? .detailOnly : .all)
-                            }
-                            .help(showsSessions ? "Hide Sidebar" : "Show Sidebar")
-                        }
+                        ToolbarItem(placement: .primaryAction) { sessionsToggle }
                     }
                 }
+        }
+        .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsPanel }, set: setInspector)) {
+            if isTrailing {
+                Sidebar()
+                    .listStyle(.sidebar)
+                    .glassSidebarTint(store.theme)
+                    .background(ScrollPocketSeparatorRemover())
+                    .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs, $0 >= 220 { trailingSidebarWidth = $0 } }
+                    .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
+                    .toolbar { ToolbarItem(placement: .primaryAction) { sessionsToggle } }
+            } else {
+                ReviewPanel()
+                    .glassSidebarTint(store.theme)
+                    .background(ScrollPocketSeparatorRemover())
+                    .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
+                    .toolbar { ChangesToolbar(store: store, isReviewEnabled: isReviewEnabled) }
+            }
         }
         .containerBackground(store.theme.chrome ?? .clear, for: .window)
         .environment(\.ghosttyTheme, store.theme)
@@ -229,6 +221,13 @@ extension ContentView {
 
         if columnVisibility == .automatic { columnVisibility = .all }
         sidebarYieldsToDiff = true
+    }
+
+    private var sessionsToggle: some View {
+        Button(showsSessions ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right") {
+            setSessions(showsSessions ? .detailOnly : .all)
+        }
+        .help(showsSessions ? "Hide Sidebar" : "Show Sidebar")
     }
 
     private func panelToggle(symbol: String) -> some View {

@@ -52,7 +52,7 @@ struct ConversationView: View {
             }
             .overlay {
                 ConversationDropTarget(isTargeted: $isDropTargeted) { files in
-                    model.draft.files += files.filter { !model.draft.files.contains($0) }
+                    model.append(files)
                     composerFocus += 1
                 }
                 .overlay {
@@ -70,7 +70,7 @@ struct ConversationView: View {
 
     private func transcript(isWorking: Bool, waitingFor: String??, since: Date?) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            LazyVStack(alignment: .leading, spacing: 28) {
                 if model.turns.isEmpty {
                     emptyState
                 }
@@ -83,6 +83,7 @@ struct ConversationView: View {
                         waitingFor: isCurrent ? waitingFor : nil,
                         since: since,
                         tasks: model.tasks,
+                        details: model.details,
                         reviewChanges: isReviewEnabled ? { AppAction.showChanges.perform(on: store) } : nil
                     )
                 }
@@ -95,7 +96,7 @@ struct ConversationView: View {
             .frame(maxWidth: .infinity)
         }
         .contentMargins(.top, 24, for: .scrollContent)
-        .contentMargins(.bottom, 24, for: .scrollContent)
+        .contentMargins(.bottom, model.tasks.isEmpty ? 24 : 66, for: .scrollContent)
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
@@ -148,8 +149,7 @@ struct ConversationView: View {
             if model.hasLoaded {
                 ContentUnavailableView("No Messages Yet", systemImage: "text.bubble", description: Text("The conversation appears here once this session has a prompt."))
             } else {
-                ProgressView()
-                    .controlSize(.small)
+                ConversationSpinner()
                     .frame(maxWidth: .infinity)
             }
         }
@@ -172,7 +172,7 @@ struct ConversationView: View {
     }
 
     private func scrollToLatest() -> KeyPress.Result {
-        withAnimation(.smooth) { position.scrollTo(edge: .bottom) }
+        withAnimation(.easeOut(duration: 0.15)) { position.scrollTo(edge: .bottom) }
         isAtBottom = true
         return .handled
     }
@@ -190,6 +190,7 @@ private struct ConversationTurnView: View {
     let waitingFor: String??
     let since: Date?
     let tasks: [RemoteTask]
+    let details: [String: ToolCallDetails]
     let reviewChanges: (() -> Void)?
 
     @Environment(\.ghosttyTheme) private var theme
@@ -206,10 +207,10 @@ private struct ConversationTurnView: View {
             ForEach(turn.parts.enumerated(), id: \.element.id) { index, part in
                 if case let .work(calls) = part, !turn.isInterrupted, isFinished || index < lastIndex {
                     ConversationFold(label: isFinished && workCount == 1 ? turn.duration.map { "Worked for \($0.formatted(elapsedFormat))" } ?? "Worked" : ToolCall.summary(of: calls)) {
-                        ConversationPartView(part: part, tasks: tasks, openCall: nil, isWaiting: false)
+                        ConversationPartView(part: part, tasks: tasks, details: details, openCall: nil, isWaiting: false)
                     }
                 } else {
-                    ConversationPartView(part: part, tasks: tasks, openCall: isFinished ? nil : turn.openCall, isWaiting: waitingFor != nil)
+                    ConversationPartView(part: part, tasks: tasks, details: details, openCall: isFinished ? nil : turn.openCall, isWaiting: waitingFor != nil)
                 }
             }
             if isFinished, !turn.isInterrupted, let changes = turn.fileChanges {
@@ -232,8 +233,7 @@ private struct ConversationTurnView: View {
                 Image(systemName: "hourglass")
                     .accessibilityHidden(true)
             } else {
-                ProgressView()
-                    .controlSize(.small)
+                ConversationSpinner()
             }
             Text("Working")
             if let since {
@@ -273,6 +273,7 @@ private struct ConversationTurnView: View {
 private struct ConversationPartView: View {
     let part: TurnPart
     let tasks: [RemoteTask]
+    let details: [String: ToolCallDetails]
     let openCall: ToolCall?
     let isWaiting: Bool
 
@@ -284,7 +285,7 @@ private struct ConversationPartView: View {
         case let .work(calls):
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(calls) { call in
-                    ConversationToolRow(call: call, state: call.id == openCall?.id ? (isWaiting ? .waiting : .running) : .finished)
+                    ConversationToolRow(call: call, details: details[call.id] ?? call.details, state: call.id == openCall?.id ? (isWaiting ? .waiting : .running) : .finished)
                 }
             }
 
@@ -305,32 +306,15 @@ private struct ConversationFold<Content: View>: View {
 
     @Environment(\.ghosttyTheme) private var theme
     @State private var isExpanded = conversationExpandsAll
-    @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Button {
                 withAnimation(.smooth(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                HStack(spacing: 8) {
-                    Text(verbatim: "✻")
-                        .accessibilityHidden(true)
-                    Text(label)
-                        .monospacedDigit()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .accessibilityHidden(true)
-                }
-                .font(theme.conversationFont(-1))
-                .foregroundStyle(theme.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(theme.foreground.opacity(isHovered ? 0.1 : 0.05), in: .capsule)
-                .contentShape(.capsule)
+                ConversationFoldLabel(label: label, isExpanded: isExpanded)
             }
             .buttonStyle(.plain)
-            .onHover { isHovered = $0 }
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             if isExpanded {
                 content
@@ -345,6 +329,34 @@ private struct ConversationFold<Content: View>: View {
     }
 }
 
+private struct ConversationFoldLabel: View {
+    let label: String
+    let isExpanded: Bool
+
+    @Environment(\.ghosttyTheme) private var theme
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(verbatim: "✻")
+                .accessibilityHidden(true)
+            Text(label)
+                .monospacedDigit()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .semibold))
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .accessibilityHidden(true)
+        }
+        .font(theme.conversationFont(-1))
+        .foregroundStyle(theme.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(theme.foreground.opacity(isHovered ? 0.1 : 0.05), in: .capsule)
+        .contentShape(.capsule)
+        .onHover { isHovered = $0 }
+    }
+}
+
 private struct ConversationStatusBar: View {
     let since: Date?
     let isWorking: Bool
@@ -355,70 +367,74 @@ private struct ConversationStatusBar: View {
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsTasks = conversationShowsTasks
+    private let pillTransition = AnyTransition.opacity.combined(with: .scale(scale: 0.92))
 
     var body: some View {
         let kinds = [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor].filter { kind in tasks.contains { $0.kind == kind } }
 
         GlassEffectContainer(spacing: 10) {
-            VStack(spacing: 10) {
-                if showsTasks, !tasks.isEmpty {
-                    ConversationTaskList(tasks: tasks)
-                        .transition(.blurReplace)
+            HStack(spacing: 10) {
+                if isWorking, !isAtBottom {
+                    HStack(spacing: 8) {
+                        if reduceMotion {
+                            Image(systemName: "hourglass")
+                                .accessibilityHidden(true)
+                        } else {
+                            ConversationSpinner()
+                        }
+                        Text("Working")
+                        if let since {
+                            Text(verbatim: "·")
+                            ConversationElapsed(since: since)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .glassEffect(in: .capsule)
+                    .transition(pillTransition)
                 }
-                HStack(spacing: 10) {
-                    if isWorking, !isAtBottom {
+                if !tasks.isEmpty {
+                    Button { showsTasks.toggle() } label: {
                         HStack(spacing: 8) {
-                            if reduceMotion {
-                                Image(systemName: "hourglass")
+                            ForEach(kinds, id: \.self) { kind in
+                                Image(systemName: RemoteTask(id: "", kind: kind, title: "", started: .now).symbol)
                                     .accessibilityHidden(true)
-                            } else {
-                                ProgressView()
-                                    .controlSize(.small)
                             }
-                            Text("Working")
-                            if let since {
-                                Text(verbatim: "·")
-                                ConversationElapsed(since: since)
-                            }
+                            Text(RemoteTask.summary(of: tasks))
+                            Image(systemName: "chevron.up")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(theme.secondary)
+                                .accessibilityHidden(true)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .glassEffect(in: .capsule)
+                        .contentShape(.capsule)
                     }
-                    if !tasks.isEmpty {
-                        Button { showsTasks.toggle() } label: {
-                            HStack(spacing: 8) {
-                                ForEach(kinds, id: \.self) { kind in
-                                    Image(systemName: RemoteTask(id: "", kind: kind, title: "", started: .now).symbol)
-                                        .accessibilityHidden(true)
-                                }
-                                Text(RemoteTask.summary(of: tasks))
-                                Image(systemName: "chevron.up")
-                                    .font(.caption2.weight(.semibold))
-                                    .rotationEffect(.degrees(showsTasks ? 180 : 0))
-                                    .foregroundStyle(theme.secondary)
-                                    .accessibilityHidden(true)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .contentShape(.capsule)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                        .accessibilityValue(showsTasks ? "Expanded" : "Collapsed")
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .popover(isPresented: $showsTasks, arrowEdge: .top) { ConversationTaskList(tasks: tasks) }
+                    .accessibilityValue(showsTasks ? "Expanded" : "Collapsed")
+                }
+                if !isAtBottom {
+                    Button(action: jump) {
+                        Image(systemName: "arrow.down")
+                            .frame(width: 15, height: 15)
+                            .padding(8)
+                            .contentShape(.circle)
                     }
-                    if !isAtBottom {
-                        Button("Jump to Latest", systemImage: "arrow.down", action: jump)
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.glass)
-                            .buttonBorderShape(.circle)
-                            .help("Jump to Latest (⌘↓)")
-                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .accessibilityLabel("Jump to Latest")
+                    .help("Jump to Latest (⌘↓)")
+                    .transition(pillTransition)
                 }
             }
         }
         .font(.subheadline)
-        .animation(.smooth, value: showsTasks)
+        .animation(.easeOut(duration: 0.15), value: isAtBottom)
+        .animation(.easeOut(duration: 0.15), value: isWorking)
+        .animation(.easeOut(duration: 0.15), value: tasks.isEmpty)
+        .onChange(of: tasks.isEmpty) { if tasks.isEmpty { showsTasks = false } }
     }
 }
 
@@ -451,8 +467,7 @@ private struct ConversationTaskList: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: 420, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .frame(width: 320, alignment: .leading)
     }
 }
 
@@ -482,7 +497,6 @@ private struct ConversationBottomBar: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            ConversationStatusBar(since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
             if let approval, approval.isActionable || approval == .loading {
                 ConversationApprovalCard(
                     approval: approval,
@@ -499,9 +513,11 @@ private struct ConversationBottomBar: View {
         .frame(maxWidth: 860)
         .padding(.horizontal, 18)
         .padding(.bottom, 16)
+        .overlay(alignment: .top) {
+            ConversationStatusBar(since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
+                .alignmentGuide(.top) { $0[.bottom] + 10 }
+        }
         .frame(maxWidth: .infinity)
-        .animation(.smooth, value: isAtBottom)
-        .animation(.smooth, value: model.tasks.count)
         .animation(.smooth, value: isActive)
         .animation(.smooth, value: approval)
     }
