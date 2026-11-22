@@ -26,6 +26,7 @@ struct Tab: Identifiable {
 extension Tab {
     func title(terminalTitle: String, sessionTitle: String?) -> String {
         if let sessionTitle { return sessionTitle }
+        let terminalTitle = agent.harness.isStatusTitle(terminalTitle) ? "" : terminalTitle
         if kind == .claude { return terminalTitle.isEmpty ? "New \(agent.name) Session" : terminalTitle }
         let isPath = terminalTitle.isEmpty || terminalTitle.hasPrefix("/") || terminalTitle.hasPrefix("~")
         return isPath ? URL(filePath: folder).lastPathComponent : terminalTitle
@@ -302,6 +303,7 @@ final class Store {
     @ObservationIgnored private var inboxFetchedAt = Date.distantPast
     @ObservationIgnored private var planUsageFetchedAt = Date.distantPast
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
+    @ObservationIgnored private var tabSignalPolling: Task<Void, Never>?
     @ObservationIgnored private var waitingSessionIDs: Set<String>?
     @ObservationIgnored private var tabTouches: [Tab.ID: Date] = [:]
     @ObservationIgnored private var restoredTabIDs: Set<Tab.ID> = []
@@ -340,6 +342,14 @@ final class Store {
                 self?.refreshInbox()
                 self?.unloadIdleTabs()
                 await self?.refreshPlanUsage()
+            }
+        }
+        tabSignalPolling?.cancel()
+        tabSignalPolling = Task { [weak self] in
+            while await (try? Task.sleep(for: .seconds(2))) != nil, !Task.isCancelled, let self {
+                if tabs.contains(where: { $0.agent.harness.liveSource == .tabSignals && $0.sessionID != nil }) {
+                    refreshLive()
+                }
             }
         }
         applyCodexSetting()
@@ -646,6 +656,13 @@ final class Store {
         }
     }
 
+    private func agentDirectory(for agent: Agent) -> URL {
+        switch agent {
+        case .claude: Self.claudeDirectory
+        case .codex: Self.codexDirectory
+        }
+    }
+
     func refresh() {
         #if DEBUG
         let fakeContexts = fakeContexts
@@ -740,7 +757,17 @@ final class Store {
     }
 
     func refreshLive() {
-        let live = fakeLive + LiveSession.load(from: Self.claudeDirectory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
+        let live = fakeLive + Harness.all.flatMap { harness -> [LiveSession] in
+            guard !harness.isOptIn || isCodexEnabled else { return [] }
+
+            let openTabs: [LiveProbe.Tab] = harness.liveSource == .tabSignals ? tabs.compactMap { tab in
+                guard tab.agent == harness.agent, let sessionID = tab.sessionID else { return nil }
+
+                let transcript = sessionIndex(for: tab.agent).url(ofSession: sessionID)
+                return LiveProbe.Tab(sessionID: sessionID, cwd: tab.cwd, terminalTitle: tab.terminal.title, opened: tab.opened, transcript: transcript)
+            } : []
+            return harness.readLive(LiveProbe(directory: agentDirectory(for: harness.agent), tabs: openTabs))
+        }
         let byID = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
         if byID != liveBySession {
             liveBySession = byID
@@ -751,12 +778,13 @@ final class Store {
         // Claude reports `shell` only while idle; a turn shows `busy`, so keep the mark until it reports plain idle.
         let shells = Set(liveBySession.values.filter { $0.activity == .shell || $0.activity != .idle && backgroundShellIDs.contains($0.sessionId) }.map(\.sessionId))
         if shells != backgroundShellIDs { backgroundShellIDs = shells }
-        let processes = Dictionary(liveBySession.values.compactMap { session in ProcessAncestry.facts(of: session.pid).map { (session.pid, $0) } }) { first, _ in first }
-        let orphans = OrphanedSessions.ids(live: Array(liveBySession.values), processes: processes)
+        let processSessions = liveBySession.values.filter { $0.pid > 0 }
+        let processes = Dictionary(processSessions.compactMap { session in ProcessAncestry.facts(of: session.pid).map { (session.pid, $0) } }) { first, _ in first }
+        let orphans = OrphanedSessions.ids(live: processSessions, processes: processes)
         if orphans != orphanedSessionIDs { orphanedSessionIDs = orphans }
         turnStarts.update(live: liveBySession, sessions: sessionsByID)
         let claimed = Set(tabs.compactMap(\.sessionID))
-        for session in live where !claimed.contains(session.sessionId) {
+        for session in live where session.pid > 0 && !claimed.contains(session.sessionId) {
             guard let position = tabs.firstIndex(where: { tab in
                 tab.kind == .claude && tab.agent.harness.liveSource == .sessionFiles && tab.cwd == session.cwd && tab.sessionID.map { liveBySession[$0] == nil } ?? true
                     && session.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) >= tab.opened } ?? false
@@ -867,7 +895,7 @@ final class Store {
     }
 
     func isLockedElsewhere(_ live: LiveSession?) -> Bool {
-        live.map { $0.attachID == nil && !orphanedSessionIDs.contains($0.sessionId) } ?? false
+        live.map { $0.pid > 0 && $0.attachID == nil && !orphanedSessionIDs.contains($0.sessionId) } ?? false
     }
 
     private func resumeFolder(of session: SessionSummary) -> String {
@@ -1525,7 +1553,7 @@ final class Store {
         let processes = ProcessAncestry.descendants()
         let sessionID = tabs.first { $0.id == id }?.sessionID
         if !isTerminating, tabs.first(where: { $0.id == id })?.isHosted == true { hangUpHost(of: id) }
-        if let pid = sessionID.flatMap({ liveBySession[$0]?.pid }), ProcessAncestry.isDescendant(pid, of: getpid()) {
+        if let pid = sessionID.flatMap({ liveBySession[$0]?.pid }), pid > 0, ProcessAncestry.isDescendant(pid, of: getpid()) {
             for signal in [SIGHUP, SIGTERM] { kill(pid, signal) }
         }
         Task {

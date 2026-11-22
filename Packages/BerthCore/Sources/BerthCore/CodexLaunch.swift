@@ -5,7 +5,8 @@ public enum CodexLaunch {
 
     public static func command(_ start: Start) -> String {
         let resumes = start == .resume || start == .attach
-        return "/bin/zsh -ilc 'codex\(resumes ? " resume \"$\(ClaudeLaunch.sessionVariable)\"" : "") || exec /bin/zsh -il'"
+        let resume = resumes ? " resume \"$\(ClaudeLaunch.sessionVariable)\"" : ""
+        return #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]"\#(resume) || exec /bin/zsh -il'"#
     }
 
     public static func claim(for opened: Date, cwd: String, in sessions: [SessionSummary], excluding claimed: Set<String>) -> SessionSummary? {

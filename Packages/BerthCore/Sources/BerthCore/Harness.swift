@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public enum Capability: String, CaseIterable, Sendable {
@@ -8,9 +9,35 @@ public enum LaunchStart: Sendable {
     case new, newInWorktree, resume, attach
 }
 
+public struct LiveProbe: Sendable {
+    public struct Tab: Sendable {
+        public let sessionID: String
+        public let cwd: String
+        public let terminalTitle: String
+        public let opened: Date
+        public let transcript: URL?
+
+        public init(sessionID: String, cwd: String, terminalTitle: String, opened: Date, transcript: URL?) {
+            self.sessionID = sessionID
+            self.cwd = cwd
+            self.terminalTitle = terminalTitle
+            self.opened = opened
+            self.transcript = transcript
+        }
+    }
+
+    public let directory: URL
+    public let tabs: [Tab]
+
+    public init(directory: URL, tabs: [Tab]) {
+        self.directory = directory
+        self.tabs = tabs
+    }
+}
+
 public struct Harness: Sendable {
     public enum LiveSource: Sendable {
-        case sessionFiles, notTracked
+        case sessionFiles, tabSignals
     }
 
     public typealias Claim = @Sendable (_ opened: Date, _ cwd: String, _ sessions: [SessionSummary], _ claimed: Set<String>) -> SessionSummary?
@@ -22,6 +49,8 @@ public struct Harness: Sendable {
     public let isOptIn: Bool
     public let capabilities: Set<Capability>
     public let liveSource: LiveSource
+    public let readLive: @Sendable (LiveProbe) -> [LiveSession]
+    public let isStatusTitle: @Sendable (String) -> Bool
     public let command: @Sendable (LaunchStart) -> String
     public let claim: Claim?
     public let readTranscript: ReadTranscript?
@@ -39,6 +68,10 @@ public struct Harness: Sendable {
         isOptIn: false,
         capabilities: Set(Capability.allCases),
         liveSource: .sessionFiles,
+        readLive: { probe in
+            LiveSession.load(from: probe.directory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
+        },
+        isStatusTitle: { _ in false },
         command: ClaudeLaunch.command,
         claim: nil,
         readTranscript: { TranscriptTail.read($0, after: $1, queue: $2) }
@@ -49,8 +82,10 @@ public struct Harness: Sendable {
         name: "Codex",
         glyph: "terminal",
         isOptIn: true,
-        capabilities: [.conversation, .contextSize, .pullRequestLinks],
-        liveSource: .notTracked,
+        capabilities: [.conversation, .contextSize, .pullRequestLinks, .needsYou, .idleUnload],
+        liveSource: .tabSignals,
+        readLive: CodexLive.sessions,
+        isStatusTitle: { CodexRunState(title: $0) != nil },
         command: CodexLaunch.command,
         claim: { CodexLaunch.claim(for: $0, cwd: $1, in: $2, excluding: $3) },
         readTranscript: { CodexTranscript.read($0, after: $1, queue: $2) }

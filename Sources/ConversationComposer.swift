@@ -24,7 +24,7 @@ struct ConversationComposer: View {
     var body: some View {
         let draft = model.draft
         let stops = isWorking && draft.isEmpty
-        let placeholder = model.isTurnOpen ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
+        let placeholder = model.blocksSending ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
 
         GlassEffectContainer(spacing: 8) {
             VStack(spacing: 8) {
