@@ -3,6 +3,7 @@ import Foundation
 public struct AgentLog: Sendable {
     static let chunkBytes = 4 << 20
     static let recentCalls = 20
+    static let replyCharacters = 4000
     static let summaryKeys = ["description", "command", "file_path", "pattern", "query", "url", "path", "prompt"]
     static let assistantMarker = Data(#""type":"assistant""#.utf8)
 
@@ -10,6 +11,7 @@ public struct AgentLog: Sendable {
     public private(set) var toolCount = 0
     public private(set) var tokens: Int?
     public private(set) var calls: [RemoteToolCall] = []
+    public private(set) var reply: String?
     private var seen: Set<String> = []
 
     public init() {}
@@ -56,6 +58,8 @@ public struct AgentLog: Sendable {
             let summary = Self.summaryKeys.lazy.compactMap { input[$0] as? String }.first ?? ""
             return RemoteToolCall(name: name, summary: String(summary.split(whereSeparator: \.isNewline).first ?? "").prefix(200).description, date: date)
         }
+        let text = blocks.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { reply = String(text.prefix(Self.replyCharacters)) }
         toolCount += fresh.count
         calls = Array((calls + fresh).suffix(Self.recentCalls))
         if let usage = message["usage"] as? [String: Any] {

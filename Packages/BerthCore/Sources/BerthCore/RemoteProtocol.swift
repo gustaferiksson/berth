@@ -218,10 +218,12 @@ public struct RemoteTaskDetail: Codable, Sendable, Hashable {
 
     public let output: String?
     public let calls: [RemoteToolCall]?
+    public let reply: String?
 
-    public init(output: String? = nil, calls: [RemoteToolCall]? = nil) {
+    public init(output: String? = nil, calls: [RemoteToolCall]? = nil, reply: String? = nil) {
         self.output = output
         self.calls = calls
+        self.reply = reply
     }
 }
 

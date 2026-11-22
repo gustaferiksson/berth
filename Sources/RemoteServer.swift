@@ -351,7 +351,7 @@ final class RemoteServer {
             guard log != nil else { return RemoteTaskDetail() }
 
             log?.read(transcript.deletingPathExtension().appending(path: "subagents/agent-\(taskID).jsonl"))
-            return RemoteTaskDetail(calls: log?.calls)
+            return RemoteTaskDetail(calls: log?.calls, reply: log?.reply)
         }.value
         guard let connection = clients[id]?.connection else { return }
 
