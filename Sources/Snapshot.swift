@@ -161,8 +161,29 @@ enum Snapshot {
         )
     }()
 
+    private static let triageFixtures: [SessionSummary]? = {
+        guard UserDefaults.standard.bool(forKey: "snapshotTriage") else { return nil }
+
+        let code = NSTemporaryDirectory() + "berth-triage"
+        let rows: [(id: String, folder: String, title: String, minutes: Double)] = [
+            ("triage-needs", "billing", "Fix rounding in invoice totals", 3),
+            ("triage-busy-a", "billing", "Add the usage export CSV endpoint", 5),
+            ("triage-busy-b", "web", "Polish the export modal copy", 8),
+            ("triage-unread-a", "web", "Explain the onboarding state machine", 30),
+            ("triage-unread-b", "billing", "Add pagination to the audit log", 90),
+            ("triage-idle-live", "infra", "Tidy the CI pipeline", 120),
+            ("triage-read-a", "billing", "Rename the invoice repository", 400),
+            ("triage-read-b", "web", "Upgrade the web build tooling", 1500),
+            ("triage-hour", "infra", "Review the retry backoff change", 200),
+            ("triage-wait", "infra", "Draft the migration plan", 300),
+            ("triage-tomorrow", "web", "Investigate the flaky checkout test", 600),
+            ("triage-done", "billing", "Remove the legacy importer", 700),
+        ]
+        return rows.map { SessionSummary(id: $0.id, cwd: "\(code)/\($0.folder)", title: $0.title, lastActivity: .now - $0.minutes * 60) }
+    }()
+
     static let fixtureTasks = taskFixtures?.tasks
-    static let fixtureSessions = inboxFixtures?.sessions ?? taskFixtures?.sessions ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
+    static let fixtureSessions = triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
     private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
     static let fixtureRepositories = inboxFixtures?.repositories ?? taskFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
     private static let fixtureChecks = (UserDefaults.standard.string(forKey: "snapshotChecks") ?? "").split(separator: "|", omittingEmptySubsequences: false).map { PullRequestChecks.State(rawValue: String($0)) }
@@ -323,6 +344,29 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotUnread") {
             for session in topSessions.enumerated().filter({ [1, 3].contains($0.offset) }).map(\.element) { store.markUnread(session.id) }
         }
+        if UserDefaults.standard.bool(forKey: "snapshotTriage") {
+            let live = { (id: String, status: String) in
+                try? JSONDecoder().decode(LiveSession.self, from: Data(#"{"sessionId":"\#(id)","cwd":"/","startedAt":0,"statusUpdatedAt":\#(Int((Date.now.timeIntervalSince1970 - 95) * 1000)),\#(status),"pid":1}"#.utf8))
+            }
+            store.fakeLiveSessions = [
+                live("triage-needs", #""status":"waiting","waitingFor":"permission prompt""#), live("triage-busy-a", #""status":"busy""#),
+                live("triage-busy-b", #""status":"busy""#), live("triage-idle-live", #""status":"idle""#),
+            ].compactMap(\.self)
+            store.refreshLive()
+            for id in ["triage-unread-a", "triage-unread-b"] { store.markUnread(id) }
+            store.snooze("triage-hour", .until(.now.addingTimeInterval(3600)))
+            store.snooze("triage-tomorrow", .until(SessionTriage.tomorrowMorning(after: .now)))
+            store.snooze("triage-wait", .needsYou)
+            store.archive("triage-done")
+            if UserDefaults.standard.bool(forKey: "snapshotAllDone") {
+                for session in store.activeSessions where store.snooze(of: session.id) == nil { store.archive(session.id) }
+            }
+            let layout = store.sidebarLayout
+            let title = { (id: String) in store.sessionsByID[id]?.title ?? id }
+            let groups = layout.groups.map { group in "\(group.source.title): \(group.entries.map { title($0.id) })" }
+            print("triage \(layout.showsTriage ? "on" : "off"): attention \(layout.attentionIDs.map(title)), working \(layout.workingIDs.map(title)), unread \(layout.unreadIDs.map(title)), active \(layout.active.map { $0.entries.map { title($0.id) } } ?? []), pinned \(layout.pinnedIDs.map(title)), groups \(groups), snoozed \(layout.snoozedIDs.map(title)), archived \(layout.archivedIDs.map(title)), caught up \(layout.isCaughtUp), empty \(layout.isEmpty)")
+            print("ordered tabs: \(store.sidebarOrderedTabs.count)")
+        }
         if UserDefaults.standard.bool(forKey: "snapshotPlanUsage") {
             store.planUsage = PlanUsage(windows: [
                 UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: .now.addingTimeInterval(2 * 3600)),
@@ -395,6 +439,11 @@ enum Snapshot {
             store.activate(.session(sessionID))
         }
         let reviewFolder = UserDefaults.standard.string(forKey: "snapshotReview")
+        if reviewFolder != nil, UserDefaults.standard.double(forKey: "snapshotReviewContext") > 0 {
+            store.fakeContexts["snapshot-review"] = SessionContext(model: "claude-opus-5-5", tokens: Int(UserDefaults.standard.double(forKey: "snapshotReviewContext")), window: 200_000, modelName: "Opus 5.5")
+            store.refresh()
+            await store.waitForScan()
+        }
         let createPullRequestClick = UserDefaults.standard.string(forKey: "snapshotReviewCreatePullRequest")?.split(separator: ",").compactMap { Double($0) }
         if let reviewFolder {
             store.openShell(cwd: reviewFolder, command: createPullRequestClick != nil ? UserDefaults.standard.string(forKey: "snapshotRemoteLog").map { "/usr/bin/tee -a '\($0)'" } : nil)
@@ -403,7 +452,8 @@ enum Snapshot {
                 store.refreshLive()
             }
             store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: reviewFolder, sessionID: "snapshot-review", terminal: $0.terminal) : $0 }
-            if AppAction.showChanges.isAvailable(in: store) { AppAction.showChanges.perform(on: store) }
+            if UserDefaults.standard.bool(forKey: "snapshotReviewHidePanel") { store.showsReviewPanel = false } else if AppAction.showChanges.isAvailable(in: store) { AppAction.showChanges.perform(on: store) }
+            if UserDefaults.standard.bool(forKey: "snapshotReviewConversation"), let id = store.selectedTabID { store.conversationTabIDs.insert(id) }
             if !UserDefaults.standard.bool(forKey: "snapshotReviewNoComment") { store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")] }
         }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { prepareTasksReview(store: store) }

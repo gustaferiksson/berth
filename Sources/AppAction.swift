@@ -5,13 +5,13 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, filterSidebar, newSession, pullRequests, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
+    case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
     case goBack, goForward, previousChange, nextChange
     case caret(CaretAction)
 
     static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
-        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
+        + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
     static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward, .previousChange, .nextChange]).filter { $0.shortcut != nil }
 
@@ -26,10 +26,12 @@ enum AppAction: Hashable {
         case .switchTerminal: "Switch Terminal / Claude"
         case .findInTerminal: "Find…"
         case .clearTerminal: "Clear Terminal"
-        case .archiveCurrentSession: "Archive Current Session"
+        case .archiveCurrentSession: "Mark Current Session as Done"
         case .flagCurrentSession: "Flag Current Session"
         case .unflagCurrentSession: "Unflag Current Session"
         case let .groupBy(mode): "Group By \(mode.title)"
+        case .showTriage: "Show Triage"
+        case .hideTriage: "Hide Triage"
         case .newGroup: "New Group…"
         case .collapseAllGroups: "Collapse All Groups"
         case .expandAllGroups: "Expand All Groups"
@@ -66,6 +68,8 @@ enum AppAction: Hashable {
         case .findInTerminal: "search terminal scrollback text"
         case .clearTerminal: "screen scrollback"
         case .flagCurrentSession, .unflagCurrentSession: "follow up mark"
+        case .archiveCurrentSession: "archive done finish"
+        case .showTriage, .hideTriage: "sidebar inbox needs you working unread sections"
         case .groupBy: "sidebar"
         case .showStats: "usage tokens charts activity"
         case .harbor: "ambient boats piers overview"
@@ -96,6 +100,7 @@ enum AppAction: Hashable {
         case .flagCurrentSession: "flag"
         case .unflagCurrentSession: "flag.slash"
         case .groupBy: "square.grid.3x1.below.line.grid.1x2"
+        case .showTriage, .hideTriage: "tray"
         case .newGroup: "folder.badge.plus"
         case .collapseAllGroups: "rectangle.compress.vertical"
         case .expandAllGroups: "rectangle.expand.vertical"
@@ -151,6 +156,8 @@ enum AppAction: Hashable {
         case .clearTerminal: store.focusedTerminal != nil
         case .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession: !sessionIDs(in: store).isEmpty
         case let .groupBy(mode): store.groupingMode != mode
+        case .showTriage: !store.showsTriage
+        case .hideTriage: store.showsTriage
         case .showChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && (!store.showsReviewPanel || store.isHarborShown)
         case .hideChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.showsReviewPanel && !store.isHarborShown
         case .openPreview: Self.hideChanges.isAvailable(in: store) && store.reviewModel?.isPreviewSelected == false
@@ -198,6 +205,8 @@ enum AppAction: Hashable {
         case .unflagCurrentSession: for id in sessionIDs(in: store) { store.unflag(id) }
 
         case let .groupBy(mode): store.groupingMode = mode
+
+        case .showTriage, .hideTriage: store.showsTriage = self == .showTriage
 
         case .newGroup: store.editingGroup = CustomGroup(name: "", rules: [])
 
