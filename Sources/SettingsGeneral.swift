@@ -1,3 +1,4 @@
+import BerthCore
 import SwiftUI
 
 struct GeneralSettings: View {
@@ -9,6 +10,8 @@ struct GeneralSettings: View {
     static let worktreeKey = "startsInWorktree"
     static let languageServersKey = "languageServersEnabled"
     static let codexKey = "codexEnabled"
+    static let codexModelKey = "launchModel.codex"
+    static let codexEffortKey = "launchEffort.codex"
     static let keepsSessionsRunningKey = "keepsSessionsRunning"
 
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
@@ -16,6 +19,8 @@ struct GeneralSettings: View {
     @Environment(Store.self) private var store
     @AppStorage(worktreeKey) private var startsInWorktree = false
     @AppStorage(codexKey) private var isCodexEnabled = false
+    @AppStorage(codexModelKey) private var codexModel = ""
+    @AppStorage(codexEffortKey) private var codexEffort = ""
     @AppStorage(keepsSessionsRunningKey) private var keepsSessionsRunning = false
     @AppStorage(ControlService.enabledKey) private var isControlEnabled = false
     @State private var control = ControlInstaller()
@@ -32,10 +37,25 @@ struct GeneralSettings: View {
             Section {
                 Toggle("Codex sessions", isOn: $isCodexEnabled)
                     .onChange(of: isCodexEnabled) { store.applyCodexSetting() }
+                if isCodexEnabled {
+                    let models = CodexModels.load(from: Store.codexDirectory)
+                    let efforts = models.first { $0.slug == codexModel }?.efforts ?? models.flatMap(\.efforts).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+                    Picker("Codex model", selection: $codexModel) {
+                        Text("Default").tag("")
+                        ForEach(models, id: \.slug) { Text($0.displayName).tag($0.slug) }
+                    }
+                    .onChange(of: codexModel) {
+                        if !codexEffort.isEmpty, !efforts.contains(codexEffort) { codexEffort = "" }
+                    }
+                    Picker("Reasoning effort", selection: $codexEffort) {
+                        Text("Default").tag("")
+                        ForEach(efforts, id: \.self) { Text($0.capitalized).tag($0) }
+                    }
+                }
             } header: {
                 Text("Agents")
             } footer: {
-                Text("Lists interactive Codex sessions from ~/.codex beside Claude's and resumes them in a tab. Hold ⌥⇧ in the launcher to start a new one. The Conversation view, context and pull request tags work for Codex. Status and needs-you alerts are still Claude only.")
+                Text("Lists interactive Codex sessions from ~/.codex beside Claude's and resumes them in a tab. Hold ⌥⇧ in the launcher to start a new one. The Conversation view, context, pull request tags, status and needs-you alerts work for Codex. Model and effort apply per launch to Codex sessions Berth starts or resumes. Berth never edits config.toml.")
             }
             Section {
                 Toggle("Keep sessions running when Berth quits", isOn: $keepsSessionsRunning)

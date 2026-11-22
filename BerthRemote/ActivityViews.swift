@@ -409,6 +409,7 @@ struct ContextRing: View {
 
 struct ContextSheet: View {
     let context: RemoteContext
+    let agentName: String
 
     @Environment(\.dismiss) private var dismiss
 
@@ -431,7 +432,7 @@ struct ContextSheet: View {
                     }
                     LabeledContent("Window", value: context.window?.formatted() ?? "Unknown")
                 } footer: {
-                    Text("The size of Claude’s last request, \(Text(context.date, style: .relative)) ago: system prompt, tools and conversation.")
+                    Text("The size of \(agentName)’s last request, \(Text(context.date, style: .relative)) ago: system prompt, tools and conversation.")
                 }
                 Section {
                     LabeledContent("Model", value: context.model)

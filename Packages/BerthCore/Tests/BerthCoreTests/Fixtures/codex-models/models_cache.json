@@ -1,0 +1,37 @@
+{
+  "models": [
+    {
+      "slug": "fixture-second",
+      "display_name": "Fixture Second",
+      "default_reasoning_level": "low",
+      "supported_reasoning_levels": [{"effort": "low"}],
+      "visibility": "list",
+      "priority": 20
+    },
+    null,
+    {
+      "slug": "fixture-hidden",
+      "visibility": "hide",
+      "priority": 1
+    },
+    {
+      "slug": "fixture-private"
+    },
+    {
+      "visibility": "list",
+      "priority": 2
+    },
+    {
+      "slug": "fixture-first",
+      "display_name": "Fixture First",
+      "default_reasoning_level": "medium",
+      "supported_reasoning_levels": [{"effort": "medium"}, {}, {"effort": 3}, {"effort": "high", "description": null}],
+      "visibility": "list",
+      "priority": 10
+    },
+    {
+      "slug": "fixture-sparse",
+      "visibility": "list"
+    }
+  ]
+}

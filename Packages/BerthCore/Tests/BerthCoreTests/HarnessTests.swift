@@ -5,7 +5,7 @@ import Testing
 struct HarnessTests {
     @Test func capabilitiesMatchTheAdapters() {
         #expect(Capability.allCases.allSatisfy { Harness.claude.supports($0) })
-        #expect(Harness.codex.capabilities == [.conversation, .contextSize, .pullRequestLinks, .needsYou, .idleUnload])
+        #expect(Harness.codex.capabilities == [.conversation, .contextSize, .pullRequestLinks, .needsYou, .idleUnload, .worktrees, .remote])
     }
 
     @Test func everyAgentHasItsHarness() {
@@ -17,12 +17,11 @@ struct HarnessTests {
     }
 
     @Test func launchCommandsComeFromTheDescriptor() {
-        #expect(Harness.claude.command(.resume) == ClaudeLaunch.command(.resume))
-        #expect(Harness.claude.command(.newInWorktree).contains(" -w "))
-        #expect(Harness.codex.command(.resume) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
-        #expect(Harness.codex.command(.new) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" || exec /bin/zsh -il'"#)
-        #expect(Harness.codex.command(.new) == Harness.codex.command(.newInWorktree))
-        #expect(Harness.codex.command(.resume) == Harness.codex.command(.attach))
+        let options = LaunchOptions(model: "fixture-model", effort: "high")
+        #expect(Harness.claude.command(.resume, options) == ClaudeLaunch.command(.resume))
+        #expect(Harness.claude.command(.newInWorktree, LaunchOptions()).contains(" -w "))
+        #expect(Harness.codex.command(.resume, options) == CodexLaunch.command(.resume, options))
+        #expect(Harness.codex.command(.attach, options) == Harness.codex.command(.resume, options))
     }
 
     @Test func onlyCodexClaimsItsSessionAfterOpening() {

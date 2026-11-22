@@ -80,6 +80,10 @@ struct ConversationComposer: View {
                                 Button { showsContext = true } label: {
                                     HStack(spacing: 6) {
                                         Text(modelName(context.model))
+                                        if let effort = context.effort {
+                                            Text(effort.capitalized)
+                                                .foregroundStyle(.secondary)
+                                        }
                                         if let tokens = context.tokens, let window = context.window, window > 0 {
                                             Text((Double(tokens) / Double(window)).formatted(.wholePercent))
                                                 .foregroundStyle(.secondary)
@@ -197,6 +201,11 @@ struct ConversationComposer: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(modelName(context.model))
                 .font(.headline)
+            if !capabilities.contains(.modelEffortMenu), let effort = context.effort {
+                Text(effort.capitalized)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
             if let tokens = context.tokens, let window = context.window, window > 0 {
                 ProgressView(value: min(Double(tokens) / Double(window), 1))
                 Text("\(tokenCount(tokens)) of \(tokenCount(window)) tokens, \((Double(tokens) / Double(window)).formatted(.wholePercent)) full")

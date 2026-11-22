@@ -54,7 +54,7 @@ extension Snapshot {
         let timestamp = Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
         let payloads: [(String, String)] = [
             ("session_meta", #"{"id":"\#(codexConversationSession)","cwd":"\#(conversationFolder)","timestamp":"\#(timestamp)","originator":"codex-tui","thread_source":"user"}"#),
-            ("turn_context", #"{"cwd":"\#(conversationFolder)","model":"gpt-test"}"#),
+            ("turn_context", #"{"cwd":"\#(conversationFolder)","model":"gpt-test","effort":"high"}"#),
             ("event_msg", #"{"type":"task_started"}"#),
             ("event_msg", #"{"type":"user_message","message":"Fix the usage export and add a plan name column."}"#),
             ("event_msg", #"{"type":"agent_message","phase":"commentary","message":"I'll check the export tests, then update the formatter and column list."}"#),

@@ -2,6 +2,10 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
+extension RemoteAgent {
+    static let legacyClaude = Self(name: "Claude", glyph: "sparkle", canChangeSettings: true, canAttach: true)
+}
+
 struct SessionControls: View {
     let session: RemoteSession?
     let sessionID: String
@@ -25,8 +29,9 @@ struct SessionControls: View {
                     }
                     Composer(
                         sessionID: sessionID,
+                        agent: session?.agent ?? .legacyClaude,
                         isWorking: session?.status == "busy",
-                        declining: session?.status == "waiting" ? session : nil,
+                        declining: session?.status == "waiting" && session?.waitingFor != "needs input" ? session : nil,
                         context: context,
                         openContext: openContext,
                         draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
@@ -50,6 +55,7 @@ private struct ApprovalCard: View {
     @State private var isExpanded = false
 
     var body: some View {
+        let agent = session.agent ?? .legacyClaude
         let name = pendingCall?.use.name ?? ""
         let input = pendingCall.flatMap { try? JSONSerialization.jsonObject(with: Data($0.use.text.utf8)) as? [String: Any] }
         let questions = input?["questions"] as? [[String: Any]] ?? []
@@ -75,7 +81,7 @@ private struct ApprovalCard: View {
             }
             if name == "AskUserQuestion" {
                 ForEach(Array(questions.enumerated()), id: \.offset) { _, question in
-                    Text(question["question"] as? String ?? "Claude has a question")
+                    Text(question["question"] as? String ?? "\(agent.name) has a question")
                         .font(.headline)
                 }
                 if choices.isEmpty || choices.count > 9 {
@@ -141,11 +147,13 @@ private struct ApprovalCard: View {
                 }
                 actions(allow: "Allow", deny: "Deny")
             } else {
-                Text("Claude is waiting for an answer on your Mac.")
+                Text("\(agent.name) is waiting for an answer on your Mac.")
                     .font(.headline)
-                Button("Dismiss", role: .destructive, action: deny)
-                    .buttonStyle(.borderless)
-                    .frame(maxWidth: .infinity)
+                if session.waitingFor != "needs input" {
+                    Button("Dismiss", role: .destructive, action: deny)
+                        .buttonStyle(.borderless)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
         .disabled(client.state != .connected)
@@ -189,6 +197,7 @@ private struct ApprovalCard: View {
 
 private struct Composer: View {
     let sessionID: String
+    let agent: RemoteAgent
     let isWorking: Bool
     let declining: RemoteSession?
     let context: RemoteContext?
@@ -231,45 +240,54 @@ private struct Composer: View {
                     }
                     .padding(.top, Self.inset)
                 }
-                TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
+                TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, axis: .vertical)
                     .lineLimit(1...6)
                     .focused($isFocused)
                     .padding(.horizontal, Self.textInset - Self.inset)
                     .padding(.top, Self.textInset - 3)
                     .padding(.bottom, Self.textInset - Self.inset)
                 HStack(spacing: 8) {
-                    Menu {
-                        if client.features.contains(RemoteUpload.feature) {
-                            Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
-                            Button("Files", systemImage: "folder") { isImportingFiles = true }
-                        } else {
-                            Button("Attach", systemImage: "paperclip") { client.notice = "Update Berth on your Mac to send attachments" }
-                        }
-                        if !replies.isEmpty {
-                            Section("Replies") {
-                                ForEach(replies) { reply in
-                                    Button(reply.text) { insert(reply.text) }
+                    if agent.canAttach {
+                        Menu {
+                            if client.features.contains(RemoteUpload.feature) {
+                                Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
+                                Button("Files", systemImage: "folder") { isImportingFiles = true }
+                            } else {
+                                Button("Attach", systemImage: "paperclip") { client.notice = "Update Berth on your Mac to send attachments" }
+                            }
+                            if !replies.isEmpty {
+                                Section("Replies") {
+                                    ForEach(replies) { reply in
+                                        Button(reply.text) { insert(reply.text) }
+                                    }
                                 }
                             }
-                        }
-                        Section("Commands") {
-                            ForEach(SlashCommand.all) { command in
-                                Button(command.name, systemImage: command.symbol, role: command.isDestructive ? .destructive : nil) { run(command) }
+                            Section("Commands") {
+                                ForEach(SlashCommand.all) { command in
+                                    Button(command.name, systemImage: command.symbol, role: command.isDestructive ? .destructive : nil) { run(command) }
+                                }
                             }
+                        } label: {
+                            Image(systemName: "plus")
+                                .accessibilityHidden(true)
+                                .frame(width: Self.controlHeight, height: Self.controlHeight)
+                                .background(.quaternary, in: .circle)
+                                .padding(Self.hitSlop)
+                                .contentShape(.circle)
+                                .padding(-Self.hitSlop)
                         }
-                    } label: {
-                        Image(systemName: "plus")
-                            .accessibilityHidden(true)
-                            .frame(width: Self.controlHeight, height: Self.controlHeight)
-                            .background(.quaternary, in: .circle)
-                            .padding(Self.hitSlop)
-                            .contentShape(.circle)
-                            .padding(-Self.hitSlop)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Attach")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Attach")
                     if let context, let openContext {
-                        modelMenu(context, openContext: openContext)
+                        if agent.canChangeSettings {
+                            modelMenu(context, openContext: openContext)
+                        } else {
+                            Button(context.model, action: openContext)
+                                .buttonStyle(.bordered)
+                                .buttonBorderShape(.capsule)
+                                .accessibilityHint("Shows context usage")
+                        }
                     }
                     Spacer(minLength: 0)
                     if stops || !(isEmpty || !isUploaded) {
@@ -375,7 +393,7 @@ private struct Composer: View {
                     .labelsHidden()
                 }
                 .disabled(!canChange || currentEffort == nil)
-                Text(canChange ? "Changes apply to this session only" : "Available while Claude is idle")
+                Text(canChange ? "Changes apply to this session only" : "Available while \(agent.name) is idle")
             }
             Button("Context", systemImage: "chart.pie", action: openContext)
         } label: {
@@ -503,7 +521,7 @@ private struct Composer: View {
                 return
             }
         }
-        client.notice = "Claude is still waiting, so your message wasn’t sent"
+        client.notice = "\(agent.name) is still waiting, so your message wasn’t sent"
     }
 
     private func stop() {

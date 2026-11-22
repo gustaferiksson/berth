@@ -9,6 +9,16 @@ public enum LaunchStart: Sendable {
     case new, newInWorktree, resume, attach
 }
 
+public struct LaunchOptions: Sendable {
+    public let model: String?
+    public let effort: String?
+
+    public init(model: String? = nil, effort: String? = nil) {
+        self.model = model
+        self.effort = effort
+    }
+}
+
 public struct LiveProbe: Sendable {
     public struct Tab: Sendable {
         public let sessionID: String
@@ -51,7 +61,7 @@ public struct Harness: Sendable {
     public let liveSource: LiveSource
     public let readLive: @Sendable (LiveProbe) -> [LiveSession]
     public let isStatusTitle: @Sendable (String) -> Bool
-    public let command: @Sendable (LaunchStart) -> String
+    public let command: @Sendable (LaunchStart, LaunchOptions) -> String
     public let claim: Claim?
     public let readTranscript: ReadTranscript?
 
@@ -72,7 +82,7 @@ public struct Harness: Sendable {
             LiveSession.load(from: probe.directory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
         },
         isStatusTitle: { _ in false },
-        command: ClaudeLaunch.command,
+        command: { start, _ in ClaudeLaunch.command(start) },
         claim: nil,
         readTranscript: { TranscriptTail.read($0, after: $1, queue: $2) }
     )
@@ -82,7 +92,7 @@ public struct Harness: Sendable {
         name: "Codex",
         glyph: "terminal",
         isOptIn: true,
-        capabilities: [.conversation, .contextSize, .pullRequestLinks, .needsYou, .idleUnload],
+        capabilities: [.conversation, .contextSize, .pullRequestLinks, .needsYou, .idleUnload, .worktrees, .remote],
         liveSource: .tabSignals,
         readLive: CodexLive.sessions,
         isStatusTitle: { CodexRunState(title: $0) != nil },

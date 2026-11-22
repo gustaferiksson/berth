@@ -89,7 +89,7 @@ final class ConversationModel {
         guard !tab.agent.harness.supports(.backgroundTasks) else { return reportedContext }
         guard let sessionID = tab.sessionID, let summary = store.sessionsByID[sessionID], let context = summary.context else { return nil }
 
-        return RemoteContext(model: context.model, tokens: context.tokens, window: context.window, date: summary.lastActivity, compactions: 0, lastCompaction: nil)
+        return RemoteContext(model: CodexModels.displayName(for: context.model), tokens: context.tokens, window: context.window, date: summary.lastActivity, compactions: 0, lastCompaction: nil, effort: context.effort)
     }
 
     var entryCount: Int { entries.count }

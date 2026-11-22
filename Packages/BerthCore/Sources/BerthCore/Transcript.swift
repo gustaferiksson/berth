@@ -5,12 +5,14 @@ public struct SessionContext: Sendable, Hashable {
     public let tokens: Int
     public var window: Int?
     public var modelName: String?
+    public var effort: String?
 
-    public init(model: String, tokens: Int, window: Int? = nil, modelName: String? = nil) {
+    public init(model: String, tokens: Int, window: Int? = nil, modelName: String? = nil, effort: String? = nil) {
         self.model = model
         self.tokens = tokens
         self.window = window
         self.modelName = modelName
+        self.effort = effort
     }
 }
 

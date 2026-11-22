@@ -36,7 +36,7 @@ enum IntentFailure: Error, CustomLocalizedStringResourceConvertible {
         case .notConnected: "Berth Remote can’t reach Berth on your Mac. Open the app to check the connection."
         case .unknownSession: "Berth no longer lists that session."
         case let .locked(title): "\(title) is running in another terminal, so it is read-only here."
-        case let .waiting(title): "\(title) is waiting for an answer. Answer it in Berth Remote first."
+        case let .waiting(title): "\(title) is waiting for an answer. Answer it before sending a prompt."
         case .emptyPrompt: "The prompt is empty."
         case .unknownFolder: "Berth doesn’t know that folder."
         }
@@ -97,7 +97,7 @@ struct FolderOptions: DynamicOptionsProvider {
 
 struct OpenSessionIntent: AppIntent {
     static let title: LocalizedStringResource = "Open Session"
-    static let description = IntentDescription("Opens a Claude session in Berth Remote.")
+    static let description = IntentDescription("Opens a session in Berth Remote.")
     static let openAppWhenRun = true
 
     static var parameterSummary: some ParameterSummary {
@@ -115,7 +115,7 @@ struct OpenSessionIntent: AppIntent {
 
 struct SendPromptIntent: AppIntent {
     static let title: LocalizedStringResource = "Send Prompt to Session"
-    static let description = IntentDescription("Sends a prompt to a Claude session that isn’t waiting for an answer.")
+    static let description = IntentDescription("Sends a prompt to a session that isn’t waiting for an answer.")
 
     static var parameterSummary: some ParameterSummary {
         Summary("Send \(\.$prompt) to \(\.$session)")
@@ -144,7 +144,7 @@ struct SendPromptIntent: AppIntent {
 
 struct SessionsThatNeedMeIntent: AppIntent {
     static let title: LocalizedStringResource = "Sessions That Need Me"
-    static let description = IntentDescription("Lists the Claude sessions that are waiting for an answer.")
+    static let description = IntentDescription("Lists the sessions that are waiting for an answer.")
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<[SessionEntity]> & ProvidesDialog {
