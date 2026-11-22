@@ -5,7 +5,7 @@ import Testing
 struct TranscriptTailTests {
     private let lines = [
         #"{"type":"user","uuid":"u1","message":{"role":"user","content":"Rename the widget"}}"#,
-        #"{"type":"assistant","uuid":"a1","message":{"content":[{"type":"thinking","thinking":"hm"},{"type":"text","text":"On it."},{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/w.swift","old_string":"old","new_string":"new"}}]}}"#,
+        #"{"type":"assistant","uuid":"a1","message":{"content":[{"type":"thinking","thinking":"","signature":"eHh4eG5hcnJhdGlvbnh4eHg="},{"type":"text","text":"On it."},{"type":"tool_use","id":"t1","name":"Edit","input":{"file_path":"/w.swift","old_string":"old","new_string":"new"}}]}}"#,
         #"{"type":"user","uuid":"u2","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"\#(String(repeating: "x", count: 5000))"}]}]}}"#,
         #"{"type":"assistant","uuid":"a2","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"swift test"}}]}}"#,
         #"{"type":"api-request-blob","message":{"content":[{"type":"tool_use","id":"t9","name":"Bash","input":{"command":"rm"}}]}}"#,
@@ -20,6 +20,15 @@ struct TranscriptTailTests {
         #expect(parsed.entries[2].filePath == "/w.swift" && parsed.entries[2].oldText == "old" && parsed.entries[2].newText == "new")
         #expect(parsed.entries[3].toolID == "t1" && parsed.entries[3].text.count == TranscriptTail.maxText)
         #expect(parsed.entries[4].command == "swift test" && parsed.entries[4].toolID == "t2")
+    }
+
+    @Test func showsMidTurnUpdatesAsReplies() {
+        let updates = [
+            #"{"type":"assistant","uuid":"n1","message":{"content":[{"type":"thinking","thinking":"Checking the widget now.","signature":"eHh4eG5hcnJhdGlvbnh4eHg="},{"type":"thinking","thinking":"Private reasoning.","signature":"eHh4eHRoaW5raW5neHh4eA=="},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}},{"type":"thinking","thinking":"","signature":"eHh4eG5hcnJhdGlvbnh4eHg="}]}}"#,
+        ]
+        let entries = TranscriptTail.entries(in: Data((updates.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: []).entries
+        #expect(entries.map(\.kind) == [.reply, .toolUse])
+        #expect(entries[0].text == "Checking the widget now.")
     }
 
     @Test func capsEveryField() {

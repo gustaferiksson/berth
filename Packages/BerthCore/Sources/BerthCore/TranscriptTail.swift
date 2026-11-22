@@ -48,6 +48,16 @@ public enum TranscriptTail {
         }
     }
 
+    // Claude Code saves mid-turn updates as thinking blocks whose signature decodes to bytes containing "narration" (real thinking says "thinking")
+    static func isNarration(signature: String?) -> Bool {
+        guard let signature else { return false }
+
+        let prefix = signature.prefix(256)
+        let padded = prefix + String(repeating: "=", count: (4 - prefix.count % 4) % 4)
+
+        return Data(base64Encoded: String(padded)).map { $0.range(of: Data("narration".utf8)) != nil } ?? false
+    }
+
     static func entries(in data: Data, dropFirst: Bool, queue: [String], baseOffset: Int = 0) -> (entries: [RemoteEntry], consumed: Int, queue: [String], imageLines: [String: Range<Int>]) {
         let consumed = data.lastIndex(of: UInt8(ascii: "\n")).map { data.distance(from: data.startIndex, to: $0) + 1 } ?? 0
         let lines = data.prefix(consumed).split(separator: UInt8(ascii: "\n")).dropFirst(dropFirst ? 1 : 0)
@@ -82,7 +92,9 @@ public enum TranscriptTail {
 
             return blocks.enumerated().compactMap { index, block in
                 let id = "\(uuid)-\(index)"
-                if type == "assistant", block["type"] as? String == "text", let text = block["text"] as? String {
+                if type == "assistant", let blockType = block["type"] as? String, blockType == "text" || blockType == "thinking",
+                   blockType == "text" || isNarration(signature: block["signature"] as? String),
+                   let text = block[blockType] as? String, !text.isEmpty {
                     return RemoteEntry(id: id, kind: .reply, text: String(text.prefix(maxText)), date: date)
                 }
                 if type == "assistant", block["type"] as? String == "tool_use", let name = block["name"] as? String {
