@@ -104,8 +104,7 @@ struct SessionView: View {
                     sessionID: sessionID,
                     pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil,
                     context: activity?.context,
-                    openContext: { isShowingContext = true },
-                    headerShowsContext: headerAction?.showsContext == true
+                    openContext: { isShowingContext = true }
                 )
             }
         }
@@ -243,9 +242,5 @@ private enum HeaderAction {
         case let .pullRequest(_, isFailing): isFailing ? "failing" : "pullRequest"
         case .context: "context"
         }
-    }
-
-    var showsContext: Bool {
-        if case .context = self { true } else { false }
     }
 }

@@ -8,7 +8,6 @@ struct SessionControls: View {
     let pendingCall: ToolCall?
     let context: RemoteContext?
     let openContext: (() -> Void)?
-    let headerShowsContext: Bool
 
     @Environment(RemoteClient.self) private var client
 
@@ -30,14 +29,13 @@ struct SessionControls: View {
                         declining: session?.status == "waiting" ? session : nil,
                         context: context,
                         openContext: openContext,
-                        headerShowsContext: headerShowsContext,
                         draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
                         attachments: Binding { client.draftAttachments[sessionID, default: []] } set: { client.draftAttachments[sessionID] = $0 }
                     )
                 }
             }
         }
-        .padding(.horizontal)
+        .padding(.horizontal, 8)
         .padding(.bottom, 8)
     }
 }
@@ -195,12 +193,13 @@ private struct Composer: View {
     let declining: RemoteSession?
     let context: RemoteContext?
     let openContext: (() -> Void)?
-    let headerShowsContext: Bool
     @Binding var draft: String
     @Binding var attachments: [Attachment]
 
-    private static let inset = 12.0
-    private static let controlHeight = 44.0
+    private static let inset = 7.5
+    private static let controlHeight = 34.0
+    private static let fieldHeight = 50.0
+    private static let hitSlop = 4.0
 
     @Environment(RemoteClient.self) private var client
     @State private var pickedModel: ModelChoice?
@@ -220,7 +219,7 @@ private struct Composer: View {
         let stops = isWorking && isEmpty
 
         GlassEffectContainer(spacing: 8) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
                 if !attachments.isEmpty {
                     ScrollView(.horizontal) {
                         HStack(spacing: 8) {
@@ -232,10 +231,13 @@ private struct Composer: View {
                         }
                     }
                     .scrollIndicators(.hidden)
+                    .padding(.top, Self.inset)
                 }
                 TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
                     .lineLimit(1...6)
                     .focused($isFocused)
+                    .padding(.horizontal, 5)
+                    .frame(minHeight: Self.fieldHeight)
                 HStack(spacing: 8) {
                     Menu {
                         if client.features.contains(RemoteUpload.feature) {
@@ -258,8 +260,12 @@ private struct Composer: View {
                         }
                     } label: {
                         Image(systemName: "plus")
+                            .accessibilityHidden(true)
                             .frame(width: Self.controlHeight, height: Self.controlHeight)
                             .background(.quaternary, in: .circle)
+                            .padding(Self.hitSlop)
+                            .contentShape(.circle)
+                            .padding(-Self.hitSlop)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Attach")
@@ -272,11 +278,16 @@ private struct Composer: View {
                             if stops { stop() } else { send() }
                         } label: {
                             Image(systemName: stops ? "stop.fill" : "arrow.up")
+                                .accessibilityHidden(true)
                                 .font(.body.weight(.semibold))
+                                .foregroundStyle(.background)
+                                .frame(width: Self.controlHeight, height: Self.controlHeight)
+                                .background(Color.accentColor, in: .circle)
+                                .padding(Self.hitSlop)
+                                .contentShape(.circle)
+                                .padding(-Self.hitSlop)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.circle)
-                        .frame(width: Self.controlHeight, height: Self.controlHeight)
+                        .buttonStyle(.plain)
                         .accessibilityLabel(stops ? "Stop" : "Send")
                     } else {
                         Image(systemName: "arrow.up")
@@ -288,7 +299,7 @@ private struct Composer: View {
                     }
                 }
             }
-            .padding(Self.inset)
+            .padding([.horizontal, .bottom], Self.inset)
             .glassEffect(.regular, in: .rect(cornerRadius: Self.controlHeight / 2 + Self.inset))
         }
         .disabled(client.state != .connected)
@@ -345,7 +356,6 @@ private struct Composer: View {
             pickedEffort = level
         }
         let modelTitle = pickedModel.flatMap { $0 == .default ? nil : $0.title } ?? modelName(of: context)
-        let label = [modelTitle, currentEffort?.title, headerShowsContext ? nil : context.fill?.formatted(.percent.precision(.fractionLength(0)))].compactMap(\.self).joined(separator: " · ")
 
         return Menu {
             if client.features.contains(RemoteSessionSettingsFeature.name) {
@@ -369,21 +379,15 @@ private struct Composer: View {
             }
             Button("Context", systemImage: "chart.pie", action: openContext)
         } label: {
-            HStack(spacing: 6) {
-                if !headerShowsContext {
-                    ContextRing(context: context)
-                }
-                Text(label)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .accessibilityHidden(true)
-            }
-            .font(.subheadline)
-            .padding(.horizontal, 14)
-            .frame(height: Self.controlHeight)
-            .background(.quaternary, in: .capsule)
+            Text("\(Text(modelTitle)) \(Text(currentEffort?.title ?? "").foregroundStyle(.secondary))")
+                .lineLimit(1)
+                .font(.subheadline)
+                .padding(.horizontal, 12)
+                .frame(height: Self.controlHeight)
+                .background(.quaternary, in: .capsule)
+                .padding(.vertical, Self.hitSlop)
+                .contentShape(.rect)
+                .padding(.vertical, -Self.hitSlop)
         }
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
