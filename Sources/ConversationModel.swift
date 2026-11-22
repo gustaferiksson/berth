@@ -16,6 +16,7 @@ final class ConversationModel {
     private(set) var tasks: [RemoteTask] = []
     private(set) var context: RemoteContext?
     private(set) var queued: [String] = []
+    @ObservationIgnored private var pending: [PendingPrompt] = []
     private(set) var hasLoaded = false
     private(set) var isSending = false
     private(set) var pickedModel: ModelChoice?
@@ -27,6 +28,7 @@ final class ConversationModel {
     @ObservationIgnored private var url: URL?
     @ObservationIgnored private var end: Int?
     @ObservationIgnored private var queue: [String] = []
+    @ObservationIgnored private var queuedByClaude: [String] = []
     @ObservationIgnored private var activity = TranscriptActivity()
     @ObservationIgnored private var agentLogs: [String: AgentLog] = [:]
     @ObservationIgnored private var isReading = false
@@ -56,10 +58,30 @@ final class ConversationModel {
         draft = ConversationDraft()
         defer { isSending = false }
 
-        guard case let .refused(message) = await store.submit(sent.text, files: sent.files, to: sessionID) else { return }
+        let text = sent.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let outcome = await store.submit(sent.text, files: sent.files, to: sessionID)
+        guard case let .refused(message) = outcome else {
+            if !text.isEmpty { show(pending: text) }
+            return
+        }
 
         notice = message
         if draft.isEmpty { draft = sent }
+    }
+
+    func show(pending text: String) {
+        pending.append(PendingPrompt(text: text, sentAt: .now))
+        reconcilePending()
+        Task {
+            try? await Task.sleep(for: .seconds(PendingPrompts.grace + 1))
+            reconcilePending()
+        }
+    }
+
+    private func reconcilePending() {
+        pending = PendingPrompts.reconcile(pending, entries: entries, queued: queuedByClaude, now: .now)
+        let shown = PendingPrompts.shown(pending, queued: queuedByClaude)
+        if queued != shown { queued = shown }
     }
 
     func decline(waitingFor: String?, since: Double?) async {
@@ -188,10 +210,11 @@ final class ConversationModel {
             if context?.effort != result.report.context?.effort { pickedEffort = nil }
             context = result.report.context
         }
-        if queued != chunk.queuedPrompts { queued = chunk.queuedPrompts }
-        guard !chunk.isContinuation || !chunk.entries.isEmpty else { return }
-
-        entries = (chunk.isContinuation ? entries : []) + chunk.entries
-        turns = Turn.turns(from: entries)
+        queuedByClaude = chunk.queuedPrompts
+        if !chunk.isContinuation || !chunk.entries.isEmpty {
+            entries = (chunk.isContinuation ? entries : []) + chunk.entries
+            turns = Turn.turns(from: entries)
+        }
+        reconcilePending()
     }
 }
