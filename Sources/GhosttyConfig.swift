@@ -169,7 +169,7 @@ struct GhosttyTheme: Equatable {
         }
         isDark = surface.luminance < 0.18
         self.background = background?.color
-        chrome = background?.color.mix(with: .black, by: isDark ? 0.4 : 0.05)
+        chrome = background?.color.mix(with: .black, by: isDark ? 0.4 : 0.05).mix(with: .white, by: 0.03)
         foreground = readable("foreground", .primary, 4.5)
         secondary = foreground.opacity(0.6)
         needsYou = readable("palette-3", .orange, 4.5)
