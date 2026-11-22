@@ -1094,7 +1094,7 @@ private struct SessionRow: View {
                         }
                     }
                 } else if pullRequest != nil || session.branch != nil || projectName != nil {
-                    let branch = pullRequest != nil && projectName != nil ? nil : session.branch
+                    let branch = session.branch
                     HStack(spacing: 8) {
                         HStack(spacing: 4) {
                             if let projectName {
