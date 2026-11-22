@@ -70,3 +70,35 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
 - Recent: buckets without sessions are hidden; headers have no +; Older starts collapsed. Recent (One List) has the single group `flat`, titled Recent, also without +.
 - Not a git repo (Repository mode): the folder is its own root.
 - Without `gh`: no PR tags.
+
+## Implementation notes
+
+Moved from CLAUDE.md.
+
+### Archive
+
+Archive: a session stays archived while its last conversational record is no newer than its archive time; newer activity unarchives it, and ids without a listed transcript are pruned (`SessionArchive.split`, applied after the first scan). Archiving an open session closes its tab and unpins it; the Archived section (bottom, collapsed by default, `archivedExpanded`) resumes and unarchives on click.
+
+### Pins
+
+Pins: `pinnedSessions` (ordered ids) feeds a Pinned section (id `pinned`) above the groups; `SessionPins.split` takes pinned active sessions out of grouping and prunes unknown ids after the first scan. Pin / Unpin in the row menu; drag reorders (`PinDrag`, UTType `dev.gustaf.berth.pin`, `SessionPins.moving`).
+
+### Grouping
+
+Grouping (`design/flows-groups.md`): sidebar order is Needs Attention, Terminals, Active (Recent modes only), Pinned, the groups, Archived. Custom groups (name + folder rules, path and subfolders; first match wins) sit among the mode's groups (Project by checkout, Repository by git root, Recent by calendar day: Today, Yesterday, This Week, Older; Recent (One List), `GroupingMode.flat`, is one newest-first group `flat`) at `CustomGroup.slot` (`SessionGrouping.place`, top when unset); dragging a header (UTType `dev.gustaf.berth.group`) or Move Up/Down writes every custom group's slot (`SessionGrouping.moving`).
+
+Archive and pins run before grouping. Triage (`showsTriage`, off by default; Group By menu toggle, View ▸ Show Triage, palette; `Store.triageSections`, `SessionTriage.sections`) lifts Working (busy) and Unread (`hasUnseenActivity`, a selected row stays until deselected) above the groups in every mode, titles Needs Attention as Needs You, and replaces Active. Mark as Done is `Store.archive` (row menu, E in the sidebar list, multi-selection, palette). Snooze (`Store.snooze`, `SessionSnooze`, `snoozedSessions` behind `persistsTabs`, pruned after the first scan) hides a session into a collapsed Snoozed section above Archived, keeps its tab, unpins it, and wakes it as unread when its time passes or it enters waiting.
+
+A group shows 5 sessions (15 for the flat group), then "Show N More" / "Show Less" (in-memory). Repository roots: walk up to `.git`; a `.git` file's `gitdir:` → `commondir` → its parent, resolved once per folder in the scan task and cached. Group ids: the folder path for Project and Repository (so collapse state is shared), `custom:<uuid>`, `recent:<bucket>`, `flat`, `recent:active`; `recent:older` is collapsed by default (`collapsedGroups` lists it when expanded). Open tabs without a transcript yet are placed with the same folder-to-group function (Recent by the tab's open time).
+
+Line 2 starts with the project name whenever the row's folder isn't its group's folder. Both Recent modes (`GroupingMode.hasActive`) put an Active section (`SessionGrouping.active`, `Store.sidebarActive`) between Terminals and Pinned: every session with a live status, ordered waiting, busy, shell, idle, then newest `lastActivity`, plus open Claude tabs without a transcript. They leave Pinned, custom groups and the date buckets; no Show More; a task keeps only its non-live members. It counts in Collapse/Expand All and in the ⌘1–9 / ⌃⇥ order.
+
+### Needs Attention
+
+Needs Attention (`SidebarLayout.attentionIDs`, id `Sidebar.attentionID`, `Store.attentionSessions`) leads the sidebar: sessions in no task whose live status is waiting, or whose open or draft PR has failing checks, newest first, waiting before failing. Pinned (not live) sessions qualify too and leave Pinned; sessions leave Active and the groups, so a row never appears twice. Unread never qualifies, so selecting a row never moves it. Its rows use the user's density like every other section and the header is tinted `theme.needsYou`.
+
+It counts in Collapse/Expand All and leads `Store.sidebarOrderedTabs` (⌘1-9, ⌃⇥). Active shows at least 5 sessions and every one up to the last that isn't idle or is the selected session (`SidebarLayout.Group.visibleLimit`), the rest behind Show N More; a group left empty by Needs Attention is dropped. Terminal rows use the compact density and show their folder as a tooltip. A passed checks mark is hidden on the row's PR tag (failed and running stay; the hover card and Review show all). Line 2 of a row shows the project (when it has a name), the branch and the PR chip together; when space is short the branch truncates first (middle, down to 48 pt), then the project, never the chip; the chip is always on line 2 except in the compact density, where it moves to line 1 for every row.
+
+### Unread and flags
+
+Unread and flags (`Store.isUnread`, row menu, Flag / Unflag Current Session in the palette): a session is unread while `lastActivity` is newer than its `seenAt`, shown as a blue (palette 4) dot in the status slot, never while working or needs-you, nor for the selected tab while Berth is active. Deselecting a tab or Berth resigning active stamps it seen; ids first seen by a scan are seeded as seen now, so launch marks nothing unread. Flags are a set of ids (red palette 1 `flag.fill` left of the row time), kept through archive, pruned when the transcript is gone.
