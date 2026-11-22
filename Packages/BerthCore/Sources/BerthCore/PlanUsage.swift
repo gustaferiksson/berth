@@ -35,6 +35,10 @@ public nonisolated struct UsageWindow: Codable, Sendable, Hashable, Identifiable
         return "Resets in \(remaining) · \(Int((used * 100).rounded()))% used · pace \(Int((pace(at: now) * 100).rounded()))%"
     }
 
+    public func isAhead(at now: Date) -> Bool {
+        isCurrent(at: now) && used > pace(at: now)
+    }
+
     public func severity(at now: Date) -> Severity {
         guard isCurrent(at: now), used > pace(at: now) else { return .normal }
 
