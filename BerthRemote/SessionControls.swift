@@ -8,6 +8,7 @@ struct SessionControls: View {
     let pendingCall: ToolCall?
     let context: RemoteContext?
     let openContext: (() -> Void)?
+    let headerShowsContext: Bool
 
     @Environment(RemoteClient.self) private var client
 
@@ -29,6 +30,7 @@ struct SessionControls: View {
                         declining: session?.status == "waiting" ? session : nil,
                         context: context,
                         openContext: openContext,
+                        headerShowsContext: headerShowsContext,
                         draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
                         attachments: Binding { client.draftAttachments[sessionID, default: []] } set: { client.draftAttachments[sessionID] = $0 }
                     )
@@ -193,6 +195,7 @@ private struct Composer: View {
     let declining: RemoteSession?
     let context: RemoteContext?
     let openContext: (() -> Void)?
+    let headerShowsContext: Bool
     @Binding var draft: String
     @Binding var attachments: [Attachment]
 
@@ -260,7 +263,9 @@ private struct Composer: View {
                     if let context, let openContext {
                         Button(action: openContext) {
                             HStack(spacing: 6) {
-                                ContextRing(context: context)
+                                if !headerShowsContext {
+                                    ContextRing(context: context)
+                                }
                                 Text(modelName(of: context))
                                     .font(.subheadline)
                                     .lineLimit(1)
@@ -322,8 +327,7 @@ private struct Composer: View {
         let parts = context.model.split(separator: "-").filter { $0 != "claude" && !($0.count == 8 && Int($0) != nil) }
         let name = parts.filter { Int($0) == nil }.map(\.capitalized).joined(separator: " ")
         let version = parts.filter { Int($0) != nil }.joined(separator: ".")
-        let fill = context.tokens.flatMap { tokens in context.window.map { Double(tokens) / Double($0) } }
-        return [name + (version.isEmpty ? "" : " " + version), fill?.formatted(.percent.precision(.fractionLength(0)))].compactMap(\.self).joined(separator: " · ")
+        return [name + (version.isEmpty ? "" : " " + version), headerShowsContext ? nil : context.fill?.formatted(.percent.precision(.fractionLength(0)))].compactMap(\.self).joined(separator: " · ")
     }
 
     private func importPhotos(_ items: [PhotosPickerItem]) async {
