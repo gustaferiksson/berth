@@ -55,6 +55,23 @@ struct TranscriptTailTests {
         #expect(chunk.imageLines["i2-0-0"] != nil)
     }
 
+    @Test func keepsPromptsBehindOneLongToolTurn() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "tail-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let prompts = (0..<6).map { #"{"type":"user","uuid":"p\#($0)","message":{"role":"user","content":"prompt \#($0)"}}"# }
+        let output = String(repeating: "x", count: 3000)
+        let calls = (0..<200).flatMap { call in
+            [
+                #"{"type":"assistant","uuid":"a\#(call)","isVirtual":true,"message":{"content":[{"type":"tool_use","id":"t\#(call)","name":"REPL","input":{"code":"poll"}}]}}"#,
+                #"{"type":"user","uuid":"r\#(call)","turnCompanion":true,"message":{"content":[{"type":"tool_result","tool_use_id":"t\#(call)","content":"\#(output)"}]}}"#,
+            ]
+        }
+        try Data(((prompts + calls).joined(separator: "\n") + "\n").utf8).write(to: url)
+
+        let chunk = try #require(TranscriptTail.read(url, after: nil))
+        #expect(chunk.entries.count(where: { $0.kind == .prompt }) == 6)
+    }
+
     @Test func continuesFromTheLastCompleteLine() throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "tail-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: url) }
