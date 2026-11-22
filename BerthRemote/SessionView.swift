@@ -32,7 +32,7 @@ struct SessionView: View {
                         isWorking: isLast && session?.status == "busy",
                         turnStartedAt: session?.turnStartedAt,
                         liveCall: openCall.flatMap { session?.status == "busy" ? .running($0.id) : session?.status == "waiting" ? .waiting($0.id) : nil },
-                        openChanges: client.features.contains(RemoteChangesFeature.name) ? { isShowingChanges = true } : nil
+                        openChanges: isLast && client.features.contains(RemoteChangesFeature.name) ? { isShowingChanges = true } : nil
                     )
                 }
                 if !queued.isEmpty {
