@@ -183,7 +183,7 @@ struct ConversationComposer: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(14)
+            .padding(16)
             .frame(width: 260, alignment: .leading)
         }
     }
@@ -209,7 +209,7 @@ private struct ConversationAttachmentChip: View {
                 .resizable()
                 .scaledToFill()
                 .frame(width: 22, height: 22)
-                .clipShape(.rect(cornerRadius: 5))
+                .clipShape(.circle)
                 .accessibilityHidden(true)
             Text(verbatim: file.lastPathComponent)
                 .lineLimit(1)
@@ -220,7 +220,7 @@ private struct ConversationAttachmentChip: View {
                 .foregroundStyle(.secondary)
         }
         .font(.caption)
-        .padding(.leading, 5)
+        .padding(.leading, 4)
         .padding(.trailing, 8)
         .padding(.vertical, 4)
         .background(.quaternary, in: .capsule)

@@ -442,9 +442,9 @@ struct ConversationDiff: View {
             let input = rows.map { (old: $0.kind != .added, new: $0.kind != .removed, text: $0.text) }
             highlighted = await ConversationHighlighting.diffLines(input, language: language, theme: theme)
         }
-        .background(theme.foreground.opacity(0.04), in: .rect(cornerRadius: 8))
-        .clipShape(.rect(cornerRadius: 8))
-        .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(theme.foreground.opacity(0.1)) }
+        .background(theme.foreground.opacity(0.04), in: .rect(cornerRadius: 10))
+        .clipShape(.rect(cornerRadius: 10))
+        .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(theme.foreground.opacity(0.1)) }
     }
 }
 
@@ -467,7 +467,7 @@ struct ConversationTaskRow: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: 28, height: 28)
-                .background(tint.opacity(0.14), in: .rect(cornerRadius: 8))
+                .background(tint.opacity(0.14), in: .rect(cornerRadius: 6))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: task?.title ?? call.cardTitle)
@@ -486,8 +486,8 @@ struct ConversationTaskRow: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 12))
-        .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(theme.foreground.opacity(0.08)) }
+        .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 16))
+        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(theme.foreground.opacity(0.08)) }
         .accessibilityElement(children: .combine)
         .contextMenu { Button("Copy Title") { copyToPasteboard(task?.title ?? call.cardTitle) } }
     }

@@ -137,7 +137,7 @@ private struct ContextButton: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(14)
+            .padding(16)
             .frame(width: 260, alignment: .leading)
         }
     }

@@ -450,7 +450,7 @@ private struct ConversationTaskList: View {
                 .accessibilityElement(children: .combine)
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: 420, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 20))
     }
