@@ -203,7 +203,26 @@ public struct Turn: Identifiable, Sendable {
         return .seconds(end.timeIntervalSince(start).rounded())
     }
 
+    // A Code Mode script's inner calls follow its REPL and Poll records as virtual records; the TUI shows those, not the wrapper
+    static func scriptsWithInnerCalls(in entries: [RemoteEntry]) -> Set<String> {
+        var scripts = Set<String>()
+        var current: String?
+        for entry in entries {
+            if entry.kind == .prompt { current = nil }
+
+            guard entry.kind == .toolUse, let id = entry.toolID else { continue }
+
+            if id.hasPrefix("repl_") || id.hasPrefix("repl-error"), let current {
+                scripts.insert(current)
+            } else if entry.name == "REPL" {
+                current = id
+            }
+        }
+        return scripts
+    }
+
     public static func turns(from entries: [RemoteEntry]) -> [Self] {
+        let hiddenScripts = scriptsWithInnerCalls(in: entries)
         let results = Dictionary(entries.filter { $0.kind == .toolResult }.compactMap { entry in entry.toolID.map { ($0, entry) } }) { _, last in last }
         var turns: [Self] = []
         for entry in entries {
@@ -218,7 +237,7 @@ public struct Turn: Identifiable, Sendable {
             turns[last].end = entry.date ?? turns[last].end
             turns[last].isInterrupted = turns[last].isInterrupted || isInterruption
             if entry.kind == .reply { turns[last].parts.append(.reply(entry)) }
-            guard entry.kind == .toolUse, entry.name != "Poll" else { continue }
+            guard entry.kind == .toolUse, entry.name != "Poll", entry.toolID.map({ !hiddenScripts.contains($0) }) != false else { continue }
 
             let call = ToolCall(use: entry, result: entry.toolID.flatMap { results[$0] })
             switch turns[last].parts.last {

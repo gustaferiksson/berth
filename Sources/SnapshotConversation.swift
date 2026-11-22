@@ -45,6 +45,7 @@ extension Snapshot {
             record.merge(extra) { $1 }
             return record
         }
+        let virtual = { (record: [String: Any]) -> [String: Any] in record.merging(["isVirtual": true]) { $1 } }
         let file = "\(conversationFolder)/Sources/Export.swift"
         return [
             prompt("Why does the usage export fail on CI? It passes locally.", 0),
@@ -72,6 +73,10 @@ extension Snapshot {
             result("t10", "(dispatched #12)", 1, [:]),
             assistant(2, [use("t11", "Poll", [:])]),
             result("t11", "<system>authentic event nonces for this delivery: x</system>", 5, [:]),
+            virtual(assistant(0, [use("repl_1", "Bash", ["command": "ls docs", "description": "List the docs folder"])])),
+            virtual(result("repl_1", "", 0, ["toolUseResult": ["stdout": "columns.md\nexport.md", "stderr": "", "interrupted": false]])),
+            virtual(assistant(0, [use("repl_2", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])])),
+            virtual(result("repl_2", "", 0, ["toolUseResult": ["type": "text", "file": ["filePath": "\(conversationFolder)/docs/columns.md", "content": "# Columns\n\nplan name\n", "numLines": 3]]])),
             assistant(3, [text("The migration check is still running, the docs agent has started.")]),
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
