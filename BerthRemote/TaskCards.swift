@@ -89,42 +89,6 @@ struct TaskCards: View {
     }
 }
 
-struct ChangedFilesCard: View {
-    let changes: FileChanges
-    let openDiff: (() -> Void)?
-
-    var body: some View {
-        let summary = VStack(alignment: .leading, spacing: 2) {
-            Text("\(changes.files) changed \(changes.files == 1 ? "file" : "files")")
-                .font(.subheadline.weight(.semibold))
-            if let added = changes.added, let removed = changes.removed {
-                Text("\(Text("+\(added)").foregroundStyle(.green)) \(Text("−\(removed)").foregroundStyle(.red))")
-                    .font(.footnote.monospacedDigit())
-            }
-        }
-        let button = openDiff.map { action in
-            Button("Open Diff", action: action)
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-        }
-
-        ViewThatFits(in: .horizontal) {
-            HStack {
-                summary
-                Spacer(minLength: 12)
-                button
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                summary
-                button
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.fill.quaternary, in: .rect(cornerRadius: 16))
-    }
-}
-
 struct ElapsedText: View {
     let since: Date
 

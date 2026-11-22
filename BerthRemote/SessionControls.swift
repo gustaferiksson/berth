@@ -6,6 +6,9 @@ struct SessionControls: View {
     let session: RemoteSession?
     let sessionID: String
     let pendingCall: ToolCall?
+    let context: RemoteContext?
+    let openContext: (() -> Void)?
+    let headerShowsContext: Bool
 
     @Environment(RemoteClient.self) private var client
 
@@ -25,6 +28,9 @@ struct SessionControls: View {
                         sessionID: sessionID,
                         isWorking: session?.status == "busy",
                         declining: session?.status == "waiting" ? session : nil,
+                        context: context,
+                        openContext: openContext,
+                        headerShowsContext: headerShowsContext,
                         draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
                         attachments: Binding { client.draftAttachments[sessionID, default: []] } set: { client.draftAttachments[sessionID] = $0 }
                     )
@@ -187,6 +193,9 @@ private struct Composer: View {
     let sessionID: String
     let isWorking: Bool
     let declining: RemoteSession?
+    let context: RemoteContext?
+    let openContext: (() -> Void)?
+    let headerShowsContext: Bool
     @Binding var draft: String
     @Binding var attachments: [Attachment]
 
@@ -199,7 +208,6 @@ private struct Composer: View {
     @AppStorage("quickReplies") private var replies = QuickReply.defaults
     @State private var confirmedCommand: SlashCommand?
     @FocusState private var isFocused: Bool
-    @ScaledMetric private var rowHeight = 48
 
     var body: some View {
         let isEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
@@ -207,65 +215,80 @@ private struct Composer: View {
         let stops = isWorking && isEmpty
 
         GlassEffectContainer(spacing: 8) {
-            HStack(alignment: .bottom, spacing: 8) {
-                Menu("Attach", systemImage: "plus") {
-                    if client.features.contains(RemoteUpload.feature) {
-                        Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
-                        Button("Files", systemImage: "folder") { isImportingFiles = true }
-                    } else {
-                        Button("Attach", systemImage: "paperclip") { client.notice = "Update Berth on your Mac to send attachments" }
-                    }
-                    if !replies.isEmpty {
-                        Section("Replies") {
-                            ForEach(replies) { reply in
-                                Button(reply.text) { insert(reply.text) }
-                            }
-                        }
-                    }
-                    Section("Commands") {
-                        ForEach(SlashCommand.all) { command in
-                            Button(command.name, systemImage: command.symbol, role: command.isDestructive ? .destructive : nil) { run(command) }
-                        }
-                    }
-                }
-                .labelStyle(.iconOnly)
-                .font(.title3)
-                .frame(width: rowHeight, height: rowHeight)
-                .glassEffect(.regular.interactive(), in: .circle)
-                VStack(alignment: .leading, spacing: 0) {
-                    if !attachments.isEmpty {
-                        ScrollView(.horizontal) {
-                            HStack(spacing: 8) {
-                                ForEach(attachments) { attachment in
-                                    AttachmentChip(attachment: attachment, state: client.uploads[attachment.id]) {
-                                        attachments.removeAll { $0.id == attachment.id }
-                                    }
+            VStack(alignment: .leading, spacing: 0) {
+                if !attachments.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
+                            ForEach(attachments) { attachment in
+                                AttachmentChip(attachment: attachment, state: client.uploads[attachment.id]) {
+                                    attachments.removeAll { $0.id == attachment.id }
                                 }
                             }
-                            .padding([.horizontal, .top], 8)
                         }
-                        .scrollIndicators(.hidden)
+                        .padding([.horizontal, .top], 12)
                     }
-                    HStack(alignment: .bottom, spacing: 8) {
-                        TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
-                            .lineLimit(1...6)
-                            .focused($isFocused)
-                            .padding(.leading, 16)
-                            .padding(.vertical, 12)
-                            .frame(minHeight: rowHeight)
-                        Button(stops ? "Stop" : "Send", systemImage: stops ? "stop.fill" : "arrow.up") {
-                            if stops { stop() } else { send() }
-                        }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.glassProminent)
-                        .buttonBorderShape(.circle)
-                        .frame(height: rowHeight)
-                        .padding(.trailing, 6)
-                        .disabled(!stops && (isEmpty || !isUploaded))
-                    }
+                    .scrollIndicators(.hidden)
                 }
-                .glassEffect(.regular, in: .rect(cornerRadius: rowHeight / 2))
+                TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
+                    .lineLimit(1...6)
+                    .focused($isFocused)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 8)
+                HStack(spacing: 8) {
+                    Menu("Attach", systemImage: "plus") {
+                        if client.features.contains(RemoteUpload.feature) {
+                            Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
+                            Button("Files", systemImage: "folder") { isImportingFiles = true }
+                        } else {
+                            Button("Attach", systemImage: "paperclip") { client.notice = "Update Berth on your Mac to send attachments" }
+                        }
+                        if !replies.isEmpty {
+                            Section("Replies") {
+                                ForEach(replies) { reply in
+                                    Button(reply.text) { insert(reply.text) }
+                                }
+                            }
+                        }
+                        Section("Commands") {
+                            ForEach(SlashCommand.all) { command in
+                                Button(command.name, systemImage: command.symbol, role: command.isDestructive ? .destructive : nil) { run(command) }
+                            }
+                        }
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.circle)
+                    .frame(minWidth: 44, minHeight: 44)
+                    if let context, let openContext {
+                        Button(action: openContext) {
+                            HStack(spacing: 6) {
+                                if !headerShowsContext {
+                                    ContextRing(context: context)
+                                }
+                                Text(modelName(of: context))
+                                    .font(.subheadline)
+                                    .lineLimit(1)
+                            }
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.capsule)
+                        .frame(minHeight: 44)
+                        .accessibilityLabel("Context")
+                    }
+                    Spacer(minLength: 0)
+                    Button(stops ? "Stop" : "Send", systemImage: stops ? "stop.fill" : "arrow.up") {
+                        if stops { stop() } else { send() }
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glassProminent)
+                    .buttonBorderShape(.circle)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .disabled(!stops && (isEmpty || !isUploaded))
+                }
+                .padding([.horizontal, .bottom], 8)
             }
+            .glassEffect(.regular, in: .rect(cornerRadius: 24))
         }
         .disabled(client.state != .connected)
         .sensoryFeedback(.impact(weight: .light), trigger: sends)
@@ -298,6 +321,13 @@ private struct Composer: View {
             isFocused = true
         }
         #endif
+    }
+
+    private func modelName(of context: RemoteContext) -> String {
+        let parts = context.model.split(separator: "-").filter { $0 != "claude" && !($0.count == 8 && Int($0) != nil) }
+        let name = parts.filter { Int($0) == nil }.map(\.capitalized).joined(separator: " ")
+        let version = parts.filter { Int($0) != nil }.joined(separator: ".")
+        return [name + (version.isEmpty ? "" : " " + version), headerShowsContext ? nil : context.fill?.formatted(.percent.precision(.fractionLength(0)))].compactMap(\.self).joined(separator: " · ")
     }
 
     private func importPhotos(_ items: [PhotosPickerItem]) async {

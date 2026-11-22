@@ -4,6 +4,7 @@ struct SessionView: View {
     let sessionID: String
 
     @Environment(RemoteClient.self) private var client
+    @Environment(\.openURL) private var openURL
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
     @State private var hasNewMessages = false
@@ -19,6 +20,7 @@ struct SessionView: View {
         let isBusy = session?.status == "busy" || session?.status == "waiting"
         let queued = session?.status == nil ? [] : client.queued[sessionID] ?? []
         let activity = client.activity[sessionID]
+        let headerAction = HeaderAction(pullRequest: session?.pullRequest, context: activity?.context)
 
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
@@ -32,7 +34,7 @@ struct SessionView: View {
                         isWorking: isLast && session?.status == "busy",
                         turnStartedAt: session?.turnStartedAt,
                         liveCall: openCall.flatMap { session?.status == "busy" ? .running($0.id) : session?.status == "waiting" ? .waiting($0.id) : nil },
-                        openChanges: client.features.contains(RemoteChangesFeature.name) ? { isShowingChanges = true } : nil
+                        openChanges: isLast && client.features.contains(RemoteChangesFeature.name) ? { isShowingChanges = true } : nil
                     )
                 }
                 if !queued.isEmpty {
@@ -100,7 +102,10 @@ struct SessionView: View {
                 SessionControls(
                     session: session,
                     sessionID: sessionID,
-                    pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil
+                    pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil,
+                    context: activity?.context,
+                    openContext: { isShowingContext = true },
+                    headerShowsContext: headerAction?.showsContext == true
                 )
             }
         }
@@ -128,25 +133,56 @@ struct SessionView: View {
                     .foregroundStyle(.secondary)
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if client.features.contains(RemoteChangesFeature.name) {
-                    Button("Changes", systemImage: "plusminus") { isShowingChanges = true }
-                }
-                if let pullRequest = session?.pullRequest, client.features.contains(RemotePullRequestFeature.name) {
-                    Button("Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull") { isShowingPullRequest = true }
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu("Session Actions", systemImage: "ellipsis") {
-                    Button("Open on Mac", systemImage: "macbook", action: openOnMac)
-                    if activity?.context != nil {
-                        Button("Context", systemImage: "chart.pie") { isShowingContext = true }
+                Group {
+                    switch headerAction {
+                    case let .pullRequest(pullRequest, isFailing):
+                        Button { openPullRequest(pullRequest) } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: isFailing ? "xmark.circle.fill" : "arrow.triangle.pull")
+                                Text("#\(String(pullRequest.number))")
+                                    .font(.footnote.weight(.medium).monospacedDigit())
+                            }
+                            .foregroundStyle(isFailing ? .red : .primary)
+                        }
+                        .accessibilityLabel("Pull Request #\(String(pullRequest.number))\(isFailing ? ", checks failed" : "")")
+                        .transition(.blurReplace)
+
+                    case let .context(context):
+                        Button { isShowingContext = true } label: {
+                            HStack(spacing: 4) {
+                                ContextRing(context: context)
+                                if let fill = context.fill, fill >= 0.8 {
+                                    Text(fill, format: .percent.precision(.fractionLength(0)))
+                                        .font(.footnote.weight(.medium).monospacedDigit())
+                                }
+                            }
+                        }
+                        .transition(.blurReplace)
+
+                    case nil:
+                        EmptyView()
                     }
-                    if let pullRequest = session?.pullRequest, !client.features.contains(RemotePullRequestFeature.name), pullRequest.url.scheme == "https" {
-                        Link(destination: pullRequest.url) {
-                            Label("Open Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull")
+                }
+                .animation(.smooth, value: headerAction?.kind)
+                Menu("Session Actions", systemImage: "ellipsis") {
+                    Section {
+                        if client.features.contains(RemoteChangesFeature.name) {
+                            Button("Changes", systemImage: "plusminus") { isShowingChanges = true }
+                        }
+                        if let pullRequest = session?.pullRequest {
+                            Button("Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull") { openPullRequest(pullRequest) }
+                        }
+                        if activity?.context != nil {
+                            Button("Context", systemImage: "chart.pie") { isShowingContext = true }
+                        }
+                        if let tasks = activity?.tasks, !tasks.isEmpty {
+                            Button("Running Tasks", systemImage: "list.bullet.rectangle") { isShowingRunning = true }
                         }
                     }
-                    Button("Mark as Unread", systemImage: "circle.fill", action: markUnread)
+                    Section {
+                        Button("Open on Mac", systemImage: "macbook", action: openOnMac)
+                        Button("Mark as Unread", systemImage: "circle.fill", action: markUnread)
+                    }
                 }
             }
         }
@@ -161,6 +197,14 @@ struct SessionView: View {
         }
     }
 
+    private func openPullRequest(_ pullRequest: RemotePullRequest) {
+        if client.features.contains(RemotePullRequestFeature.name) {
+            isShowingPullRequest = true
+        } else if pullRequest.url.scheme == "https" {
+            openURL(pullRequest.url)
+        }
+    }
+
     private func scrollToEnd() {
         withAnimation { position.scrollTo(edge: .bottom) }
     }
@@ -171,5 +215,37 @@ struct SessionView: View {
 
     private func markUnread() {
         client.send(.session(sessionID: sessionID, action: .markUnread))
+    }
+}
+
+private enum HeaderAction {
+    case pullRequest(RemotePullRequest, isFailing: Bool)
+    case context(RemoteContext)
+
+    init?(pullRequest: RemotePullRequest?, context: RemoteContext?) {
+        let openPullRequest = pullRequest.flatMap { $0.state == "Merged" || $0.state == "Closed" ? nil : $0 }
+        let isFull = (context?.fill ?? 0) >= 0.8
+        if let openPullRequest, openPullRequest.checks == "failed" {
+            self = .pullRequest(openPullRequest, isFailing: true)
+        } else if let context, isFull {
+            self = .context(context)
+        } else if let openPullRequest {
+            self = .pullRequest(openPullRequest, isFailing: false)
+        } else if let context {
+            self = .context(context)
+        } else {
+            return nil
+        }
+    }
+
+    var kind: String {
+        switch self {
+        case let .pullRequest(_, isFailing): isFailing ? "failing" : "pullRequest"
+        case .context: "context"
+        }
+    }
+
+    var showsContext: Bool {
+        if case .context = self { true } else { false }
     }
 }

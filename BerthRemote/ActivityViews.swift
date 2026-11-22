@@ -256,11 +256,17 @@ private struct TaskDetailView: View {
     }
 }
 
+extension RemoteContext {
+    var fill: Double? {
+        tokens.flatMap { tokens in window.map { Double(tokens) / Double($0) } }
+    }
+}
+
 struct ContextRing: View {
     let context: RemoteContext?
 
     var body: some View {
-        let fill = context?.tokens.flatMap { tokens in context?.window.map { Double(tokens) / Double($0) } }
+        let fill = context?.fill
         let level = fill ?? 0
         ZStack {
             Circle()

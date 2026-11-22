@@ -66,8 +66,8 @@ struct TurnView: View {
                 TaskCards(calls: foldedCards, sessionID: sessionID, liveCall: nil)
             }
             ForEach(turn.parts[(folded?.endIndex ?? 0)...]) { TurnPartView(sessionID: sessionID, part: $0, liveCall: liveCall) }
-            if folded != nil, let changes = turn.fileChanges {
-                ChangedFilesCard(changes: changes, openDiff: openChanges)
+            if folded != nil, !turn.fileEdits.isEmpty {
+                ChangedFilesCard(edits: turn.fileEdits, openChanges: openChanges)
             }
             if turn.isInterrupted {
                 Label("Interrupted", systemImage: "stop.circle")
