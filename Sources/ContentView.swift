@@ -34,6 +34,7 @@ struct ContentView: View {
                 ReviewPanel()
                     .glassSidebarTint(store.theme)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
+                    .toolbar { ChangesToolbar(store: store, isReviewEnabled: isReviewEnabled) }
                     .navigationSplitViewColumnWidth(min: 220, ideal: 272, max: 440)
             } else {
                 Sidebar()
@@ -112,6 +113,7 @@ struct ContentView: View {
                     .glassSidebarTint(store.theme)
                     .background(ScrollPocketSeparatorRemover())
                     .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
+                    .toolbar { ChangesToolbar(store: store, isReviewEnabled: isReviewEnabled) }
             }
         }
         .containerBackground(store.theme.chrome ?? .clear, for: .window)

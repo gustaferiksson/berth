@@ -39,24 +39,35 @@ extension Store {
     }
 }
 
+// A toolbar-less inspector gets no tracking separator, so the window's trailing items would sit over it.
 struct SessionToolbar: ToolbarContent {
     let store: Store
     let isReviewEnabled: Bool
 
     var body: some ToolbarContent {
         if store.canShowConversation {
-            ToolbarItem(placement: .automatic) { ConversationSwitch(store: store) }
+            ToolbarItem(placement: .principal) { ConversationSwitch(store: store) }
         }
         if store.showsSessionToolbar, let sessionID = store.selectedSessionID {
+            ToolbarItem(placement: .primaryAction) { ContextButton(context: store.sessionsByID[sessionID]?.context) }
+        }
+    }
+}
+
+struct ChangesToolbar: ToolbarContent {
+    let store: Store
+    let isReviewEnabled: Bool
+
+    var body: some ToolbarContent {
+        if store.showsSessionToolbar, let sessionID = store.selectedSessionID {
             let pullRequests = store.sessionsByID[sessionID].map { store.pullRequests(of: $0) } ?? []
-            ToolbarSpacer(.fixed, placement: .automatic)
             if isReviewEnabled || !pullRequests.isEmpty {
-                ToolbarItemGroup(placement: .automatic) {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarItemGroup(placement: .primaryAction) {
                     if let first = pullRequests.first { PullRequestButton(pullRequest: first.pullRequest) }
                     if isReviewEnabled { ChangesToggle(store: store) }
                 }
             }
-            ToolbarItem(placement: .automatic) { ContextButton(context: store.sessionsByID[sessionID]?.context) }
         }
     }
 }
@@ -97,7 +108,7 @@ private struct ChangesToggle: View {
     var body: some View {
         let isShown = AppAction.hideChanges.isAvailable(in: store)
         let action = isShown ? AppAction.hideChanges : .showChanges
-        Toggle(isOn: Binding(get: { isShown }, set: { ($0 ? AppAction.showChanges : .hideChanges).perform(on: store) })) {
+        Button { action.perform(on: store) } label: {
             if let size = store.selectedChangeSize {
                 HStack(spacing: 5) {
                     Text(verbatim: "+\(size.additions)").foregroundStyle(theme.working)
@@ -108,7 +119,6 @@ private struct ChangesToggle: View {
                 Image(systemName: action.symbol)
             }
         }
-        .toggleStyle(.button)
         .accessibilityLabel(action.title)
         .help("\(action.title) (⇧⌘R)")
     }
