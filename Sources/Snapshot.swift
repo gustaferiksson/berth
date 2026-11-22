@@ -48,7 +48,26 @@ enum Snapshot {
     }()
 
     private static let reviewPullRequest: [(session: SessionSummary, pullRequest: PullRequest?)] = {
-        guard let folder = UserDefaults.standard.string(forKey: "snapshotReview"), let branch = UserDefaults.standard.string(forKey: "snapshotReviewPullRequest") else { return [] }
+        guard let folder = UserDefaults.standard.string(forKey: "snapshotReview") else { return [] }
+
+        let branch: String
+        if let requested = UserDefaults.standard.string(forKey: "snapshotReviewPullRequest") {
+            branch = requested
+        } else if UserDefaults.standard.bool(forKey: "snapshotReviewThreads") {
+            let git = Process()
+            let output = Pipe()
+            git.executableURL = URL(filePath: "/usr/bin/git")
+            git.arguments = ["-C", folder, "symbolic-ref", "--quiet", "--short", "HEAD"]
+            git.standardOutput = output
+            git.standardError = FileHandle.nullDevice
+            guard (try? git.run()) != nil else { return [] }
+
+            let name = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            git.waitUntilExit()
+            branch = name.isEmpty ? "HEAD" : name
+        } else {
+            return []
+        }
 
         let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch, pullRequests: linkedFixtureLinks)
         let state = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestState") ?? "Open"
@@ -56,12 +75,22 @@ enum Snapshot {
     }()
 
     static let fixturePullRequestDetail: PullRequestDetail? = {
-        let counts = (UserDefaults.standard.string(forKey: "snapshotReviewChecks") ?? "").split(separator: ":").compactMap { Int($0) }
-        guard counts.count == 4 else { return nil }
+        let showsThreads = UserDefaults.standard.bool(forKey: "snapshotReviewThreads")
+        let configured = (UserDefaults.standard.string(forKey: "snapshotReviewChecks") ?? "").split(separator: ":").compactMap { Int($0) }
+        let counts = configured.count == 4 ? configured : showsThreads ? [4, 0, 1, 0] : []
+        guard counts.count == 4, counts[3] >= 0 else { return nil }
 
         let state = counts[1] > 0 ? "FAILURE" : counts[2] > 0 ? "PENDING" : "SUCCESS"
-        let threads = Array(repeating: #"{"isResolved":false}"#, count: counts[3]) + [#"{"isResolved":true}"#]
-        let response = #"{"data":{"repository":{"pullRequest":{"statusCheckRollup":{"state":"\#(state)","contexts":{"checkRunCountsByState":[{"state":"SUCCESS","count":\#(counts[0])},{"state":"FAILURE","count":\#(counts[1])},{"state":"IN_PROGRESS","count":\#(counts[2])}]}},"reviewThreads":{"nodes":[\#(threads.joined(separator: ","))]},"headRefName":"feature/reconcile-settlement-exports","reviewDecision":"CHANGES_REQUESTED","additions":412,"deletions":87,"changedFiles":9,"commits":{"totalCount":5}}}}}"#
+        let fixtures = showsThreads ? [
+            #"{"id":"fixture-open","path":"README.md","line":3,"diffSide":"RIGHT","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"id":"fixture-comment-1","author":{"login":"lee"},"body":"Can we explain how to run the export locally?","createdAt":"2026-05-12T09:00:00Z"},{"id":"fixture-comment-2","author":{"login":"sam"},"body":"I’ll add an example command.","createdAt":"2026-05-12T09:15:00Z"}]}}"#,
+            #"{"id":"fixture-resolved","path":"README.md","line":6,"diffSide":"RIGHT","isResolved":true,"isOutdated":false,"comments":{"nodes":[{"id":"fixture-comment-3","author":{"login":"kim"},"body":"The prerequisites are clear now.","createdAt":"2026-05-12T09:30:00Z"}]}}"#,
+            #"{"id":"fixture-outdated","path":"README.md","line":null,"diffSide":"RIGHT","isResolved":false,"isOutdated":true,"comments":{"nodes":[{"id":"fixture-comment-4","author":{"login":"lee"},"body":"Does this setup step still apply?","createdAt":"2026-05-12T09:45:00Z"}]}}"#,
+            #"{"id":"fixture-original","path":"docs/usage.md","line":5,"diffSide":"LEFT","isResolved":false,"isOutdated":false,"comments":{"nodes":[{"id":"fixture-comment-5","author":{"login":"sam"},"body":"Where should this example move?","createdAt":"2026-05-12T10:00:00Z"}]}}"#,
+        ] : []
+        let threads = fixtures + (0..<counts[3]).map { index in
+            #"{"id":"fixture-check-\#(index)","path":"README.md","line":3,"diffSide":"RIGHT","isResolved":false,"isOutdated":false,"comments":{"nodes":[]}}"#
+        }
+        let response = #"{"data":{"repository":{"pullRequest":{"id":"fixture-pull-request","statusCheckRollup":{"state":"\#(state)","contexts":{"checkRunCountsByState":[{"state":"SUCCESS","count":\#(counts[0])},{"state":"FAILURE","count":\#(counts[1])},{"state":"IN_PROGRESS","count":\#(counts[2])}]}},"reviewThreads":{"nodes":[\#(threads.joined(separator: ","))]},"headRefName":"feature/reconcile-settlement-exports","reviewDecision":"CHANGES_REQUESTED","additions":412,"deletions":87,"changedFiles":9,"commits":{"totalCount":5}}}}}"#
         return PullRequestDetail.parse(Data(response.utf8))
     }()
 
@@ -262,9 +291,14 @@ enum Snapshot {
             }
             store.planUsage = PlanUsage(windows: windows)
         }
-        if let tab = UserDefaults.standard.string(forKey: "snapshotReviewPanelTab") {
+        let showsReviewThreads = UserDefaults.standard.bool(forKey: "snapshotReviewThreads")
+        let reviewPanelTab = UserDefaults.standard.string(forKey: "snapshotReviewPanelTab")
+        if showsReviewThreads || reviewPanelTab != nil {
             var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
-            arguments["reviewPanelTab"] = tab
+            arguments["reviewPanelTab"] = reviewPanelTab ?? "changes"
+            if showsReviewThreads {
+                arguments["collapsedReviewSections"] = (UserDefaults.standard.string(forKey: "collapsedReviewSections") ?? "").split(separator: ",").filter { $0 != "reviewThreads" && $0 != "pullRequest" }.joined(separator: ",")
+            }
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         }
         await store.waitForScan()
@@ -530,6 +564,10 @@ enum Snapshot {
                 if let changes = model.changes, model.selectedTab == nil {
                     if UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
                     let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
+                    if requested == nil, showsReviewThreads, let thread = fixturePullRequestDetail?.threads.first(where: { $0.path == "README.md" && $0.line != nil }) {
+                        model.open(thread)
+                        continue
+                    }
                     guard let document = requested ?? changes.uncommitted.first.map({ ReviewDocument(path: $0.path, compare: .uncommitted) }) ?? changes.committed.first.map({ ReviewDocument(path: $0.path, compare: .committed) }) else { break }
 
                     model.open(document)
@@ -545,6 +583,11 @@ enum Snapshot {
             try? await Task.sleep(for: .seconds(1))
             print("review \(model.changes.map { "\($0.branch) → \($0.base ?? "-"), fetch error \($0.fetchError ?? "-")" } ?? "error \(model.error.map(ReviewModel.describe) ?? "timed out")")")
             print("review card \(model.status.map { "base \(model.changes?.base ?? "-") (\(model.changes?.baseReason?.rawValue ?? "-")), bases \(model.changes?.bases.map { "\($0.ref) \($0.distance)" } ?? []), default branch \(model.changes?.isDefaultBranch == true), ahead \($0.ahead), behind \($0.behind), upstream \($0.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" }), total \(model.changes?.total.map { "+\($0.additions) -\($0.deletions)" } ?? "-")" } ?? "none"), pull request details \(model.pullRequestDetails)")
+            if showsReviewThreads {
+                let threads = model.pullRequestDetails.values.flatMap(\.threads)
+                let files = Dictionary(grouping: threads, by: \.path).map { path, group in "\(path) \(group.count) (\(group.count(where: \.isResolved)) resolved)" }.sorted()
+                print("review threads \(threads.count), resolved \(threads.count(where: \.isResolved)), files \(files)")
+            }
             for (section, files) in [("uncommitted", model.changes?.uncommitted ?? []), ("committed", model.changes?.committed ?? [])] {
                 for file in files { print("  \(section) \(file.status.rawValue) \(file.path) +\(file.additions.map(String.init) ?? "?") -\(file.deletions.map(String.init) ?? "?")") }
             }

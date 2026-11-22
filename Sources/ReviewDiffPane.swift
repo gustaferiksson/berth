@@ -8,17 +8,25 @@ struct ReviewDiffPane: View {
     let editor: ReviewTextView?
     @Binding var draft: String?
     @Binding var comments: [ReviewComment]
+    let threads: [ReviewThread]
+    @Binding var replyDrafts: [String: String]
+    let isWritingPullRequest: Bool
     let style: ReviewStyle
     let language: ReviewLanguage?
     let reveal: LanguageServerRange?
+    let revealLine: (line: Int, side: ReviewComment.Side)?
     let isUnified: Bool
     let takesFocus: Bool
     let changeStep: Int?
     let onRevealed: () -> Void
+    let onLineRevealed: () -> Void
     let onChangeStepped: () -> Void
     let editsComment: String?
     let onEditing: () -> Void
     let onDefinition: (LanguageServerLocation, LanguageServerRange) -> Void
+    let onReply: (String, String) async -> Bool
+    let onSendThread: (ReviewThread) -> Void
+    let onSendComment: ((ReviewComment) -> Void)?
     let workingText: () -> String?
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
@@ -49,18 +57,26 @@ struct ReviewDiffPane: View {
                 style: style,
                 showsMinimap: showsMinimap,
                 comments: $comments,
+                threads: threads,
+                replyDrafts: $replyDrafts,
+                isWritingPullRequest: isWritingPullRequest,
                 language: contents.modified == nil ? nil : language,
                 diagnostics: contents.modified == nil || editor == nil && compare == .committed ? [] : language?.diagnostics(for: path) ?? [],
                 reveal: reveal,
+                revealLine: revealLine,
                 isUnified: isUnified,
                 splitRatio: splitRatio,
                 takesFocus: takesFocus,
                 changeStep: changeStep,
                 onRevealed: onRevealed,
+                onLineRevealed: onLineRevealed,
                 onChangeStepped: onChangeStepped,
                 editsComment: editsComment,
                 onEditing: onEditing,
                 onDefinition: onDefinition,
+                onReply: onReply,
+                onSendThread: onSendThread,
+                onSendComment: onSendComment,
                 workingText: workingText,
                 onEdit: { draft = $0 == loaded ? nil : $0 },
                 onSplit: { splitRatio = $0 }
@@ -127,18 +143,26 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let style: ReviewStyle
     let showsMinimap: Bool
     @Binding var comments: [ReviewComment]
+    let threads: [ReviewThread]
+    @Binding var replyDrafts: [String: String]
+    let isWritingPullRequest: Bool
     let language: ReviewLanguage?
     let diagnostics: [LanguageServerDiagnostic]
     let reveal: LanguageServerRange?
+    let revealLine: (line: Int, side: ReviewComment.Side)?
     let isUnified: Bool
     let splitRatio: Double
     let takesFocus: Bool
     let changeStep: Int?
     let onRevealed: () -> Void
+    let onLineRevealed: () -> Void
     let onChangeStepped: () -> Void
     let editsComment: String?
     let onEditing: () -> Void
     let onDefinition: (LanguageServerLocation, LanguageServerRange) -> Void
+    let onReply: (String, String) async -> Bool
+    let onSendThread: (ReviewThread) -> Void
+    let onSendComment: ((ReviewComment) -> Void)?
     let workingText: () -> String?
     let onEdit: (String) -> Void
     let onSplit: (Double) -> Void
@@ -175,7 +199,9 @@ private struct ReviewDiffViews: NSViewRepresentable {
     }
 
     static func dismantleNSView(_: NSStackView, coordinator: Coordinator) {
-        (Array(coordinator.cards.values) + [coordinator.draft?.view, coordinator.peek?.view].compactMap(\.self)).forEach { $0.removeFromSuperview() }
+        coordinator.cards.values.forEach { $0.removeFromSuperview() }
+        coordinator.threadCards.values.forEach { $0.removeFromSuperview() }
+        [coordinator.draft?.view, coordinator.peek?.view].compactMap(\.self).forEach { $0.removeFromSuperview() }
         guard coordinator.right.delegate === coordinator else { return }
 
         coordinator.right.selectedLines = nil
@@ -201,7 +227,8 @@ private struct ReviewDiffViews: NSViewRepresentable {
         private var loadedModified: String?
         private var applied: ReviewDiffAnalysis?
         var cards: [String: ReviewInlineComment] = [:]
-        var draft: (view: ReviewInlineComment, numbered: ReviewTextView, line: Int, editing: String?)?
+        var threadCards: [String: ReviewThreadCard] = [:]
+        var draft: (view: ReviewInlineComment, numbered: ReviewTextView, line: Int, editing: String?, replyingTo: String?)?
         var peek: (view: ReviewReferencesPeek, numbered: ReviewTextView, line: Int)?
 
         init(right: ReviewTextView) {
@@ -312,6 +339,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 left.style = view.style
                 right.style = view.style
                 for inline in Array(cards.values) + [draft?.view].compactMap(\.self) { inline.apply(view.style) }
+                for card in threadCards.values { card.apply(view.style) }
             }
             if isStyleChanged || isOriginalChanged || isModifiedChanged || isModeChanged || analysis != nil {
                 reload()
@@ -339,6 +367,14 @@ private struct ReviewDiffViews: NSViewRepresentable {
             if let reveal = view.reveal, applied?.modified == loadedModified {
                 right.reveal(NSRange(location: right.offset(of: reveal.start), length: max(right.offset(of: reveal.end) - right.offset(of: reveal.start), 0)))
                 Task { view.onRevealed() }
+            }
+            if let reveal = view.revealLine, applied != nil {
+                let numbered = reveal.side == .original ? left : right
+                let owner = view.isUnified ? right : numbered
+                if reveal.line > 0, !numbered.isAbsent, let rows = numbered.side?.rows, rows.indices.contains(reveal.line - 1) {
+                    owner.scrollVertically(to: owner.top(ofRow: rows[reveal.line - 1]) - owner.rowHeight)
+                }
+                Task { view.onLineRevealed() }
             }
             if let step = view.changeStep, applied != nil {
                 right.goToChange(by: step)
@@ -453,6 +489,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 ), style: owner.style)
                 cards[comment.id] = card
                 if card.field.string != comment.text { card.field.string = comment.text }
+                card.onSendToPullRequest = parent.isWritingPullRequest ? nil : parent.onSendComment.map { send in { send(comment) } }
                 let view = draft.flatMap { $0.editing == comment.id ? $0.view : nil } ?? card
                 card.isHidden = view !== card
                 if view.superview !== owner { owner.addSubview(view) }
@@ -460,7 +497,41 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 view.isHidden = !rows.indices.contains(comment.endLine - 1)
                 if !view.isHidden { placed.append((view, owner, rows[comment.endLine - 1])) }
             }
-            if let draft, draft.editing == nil, let rows = draft.numbered.side?.rows, rows.indices.contains(draft.line) {
+            let threadIDs = Set(parent.threads.map(\.id))
+            for (id, card) in threadCards where !threadIDs.contains(id) {
+                card.removeFromSuperview()
+                threadCards[id] = nil
+            }
+            for thread in parent.threads {
+                let numbered = thread.side == .original ? left : right
+                let owner = isUnified ? right : numbered
+                let previous = threadCards[thread.id]
+                guard let line = thread.line, line > 0, !numbered.isAbsent, let rows = numbered.side?.rows, rows.indices.contains(line - 1) else {
+                    previous?.removeFromSuperview()
+                    continue
+                }
+
+                let card: ReviewThreadCard
+                if let previous, previous.thread == thread {
+                    card = previous
+                } else {
+                    previous?.removeFromSuperview()
+                    card = ReviewThreadCard(thread: thread, style: owner.style, isExpanded: previous.flatMap { $0.thread.isResolved == thread.isResolved ? $0.isExpanded : nil }, onReply: { [weak self] in
+                        self?.reply(to: thread)
+                    }, onSend: { [weak self] in self?.parent?.onSendThread(thread) }, onResize: { [weak self] in self?.layoutInline() })
+                    threadCards[thread.id] = card
+                }
+                card.replyButton.isEnabled = !parent.isWritingPullRequest
+                if card.superview !== owner { owner.addSubview(card) }
+                placed.append((card, owner, rows[line - 1]))
+                if card.isExpanded, let draft, draft.replyingTo == thread.id {
+                    if draft.view.superview !== owner { owner.addSubview(draft.view) }
+                    draft.view.isHidden = false
+                    placed.append((draft.view, owner, rows[line - 1]))
+                }
+            }
+            if let draft, draft.replyingTo != nil, !placed.contains(where: { $0.view === draft.view }) { draft.view.isHidden = true }
+            if let draft, draft.editing == nil, draft.replyingTo == nil, let rows = draft.numbered.side?.rows, rows.indices.contains(draft.line) {
                 let owner = isUnified ? right : draft.numbered
                 if draft.view.superview !== owner { owner.addSubview(draft.view) }
                 placed.append((draft.view, owner, rows[draft.line]))
@@ -474,7 +545,11 @@ private struct ReviewDiffViews: NSViewRepresentable {
             let inset: CGFloat = 6
             let indent = right.textContainerInset.width
             let widths = placed.map { max(($0.owner.enclosingScrollView?.contentView.bounds.width ?? 0) - indent - 2 * inset, 120) }
-            let heights = zip(placed, widths).map { ($0.view as? ReviewInlineComment)?.fittingHeight(forWidth: $1) ?? ($1 < ReviewReferencesPeek.stackedBelowWidth ? ReviewReferencesPeek.stackedHeight : ReviewReferencesPeek.height) }
+            let heights = zip(placed, widths).map { item, width in
+                if let card = item.view as? ReviewInlineComment { return card.fittingHeight(forWidth: width) }
+                if let card = item.view as? ReviewThreadCard { return card.fittingHeight(forWidth: width) }
+                return width < ReviewReferencesPeek.stackedBelowWidth ? ReviewReferencesPeek.stackedHeight : ReviewReferencesPeek.height
+            }
             var reserved: [Int: CGFloat] = [:]
             for (item, height) in zip(placed, heights) { reserved[item.row, default: 0] += height + inset * 2 }
             reserved = reserved.mapValues { $0.rounded(.up) }
@@ -522,7 +597,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 onCancel: { [weak self] in self?.closeDraft() },
                 onResize: { [weak self] in self?.layoutInline() }
             ), style: owner.style)
-            draft = (view, numbered, last, nil)
+            draft = (view, numbered, last, nil, nil)
             layoutInline()
             owner.window?.makeFirstResponder(view.field)
             owner.scrollToVisible(NSRect(x: owner.visibleRect.minX, y: view.frame.minY, width: 1, height: view.frame.height))
@@ -542,7 +617,44 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 onCancel: { [weak self] in self?.closeDraft() },
                 onResize: { [weak self] in self?.layoutInline() }
             ), style: owner.style)
-            draft = (view, numbered, comment.endLine - 1, id)
+            draft = (view, numbered, comment.endLine - 1, id, nil)
+            layoutInline()
+            owner.window?.makeFirstResponder(view.field)
+            owner.scrollToVisible(NSRect(x: owner.visibleRect.minX, y: view.frame.minY, width: 1, height: view.frame.height))
+        }
+
+        private func reply(to thread: ReviewThread) {
+            guard let parent, let line = thread.line, let owner = threadCards[thread.id]?.superview as? ReviewTextView else { return }
+
+            if draft?.replyingTo == thread.id, let view = draft?.view {
+                owner.window?.makeFirstResponder(view.field)
+                return
+            }
+
+            closeDraft()
+            let view = ReviewInlineComment(title: "Reply to Review Thread", text: parent.replyDrafts[thread.id] ?? "", kind: .draft(
+                onAdd: { [weak self] text in
+                    guard !text.isEmpty, let parent = self?.parent, !parent.isWritingPullRequest, let composer = self?.draft?.view else { return }
+
+                    composer.isSubmitting = true
+                    Task { [weak self] in
+                        let sent = await parent.onReply(thread.id, text)
+                        composer.isSubmitting = false
+                        if sent, self?.draft?.view === composer { self?.closeDraft() }
+                    }
+                },
+                onCancel: { [weak self] in
+                    self?.parent?.replyDrafts[thread.id] = nil
+                    self?.closeDraft()
+                },
+                onResize: { [weak self] in
+                    guard let self, let draft, draft.replyingTo == thread.id else { return }
+
+                    self.parent?.replyDrafts[thread.id] = draft.view.field.string
+                    layoutInline()
+                }
+            ), style: owner.style, submitTitle: "Send Reply")
+            draft = (view, thread.side == .original ? left : right, line - 1, nil, thread.id)
             layoutInline()
             owner.window?.makeFirstResponder(view.field)
             owner.scrollToVisible(NSRect(x: owner.visibleRect.minX, y: view.frame.minY, width: 1, height: view.frame.height))

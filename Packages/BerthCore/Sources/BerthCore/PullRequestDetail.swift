@@ -25,7 +25,8 @@ public struct PullRequestChecks: Sendable, Hashable {
 
 public struct PullRequestDetail: Sendable, Hashable {
     public let checks: PullRequestChecks?
-    public let unresolvedThreads: Int
+    public let id: String?
+    public let threads: [ReviewThread]
     public var headRefName: String?
     public var reviewDecision: String?
     public var additions: Int?
@@ -33,7 +34,9 @@ public struct PullRequestDetail: Sendable, Hashable {
     public var changedFiles: Int?
     public var commits: Int?
 
-    public static let query = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { headRefName reviewDecision additions deletions changedFiles commits { totalCount } statusCheckRollup { state contexts { checkRunCountsByState { state count } statusContextCountsByState { state count } } } reviewThreads(first: 100) { nodes { isResolved } } } } }"
+    public var unresolvedThreads: Int { threads.count(where: { !$0.isResolved }) }
+
+    public static let query = "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { id headRefName reviewDecision additions deletions changedFiles commits { totalCount } statusCheckRollup { state contexts { checkRunCountsByState { state count } statusContextCountsByState { state count } } } reviewThreads(first: 100) { nodes { id isResolved isOutdated path line startLine diffSide comments(first: 50) { nodes { id author { login } body createdAt } } } } } } }"
 
     private struct Response: Decodable {
         struct Payload: Decodable {
@@ -45,8 +48,9 @@ public struct PullRequestDetail: Sendable, Hashable {
         }
 
         struct PullRequest: Decodable {
+            let id: String?
             let statusCheckRollup: Rollup?
-            let reviewThreads: Threads
+            let reviewThreads: Connection<Thread>?
             let headRefName: String?
             let reviewDecision: String?
             let additions: Int?
@@ -74,12 +78,30 @@ public struct PullRequestDetail: Sendable, Hashable {
             let count: Int
         }
 
-        struct Threads: Decodable {
-            struct Thread: Decodable {
-                let isResolved: Bool
+        struct Connection<Node: Decodable>: Decodable {
+            let nodes: [Node?]?
+        }
+
+        struct Thread: Decodable {
+            let id: String
+            let path: String
+            let line: Int?
+            let startLine: Int?
+            let diffSide: String
+            let isResolved: Bool
+            let isOutdated: Bool
+            let comments: Connection<Comment>
+        }
+
+        struct Comment: Decodable {
+            struct Author: Decodable {
+                let login: String
             }
 
-            let nodes: [Thread?]
+            let id: String
+            let author: Author?
+            let body: String
+            let createdAt: String?
         }
 
         let data: Payload?
@@ -100,6 +122,20 @@ public struct PullRequestDetail: Sendable, Hashable {
             return PullRequestChecks(state: PullRequestChecks.State(rollup.state), passed: counts[.passed] ?? 0, failed: counts[.failed] ?? 0, running: counts[.running] ?? 0)
         }
 
-        return Self(checks: checks, unresolvedThreads: pullRequest.reviewThreads.nodes.count(where: { $0?.isResolved == false }), headRefName: pullRequest.headRefName, reviewDecision: pullRequest.reviewDecision, additions: pullRequest.additions, deletions: pullRequest.deletions, changedFiles: pullRequest.changedFiles, commits: pullRequest.commits?.totalCount)
+        let threads = (pullRequest.reviewThreads?.nodes ?? []).compactMap { thread -> ReviewThread? in
+            guard let thread else { return nil }
+
+            let comments = (thread.comments.nodes ?? []).compactMap { comment -> ReviewThread.Comment? in
+                guard let comment else { return nil }
+
+                let createdAt = comment.createdAt.flatMap { timestamp in
+                    (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(timestamp)) ?? (try? Date.ISO8601FormatStyle().parse(timestamp))
+                }
+                return ReviewThread.Comment(id: comment.id, author: comment.author?.login ?? "ghost", body: comment.body, createdAt: createdAt)
+            }
+            return ReviewThread(id: thread.id, path: thread.path, line: thread.isOutdated ? nil : thread.line, startLine: thread.startLine, side: thread.diffSide == "LEFT" ? .original : .modified, isResolved: thread.isResolved, isOutdated: thread.isOutdated, comments: comments)
+        }
+
+        return Self(checks: checks, id: pullRequest.id, threads: threads, headRefName: pullRequest.headRefName, reviewDecision: pullRequest.reviewDecision, additions: pullRequest.additions, deletions: pullRequest.deletions, changedFiles: pullRequest.changedFiles, commits: pullRequest.commits?.totalCount)
     }
 }

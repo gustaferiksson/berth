@@ -100,8 +100,8 @@ This is the slim first version; the rest is listed under Later.
     upstream") and its last two commits.
   - With a PR (the sidebar's data, `Store.pullRequest(in:branch:)`): a state pill (Open, Draft,
     Merged, Closed in the sidebar tag's colours), `#number`, Open on GitHub, the title (two
-    lines), then the branch total (below), the checks summary ("Checks passed", "N failed" or
-    "N running", counts in the tooltip) and "N open" unresolved review threads. Checks and threads are one `gh api graphql`
+    lines), then the branch total (below), checks, review decision, file and commit counts,
+    and a button for the unresolved thread count. Checks and threads are one `gh api graphql`
     call (`PullRequestDetail`) for this PR only, off the main thread, when the panel shows the
     session, when the PR first appears and on Refresh; kept per PR number, so a failed call
     keeps the last result. Without `gh` only the total is left on the line. The branch's commits follow, as below.
@@ -238,6 +238,20 @@ This is the slim first version; the rest is listed under Later.
   focuses the terminal (the panel stays). Sent comments are cleared. If Claude isn't running in the tab,
   nothing is pasted and the comments are kept.
 
+## Pull request review threads
+
+- Review Threads groups the pull request's threads by file and puts unresolved threads first
+  within each group. The PR card's count opens and scrolls to the section. Picking a row opens
+  the file and scrolls to its review line when available. Outdated threads open the file.
+- Threads with a line also appear below that line in the diff. Original-side threads follow
+  the removal rows, and resolved threads start collapsed. Reply opens an inline draft.
+  Choosing Send Reply adds it to the user's pending GitHub review. Failures keep the draft.
+- Add to Pull Request Review is available from a local line comment's context menu or its row
+  in the comment list when a PR is loaded. Berth clears the local comment after GitHub accepts
+  it. The user submits the pending review on GitHub.
+- Send to Claude pastes the thread into the current session's prompt for the user to read and
+  submit, using the same flow as Send N Comments.
+
 ## Create Pull Request
 
 - The button does nothing outward itself: like Send, it pastes a prompt ("Push this branch and
@@ -301,4 +315,4 @@ also refused when the file on disk changed since it was loaded.
 
 ## Later
 
-A PR compare; per-prompt snapshots; posting comments to GitHub.
+A PR compare and per-prompt snapshots.
