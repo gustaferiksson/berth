@@ -1181,6 +1181,7 @@ private struct SessionRow: View {
             hasBackgroundShell: hasBackgroundShell,
             isUnread: isUnread,
             isFlagged: isFlagged,
+            agent: session.agent,
             context: context,
             detail: {
                 if density.isCompact {
@@ -1465,7 +1466,7 @@ private struct TabRow: View {
     var body: some View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         if tab.kind == .claude {
-            CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil, isOpen: true) {
+            CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil, isOpen: true, agent: tab.agent) {
                 if !density.isCompact { Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(Color.secondary) }
             }
         } else {
@@ -1496,6 +1497,7 @@ private struct CardRow<Detail: View>: View {
     var hasBackgroundShell = false
     var isUnread = false
     var isFlagged = false
+    var agent = Agent.claude
     var context: SessionContext?
     var chevron: String?
     var issue: IssueRef?
@@ -1538,6 +1540,13 @@ private struct CardRow<Detail: View>: View {
                         .foregroundStyle(Color.secondary)
                         .help("Running in another terminal")
                         .accessibilityHidden(true)
+                }
+                if agent == .codex {
+                    Image(systemName: "terminal")
+                        .font(.system(size: 9))
+                        .foregroundStyle(Color.secondary)
+                        .help("Codex")
+                        .accessibilityLabel("Codex")
                 }
                 if isFlagged {
                     Image(systemName: "flag.fill")

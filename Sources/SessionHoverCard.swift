@@ -214,7 +214,7 @@ struct SessionHoverCard: View {
             }
         } label: {
             HStack(spacing: 4) {
-                Text(copiedBranch ? "Copied" : [project, session.branch].compactMap(\.self).joined(separator: " · "))
+                Text(copiedBranch ? "Copied" : [session.agent == .codex ? "Codex" : nil, project, session.branch].compactMap(\.self).joined(separator: " · "))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if session.branch != nil {
