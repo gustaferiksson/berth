@@ -103,7 +103,7 @@ private struct ApprovalCard: View {
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .buttonStyle(.glass)
+                                .buttonStyle(.bordered)
                                 .buttonBorderShape(.roundedRectangle(radius: 16))
                             }
                         }
@@ -170,7 +170,7 @@ private struct ApprovalCard: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glassProminent)
+            .buttonStyle(.borderedProminent)
             .controlSize(.large)
             Button(title, role: .destructive, action: deny)
                 .buttonStyle(.borderless)
@@ -199,7 +199,12 @@ private struct Composer: View {
     @Binding var draft: String
     @Binding var attachments: [Attachment]
 
+    private static let inset = 12.0
+    private static let controlHeight = 44.0
+
     @Environment(RemoteClient.self) private var client
+    @State private var pickedModel: ModelChoice?
+    @State private var pickedEffort: EffortLevel?
     @State private var isPickingPhotos = false
     @State private var isImportingFiles = false
     @State private var photoItems: [PhotosPickerItem] = []
@@ -215,7 +220,7 @@ private struct Composer: View {
         let stops = isWorking && isEmpty
 
         GlassEffectContainer(spacing: 8) {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
                 if !attachments.isEmpty {
                     ScrollView(.horizontal) {
                         HStack(spacing: 8) {
@@ -225,18 +230,14 @@ private struct Composer: View {
                                 }
                             }
                         }
-                        .padding([.horizontal, .top], 12)
                     }
                     .scrollIndicators(.hidden)
                 }
                 TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
                     .lineLimit(1...6)
                     .focused($isFocused)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, 8)
                 HStack(spacing: 8) {
-                    Menu("Attach", systemImage: "plus") {
+                    Menu {
                         if client.features.contains(RemoteUpload.feature) {
                             Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
                             Button("Files", systemImage: "folder") { isImportingFiles = true }
@@ -255,42 +256,46 @@ private struct Composer: View {
                                 Button(command.name, systemImage: command.symbol, role: command.isDestructive ? .destructive : nil) { run(command) }
                             }
                         }
+                    } label: {
+                        Image(systemName: "plus")
+                            .frame(width: Self.controlHeight, height: Self.controlHeight)
+                            .background(.quaternary, in: .circle)
                     }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .frame(minWidth: 44, minHeight: 44)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Attach")
                     if let context, let openContext {
-                        Button(action: openContext) {
-                            HStack(spacing: 6) {
-                                if !headerShowsContext {
-                                    ContextRing(context: context)
-                                }
-                                Text(modelName(of: context))
-                                    .font(.subheadline)
-                                    .lineLimit(1)
-                            }
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.capsule)
-                        .frame(minHeight: 44)
-                        .accessibilityLabel("Context")
+                        modelMenu(context, openContext: openContext)
                     }
                     Spacer(minLength: 0)
-                    Button(stops ? "Stop" : "Send", systemImage: stops ? "stop.fill" : "arrow.up") {
-                        if stops { stop() } else { send() }
+                    if stops || !(isEmpty || !isUploaded) {
+                        Button {
+                            if stops { stop() } else { send() }
+                        } label: {
+                            Image(systemName: stops ? "stop.fill" : "arrow.up")
+                                .font(.body.weight(.semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.circle)
+                        .frame(width: Self.controlHeight, height: Self.controlHeight)
+                        .accessibilityLabel(stops ? "Stop" : "Send")
+                    } else {
+                        Image(systemName: "arrow.up")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: Self.controlHeight, height: Self.controlHeight)
+                            .background(.quaternary, in: .circle)
+                            .accessibilityLabel("Send, unavailable")
                     }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glassProminent)
-                    .buttonBorderShape(.circle)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .disabled(!stops && (isEmpty || !isUploaded))
                 }
-                .padding([.horizontal, .bottom], 8)
             }
-            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            .padding(Self.inset)
+            .glassEffect(.regular, in: .rect(cornerRadius: Self.controlHeight / 2 + Self.inset))
         }
         .disabled(client.state != .connected)
+        .onChange(of: context) { old, new in
+            if old?.model != new?.model || old?.date != new?.date { pickedModel = nil }
+            if old?.effort != new?.effort { pickedEffort = nil }
+        }
         .sensoryFeedback(.impact(weight: .light), trigger: sends)
         .confirmationDialog("Clear this conversation?", isPresented: Binding { confirmedCommand != nil } set: { if !$0 { confirmedCommand = nil } }, titleVisibility: .visible) {
             Button("Clear", role: .destructive) {
@@ -323,11 +328,80 @@ private struct Composer: View {
         #endif
     }
 
+    private func modelMenu(_ context: RemoteContext, openContext: @escaping () -> Void) -> some View {
+        let canChange = client.features.contains(RemoteSessionSettingsFeature.name) && !isWorking && declining == nil
+        let currentModel = pickedModel ?? ModelChoice(modelID: context.model)
+        let currentEffort = pickedEffort ?? context.effort.flatMap(EffortLevel.init)
+        let modelChoice = Binding<ModelChoice?> { currentModel } set: { choice in
+            guard let choice else { return }
+
+            change(.model(choice), from: .model(currentModel ?? .default))
+            pickedModel = choice
+        }
+        let effortChoice = Binding<EffortLevel?> { currentEffort } set: { level in
+            guard let level, let currentEffort else { return }
+
+            change(.effort(level), from: .effort(currentEffort))
+            pickedEffort = level
+        }
+        let modelTitle = pickedModel.flatMap { $0 == .default ? nil : $0.title } ?? modelName(of: context)
+        let label = [modelTitle, currentEffort?.title, headerShowsContext ? nil : context.fill?.formatted(.percent.precision(.fractionLength(0)))].compactMap(\.self).joined(separator: " · ")
+
+        return Menu {
+            if client.features.contains(RemoteSessionSettingsFeature.name) {
+                Section("Model") {
+                    Picker("Model", selection: modelChoice) {
+                        ForEach(ModelChoice.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+                .disabled(!canChange)
+                Section("Effort") {
+                    Picker("Effort", selection: effortChoice) {
+                        ForEach(EffortLevel.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                }
+                .disabled(!canChange || currentEffort == nil)
+                Text(canChange ? "Changes apply to this session only" : "Available while Claude is idle")
+            }
+            Button("Context", systemImage: "chart.pie", action: openContext)
+        } label: {
+            HStack(spacing: 6) {
+                if !headerShowsContext {
+                    ContextRing(context: context)
+                }
+                Text(label)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 14)
+            .frame(height: Self.controlHeight)
+            .background(.quaternary, in: .capsule)
+        }
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel("Model, effort and context")
+    }
+
+    private func change(_ setting: RemoteSessionSetting, from current: RemoteSessionSetting) {
+        guard client.send(.setting(sessionID: sessionID, setting: setting, from: current)) else { return }
+
+        sends += 1
+    }
+
     private func modelName(of context: RemoteContext) -> String {
         let parts = context.model.split(separator: "-").filter { $0 != "claude" && !($0.count == 8 && Int($0) != nil) }
         let name = parts.filter { Int($0) == nil }.map(\.capitalized).joined(separator: " ")
         let version = parts.filter { Int($0) != nil }.joined(separator: ".")
-        return [name + (version.isEmpty ? "" : " " + version), headerShowsContext ? nil : context.fill?.formatted(.percent.precision(.fractionLength(0)))].compactMap(\.self).joined(separator: " · ")
+        return name + (version.isEmpty ? "" : " " + version)
     }
 
     private func importPhotos(_ items: [PhotosPickerItem]) async {

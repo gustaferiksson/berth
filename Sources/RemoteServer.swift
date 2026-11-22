@@ -191,6 +191,9 @@ final class RemoteServer {
         case let .key(sessionID, key, waitingFor, waitingSince):
             press(key, in: sessionID, answering: waitingFor, since: waitingSince, from: connection)
 
+        case let .setting(sessionID, setting, current):
+            Task { await change(setting, from: current, in: sessionID, from: connection) }
+
         case let .newSession(folder, prompt):
             Task { await startSession(in: folder, prompt: prompt, from: connection) }
 
@@ -428,7 +431,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] : []))
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] : []))
     }
 
     private func observeSessions() {
@@ -497,6 +500,12 @@ final class RemoteServer {
         let files = attachments.compactMap { UUID(uuidString: $0).flatMap { uploads[$0.uuidString] }.flatMap { $0.isComplete ? $0.file : nil } }
         guard files.count == attachments.count else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "An attachment didn’t finish uploading, so the message wasn’t sent")), to: connection) }
         guard case let .refused(message) = await store.submit(text, files: files, to: sessionID) else { return }
+
+        send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection)
+    }
+
+    private func change(_ setting: RemoteSessionSetting, from current: RemoteSessionSetting, in sessionID: String, from connection: NWConnection) async {
+        guard case let .refused(message) = await store.change(setting, from: current, in: sessionID) else { return }
 
         send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection)
     }
