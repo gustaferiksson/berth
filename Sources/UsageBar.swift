@@ -38,7 +38,7 @@ struct UsageWindowRow: View {
                 .foregroundStyle(theme.secondary)
                 .frame(width: 52, alignment: .leading)
             UsageTrack(window: window, now: now)
-            Text(window.used, format: .percent.precision(.fractionLength(0)))
+            Text(window.used, format: .wholePercent)
                 .monospacedDigit()
                 .foregroundStyle(UsageTrack.aheadTint(window, now: now, theme: theme) ?? theme.secondary)
                 .frame(width: 34, alignment: .trailing)

@@ -106,7 +106,7 @@ private struct ContextButton: View {
 
     var body: some View {
         let fill = context.flatMap { context in context.window.map { Double(context.tokens) / Double($0) } }
-        let percent = fill?.formatted(.percent.precision(.fractionLength(0)))
+        let percent = fill?.formatted(.wholePercent)
         Button { isShown.toggle() } label: {
             HStack(spacing: 5) {
                 if let context, let window = context.window {

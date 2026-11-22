@@ -51,7 +51,7 @@ struct StatsView: View {
                                 HStack {
                                     Text(window.title)
                                     Spacer()
-                                    Text(window.used, format: .percent.precision(.fractionLength(0))).monospacedDigit()
+                                    Text(window.used, format: .wholePercent).monospacedDigit()
                                 }
                                 .font(.callout.weight(.semibold))
                                 UsageTrack(window: window, now: timeline.date)

@@ -174,7 +174,7 @@ struct ConversationComposer: View {
                     .font(.headline)
                 if let tokens = context.tokens, let window = context.window {
                     ProgressView(value: min(Double(tokens) / Double(window), 1))
-                    Text("\(tokenCount(tokens)) of \(tokenCount(window)) tokens, \((Double(tokens) / Double(window)).formatted(.percent.precision(.fractionLength(0)))) full")
+                    Text("\(tokenCount(tokens)) of \(tokenCount(window)) tokens, \((Double(tokens) / Double(window)).formatted(.wholePercent)) full")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
