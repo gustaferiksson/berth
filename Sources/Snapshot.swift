@@ -27,7 +27,7 @@ enum Snapshot {
     private static let linkedFixtures: [PullRequestLink: PullRequest] = UserDefaults.standard.bool(forKey: "snapshotLinkedPullRequests") ? [
         PullRequestLink(repository: "acme/web", number: 77): PullRequest(number: 77, url: URL(string: "https://github.com/acme/web/pull/77")!, title: "Show linked pull requests", state: .closed, headRefName: "feature/linked-web"),
         PullRequestLink(repository: "acme/billing", number: 4822): PullRequest(number: 4822, url: URL(string: "https://github.com/acme/billing/pull/4822")!, title: "Reconcile settlement exports, part 2", state: .merged, headRefName: "feature/settlement-part-2"),
-        PullRequestLink(repository: "acme/billing", number: 4823): PullRequest(number: 4823, url: URL(string: "https://github.com/acme/billing/pull/4823")!, title: "Export ledger entries", state: .open, headRefName: "feature/ledger-export", checks: .passed),
+        PullRequestLink(repository: "acme/billing", number: 4823): PullRequest(number: 4823, url: URL(string: "https://github.com/acme/billing/pull/4823")!, title: "Export ledger entries", state: .open, headRefName: "feature/ledger-export", checks: .passed, reviewDecision: .approved),
     ] : [:]
     private static let linkedFixtureLinks = linkedFixtures.keys.sorted { $0.number > $1.number }
 
@@ -38,7 +38,7 @@ enum Snapshot {
         let legacy = "\(code)/acme-platform-billing-reconciliation-pipeline-service-legacy-adapter"
         for folder in [billing, onboarding, legacy, "\(code)/api"] { try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
         return [
-            (SessionSummary(id: "fixture-1", cwd: billing, title: "Reconcile ledger entries against settlement exports and flag every mismatch", lastActivity: .now - 120, branch: "feature/reconcile-settlement-exports-with-ledger-entries", pullRequests: linkedFixtureLinks), PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries", state: .open, baseRefName: "main")),
+            (SessionSummary(id: "fixture-1", cwd: billing, title: "Reconcile ledger entries against settlement exports and flag every mismatch", lastActivity: .now - 120, branch: "feature/reconcile-settlement-exports-with-ledger-entries", pullRequests: linkedFixtureLinks), PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries", state: .open, baseRefName: "main", checks: .failed, reviewDecision: .changesRequested)),
             (SessionSummary(id: "fixture-2", cwd: billing, title: "Fix rounding", lastActivity: .now - 900, branch: "fix/rounding"), PullRequest(number: 4790, url: URL(string: "https://github.com/acme/billing/pull/4790")!, title: "Fix rounding", state: .merged)),
             (SessionSummary(id: "fixture-3", cwd: onboarding, title: "Retry document verification when the upstream provider times out", lastActivity: .now - 2400, branch: "chore/upgrade-document-verification-provider-sdk-to-latest-major"), nil),
             (SessionSummary(id: "fixture-4", cwd: "\(code)/api", title: "Draft the webhook signature check", lastActivity: .now - 3000, branch: "feature/webhook-signature-verification-with-rotating-secrets"), PullRequest(number: 12, url: URL(string: "https://github.com/acme/billing/pull/12")!, title: "Webhook signatures", state: .draft)),
@@ -292,7 +292,7 @@ enum Snapshot {
         if let status = UserDefaults.standard.string(forKey: "snapshotSidebarStatus").flatMap(SidebarStatus.init(rawValue:)) { store.sidebarStatus = status }
         for session in store.sessionsByID.values.filter({ forcedHover.contains($0.title) }) {
             let isOpen = store.tab(forSession: session.id) != nil || store.liveBySession[session.id] != nil
-            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil)
+            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."), store: store)
                 .environment(\.ghosttyTheme, store.theme)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
