@@ -112,7 +112,7 @@ public enum TranscriptTail {
                         oldText: (input["old_string"] as? String).map { String($0.prefix(maxText)) },
                         newText: (input["new_string"] as? String ?? input["content"] as? String).map { String($0.prefix(maxText)) },
                         date: date,
-                        detail: (question ?? ["description", "pattern", "query", "url", "skill"].lazy.compactMap { input[$0] as? String }.first).map { String($0.prefix(maxDetail)) }
+                        detail: (question ?? ["description", "pattern", "query", "url", "skill", "message"].lazy.compactMap { input[$0] as? String }.first).map { String($0.prefix(maxDetail)) }
                     )
                 }
                 guard type == "user", block["type"] as? String == "tool_result" else { return nil }

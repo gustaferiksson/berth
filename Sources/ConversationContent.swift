@@ -6,6 +6,7 @@ let elapsedFormat = Duration.UnitsFormatStyle.units(allowed: [.hours, .minutes, 
 
 #if DEBUG
 let conversationExpandsAll = UserDefaults.standard.bool(forKey: "snapshotConversationExpanded")
+let conversationShowsTasks = UserDefaults.standard.bool(forKey: "snapshotConversationTasks")
 #else
 let conversationExpandsAll = false
 #endif

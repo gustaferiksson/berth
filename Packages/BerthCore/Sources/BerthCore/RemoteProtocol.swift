@@ -196,6 +196,25 @@ public struct RemoteTask: Codable, Sendable, Hashable, Identifiable {
     }
 }
 
+public extension RemoteTask {
+    var symbol: String {
+        kind == Self.agent ? "person.2" : kind == Self.monitor ? "eye" : "terminal"
+    }
+
+    var kindName: String {
+        kind == Self.agent ? "Agent" : kind == Self.shell ? "Shell" : kind == Self.monitor ? "Monitor" : "Task"
+    }
+
+    static func summary(of tasks: [Self]) -> String {
+        let counts = [(agent, "agent", "agents"), (shell, "shell", "shells"), (monitor, "monitor", "monitors")]
+            .compactMap { kind, one, many -> String? in
+                let count = tasks.count { $0.kind == kind }
+                return count == 0 ? nil : "\(count) \(count == 1 ? one : many)"
+            }
+        return counts.isEmpty ? "\(tasks.count) running" : counts.joined(separator: " · ")
+    }
+}
+
 public struct RemoteToolCall: Codable, Sendable, Hashable {
     public let name: String
     public let summary: String

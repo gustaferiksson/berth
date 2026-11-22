@@ -106,6 +106,21 @@ final class ComposerTextView: NSTextView {
         placeholder.draw(at: NSPoint(x: textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0), y: textContainerOrigin.y), withAttributes: attributes)
     }
 
+    override func didChangeText() {
+        super.didChangeText()
+        needsDisplay = true
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        needsDisplay = true
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        needsDisplay = true
+    }
+
     override func keyDown(with event: NSEvent) {
         let isReturn = event.keyCode == 36 || event.keyCode == 76
         guard isReturn, !hasMarkedText() else { return super.keyDown(with: event) }
@@ -147,5 +162,52 @@ final class ComposerTextView: NSTextView {
 
     private func fileURLs(in sender: any NSDraggingInfo) -> [URL] {
         sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+}
+
+struct ConversationDropTarget: NSViewRepresentable {
+    @Binding var isTargeted: Bool
+    let drop: ([URL]) -> Void
+
+    func makeNSView(context _: Context) -> DropView {
+        let view = DropView()
+        view.registerForDraggedTypes([.fileURL])
+        return view
+    }
+
+    func updateNSView(_ view: DropView, context _: Context) {
+        view.onTarget = { isTargeted = $0 }
+        view.onDrop = drop
+    }
+
+    final class DropView: NSView {
+        var onTarget: (Bool) -> Void = { _ in }
+        var onDrop: ([URL]) -> Void = { _ in }
+
+        override func hitTest(_: NSPoint) -> NSView? { nil }
+
+        override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+            guard !files(in: sender).isEmpty else { return [] }
+
+            onTarget(true)
+            return .copy
+        }
+
+        override func draggingExited(_: (any NSDraggingInfo)?) {
+            onTarget(false)
+        }
+
+        override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+            onTarget(false)
+            let urls = files(in: sender)
+            guard !urls.isEmpty else { return false }
+
+            onDrop(urls)
+            return true
+        }
+
+        private func files(in sender: any NSDraggingInfo) -> [URL] {
+            sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        }
     }
 }

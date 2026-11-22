@@ -50,19 +50,18 @@ struct ConversationView: View {
                     deny: { _ = deny(waiting) }
                 )
             }
-            .dropDestination(for: URL.self) { urls, _ in
-                let files = urls.filter(\.isFileURL)
-                guard !files.isEmpty else { return false }
-
-                model.draft.files += files.filter { !model.draft.files.contains($0) }
-                composerFocus += 1
-                return true
-            } isTargeted: { isDropTargeted = $0 }
             .overlay {
-                if isDropTargeted {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.accentColor, lineWidth: 2)
-                        .allowsHitTesting(false)
+                ConversationDropTarget(isTargeted: $isDropTargeted) { files in
+                    model.draft.files += files.filter { !model.draft.files.contains($0) }
+                    composerFocus += 1
+                }
+                .overlay {
+                    if isDropTargeted {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.accentColor, lineWidth: 2)
+                            .background(Color.accentColor.opacity(0.08), in: .rect(cornerRadius: 12))
+                            .allowsHitTesting(false)
+                    }
                 }
             }
             .environment(\.conversationFolder, tab.cwd)
@@ -91,8 +90,8 @@ struct ConversationView: View {
                     ConversationPrompt(entry: RemoteEntry(id: prompt, kind: .prompt, text: prompt), isQueued: true)
                 }
             }
-            .frame(maxWidth: 780, alignment: .leading)
-            .padding(.horizontal, 28)
+            .frame(maxWidth: 860, alignment: .leading)
+            .padding(.horizontal, 18)
             .frame(maxWidth: .infinity)
         }
         .contentMargins(.top, 24, for: .scrollContent)
@@ -197,35 +196,23 @@ private struct ConversationTurnView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let lastWork = turn.parts.lastIndex { if case .work = $0 { true } else { false } }
-        let folded = isFinished && !turn.isInterrupted ? lastWork.map { turn.parts[...$0] } : nil
-        let foldedCards = folded?.flatMap { part -> [ToolCall] in
-            guard case let .cards(calls) = part else { return [] }
-
-            return calls
-        } ?? []
+        let workCount = turn.parts.count { $0.isWork }
+        let lastIndex = turn.parts.count - 1
 
         VStack(alignment: .leading, spacing: 14) {
             if let prompt = turn.prompt {
                 ConversationPrompt(entry: prompt)
             }
-            if let folded {
-                ConversationFold(label: turn.duration.map { "Worked for \($0.formatted(elapsedFormat))" } ?? "Worked") {
-                    VStack(alignment: .leading, spacing: 14) {
-                        ForEach(folded.filter { !$0.isCards }) { part in
-                            ConversationPartView(part: part, tasks: tasks, openCall: nil, isWaiting: false)
-                        }
+            ForEach(turn.parts.enumerated(), id: \.element.id) { index, part in
+                if case let .work(calls) = part, !turn.isInterrupted, isFinished || index < lastIndex {
+                    ConversationFold(label: isFinished && workCount == 1 ? turn.duration.map { "Worked for \($0.formatted(elapsedFormat))" } ?? "Worked" : ToolCall.summary(of: calls)) {
+                        ConversationPartView(part: part, tasks: tasks, openCall: nil, isWaiting: false)
                     }
+                } else {
+                    ConversationPartView(part: part, tasks: tasks, openCall: isFinished ? nil : turn.openCall, isWaiting: waitingFor != nil)
                 }
             }
-            ForEach(foldedCards) { call in
-                ConversationTaskRow(call: call, task: task(for: call))
-                    .padding(.leading, 24)
-            }
-            ForEach(turn.parts[(folded?.endIndex ?? 0)...]) { part in
-                ConversationPartView(part: part, tasks: tasks, openCall: isFinished ? nil : turn.openCall, isWaiting: waitingFor != nil)
-            }
-            if folded != nil, let changes = turn.fileChanges {
+            if isFinished, !turn.isInterrupted, let changes = turn.fileChanges {
                 changedFiles(changes)
             }
             if turn.isInterrupted {
@@ -237,10 +224,6 @@ private struct ConversationTurnView: View {
                 working
             }
         }
-    }
-
-    private func task(for call: ToolCall) -> RemoteTask? {
-        tasks.first { $0.id == call.use.toolID || (call.use.date != nil && $0.started == call.use.date && $0.title == call.cardTitle) }
     }
 
     private var working: some View {
@@ -371,80 +354,105 @@ private struct ConversationStatusBar: View {
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var showsTasks = false
+    @State private var showsTasks = conversationShowsTasks
 
     var body: some View {
+        let kinds = [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor].filter { kind in tasks.contains { $0.kind == kind } }
+
         GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
-                if isWorking, !isAtBottom {
-                    HStack(spacing: 8) {
-                        if reduceMotion {
-                            Image(systemName: "hourglass")
-                                .accessibilityHidden(true)
-                        } else {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Text("Working")
-                        if let since {
-                            Text(verbatim: "·")
-                            ConversationElapsed(since: since)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .glassEffect(in: .capsule)
+            VStack(spacing: 10) {
+                if showsTasks, !tasks.isEmpty {
+                    ConversationTaskList(tasks: tasks)
+                        .transition(.blurReplace)
                 }
-                if !tasks.isEmpty {
-                    Button { showsTasks = true } label: {
-                        Label("\(tasks.count) running", systemImage: "person.2")
-                            .padding(.horizontal, 12)
+                HStack(spacing: 10) {
+                    if isWorking, !isAtBottom {
+                        HStack(spacing: 8) {
+                            if reduceMotion {
+                                Image(systemName: "hourglass")
+                                    .accessibilityHidden(true)
+                            } else {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text("Working")
+                            if let since {
+                                Text(verbatim: "·")
+                                ConversationElapsed(since: since)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .glassEffect(in: .capsule)
+                    }
+                    if !tasks.isEmpty {
+                        Button { showsTasks.toggle() } label: {
+                            HStack(spacing: 8) {
+                                ForEach(kinds, id: \.self) { kind in
+                                    Image(systemName: RemoteTask(id: "", kind: kind, title: "", started: .now).symbol)
+                                        .accessibilityHidden(true)
+                                }
+                                Text(RemoteTask.summary(of: tasks))
+                                Image(systemName: "chevron.up")
+                                    .font(.caption2.weight(.semibold))
+                                    .rotationEffect(.degrees(showsTasks ? 180 : 0))
+                                    .foregroundStyle(theme.secondary)
+                                    .accessibilityHidden(true)
+                            }
+                            .padding(.horizontal, 14)
                             .padding(.vertical, 8)
+                            .contentShape(.capsule)
+                        }
+                        .buttonStyle(.plain)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                        .accessibilityValue(showsTasks ? "Expanded" : "Collapsed")
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .popover(isPresented: $showsTasks, arrowEdge: .top) { ConversationTasksPopover(tasks: tasks) }
-                }
-                if !isAtBottom {
-                    Button("Jump to Latest", systemImage: "arrow.down", action: jump)
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .help("Jump to Latest (⌘↓)")
+                    if !isAtBottom {
+                        Button("Jump to Latest", systemImage: "arrow.down", action: jump)
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.glass)
+                            .buttonBorderShape(.circle)
+                            .help("Jump to Latest (⌘↓)")
+                    }
                 }
             }
         }
         .font(.subheadline)
+        .animation(.smooth, value: showsTasks)
     }
 }
 
-private struct ConversationTasksPopover: View {
+private struct ConversationTaskList: View {
     let tasks: [RemoteTask]
 
+    @Environment(\.ghosttyTheme) private var theme
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(tasks) { task in
                 HStack(spacing: 10) {
-                    Image(systemName: task.kind == RemoteTask.shell ? "terminal" : "person.2")
-                        .accessibilityHidden(true)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: task.symbol)
+                        .foregroundStyle(theme.secondary)
                         .frame(width: 20)
+                        .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(verbatim: task.title)
-                            .lineLimit(2)
-                        HStack(spacing: 4) {
-                            Text(verbatim: task.agentType ?? (task.kind == RemoteTask.shell ? "Shell" : "Agent"))
-                            Text(verbatim: "·")
-                            ConversationElapsed(since: task.started)
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Text(verbatim: task.agentType ?? task.kindName)
+                            .font(.caption)
+                            .foregroundStyle(theme.secondary)
                     }
+                    Spacer(minLength: 12)
+                    ConversationElapsed(since: task.started)
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
                 }
+                .accessibilityElement(children: .combine)
             }
         }
         .padding(14)
-        .frame(width: 300, alignment: .leading)
+        .frame(maxWidth: 420, alignment: .leading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
     }
 }
 
@@ -488,8 +496,8 @@ private struct ConversationBottomBar: View {
             }
             ConversationComposer(model: model, isWorking: isWorking, waiting: waiting, context: model.context, focusRequest: composerFocus)
         }
-        .frame(maxWidth: 780)
-        .padding(.horizontal, 28)
+        .frame(maxWidth: 860)
+        .padding(.horizontal, 18)
         .padding(.bottom, 16)
         .frame(maxWidth: .infinity)
         .animation(.smooth, value: isAtBottom)

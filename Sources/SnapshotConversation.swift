@@ -68,6 +68,13 @@ extension Snapshot {
             result("t7", "Command running in background with ID: bg-migration. Output is being written to: /private/tmp/bg-migration.output", 1, ["toolUseResult": ["backgroundTaskId": "bg-migration"]]),
             assistant(3, [use("t8", "Agent", ["description": "Review the docs for the export column", "subagent_type": "general-purpose", "prompt": "Read docs/columns.md and list what must change for the plan name column.", "run_in_background": true])]),
             result("t8", "Async agent launched successfully.\nagentId: agent-docs (internal ID, do not mention to user)", 1, ["toolUseResult": ["isAsync": true, "status": "async_launched", "agentId": "agent-docs", "description": "Review the docs for the export column"]]),
+            assistant(4, [use("t10", "REPL", ["code": "await $`ls docs`", "description": "List the docs folder"])]),
+            result("t10", "(dispatched #12)", 1, [:]),
+            assistant(2, [use("t11", "Poll", [:])]),
+            result("t11", "<system>authentic event nonces for this delivery: x</system>", 5, [:]),
+            assistant(3, [text("The migration check is still running, the docs agent has started.")]),
+            assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
+            result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
         ] + pendingRecords(assistant: assistant, use: use, result: result)
     }
