@@ -148,8 +148,7 @@ struct ConversationView: View {
             if model.hasLoaded {
                 ContentUnavailableView("No Messages Yet", systemImage: "text.bubble", description: Text("The conversation appears here once this session has a prompt."))
             } else {
-                ProgressView()
-                    .controlSize(.small)
+                ConversationSpinner()
                     .frame(maxWidth: .infinity)
             }
         }
@@ -172,7 +171,7 @@ struct ConversationView: View {
     }
 
     private func scrollToLatest() -> KeyPress.Result {
-        withAnimation(.smooth) { position.scrollTo(edge: .bottom) }
+        withAnimation(.easeOut(duration: 0.15)) { position.scrollTo(edge: .bottom) }
         isAtBottom = true
         return .handled
     }
@@ -232,8 +231,7 @@ private struct ConversationTurnView: View {
                 Image(systemName: "hourglass")
                     .accessibilityHidden(true)
             } else {
-                ProgressView()
-                    .controlSize(.small)
+                ConversationSpinner()
             }
             Text("Working")
             if let since {
@@ -360,65 +358,63 @@ private struct ConversationStatusBar: View {
         let kinds = [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor].filter { kind in tasks.contains { $0.kind == kind } }
 
         GlassEffectContainer(spacing: 10) {
-            VStack(spacing: 10) {
-                if showsTasks, !tasks.isEmpty {
-                    ConversationTaskList(tasks: tasks)
-                        .transition(.blurReplace)
+            HStack(spacing: 10) {
+                if isWorking, !isAtBottom {
+                    HStack(spacing: 8) {
+                        if reduceMotion {
+                            Image(systemName: "hourglass")
+                                .accessibilityHidden(true)
+                        } else {
+                            ConversationSpinner()
+                        }
+                        Text("Working")
+                        if let since {
+                            Text(verbatim: "·")
+                            ConversationElapsed(since: since)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .glassEffect(in: .capsule)
                 }
-                HStack(spacing: 10) {
-                    if isWorking, !isAtBottom {
+                if !tasks.isEmpty {
+                    Button { showsTasks.toggle() } label: {
                         HStack(spacing: 8) {
-                            if reduceMotion {
-                                Image(systemName: "hourglass")
+                            ForEach(kinds, id: \.self) { kind in
+                                Image(systemName: RemoteTask(id: "", kind: kind, title: "", started: .now).symbol)
                                     .accessibilityHidden(true)
-                            } else {
-                                ProgressView()
-                                    .controlSize(.small)
                             }
-                            Text("Working")
-                            if let since {
-                                Text(verbatim: "·")
-                                ConversationElapsed(since: since)
-                            }
+                            Text(RemoteTask.summary(of: tasks))
+                            Image(systemName: "chevron.up")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(theme.secondary)
+                                .accessibilityHidden(true)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .glassEffect(in: .capsule)
+                        .contentShape(.capsule)
                     }
-                    if !tasks.isEmpty {
-                        Button { showsTasks.toggle() } label: {
-                            HStack(spacing: 8) {
-                                ForEach(kinds, id: \.self) { kind in
-                                    Image(systemName: RemoteTask(id: "", kind: kind, title: "", started: .now).symbol)
-                                        .accessibilityHidden(true)
-                                }
-                                Text(RemoteTask.summary(of: tasks))
-                                Image(systemName: "chevron.up")
-                                    .font(.caption2.weight(.semibold))
-                                    .rotationEffect(.degrees(showsTasks ? 180 : 0))
-                                    .foregroundStyle(theme.secondary)
-                                    .accessibilityHidden(true)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                            .contentShape(.capsule)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular.interactive(), in: .capsule)
-                        .accessibilityValue(showsTasks ? "Expanded" : "Collapsed")
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                    .popover(isPresented: $showsTasks, arrowEdge: .top) { ConversationTaskList(tasks: tasks) }
+                    .accessibilityValue(showsTasks ? "Expanded" : "Collapsed")
+                }
+                if !isAtBottom {
+                    Button(action: jump) {
+                        Image(systemName: "arrow.down")
+                            .frame(width: 15, height: 15)
+                            .padding(8)
+                            .contentShape(.circle)
                     }
-                    if !isAtBottom {
-                        Button("Jump to Latest", systemImage: "arrow.down", action: jump)
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.glass)
-                            .buttonBorderShape(.circle)
-                            .help("Jump to Latest (⌘↓)")
-                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .accessibilityLabel("Jump to Latest")
+                    .help("Jump to Latest (⌘↓)")
                 }
             }
         }
         .font(.subheadline)
-        .animation(.smooth, value: showsTasks)
+        .onChange(of: tasks.isEmpty) { if tasks.isEmpty { showsTasks = false } }
     }
 }
 
@@ -451,8 +447,7 @@ private struct ConversationTaskList: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: 420, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .frame(width: 320, alignment: .leading)
     }
 }
 
