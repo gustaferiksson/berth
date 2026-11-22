@@ -49,16 +49,21 @@ public struct Harness: Sendable {
         name: "Codex",
         glyph: "terminal",
         isOptIn: true,
-        capabilities: [],
+        capabilities: [.conversation, .contextSize, .pullRequestLinks],
         liveSource: .notTracked,
         command: CodexLaunch.command,
         claim: { CodexLaunch.claim(for: $0, cwd: $1, in: $2, excluding: $3) },
-        readTranscript: nil
+        readTranscript: { CodexTranscript.read($0, after: $1, queue: $2) }
     )
 
     public static let all = [claude, codex]
 }
 
 public extension Agent {
-    var harness: Harness { self == .codex ? .codex : .claude }
+    var harness: Harness {
+        switch self {
+        case .claude: .claude
+        case .codex: .codex
+        }
+    }
 }

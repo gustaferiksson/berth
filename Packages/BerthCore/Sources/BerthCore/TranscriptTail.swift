@@ -7,6 +7,7 @@ public enum TranscriptTail {
         public let isContinuation: Bool
         public let queue: [String]
         public let imageLines: [String: Range<Int>]
+        public var isTurnOpen: Bool?
 
         public var queuedPrompts: [String] {
             queue.filter { !$0.isEmpty && !$0.hasPrefix("<") }
@@ -24,26 +25,29 @@ public enum TranscriptTail {
     static let maxThumbnailBytes = 96 * 1024
 
     public static func read(_ url: URL, after offset: Int?, queue: [String] = [], includeSidechain: Bool = false) -> Chunk? {
+        readWindow(url, after: offset) { data, dropFirst, start, continuation in
+            let parsed = entries(in: data, dropFirst: dropFirst, queue: continuation ? queue : [], baseOffset: start, includeSidechain: includeSidechain)
+            return Chunk(entries: parsed.entries, end: start + parsed.consumed, isContinuation: continuation, queue: parsed.queue, imageLines: parsed.imageLines)
+        }
+    }
+
+    static func readWindow(_ url: URL, after offset: Int?, parse: (Data, Bool, Int, Bool) -> Chunk) -> Chunk? {
         guard let handle = try? FileHandle(forReadingFrom: url), let size = (try? handle.seekToEnd()).map(Int.init) else { return nil }
 
         defer { try? handle.close() }
-
-        if let offset, offset <= size, size - offset <= maxTailBytes {
+        if let offset, offset >= 0, offset <= size, size - offset <= maxTailBytes {
             guard (try? handle.seek(toOffset: UInt64(offset))) != nil else { return nil }
 
-            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: false, queue: queue, baseOffset: offset, includeSidechain: includeSidechain)
-            return Chunk(entries: parsed.entries, end: offset + parsed.consumed, isContinuation: true, queue: parsed.queue, imageLines: parsed.imageLines)
+            return parse((try? handle.readToEnd()) ?? Data(), false, offset, true)
         }
-
         var window = tailBytes
         while true {
             let start = max(0, size - window)
             guard (try? handle.seek(toOffset: UInt64(start))) != nil else { return nil }
 
-            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: start > 0, queue: [], baseOffset: start, includeSidechain: includeSidechain)
-            if start == 0 || window >= maxTailBytes || parsed.entries.count >= minEntries && parsed.entries.count(where: { $0.kind == .prompt }) >= minPrompts {
-                return Chunk(entries: parsed.entries, end: start + parsed.consumed, isContinuation: false, queue: parsed.queue, imageLines: parsed.imageLines)
-            }
+            let chunk = parse((try? handle.readToEnd()) ?? Data(), start > 0, start, false)
+            if start == 0 || window >= maxTailBytes || chunk.entries.count >= minEntries && chunk.entries.count(where: { $0.kind == .prompt }) >= minPrompts { return chunk }
+
             window *= 2
         }
     }

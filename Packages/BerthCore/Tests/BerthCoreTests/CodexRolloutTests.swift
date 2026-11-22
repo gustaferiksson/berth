@@ -93,6 +93,47 @@ struct CodexRolloutTests {
         #expect(sessions.map(\.title) == ["Newer"])
     }
 
+    @Test func readsItemMessagesAsConversation() throws {
+        let first = #"{"timestamp":"2026-01-02T10:00:02.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"u1","content":[{"type":"text","text":"Fix"},{"type":"text","text":"the fixture"}]}}}"#
+        let last = #"{"timestamp":"2026-01-02T10:02:00.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"u2","content":[{"type":"text","text":"Continue"}]}}}"#
+        let agent = #"{"timestamp":"2026-01-02T10:03:00.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"a","content":[{"type":"text","text":"Done"}]}}}"#
+        let url = try write([meta(), first, last, agent], in: scratch())
+        let summary = try #require(CodexRollout.summary(of: url))
+        #expect(summary.title == "Fix the fixture")
+        #expect(summary.lastTypedPrompt == CodexRollout.date("2026-01-02T10:02:00.000Z"))
+        #expect(summary.lastActivity == CodexRollout.date("2026-01-02T10:03:00.000Z"))
+    }
+
+    @Test func discoversPullRequestsIncrementallyAndCarriesThemInTheIndex() throws {
+        let home = scratch()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let created = #"{"timestamp":"2026-01-02T10:01:00.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"pr","output":"https://github.com/example/fixture/pull/12\nSee https://github.com/example/fixture/pull/99 for context"}}"#
+        let ignored = #"{"timestamp":"2026-01-02T10:01:00.000Z","type":"event_msg","payload":{"type":"agent_message","message":"https://github.com/example/fixture/pull/98"}}"#
+        let url = try write([meta(), prompt("Open a fixture PR", at: "2026-01-02T10:00:02.000Z"), created, ignored], in: home.appending(path: "sessions"))
+        let first = CodexRollout.pullRequests(in: url, from: 0)
+        let link = PullRequestLink(repository: "example/fixture", number: 12)
+        #expect(first.links == [link])
+        #expect(try first.end == Data(contentsOf: url).count)
+        #expect(CodexRollout.summary(of: url)?.pullRequests == [link])
+        var index = CodexIndex(root: home)
+        #expect(index.refresh().first?.pullRequests == [link])
+        #expect(index.url(ofSession: Self.id)?.lastPathComponent == url.lastPathComponent)
+        let item = #"{"timestamp":"2026-01-02T10:02:00.000Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"pr2","aggregated_output":"  https://github.com/example/fixture/pull/13  \nhttps://github.com/example/fixture/pull/12","status":"completed"}}}"#
+        let custom = #"{"timestamp":"2026-01-02T10:02:00.000Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"pr3","output":[{"type":"input_text","text":"https://github.com/example/fixture/pull/14"}]}}"#
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((item + "\n" + custom + "\n").utf8))
+        try handle.close()
+        let second = CodexRollout.pullRequests(in: url, from: first.end)
+        let next = PullRequestLink(repository: "example/fixture", number: 13)
+        let third = PullRequestLink(repository: "example/fixture", number: 14)
+        #expect(second.links == [next, link, third])
+        #expect(index.refresh().first?.pullRequests == [link, next, third])
+        #expect(CodexRollout.pullRequests(in: url, from: second.end).links.isEmpty)
+        try (meta() + "\n" + prompt("Reset", at: "2026-01-02T10:04:00.000Z") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        #expect(index.refresh().first?.pullRequests.isEmpty == true)
+    }
+
     @Test func homeFollowsCodexHome() {
         let user = URL(filePath: "/Users/x")
         #expect(CodexIndex.home(environment: [:], user: user).path == "/Users/x/.codex")

@@ -16,6 +16,19 @@ extension Store {
 
         guard sessionsByID[sessionID] != nil || tab(forSession: sessionID) != nil else { return .refused("Unknown session") }
 
+        if (tab(forSession: sessionID)?.agent ?? sessionsByID[sessionID]?.agent)?.harness.liveSource == .notTracked {
+            guard let tab = tab(forSession: sessionID) else { return .refused("Open the session in a tab first, so the message wasn’t sent") }
+
+            let remaining = 5 - Date.now.timeIntervalSince(tab.opened)
+            if remaining > 0 { try? await Task.sleep(for: .seconds(remaining)) }
+            let paths = files.filter { !ConversationDraft.isImage($0) }.map { "@\($0.path)" }
+            lastKeyInput = .now
+            tab.terminal.paste(text: (paths + [text]).filter { !$0.isEmpty }.joined(separator: " "))
+            try? await Task.sleep(for: .milliseconds(300))
+            tab.terminal.sendKey(.enter)
+            return .sent
+        }
+
         refreshLive()
         guard liveBySession[sessionID]?.status != "waiting" else { return .refused("Claude is waiting for an answer, so the message wasn’t sent") }
 
@@ -182,6 +195,14 @@ extension Store {
     }
 
     func interrupt(_ sessionID: String) -> InputOutcome {
+        if (tab(forSession: sessionID)?.agent ?? sessionsByID[sessionID]?.agent)?.harness.liveSource == .notTracked {
+            guard let terminal = tab(forSession: sessionID)?.terminal else { return .refused("Open the session in a tab first, so the key wasn’t sent") }
+
+            lastKeyInput = .now
+            terminal.sendKey(TerminalKeyPress(.escape))
+            return .sent
+        }
+
         refreshLive()
         guard liveBySession[sessionID]?.status == "busy", let terminal = tab(forSession: sessionID)?.terminal else { return .refused("Claude isn’t working in a Berth tab for this session") }
 

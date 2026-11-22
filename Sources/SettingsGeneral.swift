@@ -35,7 +35,7 @@ struct GeneralSettings: View {
             } header: {
                 Text("Agents")
             } footer: {
-                Text("Lists interactive Codex sessions from ~/.codex beside Claude's and resumes them in a tab. Hold ⌥⇧ in the launcher to start a new one. Status, needs-you alerts and the Conversation view are Claude only for now.")
+                Text("Lists interactive Codex sessions from ~/.codex beside Claude's and resumes them in a tab. Hold ⌥⇧ in the launcher to start a new one. The Conversation view, context and pull request tags work for Codex. Status and needs-you alerts are still Claude only.")
             }
             Section {
                 Toggle("Keep sessions running when Berth quits", isOn: $keepsSessionsRunning)

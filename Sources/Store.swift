@@ -264,6 +264,7 @@ final class Store {
 
     @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private(set) var codexIndex = CodexIndex(root: codexDirectory)
+
     @ObservationIgnored private var codexWatcher: FileWatcher?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private(set) var searchIndexTask: Task<Void, Never>?
@@ -638,6 +639,13 @@ final class Store {
         await refreshTask?.value
     }
 
+    func sessionIndex(for agent: Agent) -> any SessionIndex {
+        switch agent {
+        case .claude: index
+        case .codex: codexIndex
+        }
+    }
+
     func refresh() {
         #if DEBUG
         let fakeContexts = fakeContexts
@@ -653,13 +661,13 @@ final class Store {
                 let refreshed = index.refresh() + (codexEnabled ? codex.refresh() : [])
                 let unchecked = Set((fixtures ?? refreshed).map(\.cwd)).filter { checkouts[$0] == nil && FileManager.default.fileExists(atPath: $0) }
                 let checkouts = checkouts.merging(unchecked.map { ($0, RepositoryRoot.checkout($0)) }) { $1 }
-                let missing = Set(refreshed.filter { $0.agent.harness.supports(.contextSize) }.compactMap(\.context?.model)).subtracting(known.keys)
+                let missing = Set(refreshed.filter { $0.agent.harness.supports(.contextSize) && $0.context?.window == nil }.compactMap(\.context?.model)).subtracting(known.keys)
                 let catalogs = missing.isEmpty ? [] : ((try? FileManager.default.contentsOfDirectory(at: catalogDirectory, includingPropertiesForKeys: nil)) ?? []).compactMap { try? Data(contentsOf: $0) }
                 let catalog = known.merging(missing.map { ($0, TranscriptActivity.catalogModel($0, catalogs: catalogs)) }) { $1 }
                 let summaries = (fixtures ?? refreshed).map { summary in
                     var summary = summary
                     summary.checkout = checkouts[summary.cwd] ?? summary.originalCwd ?? summary.cwd
-                    let resolvesWindow = summary.agent.harness.supports(.contextSize)
+                    let resolvesWindow = summary.agent.harness.supports(.contextSize) && summary.context?.window == nil
                     let model = resolvesWindow ? summary.context.flatMap { catalog[$0.model] } : nil
                     if resolvesWindow {
                         summary.context?.window = model?.window
