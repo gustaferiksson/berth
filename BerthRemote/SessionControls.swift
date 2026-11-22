@@ -62,7 +62,7 @@ private struct ApprovalCard: View {
                     .foregroundStyle(.orange)
                 Spacer()
                 if let since = session.waitingSince {
-                    Text(Date(timeIntervalSince1970: since / 1000), style: .timer)
+                    ElapsedText(since: Date(timeIntervalSince1970: since / 1000))
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.trailing)

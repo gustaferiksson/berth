@@ -156,8 +156,8 @@ private struct TaskRow: View {
                 }
             }
             Spacer(minLength: 8)
-            Text(task.started, style: .timer)
-                .font(.footnote.monospacedDigit())
+            ElapsedText(since: task.started)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.trailing)
         }
@@ -185,8 +185,7 @@ private struct TaskDetailView: View {
                 if let task {
                     Section {
                         LabeledContent("Running for") {
-                            Text(task.started, style: .timer)
-                                .monospacedDigit()
+                            ElapsedText(since: task.started)
                         }
                         if task.command != task.title {
                             Text(task.title)

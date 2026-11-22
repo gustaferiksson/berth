@@ -128,16 +128,6 @@ struct SessionView: View {
                     .foregroundStyle(.secondary)
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if let tasks = activity?.tasks, !tasks.isEmpty {
-                    Button { isShowingRunning = true } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "terminal")
-                            Text(tasks.count.formatted())
-                                .font(.footnote.weight(.semibold).monospacedDigit())
-                        }
-                    }
-                    .accessibilityLabel("Running, \(tasks.count)")
-                }
                 if client.features.contains(RemoteChangesFeature.name) {
                     Button("Changes", systemImage: "plusminus") { isShowingChanges = true }
                 }
