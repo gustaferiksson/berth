@@ -141,6 +141,7 @@ struct ChangedFilesCard: View {
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.fill.quaternary, in: .rect(cornerRadius: 16))
+        .containerShape(.rect(cornerRadius: 16))
     }
 }
 
@@ -232,8 +233,8 @@ private struct FileEditRow: View {
                             DiffLine(row: row, highlighted: highlighted.indices.contains(index) && highlighted[index].indices.contains(row.id) ? highlighted[index][row.id] : nil)
                         }
                     }
-                    .background(.background, in: .rect(cornerRadius: 10))
-                    .clipShape(.rect(cornerRadius: 10))
+                    .background(.background, in: ConcentricRectangle())
+                    .clipShape(ConcentricRectangle())
                 }
             }
             if !showsAll, total > collapsedRows {
