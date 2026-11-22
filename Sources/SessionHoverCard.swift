@@ -7,6 +7,10 @@ final class HoverCardPanel {
 
     private let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     private var monitor: Any?
+    private var owner: String?
+    private var pendingHide: Task<Void, Never>?
+
+    var isShowing: Bool { panel.parent != nil }
 
     init() {
         panel.isOpaque = false
@@ -16,14 +20,16 @@ final class HoverCardPanel {
         panel.hidesOnDeactivate = false
     }
 
-    func show(_ card: some View, isDark: Bool, beside row: NSRect, column: NSRect, in window: NSWindow, trailing: Bool) {
+    func show(_ card: some View, owner: String, isDark: Bool, beside row: NSRect, column: NSRect, in window: NSWindow, trailing: Bool) {
+        pendingHide?.cancel()
+        self.owner = owner
         let host = NSHostingView(rootView: card.glassEffect(.regular, in: .rect(cornerRadius: 12)).environment(\.colorScheme, isDark ? .dark : .light))
         let size = host.fittingSize
         let frame = Self.frame(size: size, row: row, column: column, trailing: trailing, screen: window.screen?.visibleFrame ?? .zero)
         panel.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
         panel.contentView = host
         panel.setFrame(frame, display: true)
-        window.addChildWindow(panel, ordered: .above)
+        if panel.parent == nil { window.addChildWindow(panel, ordered: .above) }
         monitor = monitor ?? NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             self?.hide()
             return event
@@ -37,7 +43,20 @@ final class HoverCardPanel {
         return NSRect(origin: NSPoint(x: x, y: y), size: size)
     }
 
+    func hideSoon(owner leaving: String) {
+        guard owner == leaving else { return }
+
+        pendingHide = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+
+            hide()
+        }
+    }
+
     func hide() {
+        pendingHide?.cancel()
+        owner = nil
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
         monitor.map(NSEvent.removeMonitor)
@@ -68,18 +87,22 @@ struct SessionHoverTrigger: ViewModifier {
             }
             .onHover { isHovering in
                 pending?.cancel()
-                HoverCardPanel.shared.hide()
-                if !isHovering { isDismissed = false }
-                guard isHovering, !isDismissed, Snapshot.output == nil else { return }
+                guard isHovering else {
+                    isDismissed = false
+                    HoverCardPanel.shared.hideSoon(owner: session.id)
+                    return
+                }
+                guard !isDismissed, Snapshot.output == nil else { return }
 
                 pending = Task {
-                    try? await Task.sleep(for: .milliseconds(600))
+                    if !HoverCardPanel.shared.isShowing { try? await Task.sleep(for: .milliseconds(600)) }
                     guard !Task.isCancelled, let anchor, let window = anchor.window else { return }
 
                     let row = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
                     let column = anchor.enclosingScrollView.map { window.convertToScreen($0.convert($0.bounds, to: nil)) } ?? row
                     HoverCardPanel.shared.show(
                         SessionHoverCard(session: session, pullRequests: pullRequests, context: context).environment(\.ghosttyTheme, theme),
+                        owner: session.id,
                         isDark: theme.isDark,
                         beside: row,
                         column: column,

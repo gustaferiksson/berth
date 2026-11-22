@@ -824,6 +824,7 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
     var commitRename: (CustomGroup) -> Void = { _ in }
     var dragID: String?
     var drop: ((String) -> Bool)?
+    var isExpanded: Binding<Bool>?
     @ViewBuilder let menu: () -> Menu
     @ViewBuilder let accessory: (Bool) -> Accessory
     @State private var isHovering = false
@@ -854,7 +855,16 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
         .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
     }
 
-    private var label: some View {
+    @ViewBuilder private var label: some View {
+        if let isExpanded {
+            Button { isExpanded.wrappedValue.toggle() } label: { row }
+                .buttonStyle(.plain)
+        } else {
+            row
+        }
+    }
+
+    private var row: some View {
         HStack(spacing: 4) {
             if let renaming {
                 TextField("Group Name", text: $name)
@@ -882,8 +892,15 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
             }
             Spacer(minLength: 4)
             accessory(isHovering)
+            if let isExpanded {
+                Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Color.secondary)
+                    .frame(width: 10)
+                    .accessibilityHidden(true)
+            }
         }
-        .frame(width: restingWidth > 0 ? restingWidth - 25 : nil, alignment: .leading)
+        .frame(width: isExpanded == nil && restingWidth > 0 ? restingWidth - 25 : nil, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: density.headerHeight)
         .contentShape([.interaction, .dragPreview], .rect(cornerRadius: 8))

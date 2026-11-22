@@ -346,7 +346,7 @@ private struct ReviewFileList: View {
             .onChange(of: owners.contains { $0.model.hasUnsavedEdits || !$0.model.comments.isEmpty }) { store.prepareReviewModel() }
             .task(id: selection) { await (store.reviewModel ?? model).loadSelectedContents() }
             .task(id: extraStates) { for extra in extras { await prepare(extra.repository, extra.model) } }
-            .task(id: pullRequest?.pullRequest?.number) { await loadPullRequestDetail() }
+            .task(id: model.changes.flatMap { shownPullRequest(root: nil, branch: $0.branch)?.pullRequest?.number }) { await loadPullRequestDetail() }
             .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
             } message: { notice in
                 Text(notice)
@@ -480,15 +480,17 @@ private struct ReviewFileList: View {
 
     @ViewBuilder
     private func changeSections(_ changes: ReviewChanges) -> some View {
-        if changes.uncommitted.isEmpty, changes.committed.isEmpty {
-            Text(changes.isDefaultBranch || changes.base == nil ? "No uncommitted changes on \(changes.branch)" : "No changes, \(changes.branch) matches \(changes.base ?? "")")
+        if changes.uncommitted.isEmpty, changes.committed.isEmpty, !changes.isDefaultBranch, let base = changes.base {
+            Text("No changes, \(changes.branch) matches \(base)")
                 .foregroundStyle(theme.secondary)
         }
         if !changes.uncommitted.isEmpty {
-            Section(isExpanded: expansion(of: "uncommitted")) {
-                changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: nil)
+            Section {
+                if expansion(of: "uncommitted").wrappedValue {
+                    changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: nil)
+                }
             } header: {
-                GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count) { EmptyView() } accessory: { _ in
+                GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count, isExpanded: expansion(of: "uncommitted")) { EmptyView() } accessory: { _ in
                     Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
                         .monospacedDigit()
                         .foregroundStyle(theme.secondary)
@@ -497,10 +499,12 @@ private struct ReviewFileList: View {
             }
         }
         if !changes.committed.isEmpty {
-            Section(isExpanded: expansion(of: "committed")) {
-                changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: nil)
+            Section {
+                if expansion(of: "committed").wrappedValue {
+                    changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: nil)
+                }
             } header: {
-                GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count) { EmptyView() } accessory: { _ in
+                GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count, isExpanded: expansion(of: "committed")) { EmptyView() } accessory: { _ in
                     Text("+\(changes.committed.compactMap(\.additions).reduce(0, +)) −\(changes.committed.compactMap(\.deletions).reduce(0, +))")
                         .monospacedDigit()
                         .foregroundStyle(theme.secondary)
@@ -523,8 +527,17 @@ private struct ReviewFileList: View {
         }
     }
 
+    private func shownPullRequest(root: String?, branch: String) -> (repository: String, pullRequest: PullRequest?)? {
+        let looked = root.map { extraPullRequest($0, branch) } ?? pullRequest
+        let linked = store.pullRequests(inRoot: root, of: sessionID, branch: branch)
+        guard looked?.pullRequest == nil, let first = linked.first(where: { [.open, .draft].contains($0.state) }) ?? linked.first, let repository = store.pullRequestBranch(inRoot: root ?? ownRoot, branch: branch)?.repository else { return looked }
+
+        return (repository, first)
+    }
+
     private func branchCard(_ changes: ReviewChanges, _ status: ReviewBranchStatus) -> some View {
-        ReviewBranchCard(changes: changes, status: status, pullRequest: pullRequest.map(\.pullRequest), detail: pullRequest?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest, showsCommits: Bindable(model).showsCommits)
+        let shown = shownPullRequest(root: nil, branch: changes.branch)
+        return ReviewBranchCard(changes: changes, status: status, pullRequest: shown.map(\.pullRequest), detail: shown?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest, showsCommits: Bindable(model).showsCommits)
     }
 
     private var allExtras: [(repository: ReviewRepository, model: ReviewModel)] {
@@ -563,7 +576,7 @@ private struct ReviewFileList: View {
 
         let key = store.pullRequestBranch(inRoot: repository.root, branch: branch)
         let found = key.flatMap { store.pullRequests[$0] ?? nil }
-        if let key, let found, model.pullRequestDetails[found.number] == nil { await model.loadPullRequestDetail(repository: key.repository, number: found.number) }
+        if let shown = shownPullRequest(root: repository.root, branch: branch), let number = shown.pullRequest?.number, model.pullRequestDetails[number] == nil { await model.loadPullRequestDetail(repository: shown.repository, number: number) }
         if let key, store.pullRequests[key] == nil, Snapshot.output == nil { await store.fetchPullRequests([key]) }
         let base = found?.baseRefName.map { (branch: branch, base: $0) }
         guard base?.branch != model.pullRequestBase?.branch || base?.base != model.pullRequestBase?.base else { return }
@@ -588,19 +601,20 @@ private struct ReviewFileList: View {
             issue: task.issue,
             members: members,
             currentID: sessionID,
-            pullRequestCount: store.pullRequestCount(of: members, in: task),
+            pullRequestCount: (model.changes.map { store.pullRequests(inRoot: nil, of: sessionID, branch: $0.branch).count } ?? 0) + extras.reduce(0) { $0 + store.pullRequests(inRoot: $1.repository.root, of: sessionID, branch: $1.model.changes?.branch).count },
             repositoryCount: Set(members.compactMap { store.repositoryRoot(ofSession: $0.id) } + [ownRoot] + extras.map(\.repository.root)).count,
+            showsRepositories: extras.isEmpty,
             isExpanded: Binding(get: { store.expandedReviewTasks.contains(task.id) }, set: { if $0 { store.expandedReviewTasks.insert(task.id) } else { store.expandedReviewTasks.remove(task.id) } }),
             activate: { store.activate(.session($0)) }
         )
     }
 
     private func otherPullRequests(root: String?, branch: String, shown: Int?) -> some View {
-        ReviewOtherPullRequests(pullRequests: store.pullRequests(inRoot: root, of: sessionID, branch: branch).filter { $0.number != shown })
+        ReviewOtherPullRequests(pullRequests: store.pullRequests(inRoot: root, of: sessionID, branch: branch).filter { $0.number != shown }, insets: cardInsets)
     }
 
     private func extraCard(_ extra: (repository: ReviewRepository, model: ReviewModel), _ changes: ReviewChanges) -> some View {
-        let found = extraPullRequest(extra.repository.root, changes.branch)
+        let found = shownPullRequest(root: extra.repository.root, branch: changes.branch)
         return ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil, showsCommits: Bindable(extra.model).showsCommits)
     }
 
@@ -637,29 +651,33 @@ private struct ReviewFileList: View {
         let ownRoot = store.repositoryRoot(ofSession: sessionID) ?? model.folder
         let inset = changesAsTree ? 9.0 : 0.0
         if let changes {
-            Section(isExpanded: repositoryExpansion(ownRoot)) {
-                branchCard(changes, model.status ?? .unknown)
-                    .listRowInsets(EdgeInsets(top: 0, leading: -7.5 - inset, bottom: 6, trailing: -8))
-                stackedRows(changes, in: model, root: nil, indent: inset)
+            Section {
+                if repositoryExpansion(ownRoot).wrappedValue {
+                    branchCard(changes, model.status ?? .unknown)
+                        .listRowInsets(cardInsets)
+                    stackedRows(changes, in: model, root: nil, indent: inset)
+                }
             } header: {
-                GroupHeader(title: URL(filePath: ownRoot).lastPathComponent, help: ownRoot, count: nil) { EmptyView() } accessory: { _ in
-                    ReviewRepositoryAccessory(branch: nil, base: nil, pullRequests: store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch), hiding: repositoryExpansion(ownRoot).wrappedValue ? pullRequest?.pullRequest?.number : nil)
+                GroupHeader(title: URL(filePath: ownRoot).lastPathComponent, help: ownRoot, count: nil, isExpanded: repositoryExpansion(ownRoot)) { EmptyView() } accessory: { _ in
+                    ReviewRepositoryAccessory(branch: nil, base: nil, pullRequests: store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch), hiding: repositoryExpansion(ownRoot).wrappedValue ? shownPullRequest(root: nil, branch: changes.branch)?.pullRequest?.number : nil)
                 }
             }
         }
         ForEach(extras, id: \.repository.root) { extra in
-            Section(isExpanded: repositoryExpansion(extra.repository.root)) {
-                if let changes = extra.model.changes {
-                    extraCard(extra, changes)
-                        .listRowInsets(EdgeInsets(top: 0, leading: -7.5 - inset, bottom: 6, trailing: -8))
-                    stackedRows(changes, in: extra.model, root: extra.repository.root, indent: inset)
-                } else {
-                    Text(extra.model.error == nil ? "Loading changes…" : "Can’t read changes")
-                        .foregroundStyle(theme.secondary)
+            Section {
+                if repositoryExpansion(extra.repository.root).wrappedValue {
+                    if let changes = extra.model.changes {
+                        extraCard(extra, changes)
+                            .listRowInsets(cardInsets)
+                        stackedRows(changes, in: extra.model, root: extra.repository.root, indent: inset)
+                    } else {
+                        Text(extra.model.error == nil ? "Loading changes…" : "Can’t read changes")
+                            .foregroundStyle(theme.secondary)
+                    }
                 }
             } header: {
-                GroupHeader(title: extra.repository.name, help: extra.repository.folder, count: nil) { EmptyView() } accessory: { _ in
-                    ReviewRepositoryAccessory(branch: extra.model.changes?.branch, base: extra.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base }, pullRequests: store.pullRequests(inRoot: extra.repository.root, of: sessionID, branch: extra.model.changes?.branch), hiding: repositoryExpansion(extra.repository.root).wrappedValue ? extra.model.changes.flatMap { extraPullRequest(extra.repository.root, $0.branch) }?.pullRequest?.number : nil)
+                GroupHeader(title: extra.repository.name, help: extra.repository.folder, count: nil, isExpanded: repositoryExpansion(extra.repository.root)) { EmptyView() } accessory: { _ in
+                    ReviewRepositoryAccessory(branch: extra.model.changes?.branch, base: extra.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base }, pullRequests: store.pullRequests(inRoot: extra.repository.root, of: sessionID, branch: extra.model.changes?.branch), hiding: repositoryExpansion(extra.repository.root).wrappedValue ? extra.model.changes.flatMap { shownPullRequest(root: extra.repository.root, branch: $0.branch) }?.pullRequest?.number : nil)
                 }
             }
         }
@@ -667,8 +685,8 @@ private struct ReviewFileList: View {
 
     @ViewBuilder
     private func stackedRows(_ changes: ReviewChanges, in model: ReviewModel, root: String?, indent: Double) -> some View {
-        if changes.uncommitted.isEmpty, changes.committed.isEmpty {
-            Text(changes.isDefaultBranch || changes.base == nil ? "No uncommitted changes on \(changes.branch)" : "No changes, \(changes.branch) matches \(changes.base ?? "")")
+        if changes.uncommitted.isEmpty, changes.committed.isEmpty, !changes.isDefaultBranch, let base = changes.base {
+            Text("No changes, \(changes.branch) matches \(base)")
                 .foregroundStyle(theme.secondary)
         }
         if !changes.uncommitted.isEmpty {
@@ -746,31 +764,39 @@ private struct ReviewFileList: View {
         }
     }
 
+    private var cardInsets: EdgeInsets {
+        EdgeInsets(top: 0, leading: changesAsTree || model.showsFiles ? -16.5 : 1, bottom: 6, trailing: -8)
+    }
+
     @ViewBuilder
     private func pullRequestSection(_ changes: ReviewChanges?) -> some View {
-        let inset = changesAsTree ? 9.0 : 0.0
-        let edges = EdgeInsets(top: 0, leading: -11 - inset, bottom: 6, trailing: -8)
         if !isStacked || shownRepo == ownRoot, isStacked || model.status != nil, let changes {
-            Section(isExpanded: expansion(of: "pullRequest")) {
-                branchCard(changes, model.status ?? .unknown)
-                    .listRowInsets(edges)
-                otherPullRequests(root: nil, branch: changes.branch, shown: pullRequest?.pullRequest?.number)
+            let shown = shownPullRequest(root: nil, branch: changes.branch)
+            Section {
+                if expansion(of: "pullRequest").wrappedValue {
+                    branchCard(changes, model.status ?? .unknown)
+                        .listRowInsets(cardInsets)
+                    otherPullRequests(root: nil, branch: changes.branch, shown: shown?.pullRequest?.number)
+                }
             } header: {
-                pullRequestHeader
+                pullRequestHeader(branch: changes.branch, hasPullRequest: shown?.pullRequest != nil)
             }
         } else if let shownRepo, let extra = extras.first(where: { $0.repository.root == shownRepo }), let changes = extra.model.changes {
-            Section(isExpanded: expansion(of: "pullRequest")) {
-                extraCard(extra, changes)
-                    .listRowInsets(edges)
-                otherPullRequests(root: extra.repository.root, branch: changes.branch, shown: extraPullRequest(extra.repository.root, changes.branch)?.pullRequest?.number)
+            let shown = shownPullRequest(root: extra.repository.root, branch: changes.branch)
+            Section {
+                if expansion(of: "pullRequest").wrappedValue {
+                    extraCard(extra, changes)
+                        .listRowInsets(cardInsets)
+                    otherPullRequests(root: extra.repository.root, branch: changes.branch, shown: shown?.pullRequest?.number)
+                }
             } header: {
-                pullRequestHeader
+                pullRequestHeader(branch: changes.branch, hasPullRequest: shown?.pullRequest != nil)
             }
         }
     }
 
-    private var pullRequestHeader: some View {
-        GroupHeader(title: "Pull Request", help: "The branch's pull request, checks and commits", count: nil) { EmptyView() } accessory: { _ in EmptyView() }
+    private func pullRequestHeader(branch: String, hasPullRequest: Bool) -> some View {
+        GroupHeader(title: hasPullRequest ? "Pull Request" : branch, help: "The branch's pull request, checks and commits", count: nil, isExpanded: expansion(of: "pullRequest")) { EmptyView() } accessory: { _ in EmptyView() }
     }
 
     private func showsFiles(_ changes: ReviewChanges?) -> Bool {
@@ -780,10 +806,12 @@ private struct ReviewFileList: View {
     @ViewBuilder
     private func filesSection(_ changes: ReviewChanges?) -> some View {
         if let changes, showsFiles(changes) {
-            Section(isExpanded: $model.showsFiles) {
-                ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) }
+            Section {
+                if $model.showsFiles.wrappedValue {
+                    ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) }
+                }
             } header: {
-                GroupHeader(title: "Files", help: "Every file in the repository", count: nil) { EmptyView() } accessory: { _ in EmptyView() }
+                GroupHeader(title: "Files", help: "Every file in the repository", count: nil, isExpanded: $model.showsFiles) { EmptyView() } accessory: { _ in EmptyView() }
             }
         }
     }
@@ -880,7 +908,7 @@ private struct ReviewFileList: View {
     }
 
     private func loadPullRequestDetail() async {
-        guard let pullRequest, let number = pullRequest.pullRequest?.number else { return }
+        guard let pullRequest = model.changes.flatMap({ shownPullRequest(root: nil, branch: $0.branch) }), let number = pullRequest.pullRequest?.number else { return }
 
         await model.loadPullRequestDetail(repository: pullRequest.repository, number: number)
     }
@@ -1026,12 +1054,6 @@ private struct ReviewChangeRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            let tint = [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary
-            Text(file.status.rawValue)
-                .font(.caption.weight(.semibold).monospaced())
-                .foregroundStyle(tint)
-                .frame(width: 18, height: 18)
-                .background(tint.opacity(0.18), in: .rect(cornerRadius: 5, style: .continuous))
             Text((file.path as NSString).lastPathComponent)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1046,6 +1068,10 @@ private struct ReviewChangeRow: View {
                 }
             }
             .fixedSize()
+            Text(file.status.rawValue)
+                .font(.caption2.weight(.medium).monospaced())
+                .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
+                .frame(width: 12)
             ZStack {
                 if file.status != .deleted, isHovering || model.selectedDocument?.path == file.path {
                     Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
@@ -1137,14 +1163,18 @@ private struct ReviewBranchCard: View {
     var body: some View {
         let found = pullRequest ?? nil
         VStack(alignment: .leading, spacing: 10) {
-            if changes.isDefaultBranch || changes.base == nil {
+            if found == nil, changes.isDefaultBranch || changes.base == nil {
                 Text(changes.uncommitted.isEmpty ? "No uncommitted changes on \(changes.branch)" : "Uncommitted changes on \(changes.branch)")
                     .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 pushState
                     .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 headline(found)
-                Text(verbatim: found.map { "#\($0.number) · \(changes.branch) → \(changes.base ?? "")" } ?? "\(changes.branch) → \(changes.base ?? "")")
+                Text(verbatim: found.map { "#\($0.number) · \($0.headRefName ?? changes.branch) → \($0.baseRefName ?? changes.base ?? "")" } ?? "\(changes.branch) → \(changes.base ?? "")")
                     .font(.caption)
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
@@ -1165,6 +1195,7 @@ private struct ReviewBranchCard: View {
                                 .help("Unresolved review threads")
                         }
                     }
+                    .labelStyle(CompactLabel())
                     .font(.callout.weight(.medium))
                     .help("Checks: \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
                 }
@@ -1175,7 +1206,7 @@ private struct ReviewBranchCard: View {
                 .font(.caption)
                 .foregroundStyle(Color.secondary)
             }
-            if !status.commits.isEmpty {
+            if !status.commits.isEmpty, found.map({ $0.headRefName == nil || $0.headRefName == changes.branch }) ?? true {
                 commits
             }
             actions(found)
@@ -1192,22 +1223,28 @@ private struct ReviewBranchCard: View {
         let color = found?.state.color(in: theme) ?? Color.secondary
         VStack(alignment: .leading, spacing: 6) {
             if pullRequest != nil {
-                Label(found?.state.rawValue ?? "No pull request", systemImage: found.map { [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][$0.state] ?? "arrow.triangle.pull" } ?? "arrow.triangle.branch")
-                    .labelStyle(CompactLabel())
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(color)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(color.opacity(0.16), in: .capsule)
+                HStack {
+                    Label(found?.state.rawValue ?? "No pull request", systemImage: found.map { [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][$0.state] ?? "arrow.triangle.pull" } ?? "arrow.triangle.branch")
+                        .labelStyle(CompactLabel())
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(color)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(color.opacity(0.16), in: .capsule)
+                    Spacer(minLength: 0)
+                    if let found { links(found) }
+                }
             }
             if let found {
                 Text(found.title)
                     .font(.headline)
+                    .foregroundStyle(.primary)
                     .lineLimit(2)
                     .help(found.title)
             } else {
                 Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits")")
                     .font(.headline)
+                    .foregroundStyle(.primary)
             }
         }
     }
@@ -1230,42 +1267,43 @@ private struct ReviewBranchCard: View {
 
     @ViewBuilder
     private func actions(_ found: PullRequest?) -> some View {
-        let canCreate = createPullRequest != nil && pullRequest != nil && found == nil && !changes.isDefaultBranch && changes.base != nil && status.ahead > 0
-        if canCreate || found != nil {
-            HStack(spacing: 8) {
-                if let found {
-                    Link(destination: found.url) {
-                        Label("Open on GitHub", systemImage: "arrow.up.right.square")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.glassProminent)
-                    .help("Open pull request #\(found.number) on GitHub")
-                    Menu("More", systemImage: "ellipsis") {
-                        Button("Copy Link", systemImage: "link") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(found.url.absoluteString, forType: .string)
-                        }
-                        Button("Copy Number", systemImage: "number") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString("#\(found.number)", forType: .string)
-                        }
-                    }
+        if let createPullRequest, pullRequest != nil, found == nil, !changes.isDefaultBranch, changes.base != nil, status.ahead > 0 {
+            Button(action: createPullRequest) {
+                Text("Create Pull Request…").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+            .disabled(!isClaudeLive)
+            .help(isClaudeLive ? "Paste a prompt asking Claude to push this branch and open a pull request" : "Claude isn’t running in this tab")
+        }
+    }
+
+    private func links(_ found: PullRequest) -> some View {
+        HStack(spacing: 10) {
+            Link(destination: found.url) {
+                Label("Open on GitHub", systemImage: "arrow.up.right.square")
                     .labelStyle(.iconOnly)
-                    .menuStyle(.button)
-                    .menuIndicator(.hidden)
-                    .buttonStyle(.glass)
-                    .fixedSize()
-                } else if let createPullRequest {
-                    Button(action: createPullRequest) {
-                        Text("Create Pull Request…").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.glassProminent)
-                    .disabled(!isClaudeLive)
-                    .help(isClaudeLive ? "Paste a prompt asking Claude to push this branch and open a pull request" : "Claude isn’t running in this tab")
+            }
+            .help("Open pull request #\(found.number) on GitHub")
+            Menu {
+                Button("Copy Link", systemImage: "link") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(found.url.absoluteString, forType: .string)
+                }
+                Button("Copy Number", systemImage: "number") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("#\(found.number)", forType: .string)
                 }
             }
-            .controlSize(.large)
+            label: {
+                Image(systemName: "ellipsis")
+                    .accessibilityLabel("More")
+            }
+            .menuIndicator(.hidden)
+            .frame(width: 20)
         }
+        .foregroundStyle(theme.secondary)
+        .padding(.trailing, 8)
     }
 
     private var pushState: some View {
