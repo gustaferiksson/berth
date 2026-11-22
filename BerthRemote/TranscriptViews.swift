@@ -436,13 +436,14 @@ private struct ToolCallDetail: View {
         VStack(alignment: .leading, spacing: 8) {
             if let command = call.use.command {
                 CodeBox(text: command, syntax: "bash")
-            } else if call.use.oldText != nil || call.use.newText != nil {
-                if let oldText = call.use.oldText {
-                    CodeBox(text: oldText, syntax: call.use.filePath, tint: .red, maxHeight: 240)
+            } else if let newText = call.use.newText {
+                VStack(spacing: 0) {
+                    ForEach(EditHunk(old: call.use.oldText, new: newText).rows) { row in
+                        DiffLine(row: row, highlighted: nil)
+                    }
                 }
-                if let newText = call.use.newText {
-                    CodeBox(text: newText, syntax: call.use.filePath, tint: .green, maxHeight: 240)
-                }
+                .background(.fill.quaternary)
+                .clipShape(.rect(cornerRadius: 12))
             } else if call.kind != .agent, let detail = call.use.detail ?? (call.kind == .other ? call.use.text : nil) {
                 Text(detail)
                     .font([.search, .web, .other].contains(call.kind) ? .footnote.monospaced() : .footnote)

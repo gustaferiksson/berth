@@ -246,7 +246,7 @@ private struct FileEditRow: View {
     }
 }
 
-private struct DiffLine: View {
+struct DiffLine: View {
     let row: EditHunk.Row
     let highlighted: AttributedString?
 

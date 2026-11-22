@@ -64,6 +64,21 @@ struct TranscriptTailTests {
         #expect(chunk.imageLines["i2-0-0"] != nil)
     }
 
+    @Test func readsVirtualResultsFromToolUseResult() {
+        let lines = [
+            #"{"type":"user","uuid":"u1","isVirtual":true,"toolUseResult":{"stdout":"one\ntwo","stderr":"","interrupted":false},"message":{"content":[{"type":"tool_result","tool_use_id":"repl_1","content":""}]}}"#,
+            #"{"type":"user","uuid":"u2","isVirtual":true,"toolUseResult":{"type":"text","file":{"filePath":"/x/a.md","content":"hello","numLines":1}},"message":{"content":[{"type":"tool_result","tool_use_id":"repl_2","content":""}]}}"#,
+            #"{"type":"user","uuid":"u3","isVirtual":true,"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"agent-9"},"message":{"content":[{"type":"tool_result","tool_use_id":"repl_3","content":""}]}}"#,
+            #"{"type":"user","uuid":"u4","isVirtual":true,"toolUseResult":{"stdout":"started","backgroundTaskId":"bg-1"},"message":{"content":[{"type":"tool_result","tool_use_id":"repl_4","content":""}]}}"#,
+            #"{"type":"user","uuid":"u5","isVirtual":true,"toolUseResult":{"error":"boom"},"message":{"content":[{"type":"tool_result","tool_use_id":"repl-error-5","content":"ReferenceError: boom","is_error":true}]}}"#,
+        ]
+        let entries = TranscriptTail.entries(in: Data((lines.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: []).entries
+        let calls = entries.map { ToolCall(use: RemoteEntry(id: "x", kind: .toolUse, text: "{}", name: "Agent"), result: $0) }
+
+        #expect(entries.map(\.text) == ["one\ntwo", "hello", "Async agent launched successfully.\nagentId: agent-9", "Command running in background with ID: bg-1", "ReferenceError: boom"])
+        #expect(calls[2].isAsyncLaunch)
+    }
+
     @Test func keepsPromptsBehindOneLongToolTurn() throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "tail-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: url) }

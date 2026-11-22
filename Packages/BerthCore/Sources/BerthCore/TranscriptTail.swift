@@ -117,7 +117,9 @@ public enum TranscriptTail {
                 }
                 guard type == "user", block["type"] as? String == "tool_result" else { return nil }
 
-                let content = block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+                let blockContent = block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+                let isVirtualResult = (block["tool_use_id"] as? String)?.hasPrefix("repl_") == true
+                let content = blockContent.isEmpty && isVirtualResult ? virtualResultText(object["toolUseResult"] as? [String: Any] ?? [:]) : blockContent
                 let refs = TranscriptImages.refs(in: block, entryID: id)
                 return RemoteEntry(id: id, kind: .toolResult, text: String(content.prefix(maxText)), toolID: (block["tool_use_id"] as? String).map { String($0.prefix(maxText)) }, isError: block["is_error"] as? Bool ?? false, date: date, imageRefs: refs.isEmpty ? nil : refs)
             }
@@ -152,6 +154,21 @@ public enum TranscriptTail {
         let rangeByEntry = Dictionary(parsed.flatMap { line in line.entries.map { ($0.id, line.range) } }) { $1 }
         let imageLines = Dictionary(resolved.flatMap { entry in (entry.imageRefs ?? []).compactMap { ref in rangeByEntry[entry.id].map { (ref.id, $0) } } }) { $1 }
         return (resolved, consumed, queue, imageLines)
+    }
+
+    // Code Mode's virtual tool_result records carry an empty content; the inner tool's output is in toolUseResult
+    static func virtualResultText(_ result: [String: Any]) -> String {
+        if let task = result["backgroundTaskId"] as? String { return "Command running in background with ID: \(task)" }
+
+        if result["isAsync"] as? Bool == true, let agent = result["agentId"] as? String { return "Async agent launched successfully.\nagentId: \(agent)" }
+
+        let output = [result["stdout"] as? String, result["stderr"] as? String].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: "\n")
+        if !output.isEmpty { return output }
+
+        if let content = (result["file"] as? [String: Any])?["content"] as? String { return content }
+
+        let blocks = (result["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+        return blocks.isEmpty ? result["message"] as? String ?? "" : blocks
     }
 
     static func prompt(id: String, text: String, date: Date?, blocks: [[String: Any]]) -> RemoteEntry {

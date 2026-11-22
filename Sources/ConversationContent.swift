@@ -442,7 +442,6 @@ struct ConversationDiff: View {
             let input = rows.map { (old: $0.kind != .added, new: $0.kind != .removed, text: $0.text) }
             highlighted = await ConversationHighlighting.diffLines(input, language: language, theme: theme)
         }
-        .padding(.vertical, 4)
         .background(theme.foreground.opacity(0.04), in: .rect(cornerRadius: 8))
         .clipShape(.rect(cornerRadius: 8))
         .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(theme.foreground.opacity(0.1)) }
