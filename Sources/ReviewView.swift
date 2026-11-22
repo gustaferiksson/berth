@@ -649,11 +649,11 @@ private struct ReviewFileList: View {
     }
 
     @ViewBuilder
-    private func repoRows(_ root: String, indent: Double) -> some View {
+    private func repoRows(_ root: String) -> some View {
         if root == ownRoot, let changes = model.changes {
-            stackedRows(changes, in: model, root: nil, indent: indent)
+            stackedRows(changes, in: model, root: nil)
         } else if let extra = extras.first(where: { $0.repository.root == root }), let changes = extra.model.changes {
-            stackedRows(changes, in: extra.model, root: root, indent: indent)
+            stackedRows(changes, in: extra.model, root: root)
         } else {
             Text("Loading changes…")
                 .foregroundStyle(theme.secondary)
@@ -663,13 +663,12 @@ private struct ReviewFileList: View {
     @ViewBuilder
     private func stackedSections(_ changes: ReviewChanges?) -> some View {
         let ownRoot = store.repositoryRoot(ofSession: sessionID) ?? model.folder
-        let inset = changesAsTree ? 9.0 : 0.0
         if let changes {
             Section {
                 if repositoryExpansion(ownRoot).wrappedValue {
                     branchCard(changes, model.status ?? .unknown)
                         .listRowInsets(cardInsets)
-                    stackedRows(changes, in: model, root: nil, indent: inset)
+                    stackedRows(changes, in: model, root: nil)
                 }
             } header: {
                 GroupHeader(title: URL(filePath: ownRoot).lastPathComponent, help: ownRoot, count: nil, isExpanded: repositoryExpansion(ownRoot)) { EmptyView() } accessory: { _ in
@@ -683,7 +682,7 @@ private struct ReviewFileList: View {
                     if let changes = extra.model.changes {
                         extraCard(extra, changes)
                             .listRowInsets(cardInsets)
-                        stackedRows(changes, in: extra.model, root: extra.repository.root, indent: inset)
+                        stackedRows(changes, in: extra.model, root: extra.repository.root)
                     } else {
                         Text(extra.model.error == nil ? "Loading changes…" : "Can’t read changes")
                             .foregroundStyle(theme.secondary)
@@ -698,17 +697,17 @@ private struct ReviewFileList: View {
     }
 
     @ViewBuilder
-    private func stackedRows(_ changes: ReviewChanges, in model: ReviewModel, root: String?, indent: Double) -> some View {
+    private func stackedRows(_ changes: ReviewChanges, in model: ReviewModel, root: String?) -> some View {
         if changes.uncommitted.isEmpty, changes.committed.isEmpty, !changes.isDefaultBranch, let base = changes.base {
             Text("No changes, \(changes.branch) matches \(base)")
                 .foregroundStyle(theme.secondary)
         }
         if !changes.uncommitted.isEmpty {
-            ReviewSubheading(title: "Uncommitted", files: changes.uncommitted, indent: indent)
+            ReviewSubheading(title: "Uncommitted", files: changes.uncommitted, insets: subheadingInsets)
             changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: root)
         }
         if !changes.committed.isEmpty {
-            ReviewSubheading(title: "Committed", files: changes.committed, indent: indent)
+            ReviewSubheading(title: "Committed", files: changes.committed, insets: subheadingInsets)
             changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: root)
         }
     }
@@ -786,7 +785,7 @@ private struct ReviewFileList: View {
     private func changesList(_ changes: ReviewChanges?) -> some View {
         list(name: "review", order: changeOrder(changes)) {
             pullRequestSection(changes)
-            if let shownRepo { repoRows(shownRepo, indent: changesAsTree ? 9 : 0) } else if isStacked { stackedSections(changes) } else if let changes { changeSections(changes) }
+            if let shownRepo { repoRows(shownRepo) } else if isStacked { stackedSections(changes) } else if let changes { changeSections(changes) }
         }
         .id(changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
         .id([shownRepo] + extras.map(\.repository.root))
@@ -797,8 +796,21 @@ private struct ReviewFileList: View {
         }
     }
 
+    private var hasFolderRows: Bool {
+        guard changesAsTree else { return false }
+
+        let lists: [[ReviewFile]] = isStacked
+            ? ([model.changes] + extras.map(\.model.changes)).compactMap { $0 }.flatMap { [$0.uncommitted, $0.committed] }
+            : model.changes.map { [expansion(of: "uncommitted").wrappedValue ? $0.uncommitted : [], expansion(of: "committed").wrappedValue ? $0.committed : []] } ?? []
+        return lists.contains { ReviewFileTree.compactNodes($0.map(\.path)).contains { $0.children != nil } }
+    }
+
+    private var subheadingInsets: EdgeInsets {
+        EdgeInsets(top: 2, leading: cardInsets.leading, bottom: 0, trailing: 8)
+    }
+
     private var cardInsets: EdgeInsets {
-        EdgeInsets(top: 0, leading: changesAsTree ? -16.5 : -7.5, bottom: 6, trailing: -8)
+        EdgeInsets(top: 0, leading: 8.5 - (changesAsTree && !hasFolderRows ? 16.5 : 26), bottom: 6, trailing: -8)
     }
 
     @ViewBuilder
@@ -1364,8 +1376,8 @@ private struct ReviewBranchCard: View {
         }
         .menuIndicator(.hidden)
         .foregroundStyle(theme.secondary)
-        .frame(width: 20)
-        .padding(.trailing, 4)
+        .frame(width: 20, alignment: .trailing)
+        .padding(.trailing, -5)
     }
 
     private var pushState: some View {
