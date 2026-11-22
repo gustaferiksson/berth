@@ -34,10 +34,13 @@ struct RunningStrip: View {
                             VStack(alignment: .leading, spacing: 0) {
                                 title(task)
                                     .lineLimit(1)
-                                Text("\(task.agentType ?? task.kindName) · \(Text(task.started, style: .timer).monospacedDigit())")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                TimelineView(.periodic(from: .now, by: 1)) { context in
+                                    Text("\(task.agentType ?? task.kindName) · \(Duration.seconds(max(0, context.date.timeIntervalSince(task.started)).rounded(.down)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2)))")
+                                        .monospacedDigit()
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                             }
                         }
                     }
