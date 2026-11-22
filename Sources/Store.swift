@@ -189,6 +189,10 @@ final class Store {
         }
     }
 
+    var showsTriage = UserDefaults.standard.bool(forKey: "showsTriage") {
+        didSet { if persistsTabs { UserDefaults.standard.set(showsTriage, forKey: "showsTriage") } }
+    }
+
     var customGroups = (UserDefaults.standard.string(forKey: "customGroups")?.data(using: .utf8)).flatMap { try? JSONDecoder().decode([CustomGroup].self, from: $0) } ?? [] {
         didSet {
             if persistsTabs, let data = try? JSONEncoder().encode(customGroups) { UserDefaults.standard.set(String(decoding: data, as: UTF8.self), forKey: "customGroups") }
@@ -208,6 +212,7 @@ final class Store {
     private(set) var groups: [SessionGroup] = []
     private(set) var activeSessions: [SessionSummary] = []
     private(set) var archivedSessions: [SessionSummary] = []
+    private(set) var snoozedSessions: [SessionSummary] = []
     private(set) var pinnedSessions: [SessionSummary] = []
     private(set) var sessionsByID: [String: SessionSummary] = [:]
     private(set) var liveBySession: [String: LiveSession] = [:]
@@ -265,6 +270,14 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
     }
 
+    @ObservationIgnored private var snoozes = (UserDefaults.standard.dictionary(forKey: "snoozedSessions") ?? [:]).compactMapValues(SessionSnooze.init(stored:)) {
+        didSet {
+            if persistsTabs { UserDefaults.standard.set(snoozes.mapValues(\.stored), forKey: "snoozedSessions") }
+            scheduleSnoozeWake()
+        }
+    }
+
+    @ObservationIgnored private var snoozeWake: Task<Void, Never>?
     @ObservationIgnored private var pinnedIDs = UserDefaults.standard.stringArray(forKey: "pinnedSessions") ?? [] {
         didSet { if persistsTabs { UserDefaults.standard.set(pinnedIDs, forKey: "pinnedSessions") } }
     }
@@ -306,6 +319,7 @@ final class Store {
 
             self?.reloadTheme()
         }
+        scheduleSnoozeWake()
         pullRequestPolling = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(300))
@@ -343,10 +357,17 @@ final class Store {
         if byID != sessionsByID { sessionsByID = byID }
         let selected = multiSelection.filter { item in if case let .session(id) = item { byID[id] != nil } else { true } }
         if selected != multiSelection { multiSelection = selected }
-        let pins = SessionPins.split(split.active, pinned: pinnedIDs)
+        let waiting = Set(liveBySession.values.filter { if case .needsInput = $0.activity { true } else { false } }.map(\.sessionId))
+        let snooze = SessionTriage.split(split.active, snoozes: snoozes, waiting: waiting, now: .now)
+        if hasScanned {
+            if snooze.kept != snoozes { snoozes = snooze.kept }
+            for id in snooze.woken { seenAt[id] = .distantPast }
+        }
+        if snooze.snoozed != snoozedSessions { snoozedSessions = snooze.snoozed }
+        let pins = SessionPins.split(snooze.awake, pinned: pinnedIDs)
         if hasScanned, pins.kept != pinnedIDs { pinnedIDs = pins.kept }
         if pins.pinned != pinnedSessions { pinnedSessions = pins.pinned }
-        let live = grouping.active(split.active, live: liveBySession)
+        let live = grouping.active(snooze.awake, live: liveBySession)
         let liveRank = Dictionary(uniqueKeysWithValues: liveSessions.enumerated().map { ($1.id, $0) })
         let shownLive = isPointerInSidebar ? live.sorted { liveRank[$0.id, default: -1] < liveRank[$1.id, default: -1] } : live
         if shownLive != liveSessions { liveSessions = shownLive }
@@ -688,7 +709,7 @@ final class Store {
         if byID != liveBySession {
             liveBySession = byID
             refreshConversations()
-            if groupingMode.hasActive { applyGroups() }
+            if groupingMode.hasActive || !snoozes.isEmpty { applyGroups() }
         }
         resumeSuspendedConversations()
         // Claude reports `shell` only while idle; a turn shows `busy`, so keep the mark until it reports plain idle.
@@ -1174,8 +1195,12 @@ final class Store {
         if kind == .shell { newTerminal() }
     }
 
+    var showsActive: Bool { groupingMode.hasActive && !showsTriage }
+
+    var activeLiveIDs: Set<String> { showsActive ? Set(liveSessions.map(\.id)) : [] }
+
     var sidebarActive: (group: SessionGroup, tabs: [Tab], entries: [GroupEntry])? {
-        guard groupingMode.hasActive else { return nil }
+        guard showsActive else { return nil }
 
         let starting = unlistedClaudeTabs
         guard !liveSessions.isEmpty || !starting.isEmpty else { return nil }
@@ -1189,8 +1214,8 @@ final class Store {
     }
 
     var sidebarGroups: [(group: SessionGroup, tabs: [Tab], entries: [GroupEntry])] {
-        let liveIDs = Set(liveSessions.map(\.id))
-        let unlisted = groupingMode.hasActive ? [] : unlistedClaudeTabs
+        let liveIDs = activeLiveIDs
+        let unlisted = showsActive ? [] : unlistedClaudeTabs
         let grouping = grouping
         let placed = Dictionary(grouping: unlisted) { SessionGroup(kind: grouping.kind(forFolder: $0.cwd, lastPrompt: $0.opened), sessions: []).id }
         let known = Set(groups.map(\.id))
@@ -1204,9 +1229,11 @@ final class Store {
     }
 
     var sidebarOrderedTabs: [Tab] {
-        let liveIDs = Set(liveSessions.map(\.id))
+        let liveIDs = activeLiveIDs
         let attentionIDs = attentionSessions.map(\.id)
-        let attention = Set(attentionIDs)
+        let triage = triageSections
+        let triageIDs = triage.working.map(\.id) + triage.unread.map(\.id)
+        let attention = Set(attentionIDs + triageIDs)
         let tabs = { (entries: [GroupEntry]) -> [Tab] in
             entries.flatMap { entry in
                 switch entry {
@@ -1217,6 +1244,7 @@ final class Store {
         }
         let active = sidebarActive
         return attentionIDs.compactMap { tab(forSession: $0) } + terminals + (active?.tabs ?? []) + tabs(active?.entries ?? [])
+            + triageIDs.compactMap { tab(forSession: $0) }
             + pinnedSessions.filter { !liveIDs.contains($0.id) && !attention.contains($0.id) }.compactMap { tab(forSession: $0.id) }
             + sidebarGroups.flatMap { $0.tabs + tabs($0.entries) }
     }
@@ -1326,7 +1354,7 @@ final class Store {
     func setGroupsExpanded(_ expanded: Bool) {
         guard persistsTabs else { return }
 
-        let current = Set(sidebarGroups.map(\.group.id) + [Sidebar.terminalsID, Sidebar.attentionID] + (sidebarActive.map { [$0.group.id] } ?? []))
+        let current = Set(sidebarGroups.map(\.group.id) + [Sidebar.terminalsID, Sidebar.attentionID, Sidebar.workingID, Sidebar.unreadID] + (sidebarActive.map { [$0.group.id] } ?? []))
         let others = (UserDefaults.standard.string(forKey: "collapsedGroups") ?? "").split(separator: "\n").map(String.init).filter { !current.contains($0) }
         let listed = current.filter { Sidebar.collapsedByDefault.contains($0) == expanded }.sorted()
         UserDefaults.standard.set((others + listed).joined(separator: "\n"), forKey: "collapsedGroups")
@@ -1334,6 +1362,7 @@ final class Store {
 
     func archive(_ sessionID: String) {
         archivedAt[sessionID] = .now
+        snoozes[sessionID] = nil
         pinnedIDs.removeAll { $0 == sessionID }
         if multiSelection.contains(.session(sessionID)) { multiSelection.removeAll { $0 == .session(sessionID) } }
         applyGroups()
@@ -1345,8 +1374,43 @@ final class Store {
         applyGroups()
     }
 
+    func snooze(_ sessionID: String, _ snooze: SessionSnooze) {
+        snoozes[sessionID] = snooze
+        pinnedIDs.removeAll { $0 == sessionID }
+        multiSelection.removeAll { $0 == .session(sessionID) }
+        applyGroups()
+    }
+
+    func unsnooze(_ sessionID: String) {
+        snoozes[sessionID] = nil
+        applyGroups()
+    }
+
+    func snooze(of sessionID: String) -> SessionSnooze? {
+        snoozes[sessionID]
+    }
+
+    private func scheduleSnoozeWake() {
+        snoozeWake?.cancel()
+        let due = snoozes.values.compactMap { snooze -> Date? in if case let .until(date) = snooze { date } else { nil } }.min()
+        guard let due else { return }
+
+        snoozeWake = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(due.timeIntervalSinceNow, 0) + 0.5))
+            guard !Task.isCancelled else { return }
+
+            self?.applyGroups()
+        }
+    }
+
+    func hasUnseenActivity(_ session: SessionSummary) -> Bool {
+        guard let seen = seenAt[session.id] else { return false }
+
+        return session.lastActivity > seen
+    }
+
     func isUnread(_ session: SessionSummary) -> Bool {
-        guard let seen = seenAt[session.id], session.lastActivity > seen else { return false }
+        guard hasUnseenActivity(session) else { return false }
 
         let isViewed = isAppActive && tabs.first { $0.id == selectedTabID }?.sessionID == session.id
         return !isViewed && liveBySession[session.id]?.activity != .working

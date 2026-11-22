@@ -75,6 +75,7 @@ struct BerthApp: App {
                 AppAction.filterSidebar.menuButton(appDelegate.store)
                 Divider()
                 Menu("Group By") { GroupingMenuItems(store: appDelegate.store) }
+                Toggle(AppAction.showTriage.title, isOn: Bindable(appDelegate.store).showsTriage)
                 AppAction.collapseAllGroups.menuButton(appDelegate.store)
                 AppAction.expandAllGroups.menuButton(appDelegate.store)
                 Divider()
