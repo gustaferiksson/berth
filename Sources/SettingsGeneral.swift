@@ -8,10 +8,13 @@ struct GeneralSettings: View {
     static let terminalBelowKey = "reviewTerminalBelow"
     static let worktreeKey = "startsInWorktree"
     static let languageServersKey = "languageServersEnabled"
+    static let codexKey = "codexEnabled"
 
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
+    @Environment(Store.self) private var store
     @AppStorage(worktreeKey) private var startsInWorktree = false
+    @AppStorage(codexKey) private var isCodexEnabled = false
 
     var body: some View {
         Form {
@@ -21,6 +24,14 @@ struct GeneralSettings: View {
                 Text("New Sessions")
             } footer: {
                 Text("Sessions started in a folder inside a git repository get their own worktree and branch. Hold ⌥ in the launcher to start in the main checkout.")
+            }
+            Section {
+                Toggle("Codex sessions", isOn: $isCodexEnabled)
+                    .onChange(of: isCodexEnabled) { store.applyCodexSetting() }
+            } header: {
+                Text("Agents")
+            } footer: {
+                Text("Lists interactive Codex sessions from ~/.codex beside Claude's and resumes them in a tab. Hold ⌥⇧ in the launcher to start a new one. Status, needs-you alerts and the Conversation view are Claude only for now.")
             }
             Section {
                 Picker("Unload idle sessions after", selection: $unloadIdleAfter) {
@@ -43,6 +54,6 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 440)
+        .frame(height: 560)
     }
 }

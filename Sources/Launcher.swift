@@ -32,6 +32,7 @@ struct Launcher: View {
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
+    @AppStorage(GeneralSettings.codexKey) private var isCodexEnabled = false
     @State private var query = ""
     @State private var highlighted = 0
     @State private var folders: [Folder] = []
@@ -81,6 +82,12 @@ struct Launcher: View {
                         let matches = self.matches
                         guard mode == .newSession, matches.indices.contains(highlighted) else { return .ignored }
 
+                        if press.modifiers.contains(.shift) {
+                            guard isCodexEnabled else { return .ignored }
+
+                            startCodex(in: matches[highlighted].path)
+                            return .handled
+                        }
                         start(in: matches[highlighted].path, checkout: .main)
                         return .handled
                     }
@@ -161,6 +168,7 @@ struct Launcher: View {
                 if mode == .newSession {
                     hint("↩", target.map { "Start in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start")
                     if startsInWorktree { hint("⌥↩", "Main Checkout") }
+                    if isCodexEnabled { hint("⌥⇧↩", "Codex") }
                     hint("↑↓", "Folder")
                     hint("⇥", "Pull Requests")
                 } else if mode == .pullRequests {
@@ -576,6 +584,11 @@ struct Launcher: View {
         if Snapshot.launcherKeys != nil { return store.probeOpenedURLs.append(pullRequest.url) }
         #endif
         openURL(pullRequest.url)
+    }
+
+    private func startCodex(in path: String) {
+        store.openCodex(cwd: path)
+        store.launcherMode = nil
     }
 
     private func start(in path: String, checkout: NewSessionCheckout = .preferred) {

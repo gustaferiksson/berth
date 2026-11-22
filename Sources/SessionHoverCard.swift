@@ -137,7 +137,7 @@ struct SessionHoverCard: View {
             Text(session.title)
                 .font(.callout.weight(.semibold))
                 .lineLimit(2)
-            Text([URL(filePath: session.checkout).lastPathComponent, session.branch].compactMap(\.self).joined(separator: " · "))
+            Text([session.agent == .codex ? "Codex" : nil, URL(filePath: session.checkout).lastPathComponent, session.branch].compactMap(\.self).joined(separator: " · "))
                 .font(.caption)
                 .foregroundStyle(.primary.opacity(0.7))
             ForEach(pullRequests, id: \.self) { item in
