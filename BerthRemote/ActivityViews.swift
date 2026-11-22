@@ -178,6 +178,7 @@ private struct TaskRow: View {
 private struct ScrollExtent: Equatable {
     let isAtBottom: Bool
     let height: Double
+    let overflows: Bool
 }
 
 private struct ToolRow: Identifiable {
@@ -317,8 +318,8 @@ private struct TaskDetailView: View {
                     .listRowInsets(.init())
                     .id("end")
             }
-            .onScrollGeometryChange(for: ScrollExtent.self) { ScrollExtent(isAtBottom: $0.visibleRect.maxY >= $0.contentSize.height - 40, height: $0.contentSize.height) } action: { old, new in
-                guard old.isAtBottom, new.height > old.height else { return }
+            .onScrollGeometryChange(for: ScrollExtent.self) { ScrollExtent(isAtBottom: $0.visibleRect.maxY >= $0.contentSize.height - 40, height: $0.contentSize.height, overflows: $0.contentSize.height > $0.containerSize.height) } action: { old, new in
+                guard old.overflows, new.overflows, old.isAtBottom, new.height > old.height else { return }
 
                 proxy.scrollTo("end", anchor: .bottom)
             }
