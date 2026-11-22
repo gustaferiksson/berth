@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
     @AppStorage("showsTrailingSidebar") private var showsTrailingSidebar = true
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
+    @AppStorage(GeneralSettings.conversationKey) private var isConversationEnabled = false
     @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
     @AppStorage(GeneralSettings.terminalBelowKey) private var isTerminalBelow = false
     @State private var sidebarYieldsToDiff = false
@@ -108,6 +109,13 @@ struct ContentView: View {
                         }
                         .help("Switch between terminal and Claude (⌘J)")
                     }
+                    if isConversationEnabled, store.canShowConversation {
+                        ToolbarItem(placement: .automatic) {
+                            let action = AppAction.showTerminal.isAvailable(in: store) ? AppAction.showTerminal : .showConversation
+                            Button(action.title, systemImage: action.symbol) { action.perform(on: store) }
+                                .help("\(action.title) (⌥⌘J)")
+                        }
+                    }
                     if isReviewEnabled, !isTrailing {
                         ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
@@ -149,6 +157,7 @@ struct ContentView: View {
                 store.activeReviewRoots = [:]
             }
         }
+        .onChange(of: isConversationEnabled) { store.syncConversations() }
         .onChange(of: areLanguageServersEnabled) {
             guard !areLanguageServersEnabled else { return }
 
@@ -366,17 +375,23 @@ private final class TerminalSplitController: NSSplitViewController {
 
 private struct TerminalArea: View {
     let store: Store
+    @AppStorage(GeneralSettings.conversationKey) private var isConversationEnabled = false
 
     var body: some View {
         ZStack {
             ForEach(store.tabs) { tab in
                 let isSelected = tab.id == store.selectedTabID && !store.isHarborShown
+                let model = isSelected && isConversationEnabled ? store.conversationModels[tab.id] : nil
+                let showsSurface = isSelected && model == nil
                 TerminalSurfaceView(context: tab.terminal)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .opacity(isSelected ? 1 : 0)
-                    .allowsHitTesting(isSelected)
-                    .onChange(of: isSelected, initial: true) { tab.terminal.isSurfaceVisible = isSelected }
+                    .opacity(showsSurface ? 1 : 0)
+                    .allowsHitTesting(showsSurface)
+                    .onChange(of: showsSurface, initial: true) { tab.terminal.isSurfaceVisible = showsSurface }
+                if let model {
+                    ConversationView(model: model, tab: tab)
+                }
             }
             if store.isHarborShown {
                 Harbor()

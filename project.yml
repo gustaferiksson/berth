@@ -108,6 +108,8 @@ targets:
       - path: BerthRemote
       - path: Packages/BerthCore/Sources/BerthCore/RemoteProtocol.swift
       - path: Packages/BerthCore/Sources/BerthCore/PlanUsage.swift
+      - path: Packages/BerthCore/Sources/BerthCore/Conversation.swift
+      - path: Packages/BerthCore/Sources/BerthCore/MarkdownBlock.swift
       - path: Resources/AppIcon.icon
     settings:
       base:

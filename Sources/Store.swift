@@ -69,6 +69,7 @@ final class Store {
         didSet {
             saveOpenTabs()
             prepareReviewModel()
+            syncConversations()
         }
     }
 
@@ -82,10 +83,17 @@ final class Store {
             }
             saveOpenTabs()
             prepareReviewModel()
+            syncConversations()
         }
     }
 
     var lockedSessionID: String?
+    var conversationTabIDs: Set<Tab.ID> = [] {
+        didSet { syncConversations() }
+    }
+
+    private(set) var conversationModels: [Tab.ID: ConversationModel] = [:]
+    var conversationFocusRequests = 0
     private(set) var orphanedSessionIDs: Set<String> = []
     @ObservationIgnored private var resumingOrphans: Set<String> = []
     var sidebarCursor: SidebarItem?
@@ -99,9 +107,10 @@ final class Store {
     var isHarborShown = false {
         didSet {
             if isHarborShown { endTerminalSearch() }
-            guard oldValue, !isHarborShown, let terminal = focusedTerminal else { return }
+            syncConversations()
+            guard oldValue, !isHarborShown else { return }
 
-            DispatchQueue.main.async { terminal.requestFocus() }
+            DispatchQueue.main.async { [weak self] in self?.focusSelected() }
         }
     }
 
@@ -150,7 +159,7 @@ final class Store {
             DispatchQueue.main.async { [weak self] in
                 guard let self, !isHarborShown, terminalSearch == nil else { return }
 
-                focusedTerminal?.requestFocus()
+                focusSelected()
             }
         }
     }
@@ -609,6 +618,7 @@ final class Store {
                 return (index, summaries, roots.merging(unresolved.map { ($0, RepositoryRoot.resolve($0)) }) { $1 }, checkouts, catalog)
             }.value
             self.index = updated
+            refreshConversations()
             self.checkouts = checkouts
             catalogModels = catalog
             let listed = Set(summaries.map(\.id))
@@ -670,6 +680,7 @@ final class Store {
         let byID = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
         if byID != liveBySession {
             liveBySession = byID
+            refreshConversations()
             if groupingMode.hasActive { applyGroups() }
         }
         // Claude reports `shell` only while idle; a turn shows `busy`, so keep the mark until it reports plain idle.
@@ -760,7 +771,7 @@ final class Store {
         selectedTabID = tab.id
         recentTabIDs = [tab.id] + recentTabIDs.filter { $0 != tab.id }
         isHarborShown = false
-        tab.terminal.requestFocus()
+        focusSelected()
     }
 
     private func tab(activating item: SidebarItem?) -> Tab? {
@@ -826,7 +837,7 @@ final class Store {
 
             openClaude(cwd: resumeFolder(of: session), resuming: session.id)
             isHarborShown = false
-            tabs.first { $0.id == selectedTabID }?.terminal.requestFocus()
+            focusSelected()
         }
     }
 
@@ -868,6 +879,53 @@ final class Store {
 
     var currentCwd: String {
         tabs.first { $0.id == selectedTabID }?.folder ?? FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    var isConversationEnabled: Bool {
+        UserDefaults.standard.bool(forKey: GeneralSettings.conversationKey)
+    }
+
+    func showsConversation(_ tab: Tab) -> Bool {
+        tab.kind == .claude && isConversationEnabled && conversationTabIDs.contains(tab.id)
+    }
+
+    var selectedShowsConversation: Bool {
+        tabs.first { $0.id == selectedTabID }.map(showsConversation) ?? false
+    }
+
+    var canShowConversation: Bool {
+        isConversationEnabled && !isHarborShown && tabs.first { $0.id == selectedTabID }?.kind == .claude
+    }
+
+    func setConversation(_ isShown: Bool) {
+        guard let id = selectedTabID else { return }
+
+        if isShown { conversationTabIDs.insert(id) } else { conversationTabIDs.remove(id) }
+        endTerminalSearch()
+        DispatchQueue.main.async { [weak self] in self?.focusSelected() }
+    }
+
+    func focusSelected() {
+        guard let tab = tabs.first(where: { $0.id == selectedTabID }) else { return }
+
+        if showsConversation(tab) { conversationFocusRequests += 1 } else { tab.terminal.requestFocus() }
+    }
+
+    func syncConversations() {
+        let shown = Set(tabs.filter { $0.id == selectedTabID && !isHarborShown && showsConversation($0) }.map(\.id))
+        for id in conversationModels.keys where !shown.contains(id) {
+            conversationModels[id]?.stop()
+            conversationModels[id] = nil
+        }
+        for id in shown where conversationModels[id] == nil {
+            let model = ConversationModel(tabID: id, store: self)
+            conversationModels[id] = model
+            model.start()
+        }
+    }
+
+    func refreshConversations() {
+        for model in conversationModels.values { model.refresh() }
     }
 
     var focusedTerminal: TerminalViewState? {
@@ -1067,7 +1125,7 @@ final class Store {
         let isSelected = id == model.selectedTabID
         model.close(id)
         if model.tabs.isEmpty, let sessionID = selectedSessionID { activeReviewRoots[sessionID] = nil }
-        if model.tabs.isEmpty { focusedTerminal?.requestFocus() } else if isSelected { model.focusesEditor = true }
+        if model.tabs.isEmpty { focusSelected() } else if isSelected { model.focusesEditor = true }
     }
 
     func startTerminalSearch(in terminal: TerminalViewState, needle: String?) {
@@ -1180,6 +1238,7 @@ final class Store {
         let environment = [ClaudeLaunch.sessionVariable: attachID ?? session]
         let command = ClaudeLaunch.command(start)
         tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }))
+        if isConversationEnabled, UserDefaults.standard.string(forKey: GeneralSettings.conversationViewKey) == "conversation" { conversationTabIDs.insert(id) }
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
         guard let prompt else { return }
@@ -1319,6 +1378,7 @@ final class Store {
             reviewRepositories[sessionID] = nil
             editedRepositories[sessionID] = nil
         }
+        conversationTabIDs.remove(id)
         tabs.removeAll { $0.id == id }
         recentTabIDs.removeAll { $0 == id }
         if multiSelection.contains(.tab(id)) { multiSelection.removeAll { $0 == .tab(id) } }
@@ -1327,7 +1387,7 @@ final class Store {
         selectedTabID = recentTabIDs.first ?? tabs.last?.id
         guard !isHarborShown else { return }
 
-        focusedTerminal?.requestFocus()
+        focusSelected()
     }
 
     private struct SavedTab: Codable {

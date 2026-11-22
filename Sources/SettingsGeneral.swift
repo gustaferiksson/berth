@@ -4,6 +4,8 @@ import SwiftUI
 struct GeneralSettings: View {
     static let unloadIdleKey = "unloadIdleSessionsAfter"
     static let reviewKey = "reviewEnabled"
+    static let conversationKey = "conversationEnabled"
+    static let conversationViewKey = "conversationDefaultView"
     static let terminalBelowKey = "reviewTerminalBelow"
     static let worktreeKey = "startsInWorktree"
     static let languageServersKey = "languageServersEnabled"
@@ -12,6 +14,8 @@ struct GeneralSettings: View {
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
     @AppStorage(worktreeKey) private var startsInWorktree = false
     @AppStorage(reviewKey) private var isReviewEnabled = false
+    @AppStorage(conversationKey) private var isConversationEnabled = false
+    @AppStorage(conversationViewKey) private var conversationView = "terminal"
     @AppStorage(languageServersKey) private var areLanguageServersEnabled = false
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
     @State private var editedServer: LanguageServerEntry?
@@ -31,10 +35,18 @@ struct GeneralSettings: View {
                     Text("1 day").tag(86_400.0)
                 }
                 Toggle("Notify when a session needs you", isOn: $notifiesWhenNeeded)
+                Toggle("Conversation view", isOn: $isConversationEnabled)
+                if isConversationEnabled {
+                    Picker("New Claude tabs open in", selection: $conversationView) {
+                        Text("Terminal").tag("terminal")
+                        Text("Conversation").tag("conversation")
+                    }
+                }
             } header: {
                 Text("Sessions")
             } footer: {
                 Text("Unloaded sessions stay in the sidebar and resume when clicked. Pinned, working and waiting sessions stay loaded. The Dock icon always shows how many sessions need you.")
+                Text("Experimental. The conversation view (⌥⌘J) shows a Claude session as a native transcript in place of the terminal. Claude keeps running in the terminal underneath, so switching back loses nothing.")
             }
             Section {
                 Toggle("Review changes in Berth", isOn: $isReviewEnabled)
