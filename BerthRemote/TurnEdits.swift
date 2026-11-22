@@ -159,6 +159,7 @@ private struct FileEditRow: View {
 
     @State private var isOpen = UserDefaults.standard.bool(forKey: "snapshotExpandedEdits")
     @State private var showsAll = false
+    @State private var highlighted: [[AttributedString]] = []
 
     private let collapsedRows = 12
 
@@ -203,6 +204,13 @@ private struct FileEditRow: View {
                 hunks
                     .padding(.bottom, 10)
                     .transition(.opacity)
+                    .task(id: edit.hunks.count) {
+                        let language = edit.path
+                        let rows = edit.hunks.map { hunk in hunk.rows.map { (old: $0.kind != .added, new: $0.kind != .removed, text: $0.text) } }
+                        var lines: [[AttributedString]] = []
+                        for hunkRows in rows { await lines.append(CodeHighlighting.diffLines(hunkRows, language: language)) }
+                        highlighted = lines
+                    }
             }
         }
     }
@@ -220,7 +228,9 @@ private struct FileEditRow: View {
             ForEach(shown.indices, id: \.self) { index in
                 if !shown[index].isEmpty {
                     VStack(spacing: 0) {
-                        ForEach(shown[index]) { DiffLine(row: $0) }
+                        ForEach(shown[index]) { row in
+                            DiffLine(row: row, highlighted: highlighted.indices.contains(index) && highlighted[index].indices.contains(row.id) ? highlighted[index][row.id] : nil)
+                        }
                     }
                     .background(.background, in: .rect(cornerRadius: 10))
                     .clipShape(.rect(cornerRadius: 10))
@@ -238,12 +248,13 @@ private struct FileEditRow: View {
 
 private struct DiffLine: View {
     let row: EditHunk.Row
+    let highlighted: AttributedString?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(verbatim: row.kind == .added ? "+" : row.kind == .removed ? "−" : " ")
                 .foregroundStyle(row.kind == .added ? .green : row.kind == .removed ? .red : .secondary)
-            Text(verbatim: row.text.isEmpty ? " " : row.text)
+            Text(highlighted ?? AttributedString(row.text.isEmpty ? " " : row.text))
                 .foregroundStyle(row.kind == .context ? .secondary : .primary)
         }
         .font(.system(.caption, design: .monospaced))

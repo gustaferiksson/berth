@@ -275,7 +275,7 @@ private struct TaskDetailView: View {
                 }
                 if let task, let command = task.command, command != task.title {
                     Section("Command") {
-                        Text(verbatim: command)
+                        HighlightedText(text: command, language: "bash")
                             .font(.callout.monospaced())
                             .textSelection(.enabled)
                     }

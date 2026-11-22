@@ -13,7 +13,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     var kind = ReviewComment.Side.modified
     var isAbsent = false
     var side: ReviewDiff.Side?
-    var syntaxRuns: [ReviewHighlighter.Span] = []
+    var syntaxRuns: [CodeHighlighter.Span] = []
     var reserved: [Int: CGFloat] = [:] {
         didSet { reloadParagraphs(changedFrom: oldValue) }
     }
