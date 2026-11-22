@@ -134,7 +134,7 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 
 `-snapshotConversation YES` (needs an empty `CFFIXED_USER_HOME`; pass `-reviewEnabled NO`, `-conversationEnabled YES`; `-snapshotConversationStatus busy|waiting|idle`, `-snapshotConversationExpanded YES`, `-snapshotConversationHeight <pt>`) seeds an invented transcript, saves `<out>.conversation.png` and `<out>.terminal.png` and prints the surface identity across toggles.
 
-`-snapshotConversationAgent codex` with `-codexEnabled YES` seeds an invented Codex rollout and opens a Codex conversation tab without fake live status. `-snapshotConversationStatus busy` leaves its final turn open; other statuses close it with task_complete. The fixture includes command output, updated and added files, a web search, a plan, a final reply, context usage and a pull request URL.
+`-snapshotConversationAgent codex` with `-codexEnabled YES` seeds an invented Codex rollout and opens a Codex conversation tab without fake live status. `-snapshotConversationStatus busy` leaves its final turn open; other statuses close it with task_complete. `-snapshotTerminalTitle "<text>"` sets the tab terminal's OSC title, so `Needs input`, `Thinking` or `Ready` drives the Codex live status. The fixture includes command output, updated and added files, a web search, a plan, a final reply, context usage and a pull request URL.
 
 `-snapshotConversationRepeat <n>` repeats the fixture transcript with unique record, message and tool IDs and monotonic timestamps for longer conversation performance runs (try `16`, about 500 entries; the image is kept in the first repetition only, since the reader takes the last 256 KB).
 

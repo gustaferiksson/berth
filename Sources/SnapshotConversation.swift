@@ -260,7 +260,7 @@ extension Snapshot {
         }
         let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? "busy"
         let rawLog = UserDefaults.standard.string(forKey: "snapshotConversationRawLog")
-        let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'echo the terminal is still running; sleep 600'"
+        let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'printf \"\\033]0;\(UserDefaults.standard.string(forKey: "snapshotTerminalTitle") ?? "")\\007\"; echo the terminal is still running; sleep 600'"
         store.openShell(cwd: conversationFolder, command: command)
         store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: conversationFolder, sessionID: usesCodexConversation ? codexConversationSession : conversationSession, agent: usesCodexConversation ? .codex : .claude, terminal: $0.terminal) : $0 }
         let waitingFor = UserDefaults.standard.string(forKey: "snapshotConversationWaitingFor") ?? "permission prompt"

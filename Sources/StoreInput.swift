@@ -16,16 +16,34 @@ extension Store {
 
         guard sessionsByID[sessionID] != nil || tab(forSession: sessionID) != nil else { return .refused("Unknown session") }
 
-        if (tab(forSession: sessionID)?.agent ?? sessionsByID[sessionID]?.agent)?.harness.liveSource == .notTracked {
-            guard let tab = tab(forSession: sessionID) else { return .refused("Open the session in a tab first, so the message wasn’t sent") }
+        if (tab(forSession: sessionID)?.agent ?? sessionsByID[sessionID]?.agent)?.harness.liveSource == .tabSignals {
+            let openFirst = "Open the session in a tab first, so the message wasn’t sent"
+            guard let opened = tab(forSession: sessionID) else { return .refused(openFirst) }
 
-            let remaining = 5 - Date.now.timeIntervalSince(tab.opened)
+            let name = opened.agent.harness.name
+            let refusal = { () -> InputOutcome? in
+                self.refreshLive()
+                guard let live = self.liveBySession[sessionID] else { return nil }
+
+                if live.status == "waiting" { return .refused("\(name) is waiting for an answer in the terminal, so the message wasn’t sent") }
+                if live.status == "busy", !live.reportsWaiting { return .refused("\(name) is working, so the message wasn’t sent") }
+                return nil
+            }
+            let remaining = 5 - Date.now.timeIntervalSince(opened.opened)
             if remaining > 0 { try? await Task.sleep(for: .seconds(remaining)) }
+            guard tab(forSession: sessionID)?.id == opened.id else { return .refused(openFirst) }
+
+            if let refused = refusal() { return refused }
+
             let paths = files.filter { !ConversationDraft.isImage($0) }.map { "@\($0.path)" }
             lastKeyInput = .now
-            tab.terminal.paste(text: (paths + [text]).filter { !$0.isEmpty }.joined(separator: " "))
+            opened.terminal.paste(text: (paths + [text]).filter { !$0.isEmpty }.joined(separator: " "))
             try? await Task.sleep(for: .milliseconds(300))
-            tab.terminal.sendKey(.enter)
+            guard tab(forSession: sessionID)?.id == opened.id else { return .refused(openFirst) }
+
+            if let refused = refusal() { return refused }
+
+            opened.terminal.sendKey(.enter)
             return .sent
         }
 
@@ -195,7 +213,7 @@ extension Store {
     }
 
     func interrupt(_ sessionID: String) -> InputOutcome {
-        if (tab(forSession: sessionID)?.agent ?? sessionsByID[sessionID]?.agent)?.harness.liveSource == .notTracked {
+        if (tab(forSession: sessionID)?.agent ?? sessionsByID[sessionID]?.agent)?.harness.liveSource == .tabSignals {
             guard let terminal = tab(forSession: sessionID)?.terminal else { return .refused("Open the session in a tab first, so the key wasn’t sent") }
 
             lastKeyInput = .now

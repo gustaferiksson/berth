@@ -5,7 +5,7 @@ import Testing
 struct HarnessTests {
     @Test func capabilitiesMatchTheAdapters() {
         #expect(Capability.allCases.allSatisfy { Harness.claude.supports($0) })
-        #expect(Harness.codex.capabilities == [.conversation, .contextSize, .pullRequestLinks])
+        #expect(Harness.codex.capabilities == [.conversation, .contextSize, .pullRequestLinks, .needsYou, .idleUnload])
     }
 
     @Test func everyAgentHasItsHarness() {
@@ -13,13 +13,14 @@ struct HarnessTests {
         #expect(Harness.all.allSatisfy { $0.agent.harness.agent == $0.agent })
         #expect(Agent.codex.name == "Codex" && Agent.claude.name == "Claude")
         #expect(Harness.all.map(\.isOptIn) == [false, true])
-        #expect(Harness.all.map(\.liveSource) == [.sessionFiles, .notTracked])
+        #expect(Harness.all.map(\.liveSource) == [.sessionFiles, .tabSignals])
     }
 
     @Test func launchCommandsComeFromTheDescriptor() {
         #expect(Harness.claude.command(.resume) == ClaudeLaunch.command(.resume))
         #expect(Harness.claude.command(.newInWorktree).contains(" -w "))
-        #expect(Harness.codex.command(.resume) == #"/bin/zsh -ilc 'codex resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
+        #expect(Harness.codex.command(.resume) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
+        #expect(Harness.codex.command(.new) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" || exec /bin/zsh -il'"#)
         #expect(Harness.codex.command(.new) == Harness.codex.command(.newInWorktree))
         #expect(Harness.codex.command(.resume) == Harness.codex.command(.attach))
     }

@@ -96,6 +96,8 @@ final class ConversationModel {
 
     private var sessionID: String? { store.tabs.first { $0.id == tabID }?.sessionID }
 
+    var blocksSending: Bool { isTurnOpen && !(store.liveBySession[sessionID ?? ""]?.reportsWaiting ?? false) }
+
     var draft: ConversationDraft {
         get { store.conversationDrafts[tabID] ?? ConversationDraft() }
         set { store.conversationDrafts[tabID] = newValue.text.isEmpty && newValue.files.isEmpty ? nil : newValue }
@@ -131,7 +133,7 @@ final class ConversationModel {
     func send() async {
         let sent = draft
         guard let sessionID, !sent.isEmpty, !isSending else { return }
-        guard !isTurnOpen else {
+        guard !blocksSending else {
             let name = store.tabs.first { $0.id == tabID }?.agent.harness.name ?? "Agent"
             notice = "\(name) is working, so the message wasn’t sent. Stop it or wait for it to finish."
             return

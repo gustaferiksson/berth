@@ -399,6 +399,8 @@ struct LiveSessionTests {
         #expect(bySession["aaaa"]?.pid == 101)
         #expect(bySession["aaaa"]?.startedAt == 1500)
         #expect(bySession["aaaa"]?.activity == .working)
+        #expect(bySession["aaaa"]?.observesWaiting == nil)
+        #expect(bySession["aaaa"]?.reportsWaiting == true)
         #expect(bySession["bbbb"]?.activity == .needsInput("permission"))
         #expect(bySession["cccc"] == nil)
     }
@@ -796,6 +798,19 @@ struct IdleTabsTests {
 
     @Test func unloadsAnIdleTabUntouchedPastTheThreshold() {
         #expect(unloadable(live("a")))
+    }
+
+    @Test func unloadsIdleCodexTabsAndKeepsWaitingOnes() throws {
+        let opened = now - 5 * hour
+        let probe = LiveProbe(directory: FileManager.default.temporaryDirectory, tabs: [
+            LiveProbe.Tab(sessionID: "idle", cwd: "/work", terminalTitle: "Ready", opened: opened, transcript: nil),
+            LiveProbe.Tab(sessionID: "waiting", cwd: "/work", terminalTitle: "Needs input", opened: opened, transcript: nil),
+        ])
+        let records = CodexLive.sessions(probe)
+        let idle = try #require(records.first { $0.sessionId == "idle" })
+        let waiting = try #require(records.first { $0.sessionId == "waiting" })
+        #expect(unloadable(idle))
+        #expect(!unloadable(waiting))
     }
 
     @Test func neverUnloadsWhenTheSettingIsNever() {

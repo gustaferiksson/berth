@@ -141,8 +141,8 @@ struct CodexRolloutTests {
     }
 
     @Test func launchCommandsPassTheIDThroughTheEnvironment() {
-        #expect(CodexLaunch.command(.resume) == #"/bin/zsh -ilc 'codex resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
-        #expect(CodexLaunch.command(.new) == "/bin/zsh -ilc 'codex || exec /bin/zsh -il'")
+        #expect(CodexLaunch.command(.resume) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
+        #expect(CodexLaunch.command(.new) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" || exec /bin/zsh -il'"#)
     }
 
     @Test func aNewTabClaimsTheOldestUnclaimedSessionStartedAfterItOpened() {

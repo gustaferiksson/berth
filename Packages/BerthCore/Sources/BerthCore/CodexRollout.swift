@@ -6,7 +6,9 @@ public enum CodexRollout {
     static let maxTailBytes = 8 * 1024 * 1024
     static let maxTitleLength = 120
     static let excludedOriginators: Set<String> = ["codex_exec", "Claude Code"]
-    static let keywords = ["session_meta", "turn_context", "user_message", "agent_message", "token_count", "compacted", "UserMessage", "AgentMessage"].map { Data($0.utf8) }
+    static let summaryKeywords = ["session_meta", "turn_context", "user_message", "agent_message", "token_count", "compacted", "UserMessage", "AgentMessage"].map { Data($0.utf8) }
+    static let turnEvents = ["task_started", "task_complete", "turn_aborted"]
+    static let turnKeywords = turnEvents.map { Data($0.utf8) }
 
     public static func summary(of url: URL, name: String? = nil, pullRequests: [PullRequestLink]? = nil) -> SessionSummary? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
@@ -129,7 +131,28 @@ public enum CodexRollout {
         }
     }
 
-    static func records(in data: Data, dropFirst: Bool, dropLast: Bool) -> [Record] {
+    static func turnState(of url: URL) -> (isOpen: Bool, modified: Date)? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              let modified = attributes[.modificationDate] as? Date,
+              let size = (attributes[.size] as? NSNumber)?.intValue
+        else { return nil }
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return (false, modified) }
+
+        defer { try? handle.close() }
+        let start = max(0, size - tailBytes)
+        guard (try? handle.seek(toOffset: UInt64(max(0, start - 1)))) != nil,
+              let data = try? handle.read(upToCount: tailBytes + 1)
+        else { return (false, modified) }
+
+        let dropFirst = start > 0 && data.first != UInt8(ascii: "\n")
+        let latest = records(in: data, dropFirst: dropFirst, dropLast: false, keywords: turnKeywords).last { record in
+            record.type == "event_msg" && turnEvents.contains(record.payload?.type ?? "")
+        }
+        return (latest.map { $0.payload?.type == "task_started" } ?? (start > 0), modified)
+    }
+
+    static func records(in data: Data, dropFirst: Bool, dropLast: Bool, keywords: [Data] = summaryKeywords) -> [Record] {
         let decoder = JSONDecoder()
         let lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: true)
         return lines.dropFirst(dropFirst ? 1 : 0).dropLast(dropLast ? 1 : 0).compactMap { line in

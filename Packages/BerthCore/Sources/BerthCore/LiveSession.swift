@@ -17,6 +17,22 @@ public struct LiveSession: Sendable, Hashable, Decodable {
     public let waitingFor: String?
     public let statusUpdatedAt: Double?
     public let startedAt: Double?
+    public let observesWaiting: Bool?
+
+    public init(pid: Int32, sessionId: String, cwd: String, kind: String? = nil, jobId: String? = nil, status: String? = nil, waitingFor: String? = nil, statusUpdatedAt: Double? = nil, startedAt: Double? = nil, observesWaiting: Bool? = nil) {
+        self.pid = pid
+        self.sessionId = sessionId
+        self.cwd = cwd
+        self.kind = kind
+        self.jobId = jobId
+        self.status = status
+        self.waitingFor = waitingFor
+        self.statusUpdatedAt = statusUpdatedAt
+        self.startedAt = startedAt
+        self.observesWaiting = observesWaiting
+    }
+
+    public var reportsWaiting: Bool { observesWaiting ?? true }
 
     public var activity: Activity {
         if status == "busy" { return .working }

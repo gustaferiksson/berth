@@ -17,13 +17,13 @@ struct ConversationView: View {
 
     var body: some View {
         let live = tab.sessionID.flatMap { store.liveBySession[$0] }
-        let isWorking = live?.activity == .working || model.isTurnOpen
+        let isWorking = live?.activity == .working || model.isTurnOpen && !(live?.reportsWaiting ?? false)
         let waitingFor: String?? = if case let .needsInput(reason)? = live?.activity { .some(reason) } else { nil }
         let since = tab.sessionID.flatMap { store.turnStarts[$0] } ?? model.turns.last?.prompt?.date
         let openCall = model.turns.last?.openCall
         let approval = live.flatMap { $0.status == "waiting" ? PendingApproval.resolve(waitingFor: $0.waitingFor, call: openCall) : nil }
         let waiting = live.flatMap { $0.status == "waiting" ? (waitingFor: $0.waitingFor, since: $0.statusUpdatedAt) : nil }
-        let needsTerminal = tab.agent.harness.liveSource == .sessionFiles && model.hasLoaded && ConversationFallback.needsTerminal(live: live, call: openCall, tabAge: now.timeIntervalSince(tab.opened), now: now)
+        let needsTerminal = (tab.agent.harness.liveSource == .sessionFiles || live != nil) && model.hasLoaded && ConversationFallback.needsTerminal(live: live, call: openCall, tabAge: now.timeIntervalSince(tab.opened), now: now)
 
         keyboard(transcript(isWorking: isWorking, waitingFor: waitingFor, since: since), approval: approval, waiting: waiting)
             .onChange(of: needsTerminal, initial: true) { if needsTerminal { store.suspendConversation(tab.id) } }
