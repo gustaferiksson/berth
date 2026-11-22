@@ -199,6 +199,7 @@ private struct Composer: View {
     private static let inset = 7.5
     private static let controlHeight = 34.0
     private static let tileSize = 56.0
+    private static let textInset = 14.0
     private static let hitSlop = 4.0
 
     @Environment(RemoteClient.self) private var client
@@ -233,7 +234,9 @@ private struct Composer: View {
                 TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
                     .lineLimit(1...6)
                     .focused($isFocused)
-                    .padding(.vertical, Self.inset)
+                    .padding(.horizontal, Self.textInset - Self.inset)
+                    .padding(.top, Self.textInset - 3)
+                    .padding(.bottom, Self.textInset - Self.inset)
                 HStack(spacing: 8) {
                     Menu {
                         if client.features.contains(RemoteUpload.feature) {
