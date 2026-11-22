@@ -96,25 +96,35 @@ struct ReviewTaskHeader: View {
     }
 }
 
-struct ReviewRepoTabs: View {
+struct ReviewRepoMenu: View {
     let tabs: [(id: String, title: String)]
     @Binding var selection: String
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let options = ForEach(tabs, id: \.id) { Text($0.title).tag($0.id) }
-        Group {
-            if tabs.count <= 4 {
-                Picker("Repository", selection: $selection) { options }
-                    .pickerStyle(.segmented)
-            } else {
-                Picker("Repository", selection: $selection) { options }
-                    .pickerStyle(.menu)
+        let selected = tabs.first { $0.id == selection }?.title ?? "All"
+        HStack(spacing: 8) {
+            Menu {
+                Picker("Repository", selection: $selection) {
+                    ForEach(tabs, id: \.id) { Text($0.title).tag($0.id) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Label(selected, systemImage: selection == "all" ? "square.stack.3d.up" : "shippingbox")
             }
+            .menuStyle(.button)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .fixedSize()
+            .help("Show one repository or all of them")
+            Text("^[\(tabs.count - 1) repo](inflect: true)")
+                .font(.caption)
+                .foregroundStyle(theme.secondary)
+            Spacer(minLength: 0)
         }
-        .labelsHidden()
-        .controlSize(.small)
         .padding(.horizontal, 8)
-        .padding(.bottom, 6)
+        .padding(.bottom, 8)
     }
 }
 
@@ -141,7 +151,6 @@ struct ReviewOtherPullRequests: View {
                 Spacer(minLength: 0)
             }
             .help(pullRequest.title)
-            .padding(.horizontal, 4)
             .listRowInsets(insets)
         }
     }
@@ -186,12 +195,10 @@ struct ReviewSubheading: View {
             Text(title)
                 .fontWeight(.semibold)
                 .foregroundStyle(theme.secondary)
-            Text(files.count, format: .number)
-                .monospacedDigit()
-                .foregroundStyle(theme.secondary.opacity(0.6))
             Spacer(minLength: 4)
+            Text("^[\(files.count) file](inflect: true)")
+                .foregroundStyle(theme.secondary)
             Text("+\(files.compactMap(\.additions).reduce(0, +)) −\(files.compactMap(\.deletions).reduce(0, +))")
-                .monospacedDigit()
                 .foregroundStyle(theme.secondary)
                 .padding(.trailing, 14)
         }

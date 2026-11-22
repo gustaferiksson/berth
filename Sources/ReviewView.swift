@@ -388,7 +388,7 @@ private struct ReviewFileList: View {
         }
     }
 
-    private func list(name: String = "", order: [ReviewDocument] = [], @ViewBuilder _ sections: () -> some View) -> some View {
+    private func list(name: String = "", order: [ReviewDocument] = [], reveals: Bool = false, @ViewBuilder _ sections: () -> some View) -> some View {
         let content = sections()
         return ScrollViewReader { proxy in
             List { content }
@@ -409,7 +409,7 @@ private struct ReviewFileList: View {
                 .scrollContentBackground(.hidden)
                 .scrollEdgeEffectStyle(.soft, for: .top)
                 .onChange(of: [model.selectedDocument?.path, model.filesReveal], initial: true) {
-                    guard let path = model.filesReveal ?? (model.showsFiles ? model.selectedDocument?.path : nil) else { return }
+                    guard reveals, let path = model.filesReveal ?? (model.showsFiles ? model.selectedDocument?.path : nil) else { return }
 
                     model.filesReveal = nil
                     model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
@@ -428,9 +428,8 @@ private struct ReviewFileList: View {
         return .handled
     }
 
-    private func order(_ changes: ReviewChanges?) -> [ReviewDocument] {
-        let files = showsFiles(changes) && model.showsFiles ? model.tree.flatMap { leaves(of: $0, compare: nil, in: model, root: nil) } : []
-        return changeOrder(changes) + files
+    private func filesOrder(_ changes: ReviewChanges?) -> [ReviewDocument] {
+        showsFiles(changes) && model.showsFiles ? model.tree.flatMap { leaves(of: $0, compare: nil, in: model, root: nil) } : []
     }
 
     private func changeOrder(_ changes: ReviewChanges?) -> [ReviewDocument] {
@@ -490,11 +489,14 @@ private struct ReviewFileList: View {
                     changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: nil)
                 }
             } header: {
-                GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count, isExpanded: expansion(of: "uncommitted")) { EmptyView() } accessory: { _ in
-                    Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
-                        .monospacedDigit()
-                        .foregroundStyle(theme.secondary)
-                        .padding(.trailing, 6)
+                GroupHeader(title: "Uncommitted", help: "HEAD to the working tree", count: nil, isExpanded: expansion(of: "uncommitted")) { EmptyView() } accessory: { _ in
+                    HStack(spacing: 8) {
+                        Text("^[\(changes.uncommitted.count) file](inflect: true)")
+                        Text("+\(changes.uncommitted.compactMap(\.additions).reduce(0, +)) −\(changes.uncommitted.compactMap(\.deletions).reduce(0, +))")
+                    }
+                    .monospacedDigit()
+                    .foregroundStyle(theme.secondary)
+                    .padding(.trailing, 6)
                 }
             }
         }
@@ -504,11 +506,14 @@ private struct ReviewFileList: View {
                     changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: nil)
                 }
             } header: {
-                GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count, isExpanded: expansion(of: "committed")) { EmptyView() } accessory: { _ in
-                    Text("+\(changes.committed.compactMap(\.additions).reduce(0, +)) −\(changes.committed.compactMap(\.deletions).reduce(0, +))")
-                        .monospacedDigit()
-                        .foregroundStyle(theme.secondary)
-                        .padding(.trailing, 6)
+                GroupHeader(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: nil, isExpanded: expansion(of: "committed")) { EmptyView() } accessory: { _ in
+                    HStack(spacing: 8) {
+                        Text("^[\(changes.committed.count) file](inflect: true)")
+                        Text("+\(changes.committed.compactMap(\.additions).reduce(0, +)) −\(changes.committed.compactMap(\.deletions).reduce(0, +))")
+                    }
+                    .monospacedDigit()
+                    .foregroundStyle(theme.secondary)
+                    .padding(.trailing, 6)
                 }
             }
         }
@@ -631,7 +636,7 @@ private struct ReviewFileList: View {
 
     private func repoTabs(_ task: StoredTask) -> some View {
         let tabs = [(id: ownRoot, title: URL(filePath: ownRoot).lastPathComponent)] + extras.map { (id: $0.repository.root, title: $0.repository.name) } + [(id: "all", title: "All")]
-        return ReviewRepoTabs(tabs: tabs, selection: Binding(get: { shownRepo ?? "all" }, set: { store.reviewRepoTabs[task.id] = $0 }))
+        return ReviewRepoMenu(tabs: tabs, selection: Binding(get: { shownRepo ?? "all" }, set: { store.reviewRepoTabs[task.id] = $0 }))
     }
 
     @ViewBuilder
@@ -749,23 +754,36 @@ private struct ReviewFileList: View {
                 taskCard(task)
                 if !extras.isEmpty { repoTabs(task) }
             }
-            list(name: "review", order: order(changes)) {
-                pullRequestSection(changes)
-                if let shownRepo { repoRows(shownRepo, indent: changesAsTree ? 9 : 0) } else if isStacked { stackedSections(changes) } else if let changes { changeSections(changes) }
-                filesSection(changes)
-            }
-            .id(changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
-            .id([shownRepo] + extras.map(\.repository.root))
-            .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
-                guard let document, let compare = document.compare, let active = store.reviewModel else { return }
-
-                active.collapsedChangeFolders = active.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
+            if let changes, showsFiles(changes) {
+                ReviewFilesSplit(isExpanded: $model.showsFiles) {
+                    changesList(changes)
+                } files: {
+                    list(name: "files", order: filesOrder(changes), reveals: true) {
+                        ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) }
+                    }
+                }
+            } else {
+                changesList(changes)
             }
         }
     }
 
+    private func changesList(_ changes: ReviewChanges?) -> some View {
+        list(name: "review", order: changeOrder(changes)) {
+            pullRequestSection(changes)
+            if let shownRepo { repoRows(shownRepo, indent: changesAsTree ? 9 : 0) } else if isStacked { stackedSections(changes) } else if let changes { changeSections(changes) }
+        }
+        .id(changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
+        .id([shownRepo] + extras.map(\.repository.root))
+        .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
+            guard let document, let compare = document.compare, let active = store.reviewModel else { return }
+
+            active.collapsedChangeFolders = active.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
+        }
+    }
+
     private var cardInsets: EdgeInsets {
-        EdgeInsets(top: 0, leading: changesAsTree || model.showsFiles ? -16.5 : 1, bottom: 6, trailing: -8)
+        EdgeInsets(top: 0, leading: changesAsTree ? -16.5 : -7.5, bottom: 6, trailing: -8)
     }
 
     @ViewBuilder
@@ -801,19 +819,6 @@ private struct ReviewFileList: View {
 
     private func showsFiles(_ changes: ReviewChanges?) -> Bool {
         changes != nil && (shownRepo == nil || shownRepo == ownRoot)
-    }
-
-    @ViewBuilder
-    private func filesSection(_ changes: ReviewChanges?) -> some View {
-        if let changes, showsFiles(changes) {
-            Section {
-                if $model.showsFiles.wrappedValue {
-                    ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) }
-                }
-            } header: {
-                GroupHeader(title: "Files", help: "Every file in the repository", count: nil, isExpanded: $model.showsFiles) { EmptyView() } accessory: { _ in EmptyView() }
-            }
-        }
     }
 
     private func expansion(of id: String) -> Binding<Bool> {
@@ -1174,7 +1179,7 @@ private struct ReviewBranchCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 headline(found)
-                Text(verbatim: found.map { "#\($0.number) · \($0.headRefName ?? changes.branch) → \($0.baseRefName ?? changes.base ?? "")" } ?? "\(changes.branch) → \(changes.base ?? "")")
+                Text(verbatim: "\(found?.headRefName ?? changes.branch) → \(found?.baseRefName ?? changes.base ?? "")")
                     .font(.caption)
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
@@ -1212,7 +1217,6 @@ private struct ReviewBranchCard: View {
             actions(found)
         }
         .lineLimit(1)
-        .padding(.horizontal, 4)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .geometryGroup()
@@ -1231,6 +1235,11 @@ private struct ReviewBranchCard: View {
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(color.opacity(0.16), in: .capsule)
+                    if let found {
+                        Text(verbatim: "#\(found.number)")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(Color.secondary)
+                    }
                     Spacer(minLength: 0)
                     if let found { links(found) }
                 }
@@ -1303,7 +1312,7 @@ private struct ReviewBranchCard: View {
             .frame(width: 20)
         }
         .foregroundStyle(theme.secondary)
-        .padding(.trailing, 8)
+        .padding(.trailing, 4)
     }
 
     private var pushState: some View {
