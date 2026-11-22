@@ -263,6 +263,7 @@ final class Store {
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var waitingSessionIDs: Set<String>?
     @ObservationIgnored private var tabTouches: [Tab.ID: Date] = [:]
+    @ObservationIgnored private var restoredTabIDs: Set<Tab.ID> = []
     @ObservationIgnored private var recentTabIDs: [Tab.ID] = []
 
     #if DEBUG
@@ -692,11 +693,15 @@ final class Store {
         NeedsYouAlerts.update(entered: needsYou.entered, needsYouCount: needsYou.needsYou.count, store: self)
     }
 
+    private var unloadIdleThreshold: TimeInterval {
+        UserDefaults.standard.object(forKey: GeneralSettings.unloadIdleKey) == nil ? 14_400 : UserDefaults.standard.double(forKey: GeneralSettings.unloadIdleKey)
+    }
+
     func unloadIdleTabs() {
         refreshLive()
-        let threshold = UserDefaults.standard.object(forKey: GeneralSettings.unloadIdleKey) == nil ? 14_400 : UserDefaults.standard.double(forKey: GeneralSettings.unloadIdleKey)
+        let threshold = unloadIdleThreshold
         let lastClaude = recentTabIDs.first { id in tabs.contains { $0.id == id && $0.kind == .claude } }
-        let candidates = tabs.filter { $0.kind == .claude && $0.id != lastClaude }.compactMap { tab in tab.sessionID.map { (id: tab.id, sessionID: $0, touched: max(tab.opened, tabTouches[tab.id] ?? .distantPast)) } }
+        let candidates = tabs.filter { $0.kind == .claude && $0.id != lastClaude }.compactMap { tab in tab.sessionID.map { (id: tab.id, sessionID: $0, touched: restoredTabIDs.contains(tab.id) ? tabTouches[tab.id] ?? .distantPast : max(tab.opened, tabTouches[tab.id] ?? .distantPast)) } }
         let lastActivity = Dictionary(activeSessions.map { ($0.id, $0.lastActivity) }) { first, _ in first }
         for id in IdleTabs.unloadable(candidates, live: liveBySession, lastActivity: lastActivity, pinned: Set(pinnedIDs), selected: selectedTabID, now: .now, threshold: threshold) {
             close(id)
@@ -1344,6 +1349,7 @@ final class Store {
               let saved = try? JSONDecoder().decode([SavedTab].self, from: data)
         else { return }
 
+        let threshold = unloadIdleThreshold
         var selected: Tab.ID?
         for tab in saved {
             if tab.kind == .shell {
@@ -1358,10 +1364,15 @@ final class Store {
                     guard live.activity == .idle, await end(orphan: live) else { continue }
                 }
 
+                let isStale = threshold > 0 && tab.isSelected != true && !pinnedIDs.contains(session.id) && Date.now.timeIntervalSince(session.lastActivity) > threshold
+                guard !isStale else { continue }
+
                 openClaude(cwd: folder, resuming: session.id)
+                if let id = selectedTabID { restoredTabIDs.insert(id) }
             }
             if tab.isSelected == true { selected = selectedTabID }
         }
         activate((selected ?? tabs.first { $0.kind == .claude }?.id ?? tabs.first?.id).map(SidebarItem.tab))
+        for id in restoredTabIDs { tabTouches[id] = nil }
     }
 }
