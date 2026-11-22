@@ -31,6 +31,26 @@ struct TranscriptActivityTests {
         #expect(tasks.map(\.title) == ["Start the dev server", "Review the parser", "Watch CI"])
     }
 
+    @Test func launchesFromReplScriptsCountAndEndLikeDirectTools() {
+        let lines = [
+            #"{"type":"user","timestamp":"2026-11-01T10:00:01.000Z","isVirtual":true,"turnCompanion":true,"message":{"content":[{"tool_use_id":"repl_1","type":"tool_result","content":""}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"agent1","description":"Review the parser"}}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:00:02.000Z","isVirtual":true,"turnCompanion":true,"message":{"content":[{"tool_use_id":"repl_2","type":"tool_result","content":""}]},"toolUseResult":{"backgroundTaskId":"bshell1","description":"Start the dev server"}}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:00:03.000Z","isVirtual":true,"turnCompanion":true,"message":{"content":[{"tool_use_id":"repl_3","type":"tool_result","content":""}]},"toolUseResult":{"taskId":"bmon1","timeoutMs":600000,"persistent":true,"description":"Watch CI"}}"#,
+        ]
+        let all = activity(lines)
+        let tasks = all.tasks(of: live, now: now) { _ in false }
+        #expect(tasks.map(\.id) == ["agent1", "bshell1", "bmon1"])
+        #expect(tasks.map(\.kind) == [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor])
+        #expect(tasks.map(\.title) == ["Review the parser", "Start the dev server", "Watch CI"])
+        #expect(all.tasks(of: session("busy", startedAt: "1793527290000"), now: now) { _ in false }.isEmpty)
+        #expect(all.tasks(of: live, now: now) { $0 == "agent1" }.map(\.id) == ["bshell1", "bmon1"])
+
+        let ended = activity(lines + [
+            #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:00.000Z","content":"<task-notification>\n<task-id>bshell1</task-id>\n<tool-use-id>repl_2</tool-use-id>\n<status>completed</status>\n</task-notification>"}"#,
+        ])
+        #expect(ended.tasks(of: live, now: now) { _ in false }.map(\.id) == ["agent1", "bmon1"])
+    }
+
     @Test func notificationsEndTasksInEveryCarrier() {
         let ended = activity(launches + [
             #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:10.000Z","content":"<task-notification>\n<task-id>bshell1</task-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>"}"#,

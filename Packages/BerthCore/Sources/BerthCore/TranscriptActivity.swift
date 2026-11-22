@@ -21,6 +21,7 @@ public struct TranscriptActivity: Sendable {
     static let agentTools: Set<String> = ["Agent", "Task"]
     static let toolNames = tools.map { Array(#""name":"\#($0)""#.utf8) }
     static let resultKey = Array(#""tool_use_id":""#.utf8)
+    static let virtualLaunchKeys = [#""agentId":""#, #""backgroundTaskId":""#, #""taskId":""#].map { Array($0.utf8) }
     static let chunkBytes = 4 << 20
 
     public private(set) var end = 0
@@ -119,7 +120,8 @@ public struct TranscriptActivity: Sendable {
                 guard isReply && find(Array(#""type":"tool_use""#.utf8)) != nil && Self.toolNames.contains(where: { find($0) != nil })
                     || find(Array(#""compact_boundary""#.utf8)) != nil
                     || find(Array("<task-notification>".utf8)) != nil
-                    || resultID.map({ pending[$0] != nil }) ?? false,
+                    || resultID.map({ pending[$0] != nil }) ?? false
+                    || resultID?.hasPrefix("repl_") == true && Self.virtualLaunchKeys.contains(where: { find($0) != nil }),
                     let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                     object["isSidechain"] as? Bool != true,
                     let date = (object["timestamp"] as? String).flatMap({ try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0) })
@@ -176,7 +178,10 @@ public struct TranscriptActivity: Sendable {
 
         let result = object["toolUseResult"] as? [String: Any] ?? [:]
         for block in blocks where block["type"] as? String == "tool_result" {
-            guard let id = block["tool_use_id"] as? String, let launch = pending.removeValue(forKey: id), block["is_error"] as? Bool != true else { continue }
+            guard let id = block["tool_use_id"] as? String,
+                  let launch = pending.removeValue(forKey: id) ?? Self.replLaunch(id: id, result: result, at: date),
+                  block["is_error"] as? Bool != true
+            else { continue }
 
             if launch.tool == "TaskStop", let task = result["task_id"] as? String {
                 end(task, at: date)
@@ -196,6 +201,22 @@ public struct TranscriptActivity: Sendable {
                 start(task, Launch(tool: launch.tool, title: launch.title, started: launch.started, deadline: timeout.map { launch.started + $0 / 1000 }, command: launch.command))
             }
         }
+    }
+
+    static func replLaunch(id: String, result: [String: Any], at date: Date) -> Launch? {
+        guard id.hasPrefix("repl_") else { return nil }
+
+        let title = result["description"] as? String
+        if result["isAsync"] as? Bool == true, result["agentId"] != nil {
+            return Launch(tool: "Agent", title: title ?? "Agent", started: date, agentType: result["subagent_type"] as? String)
+        }
+        if result["backgroundTaskId"] != nil {
+            return Launch(tool: "Bash", title: title ?? "Background shell", started: date)
+        }
+        if result["taskId"] != nil {
+            return Launch(tool: "Monitor", title: title ?? "Monitor", started: date)
+        }
+        return nil
     }
 
     mutating func endNotified(_ object: [String: Any], at date: Date) {
