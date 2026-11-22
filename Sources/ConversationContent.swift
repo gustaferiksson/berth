@@ -9,6 +9,7 @@ let conversationExpandsAll = UserDefaults.standard.bool(forKey: "snapshotConvers
 let conversationShowsTasks = UserDefaults.standard.bool(forKey: "snapshotConversationTasks")
 #else
 let conversationExpandsAll = false
+let conversationShowsTasks = false
 #endif
 
 private let markerWidth = 16.0
