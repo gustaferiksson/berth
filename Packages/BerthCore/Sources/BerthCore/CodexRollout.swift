@@ -6,9 +6,9 @@ public enum CodexRollout {
     static let maxTailBytes = 8 * 1024 * 1024
     static let maxTitleLength = 120
     static let excludedOriginators: Set<String> = ["codex_exec", "Claude Code"]
-    static let keywords = ["session_meta", "turn_context", "user_message", "agent_message", "token_count", "compacted"].map { Data($0.utf8) }
+    static let keywords = ["session_meta", "turn_context", "user_message", "agent_message", "token_count", "compacted", "UserMessage", "AgentMessage"].map { Data($0.utf8) }
 
-    public static func summary(of url: URL, name: String? = nil) -> SessionSummary? {
+    public static func summary(of url: URL, name: String? = nil, pullRequests: [PullRequestLink]? = nil) -> SessionSummary? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = (attributes[.size] as? NSNumber)?.intValue, size > 0,
               let modified = attributes[.modificationDate] as? Date,
@@ -49,10 +49,63 @@ public enum CodexRollout {
             lastPrompt: lastTyped ?? headRecords.last { $0.prompt != nil }?.timestamp.flatMap(date) ?? started ?? modified,
             lastTypedPrompt: lastTyped,
             branch: branch,
+            pullRequests: pullRequests ?? Self.pullRequests(in: url, from: 0).links,
             context: context,
             agent: .codex,
             startedAt: started
         )
+    }
+
+    static func pullRequests(in url: URL, from offset: Int) -> (links: [PullRequestLink], end: Int) {
+        guard let handle = try? FileHandle(forReadingFrom: url), (try? handle.seek(toOffset: UInt64(max(0, offset)))) != nil else { return ([], offset) }
+
+        defer { try? handle.close() }
+        let decoder = JSONDecoder()
+        let limit = 4 * 1024 * 1024
+        var links: [PullRequestLink] = []
+        var seen = Set<PullRequestLink>()
+        var end = max(0, offset)
+        var dropping = false
+        while let data = try? handle.read(upToCount: limit), !data.isEmpty {
+            guard let newline = data.lastIndex(of: UInt8(ascii: "\n")) else {
+                if data.count < limit { break }
+                dropping = true
+                end += data.count
+                continue
+            }
+
+            let consumed = newline + 1
+            let complete = data.prefix(consumed)
+            if complete.range(of: Data("/pull/".utf8)) != nil {
+                for line in complete.split(separator: UInt8(ascii: "\n")).dropFirst(dropping ? 1 : 0) {
+                    guard let record = try? decoder.decode(CodexTranscript.Record.self, from: Data(line)) else { continue }
+
+                    let payload = record.payload
+                    let output: String
+                    if record.type == "response_item", payload.type == "function_call_output" || payload.type == "custom_tool_call_output" {
+                        output = payload.output?.text ?? ""
+                    } else if record.type == "event_msg", payload.type == "item_completed", payload.item?.type == "CommandExecution" {
+                        output = payload.item?.aggregatedOutput ?? ""
+                    } else {
+                        continue
+                    }
+                    for text in output.components(separatedBy: "\n") {
+                        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard text.range(of: #"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$"#, options: .regularExpression) != nil else { continue }
+
+                        let parts = text.split(separator: "/")
+                        guard let number = parts.last.flatMap({ Int($0) }) else { continue }
+
+                        let link = PullRequestLink(repository: "\(parts[2])/\(parts[3])", number: number)
+                        if seen.insert(link).inserted { links.append(link) }
+                    }
+                }
+            }
+            dropping = false
+            end += consumed
+            guard (try? handle.seek(toOffset: UInt64(end))) != nil else { break }
+        }
+        return (links, end)
     }
 
     static func isInteractive(_ meta: Record.Payload) -> Bool {
@@ -121,9 +174,10 @@ public enum CodexRollout {
             let message: String?
             let model: String?
             let info: CodexRollout.Info?
+            let item: CodexTranscript.Item?
 
             enum CodingKeys: String, CodingKey {
-                case type, id, timestamp, cwd, originator, source, git, message, model, info
+                case type, id, timestamp, cwd, originator, source, git, message, model, info, item
                 case threadSource = "thread_source"
             }
 
@@ -140,6 +194,7 @@ public enum CodexRollout {
                 message = try? container.decode(String.self, forKey: .message)
                 model = try? container.decode(String.self, forKey: .model)
                 info = try? container.decode(CodexRollout.Info.self, forKey: .info)
+                item = try? container.decode(CodexTranscript.Item.self, forKey: .item)
             }
         }
 
@@ -148,25 +203,34 @@ public enum CodexRollout {
         let payload: Payload?
 
         var prompt: String? {
-            guard type == "event_msg", payload?.type == "user_message",
-                  let text = payload?.message?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty
-            else { return nil }
+            guard type == "event_msg" else { return nil }
+
+            let message: String? = if payload?.type == "user_message" {
+                payload?.message
+            } else if payload?.type == "item_completed", payload?.item?.type == "UserMessage" {
+                payload?.item?.content?.filter { $0.type == "text" }.compactMap(\.text).joined(separator: "\n")
+            } else {
+                nil
+            }
+            guard let text = message?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
 
             return text
         }
 
         var isConversation: Bool {
-            type == "event_msg" && (payload?.type == "user_message" || payload?.type == "agent_message")
+            type == "event_msg" && (payload?.type == "user_message" || payload?.type == "agent_message" || payload?.type == "item_completed" && ["UserMessage", "AgentMessage"].contains(payload?.item?.type ?? ""))
         }
     }
 }
 
-public struct CodexIndex: Sendable {
+public struct CodexIndex: SessionIndex {
     struct Entry: Sendable {
         let modified: Date
         let size: Int
         let name: String?
         let summary: SessionSummary?
+        let pullRequests: [PullRequestLink]
+        let scannedEnd: Int
     }
 
     private struct IndexLine: Decodable {
@@ -206,10 +270,20 @@ public struct CodexIndex: Sendable {
                 result[file.path] = cached
                 return
             }
-            result[file.path] = Entry(modified: modified, size: size, name: name, summary: CodexRollout.summary(of: file, name: name) ?? entries[file.path]?.summary)
+            let cached = entries[file.path]
+            let reset = size < (cached?.size ?? 0)
+            let scanned = CodexRollout.pullRequests(in: file, from: reset ? 0 : cached?.scannedEnd ?? 0)
+            let links = scanned.links.reduce(into: reset ? [] : cached?.pullRequests ?? []) { links, link in
+                if !links.contains(link) { links.append(link) }
+            }
+            result[file.path] = Entry(modified: modified, size: size, name: name, summary: CodexRollout.summary(of: file, name: name, pullRequests: links) ?? cached?.summary, pullRequests: links, scannedEnd: scanned.end)
         }
         entries = next
         return next.values.compactMap(\.summary)
+    }
+
+    public func url(ofSession id: String) -> URL? {
+        entries.first { $0.value.summary?.id == id }.map { URL(filePath: $0.key) }
     }
 
     static func names(in url: URL) -> [String: String] {

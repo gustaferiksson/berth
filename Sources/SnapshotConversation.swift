@@ -8,6 +8,9 @@ extension Snapshot {
     static let conversationFolder = "/private/tmp/berth-conversation-fixture"
     static let conversationSession = "conversation-fixture"
 
+    private static let codexConversationSession = "5b34c260-0c36-4721-bcfa-d56c78a9ce31"
+    private static var usesCodexConversation: Bool { UserDefaults.standard.string(forKey: "snapshotConversationAgent") == "codex" }
+
     private static var conversationStart: Date { Date.now.addingTimeInterval(-420) }
 
     static func seedConversationFixture() {
@@ -18,6 +21,15 @@ extension Snapshot {
         }
 
         try? FileManager.default.createDirectory(atPath: conversationFolder, withIntermediateDirectories: true)
+        if usesCodexConversation {
+            guard UserDefaults.standard.bool(forKey: "codexEnabled") else {
+                FileHandle.standardError.write(Data("snapshot: -snapshotConversationAgent codex requires -codexEnabled YES\n".utf8))
+                exit(1)
+            }
+
+            seedCodexConversationFixture()
+            return
+        }
         let slug = conversationFolder.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? String($0) : "-" }.joined()
         let directory = Store.claudeDirectory.appending(path: "projects/\(slug)")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -34,6 +46,35 @@ extension Snapshot {
         ]
         try? (subagentLines.joined(separator: "\n") + "\n").write(to: subagents.appending(path: "agent-agent-docs.jsonl"), atomically: true, encoding: .utf8)
         try? #"{"agentType":"general-purpose","description":"Review the docs for the export column","toolUseId":"t8"}"#.write(to: subagents.appending(path: "agent-agent-docs.meta.json"), atomically: true, encoding: .utf8)
+    }
+
+    private static func seedCodexConversationFixture() {
+        let directory = Store.codexDirectory.appending(path: "sessions/2026/01/02")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let timestamp = Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+        let payloads: [(String, String)] = [
+            ("session_meta", #"{"id":"\#(codexConversationSession)","cwd":"\#(conversationFolder)","timestamp":"\#(timestamp)","originator":"codex-tui","thread_source":"user"}"#),
+            ("turn_context", #"{"cwd":"\#(conversationFolder)","model":"gpt-test"}"#),
+            ("event_msg", #"{"type":"task_started"}"#),
+            ("event_msg", #"{"type":"user_message","message":"Fix the usage export and add a plan name column."}"#),
+            ("event_msg", #"{"type":"agent_message","phase":"commentary","message":"I'll check the export tests, then update the formatter and column list."}"#),
+            ("response_item", #"{"type":"function_call","call_id":"fixture-exec","name":"exec_command","arguments":"{\"cmd\":\"swift test --filter ExportTests\"}"}"#),
+            ("response_item", #"{"type":"function_call_output","call_id":"fixture-exec","output":"Chunk ID: fixture\nWall time: 0.4 seconds\nProcess exited with code 0\nOutput:\nExecuted 2 tests, with 0 failures\nhttps://github.com/example/usage/pull/42"}"#),
+            ("event_msg", #"{"type":"patch_apply_end","call_id":"fixture-patch","success":true,"changes":{"Sources/Export.swift":{"type":"update","unified_diff":"@@ -1 +1,2 @@\n let formatter = DateFormatter()\n+formatter.timeZone = TimeZone(identifier: \"Europe/Stockholm\")"},"docs/columns.md":{"type":"add","content":"Columns\nDate, Amount, Plan name\n"}}}"#),
+            ("event_msg", #"{"type":"web_search_end","call_id":"fixture-search","query":"DateFormatter timeZone","results":[{"title":"DateFormatter","url":"https://developer.apple.com/documentation/foundation/dateformatter"}]}"#),
+            ("response_item", #"{"type":"function_call","call_id":"fixture-plan","name":"update_plan","arguments":"{\"plan\":[{\"step\":\"Fix the export and document the column\",\"status\":\"completed\"}]}"}"#),
+            ("response_item", #"{"type":"function_call_output","call_id":"fixture-plan","output":"Plan updated"}"#),
+            ("event_msg", #"{"type":"agent_message","phase":"final","message":"Fixed the export time zone and added the plan name column. Both export tests pass.\n\nThe column list is in `docs/columns.md`."}"#),
+            ("event_msg", #"{"type":"token_count","info":{"last_token_usage":{"input_tokens":61000},"model_context_window":258400}}"#),
+        ]
+        let completion = (UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? "busy") == "busy" ? [] : [("event_msg", #"{"type":"task_complete"}"#)]
+        let now = Date.now
+        let lines = (payloads + completion).enumerated().map { index, record in
+            let date = now.addingTimeInterval(Double(min(index - payloads.count + 2, 0))).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+            return #"{"timestamp":"\#(date)","type":"\#(record.0)","payload":\#(record.1)}"#
+        }
+        let url = directory.appending(path: "rollout-2026-01-02T10-00-00-\(codexConversationSession).jsonl")
+        try? (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
     private static func conversationRecords() -> [[String: Any]] {
@@ -221,9 +262,14 @@ extension Snapshot {
         let rawLog = UserDefaults.standard.string(forKey: "snapshotConversationRawLog")
         let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'echo the terminal is still running; sleep 600'"
         store.openShell(cwd: conversationFolder, command: command)
-        store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: conversationFolder, sessionID: conversationSession, terminal: $0.terminal) : $0 }
+        store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: conversationFolder, sessionID: usesCodexConversation ? codexConversationSession : conversationSession, agent: usesCodexConversation ? .codex : .claude, terminal: $0.terminal) : $0 }
         let waitingFor = UserDefaults.standard.string(forKey: "snapshotConversationWaitingFor") ?? "permission prompt"
-        store.fakeLiveSessions = fakeConversationLive(status: status, waitingFor: status == "waiting" ? waitingFor : nil, updatedSecondsAgo: 20).map { [$0] } ?? []
+        if usesCodexConversation {
+            seedCodexConversationFixture()
+            store.refresh()
+        } else {
+            store.fakeLiveSessions = fakeConversationLive(status: status, waitingFor: status == "waiting" ? waitingFor : nil, updatedSecondsAgo: 20).map { [$0] } ?? []
+        }
         store.refreshLive()
         guard let tab = store.tabs.first(where: { $0.id == store.selectedTabID }) else { exit(1) }
 

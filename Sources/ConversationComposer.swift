@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 
 struct ConversationComposer: View {
     let model: ConversationModel
+    let harnessName: String
+    let capabilities: Set<Capability>
+    let canAttach: Bool
     let isWorking: Bool
     let waiting: (waitingFor: String?, since: Double?)?
     let context: RemoteContext?
@@ -21,7 +24,7 @@ struct ConversationComposer: View {
     var body: some View {
         let draft = model.draft
         let stops = isWorking && draft.isEmpty
-        let placeholder = waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message Claude"
+        let placeholder = model.isTurnOpen ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
 
         GlassEffectContainer(spacing: 8) {
             VStack(spacing: 8) {
@@ -53,23 +56,46 @@ struct ConversationComposer: View {
                         color: NSColor(theme.foreground),
                         focusRequest: focusRequest,
                         submit: send,
-                        attach: { model.attach($0) }
+                        attach: { canAttach ? model.attach($0) : "" }
                     )
                     .padding(.vertical, Self.inset)
                     HStack(spacing: 8) {
-                        Menu {
-                            Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
-                        } label: {
-                            Image(systemName: "plus")
-                                .frame(width: Self.controlHeight, height: Self.controlHeight)
-                                .background(.quaternary, in: .circle)
+                        if canAttach {
+                            Menu {
+                                Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
+                            } label: {
+                                Image(systemName: "plus")
+                                    .frame(width: Self.controlHeight, height: Self.controlHeight)
+                                    .background(.quaternary, in: .circle)
+                            }
+                            .menuIndicator(.hidden)
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Attach")
+                            .help("Attach files or images. You can also drop or paste them.")
                         }
-                        .menuIndicator(.hidden)
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Attach")
-                        .help("Attach files or images. You can also drop or paste them.")
                         if let context {
-                            modelMenu(context)
+                            if capabilities.contains(.modelEffortMenu) {
+                                modelMenu(context)
+                            } else {
+                                Button { showsContext = true } label: {
+                                    HStack(spacing: 6) {
+                                        Text(modelName(context.model))
+                                        if let tokens = context.tokens, let window = context.window, window > 0 {
+                                            Text((Double(tokens) / Double(window)).formatted(.wholePercent))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .lineLimit(1)
+                                    .font(.subheadline)
+                                    .padding(.horizontal, 12)
+                                    .frame(height: Self.controlHeight)
+                                    .background(.quaternary, in: .capsule)
+                                }
+                                .buttonStyle(.plain)
+                                .fixedSize()
+                                .help("Context")
+                                .popover(isPresented: $showsContext, arrowEdge: .top) { contextPopover(context) }
+                            }
                         }
                         Spacer(minLength: 0)
                         if stops || !(draft.isEmpty || model.isSending) {
@@ -85,7 +111,7 @@ struct ConversationComposer: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel(stops ? "Stop" : "Send")
-                            .help(stops ? "Stop Claude" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
+                            .help(stops ? "Stop \(harnessName)" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
                         } else {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 15, weight: .bold))
@@ -150,7 +176,7 @@ struct ConversationComposer: View {
             .disabled(!canChange || context.effort == nil && model.pickedEffort == nil)
             Divider()
             Button("Context", systemImage: "chart.pie") { showsContext = true }
-            Text(canChange ? "Changes apply to this session only" : "Available while Claude is idle")
+            Text(canChange ? "Changes apply to this session only" : "Available while \(harnessName) is idle")
         } label: {
             Text("\(Text(modelTitle)) \(Text(effortChoice.wrappedValue?.title ?? "").foregroundStyle(.secondary))")
                 .lineLimit(1)
@@ -164,27 +190,31 @@ struct ConversationComposer: View {
         .fixedSize()
         .accessibilityLabel("Model and effort")
         .help("Model, effort and context")
-        .popover(isPresented: $showsContext, arrowEdge: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(modelName(context.model))
-                    .font(.headline)
-                if let tokens = context.tokens, let window = context.window {
-                    ProgressView(value: min(Double(tokens) / Double(window), 1))
-                    Text("\(tokenCount(tokens)) of \(tokenCount(window)) tokens, \((Double(tokens) / Double(window)).formatted(.wholePercent)) full")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Context size unknown until Claude replies")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+        .popover(isPresented: $showsContext, arrowEdge: .top) { contextPopover(context) }
+    }
+
+    private func contextPopover(_ context: RemoteContext) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(modelName(context.model))
+                .font(.headline)
+            if let tokens = context.tokens, let window = context.window, window > 0 {
+                ProgressView(value: min(Double(tokens) / Double(window), 1))
+                Text("\(tokenCount(tokens)) of \(tokenCount(window)) tokens, \((Double(tokens) / Double(window)).formatted(.wholePercent)) full")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Context size unknown until \(harnessName) replies")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-            .padding(16)
-            .frame(width: 260, alignment: .leading)
         }
+        .padding(16)
+        .frame(width: 260, alignment: .leading)
     }
 
     private func modelName(_ model: String) -> String {
+        guard capabilities.contains(.modelEffortMenu) else { return model }
+
         let parts = model.split(separator: "-").filter { $0 != "claude" && !($0.count == 8 && Int($0) != nil) }
         let name = parts.filter { Int($0) == nil }.map(\.capitalized).joined(separator: " ")
         let version = parts.filter { Int($0) != nil }.joined(separator: ".")

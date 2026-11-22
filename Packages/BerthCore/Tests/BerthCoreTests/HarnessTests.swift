@@ -3,9 +3,9 @@ import Foundation
 import Testing
 
 struct HarnessTests {
-    @Test func claudeSupportsEveryCapabilityAndCodexNone() {
+    @Test func capabilitiesMatchTheAdapters() {
         #expect(Capability.allCases.allSatisfy { Harness.claude.supports($0) })
-        #expect(Capability.allCases.allSatisfy { !Harness.codex.supports($0) })
+        #expect(Harness.codex.capabilities == [.conversation, .contextSize, .pullRequestLinks])
     }
 
     @Test func everyAgentHasItsHarness() {
@@ -32,7 +32,7 @@ struct HarnessTests {
         #expect(Harness.codex.claim?(opened, "/a", [session], ["rollout"]) == nil)
     }
 
-    @Test func claudeAdapterReadsTranscriptEntriesAndCodexHasNone() throws {
+    @Test func adaptersReadTheirTranscriptEntries() throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "harness-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: url) }
         let lines = [
@@ -43,6 +43,8 @@ struct HarnessTests {
 
         let chunk = try #require(Harness.claude.readTranscript?(url, nil, []))
         #expect(chunk.entries.map(\.kind) == [.prompt, .reply])
-        #expect(Harness.codex.readTranscript == nil)
+        let codex = #"{"timestamp":"2026-01-02T10:00:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"hello"}}"#
+        try (codex + "\n").write(to: url, atomically: true, encoding: .utf8)
+        #expect(Harness.codex.readTranscript?(url, nil, [])?.entries.map(\.text) == ["hello"])
     }
 }

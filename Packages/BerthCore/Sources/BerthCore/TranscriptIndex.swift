@@ -1,6 +1,12 @@
 import Foundation
 
-public struct TranscriptIndex: Sendable {
+public protocol SessionIndex: Sendable {
+    var root: URL { get }
+
+    func url(ofSession id: String) -> URL?
+}
+
+public struct TranscriptIndex: SessionIndex {
     struct Entry: Sendable {
         let modified: Date
         let size: Int

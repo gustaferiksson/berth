@@ -55,7 +55,9 @@ final class ConversationModel {
     @ObservationIgnored private(set) var details: [String: ToolCallDetails] = [:]
     @ObservationIgnored private var completedCalls: Set<String> = []
     private(set) var tasks: [RemoteTask] = []
-    private(set) var context: RemoteContext?
+    private var reportedContext: RemoteContext?
+    private(set) var isTurnOpen = false
+    private(set) var lastChange = Date.now
     private(set) var queued: [String] = []
     @ObservationIgnored private var pending: [PendingPrompt] = []
     private(set) var hasLoaded = false
@@ -80,6 +82,14 @@ final class ConversationModel {
     init(tabID: Tab.ID, store: Store) {
         self.tabID = tabID
         self.store = store
+    }
+
+    var context: RemoteContext? {
+        guard let tab = store.tabs.first(where: { $0.id == tabID }) else { return nil }
+        guard !tab.agent.harness.supports(.backgroundTasks) else { return reportedContext }
+        guard let sessionID = tab.sessionID, let summary = store.sessionsByID[sessionID], let context = summary.context else { return nil }
+
+        return RemoteContext(model: context.model, tokens: context.tokens, window: context.window, date: summary.lastActivity, compactions: 0, lastCompaction: nil)
     }
 
     var entryCount: Int { entries.count }
@@ -121,6 +131,11 @@ final class ConversationModel {
     func send() async {
         let sent = draft
         guard let sessionID, !sent.isEmpty, !isSending else { return }
+        guard !isTurnOpen else {
+            let name = store.tabs.first { $0.id == tabID }?.agent.harness.name ?? "Agent"
+            notice = "\(name) is working, so the message wasn’t sent. Stop it or wait for it to finish."
+            return
+        }
 
         isSending = true
         notice = nil
@@ -232,7 +247,9 @@ final class ConversationModel {
     }
 
     func start() {
-        watcher = FileWatcher(paths: [Store.claudeDirectory.appending(path: "projects").path], latency: 0.3) { [weak self] paths in
+        guard let tab = store.tabs.first(where: { $0.id == tabID }) else { return }
+
+        watcher = FileWatcher(paths: [store.sessionIndex(for: tab.agent).root.path], latency: 0.3) { [weak self] paths in
             guard let self else { return }
 
             if let sessionID, !paths.contains(where: { $0.contains(sessionID) }) { return }
@@ -251,7 +268,7 @@ final class ConversationModel {
             needsRead = true
             return
         }
-        guard let tab = store.tabs.first(where: { $0.id == tabID }), let sessionID = tab.sessionID, let readTranscript = tab.agent.harness.readTranscript, let url = store.index.url(ofSession: sessionID) else {
+        guard let tab = store.tabs.first(where: { $0.id == tabID }), let sessionID = tab.sessionID, let readTranscript = tab.agent.harness.readTranscript, let url = store.sessionIndex(for: tab.agent).url(ofSession: sessionID) else {
             hasLoaded = true
             return
         }
@@ -264,11 +281,12 @@ final class ConversationModel {
         let previous = isSameFile ? activity : TranscriptActivity()
         let previousLogs = isSameFile ? agentLogs : [:]
         let live = store.liveBySession[sessionID]
+        let reportsActivity = tab.agent.harness.supports(.backgroundTasks)
         let catalogDirectory = Store.claudeDirectory.appending(path: "cache/model-catalog")
         Task {
             let (chunk, result) = await Task.detached {
                 let chunk = readTranscript(url, after, queue)
-                return (chunk, TranscriptActivity.report(url, previous: previous, logs: previousLogs, live: live, catalogDirectory: catalogDirectory))
+                return (chunk, reportsActivity ? TranscriptActivity.report(url, previous: previous, logs: previousLogs, live: live, catalogDirectory: catalogDirectory) : nil)
             }.value
             isReading = false
             apply(chunk, result, url: url)
@@ -276,20 +294,28 @@ final class ConversationModel {
         }
     }
 
-    private func apply(_ chunk: TranscriptTail.Chunk?, _ result: (activity: TranscriptActivity, logs: [String: AgentLog], report: RemoteActivity), url: URL) {
+    private func apply(_ chunk: TranscriptTail.Chunk?, _ result: (activity: TranscriptActivity, logs: [String: AgentLog], report: RemoteActivity)?, url: URL) {
         hasLoaded = true
         guard let chunk else { return }
 
         self.url = url
         end = chunk.end
         queue = chunk.queue
-        activity = result.activity
-        agentLogs = result.logs
-        if tasks != result.report.tasks { tasks = result.report.tasks }
-        if context != result.report.context {
-            if context?.model != result.report.context?.model || context?.date != result.report.context?.date { pickedModel = nil }
-            if context?.effort != result.report.context?.effort { pickedEffort = nil }
-            context = result.report.context
+        if let result {
+            activity = result.activity
+            agentLogs = result.logs
+            if tasks != result.report.tasks { tasks = result.report.tasks }
+            if reportedContext != result.report.context {
+                if reportedContext?.model != result.report.context?.model || reportedContext?.date != result.report.context?.date { pickedModel = nil }
+                if reportedContext?.effort != result.report.context?.effort { pickedEffort = nil }
+                reportedContext = result.report.context
+            }
+        }
+        let previousCount = entries.count
+        let wasTurnOpen = isTurnOpen
+        if let open = chunk.isTurnOpen {
+            let newest = chunk.entries.compactMap(\.date).max() ?? .distantPast
+            isTurnOpen = open && (chunk.isContinuation || newest > Date.now.addingTimeInterval(-3600))
         }
         queuedByClaude = chunk.queuedPrompts
         if !chunk.isContinuation || !chunk.entries.isEmpty {
@@ -312,6 +338,7 @@ final class ConversationModel {
             details = currentDetails
             completedCalls = currentCompleted
         }
+        if entries.count > previousCount || isTurnOpen != wasTurnOpen { lastChange = .now }
         reconcilePending()
     }
 }

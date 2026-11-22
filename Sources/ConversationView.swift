@@ -17,13 +17,13 @@ struct ConversationView: View {
 
     var body: some View {
         let live = tab.sessionID.flatMap { store.liveBySession[$0] }
-        let isWorking = live?.activity == .working
+        let isWorking = live?.activity == .working || model.isTurnOpen
         let waitingFor: String?? = if case let .needsInput(reason)? = live?.activity { .some(reason) } else { nil }
         let since = tab.sessionID.flatMap { store.turnStarts[$0] } ?? model.turns.last?.prompt?.date
         let openCall = model.turns.last?.openCall
         let approval = live.flatMap { $0.status == "waiting" ? PendingApproval.resolve(waitingFor: $0.waitingFor, call: openCall) : nil }
         let waiting = live.flatMap { $0.status == "waiting" ? (waitingFor: $0.waitingFor, since: $0.statusUpdatedAt) : nil }
-        let needsTerminal = model.hasLoaded && ConversationFallback.needsTerminal(live: live, call: openCall, tabAge: now.timeIntervalSince(tab.opened), now: now)
+        let needsTerminal = tab.agent.harness.liveSource == .sessionFiles && model.hasLoaded && ConversationFallback.needsTerminal(live: live, call: openCall, tabAge: now.timeIntervalSince(tab.opened), now: now)
 
         keyboard(transcript(isWorking: isWorking, waitingFor: waitingFor, since: since), approval: approval, waiting: waiting)
             .onChange(of: needsTerminal, initial: true) { if needsTerminal { store.suspendConversation(tab.id) } }
@@ -38,6 +38,8 @@ struct ConversationView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ConversationBottomBar(
                     model: model,
+                    harness: tab.agent.harness,
+                    canAttach: tab.agent.harness.supports(.modelEffortMenu),
                     since: since,
                     isWorking: isWorking,
                     isActive: isWorking || waitingFor != nil,
@@ -52,11 +54,13 @@ struct ConversationView: View {
             }
             .overlay {
                 ConversationDropTarget(isTargeted: $isDropTargeted) { files in
+                    guard tab.agent.harness.supports(.modelEffortMenu) else { return }
+
                     model.append(files)
                     composerFocus += 1
                 }
                 .overlay {
-                    if isDropTargeted {
+                    if isDropTargeted, tab.agent.harness.supports(.modelEffortMenu) {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(Color.accentColor, lineWidth: 2)
                             .background(Color.accentColor.opacity(0.08), in: .rect(cornerRadius: 12))
@@ -494,6 +498,8 @@ private extension PendingApproval {
 
 private struct ConversationBottomBar: View {
     let model: ConversationModel
+    let harness: Harness
+    let canAttach: Bool
     let since: Date?
     let isWorking: Bool
     let isActive: Bool
@@ -506,6 +512,7 @@ private struct ConversationBottomBar: View {
     let deny: () -> Void
 
     @Environment(Store.self) private var store
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         VStack(spacing: 10) {
@@ -520,7 +527,20 @@ private struct ConversationBottomBar: View {
                 )
                 .transition(.blurReplace)
             }
-            ConversationComposer(model: model, isWorking: isWorking, waiting: waiting, context: model.context, focusRequest: composerFocus)
+            if !harness.supports(.approvals), model.isTurnOpen {
+                TimelineView(.periodic(from: .now, by: 5)) { timeline in
+                    if timeline.date.timeIntervalSince(model.lastChange) > 20 {
+                        HStack {
+                            Text("Still working, or waiting for you in the terminal.")
+                            Button("Show Terminal") { AppAction.showTerminal.perform(on: store) }
+                                .buttonStyle(.plain)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
+                    }
+                }
+            }
+            ConversationComposer(model: model, harnessName: harness.name, capabilities: harness.capabilities, canAttach: canAttach, isWorking: isWorking, waiting: waiting, context: model.context, focusRequest: composerFocus)
         }
         .frame(maxWidth: 860)
         .padding(.horizontal, 18)

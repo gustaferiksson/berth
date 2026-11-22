@@ -47,7 +47,10 @@ struct ConversationComposerField: NSViewRepresentable {
         guard let textView = scrollView.documentView as? ComposerTextView else { return }
 
         context.coordinator.parent = self
-        textView.placeholder = placeholder
+        if textView.placeholder != placeholder {
+            textView.placeholder = placeholder
+            textView.needsDisplay = true
+        }
         textView.font = font
         textView.textColor = color
         textView.insertionPointColor = color
