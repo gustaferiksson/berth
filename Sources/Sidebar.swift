@@ -729,7 +729,7 @@ private struct SessionItem: View {
 
     let id: String
     let place: Place
-    private static let taskIndent = 12.0
+    private static let taskIndent = 16.0
     let select: (SidebarItem) -> Void
     @Environment(Store.self) private var store
     @Environment(\.sidebarDensity) private var density
@@ -1136,7 +1136,7 @@ struct RowFill: View {
                     Rectangle()
                         .fill(Color.primary.opacity(0.12))
                         .frame(width: 1)
-                        .padding(.leading, 14)
+                        .padding(.leading, 19.5)
                 }
             }
     }

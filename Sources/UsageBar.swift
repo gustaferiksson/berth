@@ -57,7 +57,12 @@ struct UsageTrack: View {
     let window: UsageWindow
     let now: Date
 
+    @AppStorage("showsUsageDivisions") private var showsDivisions = false
     @State private var width = 0.0
+
+    private var divisions: Int {
+        Int((window.length / (window.length >= 2 * 86_400 ? 86_400 : 3600)).rounded())
+    }
 
     private var fill: Color {
         switch window.severity(at: now) {
@@ -71,6 +76,14 @@ struct UsageTrack: View {
         ZStack(alignment: .leading) {
             ZStack(alignment: .leading) {
                 Color(theme.foreground.opacity(0.14))
+                if showsDivisions, divisions > 1 {
+                    ForEach(1..<divisions, id: \.self) { slot in
+                        Rectangle()
+                            .fill(theme.foreground.opacity(0.18))
+                            .frame(width: 1)
+                            .offset(x: width * Double(slot) / Double(divisions) - 0.5)
+                    }
+                }
                 Rectangle()
                     .fill(fill)
                     .frame(width: width * window.used)
