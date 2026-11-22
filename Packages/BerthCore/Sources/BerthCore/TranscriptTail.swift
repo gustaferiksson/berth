@@ -82,7 +82,8 @@ public enum TranscriptTail {
 
             return blocks.enumerated().compactMap { index, block in
                 let id = "\(uuid)-\(index)"
-                if type == "assistant", block["type"] as? String == "text", let text = block["text"] as? String {
+                if type == "assistant", let blockType = block["type"] as? String, blockType == "text" || blockType == "thinking",
+                   let text = block[blockType] as? String, !text.isEmpty {
                     return RemoteEntry(id: id, kind: .reply, text: String(text.prefix(maxText)), date: date)
                 }
                 if type == "assistant", block["type"] as? String == "tool_use", let name = block["name"] as? String {
