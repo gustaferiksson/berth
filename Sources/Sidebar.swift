@@ -57,11 +57,16 @@ struct SidebarLayout: Equatable {
 
     let terminalIDs: [Tab.ID]
     let attentionIDs: [String]
+    let workingIDs: [String]
+    let unreadIDs: [String]
     let pinnedIDs: [String]
     let active: Group?
     let groups: [Group]
+    let snoozedIDs: [String]
     let archivedIDs: [String]
     let isEmpty: Bool
+    let isCaughtUp: Bool
+    let showsTriage: Bool
     let filter: String
     let status: SidebarStatus
     let hasNoMatches: Bool
@@ -73,6 +78,8 @@ struct Sidebar: View, Equatable {
     static let collapsedByDefault: Set = ["recent:older"]
     static let terminalsID = "terminals"
     static let attentionID = "attention"
+    static let workingID = "working"
+    static let unreadID = "unread"
 
     // Its property wrappers never compare equal, so SwiftUI would re-render it on every ContentView update.
     static func == (_: Self, _: Self) -> Bool { true }
@@ -177,6 +184,7 @@ private struct SidebarList: View, Equatable {
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedGroups") private var collapsedGroups = ""
     @AppStorage("archivedExpanded") private var isArchiveExpanded = false
+    @AppStorage("snoozedExpanded") private var isSnoozedExpanded = false
     @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
     @Environment(\.sidebarRowSize) private var rowSize
     @State private var expandedGroups = Snapshot.expandedGroups
@@ -243,8 +251,11 @@ private struct SidebarList: View, Equatable {
         (isCollapsed(Sidebar.attentionID) ? [] : layout.attentionIDs).map(SidebarItem.session)
             + (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
             + activeItems
+            + (isCollapsed(Sidebar.workingID) ? [] : layout.workingIDs).map(SidebarItem.session)
+            + (isCollapsed(Sidebar.unreadID) ? [] : layout.unreadIDs).map(SidebarItem.session)
             + (isCollapsed(Self.pinnedID) ? [] : layout.pinnedIDs).map(SidebarItem.session)
             + groups.filter { !isCollapsed($0.id) }.flatMap { $0.layout.tabIDs.map(SidebarItem.tab) + rows(of: $0.entries).map(\.item) }
+            + (isSnoozedExpanded ? layout.snoozedIDs : []).map(SidebarItem.session)
             + (isArchiveExpanded ? layout.archivedIDs : []).map(SidebarItem.session)
     }
 
@@ -254,11 +265,11 @@ private struct SidebarList: View, Equatable {
             if !layout.attentionIDs.isEmpty {
                 Section(isExpanded: expansion(of: Sidebar.attentionID)) {
                     ForEach(layout.attentionIDs, id: \.self) { id in
-                        SessionItem(id: id, place: .attention, select: select)
+                        SessionItem(id: id, place: .triage, select: select)
                             .id(SidebarItem.session(id))
                     }
                 } header: {
-                    GroupHeader(title: "Needs Attention", help: "Needs you or failing checks", count: layout.attentionIDs.count, tint: theme.needsYou) { EmptyView() } accessory: { _ in EmptyView() }
+                    GroupHeader(title: layout.showsTriage ? "Needs You" : "Needs Attention", help: "Needs you or failing checks", count: layout.attentionIDs.count, tint: theme.needsYou) { EmptyView() } accessory: { _ in EmptyView() }
                 }
             }
             if !layout.terminalIDs.isEmpty {
@@ -267,6 +278,11 @@ private struct SidebarList: View, Equatable {
             if let active {
                 section(active, at: 0, in: [])
             }
+            if layout.isCaughtUp {
+                caughtUp
+            }
+            triageSection(Sidebar.workingID, title: "Working", help: "Sessions that are working", ids: layout.workingIDs, tint: theme.working)
+            triageSection(Sidebar.unreadID, title: "Unread", help: "Sessions with replies you haven’t seen", ids: layout.unreadIDs, tint: nil)
             if !layout.pinnedIDs.isEmpty {
                 Section(isExpanded: expansion(of: Self.pinnedID)) {
                     ForEach(Array(layout.pinnedIDs.enumerated()), id: \.element) { index, id in
@@ -288,6 +304,16 @@ private struct SidebarList: View, Equatable {
                     .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 2) { moveGroup($0, to: groups.count, in: groups) })
                     .listRowInsets(EdgeInsets())
                     .accessibilityHidden(true)
+            }
+            if !layout.snoozedIDs.isEmpty {
+                Section(isExpanded: $isSnoozedExpanded) {
+                    ForEach(layout.snoozedIDs, id: \.self) { id in
+                        SessionItem(id: id, place: .snoozed, select: select)
+                            .id(SidebarItem.session(id))
+                    }
+                } header: {
+                    GroupHeader(title: "Snoozed", help: "Snoozed sessions", count: layout.snoozedIDs.count) { EmptyView() } accessory: { _ in EmptyView() }
+                }
             }
             if !layout.archivedIDs.isEmpty {
                 Section(isExpanded: $isArchiveExpanded) {
@@ -312,6 +338,11 @@ private struct SidebarList: View, Equatable {
 
             store.activate(item)
             return .handled
+        }
+        .onKeyPress(keys: ["e"], phases: .down) { press in
+            guard press.modifiers.isEmpty else { return .ignored }
+
+            return markDone()
         }
         .onKeyPress(.escape) {
             guard !store.multiSelection.isEmpty || store.sidebarStatus != .all || !store.sidebarFilter.isEmpty else { return .ignored }
@@ -352,6 +383,47 @@ private struct SidebarList: View, Equatable {
         }
     }
 
+    @ViewBuilder
+    private func triageSection(_ id: String, title: String, help: String, ids: [String], tint: Color?) -> some View {
+        if !ids.isEmpty {
+            Section(isExpanded: expansion(of: id)) {
+                ForEach(ids, id: \.self) { id in
+                    SessionItem(id: id, place: .triage, select: select)
+                        .id(SidebarItem.session(id))
+                }
+            } header: {
+                GroupHeader(title: title, help: help, count: ids.count, tint: tint) { EmptyView() } accessory: { _ in EmptyView() }
+            }
+        }
+    }
+
+    private var caughtUp: some View {
+        VStack(spacing: 2) {
+            Text("All caught up")
+                .font(.headline)
+            Text("Nothing needs you right now")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .listRowSeparator(.hidden)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func markDone() -> KeyPress.Result {
+        let selected = store.multiSelection.isEmpty ? [store.sidebarCursor ?? store.selection].compactMap { item -> String? in
+            guard case let .session(id) = item else { return nil }
+
+            return id
+        } : store.multiSelectedSessions.map(\.id)
+        let done = selected.filter { id in store.activeSessions.contains { $0.id == id } }
+        guard !done.isEmpty else { return .ignored }
+
+        for id in done { store.archive(id) }
+        return .handled
+    }
+
     private func move(by offset: Int, in items: [SidebarItem]) -> KeyPress.Result {
         guard !items.isEmpty else { return .ignored }
 
@@ -389,6 +461,14 @@ private struct SidebarList: View, Equatable {
         }
         if case let .session(id) = item, layout.attentionIDs.contains(id) {
             expansion(of: Sidebar.attentionID).wrappedValue = expanded
+            return .handled
+        }
+        if case let .session(id) = item, layout.workingIDs.contains(id) {
+            expansion(of: Sidebar.workingID).wrappedValue = expanded
+            return .handled
+        }
+        if case let .session(id) = item, layout.unreadIDs.contains(id) {
+            expansion(of: Sidebar.unreadID).wrappedValue = expanded
             return .handled
         }
         if case let .session(id) = item, layout.pinnedIDs.contains(id) {
@@ -638,10 +718,11 @@ private struct TabItem: View {
 
 private struct SessionItem: View {
     enum Place: Equatable {
-        case attention
+        case triage
         case pinned
         case group(folder: String?)
         case task
+        case snoozed
         case archived
     }
 
@@ -693,6 +774,8 @@ private struct SessionItem: View {
         .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: isLocked, indent: place == .task ? Self.taskIndent : 0) {
             select(.session(id))
         })
+        .opacity(place == .snoozed ? 0.6 : 1)
+        .help(place == .snoozed ? snoozeHelp : "")
         .contextMenu {
             if store.multiSelection.contains(.session(id)) {
                 MultiSelectionMenu()
@@ -713,8 +796,15 @@ private struct SessionItem: View {
         return store.sessionTasks.first { $0.id == taskID }.map { "Join “\($0.title)”?" }
     }
 
+    private var snoozeHelp: String {
+        guard case let .until(date) = store.snooze(of: id) else { return "Back when it needs you" }
+
+        return "Back \(date.formatted(date: .abbreviated, time: .shortened))"
+    }
+
     @ViewBuilder
     private func menu(_ session: SessionSummary, tab: Tab?) -> some View {
+        if place == .snoozed { Button("Unsnooze") { store.unsnooze(id) } }
         if let tab { Button("Unload Session") { store.close(tab.id) } }
         if place == .pinned {
             Button("Unpin") { store.unpin(id) }
@@ -727,7 +817,12 @@ private struct SessionItem: View {
             Button("Mark as Unread") { store.markUnread(id) }
         }
         flagButton
-        Button("Archive") { store.archive(id) }
+        Button("Mark as Done") { store.archive(id) }
+        Menu("Snooze") {
+            Button("1 Hour") { store.snooze(id, .until(.now.addingTimeInterval(3600))) }
+            Button("Tomorrow") { store.snooze(id, .until(SessionTriage.tomorrowMorning(after: .now))) }
+            Button("Until It Needs You") { store.snooze(id, .needsYou) }
+        }
         if store.task(containing: id) != nil || store.taskSuggestions[id] != nil {
             Divider()
             if store.task(containing: id) != nil { Button("Remove from Task") { store.removeFromTask(id) } }
@@ -779,7 +874,7 @@ struct MultiSelectionMenu: View {
             ("Mark ^[\(read.count) Session](inflect: true) as Unread", read.count, { for session in read { store.markUnread(session.id) } }),
             ("Flag ^[\(unflagged.count) Session](inflect: true)", unflagged.count, { for session in unflagged { store.flag(session.id) } }),
             ("Unflag ^[\(flagged.count) Session](inflect: true)", flagged.count, { for session in flagged { store.unflag(session.id) } }),
-            ("Archive ^[\(active.count) Session](inflect: true)", active.count, { for session in active { store.archive(session.id) } }),
+            ("Mark ^[\(active.count) Session](inflect: true) as Done", active.count, { for session in active { store.archive(session.id) } }),
             ("New Task from ^[\(active.count) Session](inflect: true)", active.count > 1 ? active.count : 0, { store.newTask(from: active.map(\.id)) }),
         ]
         return actions.filter { $0.count > 0 }.map { (String(AttributedString(localized: $0.title).characters), $0.perform) }
@@ -812,6 +907,7 @@ struct GroupingMenuItems: View {
         .labelsHidden()
         Divider()
         Toggle("Show Custom Groups", isOn: $store.showsCustomGroups)
+        Toggle("Show Triage", isOn: $store.showsTriage)
     }
 }
 

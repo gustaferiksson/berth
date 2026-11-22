@@ -48,19 +48,37 @@ extension Store {
     }
 
     func sidebarCount(_ status: SidebarStatus) -> Int {
-        let archived = Set(archivedSessions.map(\.id))
-        return sessionsByID.values.count(where: { !archived.contains($0.id) && matchesStatus(status, $0) })
+        let hidden = Set((archivedSessions + snoozedSessions).map(\.id))
+        return sessionsByID.values.count(where: { !hidden.contains($0.id) && matchesStatus(status, $0) })
+    }
+
+    private var standaloneSessions: [SessionSummary] {
+        let liveIDs = activeLiveIDs
+        let pinned = pinnedSessions.filter { !liveIDs.contains($0.id) }.map { GroupEntry.session($0.id) }
+        let entries = (sidebarActive.map { [$0.entries] } ?? []) + sidebarGroups.map(\.entries) + [pinned]
+        return entries.joined().compactMap { entry in
+            guard case let .session(id) = entry else { return nil }
+
+            return sessionsByID[id]
+        }
+    }
+
+    var triageSections: (working: [SessionSummary], unread: [SessionSummary]) {
+        guard showsTriage else { return ([], []) }
+
+        let attention = Set(attentionSessions.map(\.id))
+        let rest = standaloneSessions.filter { !attention.contains($0.id) }
+        return SessionTriage.sections(
+            rest,
+            working: Set(rest.filter { liveBySession[$0.id]?.activity == .working }.map(\.id)),
+            unread: Set(rest.filter(hasUnseenActivity).map(\.id))
+        )
     }
 
     var attentionSessions: [SessionSummary] {
-        let liveIDs = Set(liveSessions.map(\.id))
-        let pinned = pinnedSessions.filter { !liveIDs.contains($0.id) }.map { GroupEntry.session($0.id) }
-        let entries = (sidebarActive.map { [$0.entries] } ?? []) + sidebarGroups.map(\.entries) + [pinned]
-        return entries
-            .joined()
-            .compactMap { entry -> (session: SessionSummary, rank: Int)? in
-                guard case let .session(id) = entry, let session = sessionsByID[id] else { return nil }
-
+        standaloneSessions
+            .compactMap { session -> (session: SessionSummary, rank: Int)? in
+                let id = session.id
                 if case .needsInput = liveBySession[id]?.activity { return (session, 0) }
 
                 guard let pullRequest = pullRequest(for: session), [.open, .draft].contains(pullRequest.state), pullRequest.checks == .failed else { return nil }
@@ -83,7 +101,10 @@ extension Store {
         }
         let source = (sidebarActive.map { [$0] } ?? []) + sidebarGroups
         let attentionIDs = attentionSessions.filter(matchesSession).map(\.id)
-        let attention = Set(attentionIDs)
+        let triage = triageSections
+        let workingIDs = triage.working.filter(matchesSession).map(\.id)
+        let unreadIDs = triage.unread.filter(matchesSession).map(\.id)
+        let attention = Set(attentionIDs + workingIDs + unreadIDs)
         let sidebarGroups = source.compactMap { group, tabs, entries -> SidebarLayout.Group? in
             let tabs = tabs.filter(matchesTab)
             let entries = entries.compactMap { entry -> SidebarLayout.Entry? in
@@ -120,20 +141,28 @@ extension Store {
             )
         }
         let terminalIDs = terminals.filter(matchesTab).map(\.id)
-        let liveIDs = Set(liveSessions.map(\.id))
+        let liveIDs = activeLiveIDs
         let pinnedIDs = pinnedSessions.filter { !liveIDs.contains($0.id) && !attention.contains($0.id) && matchesSession($0) }.map(\.id)
         let archivedIDs = archivedSessions.filter(matchesSession).map(\.id)
+        let snoozedIDs = snoozedSessions.filter(matchesSession).map(\.id)
+        let hasHidden = !archivedSessions.isEmpty || !snoozedSessions.isEmpty
+        let isEmpty = hasScanned && groups.isEmpty && pinnedSessions.isEmpty && tabs.isEmpty && !(showsTriage && hasHidden)
         return SidebarLayout(
             terminalIDs: terminalIDs,
             attentionIDs: attentionIDs,
+            workingIDs: workingIDs,
+            unreadIDs: unreadIDs,
             pinnedIDs: pinnedIDs,
             active: sidebarGroups.first { $0.source.kind == .active },
             groups: sidebarGroups.filter { $0.source.kind != .active },
+            snoozedIDs: snoozedIDs,
             archivedIDs: archivedIDs,
-            isEmpty: hasScanned && groups.isEmpty && pinnedSessions.isEmpty && tabs.isEmpty,
+            isEmpty: isEmpty,
+            isCaughtUp: showsTriage && hasScanned && !isEmpty && !isFiltering && attentionIDs.isEmpty && workingIDs.isEmpty && unreadIDs.isEmpty && pinnedIDs.isEmpty && sidebarGroups.isEmpty,
+            showsTriage: showsTriage,
             filter: sidebarFilter,
             status: sidebarStatus,
-            hasNoMatches: isFiltering && terminalIDs.isEmpty && attentionIDs.isEmpty && pinnedIDs.isEmpty && sidebarGroups.isEmpty && archivedIDs.isEmpty
+            hasNoMatches: isFiltering && terminalIDs.isEmpty && attentionIDs.isEmpty && workingIDs.isEmpty && unreadIDs.isEmpty && pinnedIDs.isEmpty && sidebarGroups.isEmpty && snoozedIDs.isEmpty && archivedIDs.isEmpty
         )
     }
 }
