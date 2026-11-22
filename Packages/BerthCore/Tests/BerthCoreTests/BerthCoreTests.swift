@@ -833,4 +833,12 @@ struct IdleTabsTests {
     @Test func keepsSessionsRecentlyBusyOrWaiting() {
         #expect(!unloadable(live("a", updated: 3 * hour)))
     }
+
+    @Test func ignoresAStatusWrittenWhenTheProcessResumed() {
+        let started = (now.timeIntervalSince1970 - 3 * hour) * 1000
+        let resumed = LiveSession(pid: 1, sessionId: "a", cwd: "/", kind: nil, jobId: nil, status: "idle", waitingFor: nil, statusUpdatedAt: started + 3000, startedAt: started)
+        let changed = LiveSession(pid: 1, sessionId: "a", cwd: "/", kind: nil, jobId: nil, status: "idle", waitingFor: nil, statusUpdatedAt: started + 60_000, startedAt: started)
+        #expect(unloadable(resumed))
+        #expect(!unloadable(changed))
+    }
 }

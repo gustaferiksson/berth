@@ -9,7 +9,9 @@ public enum IdleTabs {
                   let session = live[tab.sessionID], session.status == "idle", session.attachID == nil
             else { return false }
 
-            let statusChanged = Date(timeIntervalSince1970: (session.statusUpdatedAt ?? 0) / 1000)
+            let statusUpdatedAt = session.statusUpdatedAt ?? 0
+            let isResumeStatus = session.startedAt.map { statusUpdatedAt - $0 <= 30_000 } ?? false
+            let statusChanged = isResumeStatus ? Date.distantPast : Date(timeIntervalSince1970: statusUpdatedAt / 1000)
             let touched = max(tab.touched, lastActivity[tab.sessionID] ?? .distantPast, statusChanged)
             return now.timeIntervalSince(touched) > threshold
         }.map(\.id)
