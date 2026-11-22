@@ -24,6 +24,16 @@ extension Snapshot {
         let effort = UserDefaults.standard.string(forKey: "snapshotConversationEffort").map { [#"{"type":"api-request","querySource":"repl_main_thread","params":{"model":"claude-sonnet-4-5","output_config":{"effort":"\#($0)"}}}"#] } ?? []
         let lines = effort + conversationRecords().map { String(decoding: (try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data(), as: UTF8.self) }
         try? (lines.joined(separator: "\n") + "\n").write(to: directory.appending(path: "\(conversationSession).jsonl"), atomically: true, encoding: .utf8)
+        let subagents = directory.appending(path: "\(conversationSession)/subagents")
+        try? FileManager.default.createDirectory(at: subagents, withIntermediateDirectories: true)
+        let subagentLines = [
+            #"{"type":"user","uuid":"docs-prompt","isSidechain":true,"timestamp":"\#(conversationStart.addingTimeInterval(280).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)))","message":{"role":"user","content":"Review docs/columns.md for the new plan name column."}}"#,
+            #"{"type":"assistant","uuid":"docs-read","isSidechain":true,"timestamp":"\#(conversationStart.addingTimeInterval(283).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)))","message":{"content":[{"type":"tool_use","id":"docs-read","name":"Read","input":{"file_path":"/fixture/docs/columns.md"}}]}}"#,
+            #"{"type":"user","uuid":"docs-result","isSidechain":true,"timestamp":"\#(conversationStart.addingTimeInterval(285).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)))","message":{"content":[{"type":"tool_result","tool_use_id":"docs-read","content":"Export columns\nDate, Amount"}]}}"#,
+            #"{"type":"assistant","uuid":"docs-reply","isSidechain":true,"timestamp":"\#(conversationStart.addingTimeInterval(290).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)))","message":{"content":[{"type":"text","text":"The column list needs **Plan name** after Amount. I’m also checking the CSV header example."}]}}"#,
+        ]
+        try? (subagentLines.joined(separator: "\n") + "\n").write(to: subagents.appending(path: "agent-agent-docs.jsonl"), atomically: true, encoding: .utf8)
+        try? #"{"agentType":"general-purpose","description":"Review the docs for the export column","toolUseId":"t8"}"#.write(to: subagents.appending(path: "agent-agent-docs.meta.json"), atomically: true, encoding: .utf8)
     }
 
     private static func conversationRecords() -> [[String: Any]] {
@@ -247,6 +257,10 @@ extension Snapshot {
                 print("  turn \(turn.prompt?.text.prefix(30) ?? "no prompt") | duration \(turn.duration.map { $0.formatted() } ?? "-") | changes \(turn.fileChanges.map { "\($0.files) files +\($0.added ?? 0) -\($0.removed ?? 0)" } ?? "none") | \(parts.joined(separator: ", "))")
             }
             for task in model.tasks { print("  running \(task.kind) \(task.title) \(task.agentType ?? "")") }
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotConversationSubagent") {
+            store.conversationModels[tab.id]?.openAgent(agentID: "agent-docs", toolUseID: "t8")
+            try? await Task.sleep(for: .seconds(1))
         }
         save(".conversation.png")
         if let script = UserDefaults.standard.string(forKey: "snapshotConversationDrive") {
