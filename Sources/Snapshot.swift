@@ -395,6 +395,11 @@ enum Snapshot {
             store.activate(.session(sessionID))
         }
         let reviewFolder = UserDefaults.standard.string(forKey: "snapshotReview")
+        if reviewFolder != nil, UserDefaults.standard.double(forKey: "snapshotReviewContext") > 0 {
+            store.fakeContexts["snapshot-review"] = SessionContext(model: "claude-opus-5-5", tokens: Int(UserDefaults.standard.double(forKey: "snapshotReviewContext")), window: 200_000, modelName: "Opus 5.5")
+            store.refresh()
+            await store.waitForScan()
+        }
         let createPullRequestClick = UserDefaults.standard.string(forKey: "snapshotReviewCreatePullRequest")?.split(separator: ",").compactMap { Double($0) }
         if let reviewFolder {
             store.openShell(cwd: reviewFolder, command: createPullRequestClick != nil ? UserDefaults.standard.string(forKey: "snapshotRemoteLog").map { "/usr/bin/tee -a '\($0)'" } : nil)
@@ -403,7 +408,8 @@ enum Snapshot {
                 store.refreshLive()
             }
             store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: reviewFolder, sessionID: "snapshot-review", terminal: $0.terminal) : $0 }
-            if AppAction.showChanges.isAvailable(in: store) { AppAction.showChanges.perform(on: store) }
+            if UserDefaults.standard.bool(forKey: "snapshotReviewHidePanel") { store.showsReviewPanel = false } else if AppAction.showChanges.isAvailable(in: store) { AppAction.showChanges.perform(on: store) }
+            if UserDefaults.standard.bool(forKey: "snapshotReviewConversation"), let id = store.selectedTabID { store.conversationTabIDs.insert(id) }
             if !UserDefaults.standard.bool(forKey: "snapshotReviewNoComment") { store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")] }
         }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { prepareTasksReview(store: store) }
