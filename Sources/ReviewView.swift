@@ -1897,7 +1897,7 @@ struct ReviewDiffColumn: View {
                                 model.keep(tab.id)
                             }),
                             comments: Bindable(model).comments,
-                            threads: detail?.threads.filter { $0.path == path && $0.line != nil } ?? [],
+                            threads: detail?.threads.filter { $0.path == path && $0.line != nil && document.compare?.isCommit != true } ?? [],
                             replyDrafts: Bindable(model).replyDrafts,
                             isWritingPullRequest: model.isWritingPullRequest,
                             style: style,
