@@ -615,7 +615,7 @@ private struct ReviewFileList: View {
     }
 
     private func otherPullRequests(root: String?, branch: String, shown: Int?) -> some View {
-        ReviewOtherPullRequests(pullRequests: store.pullRequests(inRoot: root, of: sessionID, branch: branch).filter { $0.number != shown }, insets: cardInsets)
+        ReviewOtherPullRequests(pullRequests: store.pullRequests(inRoot: root, of: sessionID, branch: branch).filter { $0.number != shown })
     }
 
     private func extraCard(_ extra: (repository: ReviewRepository, model: ReviewModel), _ changes: ReviewChanges) -> some View {
@@ -667,7 +667,7 @@ private struct ReviewFileList: View {
             Section {
                 if repositoryExpansion(ownRoot).wrappedValue {
                     branchCard(changes, model.status ?? .unknown)
-                        .listRowInsets(cardInsets)
+                        .reviewEdgeRow()
                     stackedRows(changes, in: model, root: nil)
                 }
             } header: {
@@ -681,7 +681,7 @@ private struct ReviewFileList: View {
                 if repositoryExpansion(extra.repository.root).wrappedValue {
                     if let changes = extra.model.changes {
                         extraCard(extra, changes)
-                            .listRowInsets(cardInsets)
+                            .reviewEdgeRow()
                         stackedRows(changes, in: extra.model, root: extra.repository.root)
                     } else {
                         Text(extra.model.error == nil ? "Loading changes…" : "Can’t read changes")
@@ -703,11 +703,11 @@ private struct ReviewFileList: View {
                 .foregroundStyle(theme.secondary)
         }
         if !changes.uncommitted.isEmpty {
-            ReviewSubheading(title: "Uncommitted", files: changes.uncommitted, insets: subheadingInsets)
+            ReviewSubheading(title: "Uncommitted", files: changes.uncommitted)
             changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: root)
         }
         if !changes.committed.isEmpty {
-            ReviewSubheading(title: "Committed", files: changes.committed, insets: subheadingInsets)
+            ReviewSubheading(title: "Committed", files: changes.committed)
             changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: root)
         }
     }
@@ -796,23 +796,6 @@ private struct ReviewFileList: View {
         }
     }
 
-    private var hasFolderRows: Bool {
-        guard changesAsTree else { return false }
-
-        let lists: [[ReviewFile]] = isStacked
-            ? ([model.changes] + extras.map(\.model.changes)).compactMap { $0 }.flatMap { [$0.uncommitted, $0.committed] }
-            : model.changes.map { [expansion(of: "uncommitted").wrappedValue ? $0.uncommitted : [], expansion(of: "committed").wrappedValue ? $0.committed : []] } ?? []
-        return lists.contains { ReviewFileTree.compactNodes($0.map(\.path)).contains { $0.children != nil } }
-    }
-
-    private var subheadingInsets: EdgeInsets {
-        EdgeInsets(top: 2, leading: cardInsets.leading, bottom: 0, trailing: 8)
-    }
-
-    private var cardInsets: EdgeInsets {
-        EdgeInsets(top: 0, leading: 8.5 - (changesAsTree && !hasFolderRows ? 16.5 : 26), bottom: 6, trailing: -8)
-    }
-
     @ViewBuilder
     private func pullRequestSection(_ changes: ReviewChanges?) -> some View {
         if !isStacked || shownRepo == ownRoot, isStacked || model.status != nil, let changes {
@@ -820,7 +803,7 @@ private struct ReviewFileList: View {
             Section {
                 if expansion(of: "pullRequest").wrappedValue {
                     branchCard(changes, model.status ?? .unknown)
-                        .listRowInsets(cardInsets)
+                        .reviewEdgeRow()
                     otherPullRequests(root: nil, branch: changes.branch, shown: shown?.pullRequest?.number)
                 }
             } header: {
@@ -831,7 +814,7 @@ private struct ReviewFileList: View {
             Section {
                 if expansion(of: "pullRequest").wrappedValue {
                     extraCard(extra, changes)
-                        .listRowInsets(cardInsets)
+                        .reviewEdgeRow()
                     otherPullRequests(root: extra.repository.root, branch: changes.branch, shown: shown?.pullRequest?.number)
                 }
             } header: {
@@ -1377,7 +1360,7 @@ private struct ReviewBranchCard: View {
         .menuIndicator(.hidden)
         .foregroundStyle(theme.secondary)
         .frame(width: 20, alignment: .trailing)
-        .padding(.trailing, -5)
+        .padding(.trailing, 2)
     }
 
     private var pushState: some View {
