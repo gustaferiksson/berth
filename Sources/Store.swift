@@ -92,6 +92,11 @@ final class Store {
         didSet { syncConversations() }
     }
 
+    var conversationSuspended: Set<Tab.ID> = [] {
+        didSet { syncConversations() }
+    }
+
+    var conversationDrafts: [Tab.ID: ConversationDraft] = [:]
     private(set) var conversationModels: [Tab.ID: ConversationModel] = [:]
     var conversationFocusRequests = 0
     private(set) var orphanedSessionIDs: Set<String> = []
@@ -235,6 +240,7 @@ final class Store {
 
     @ObservationIgnored var persistsTabs = true
     @ObservationIgnored var lastKeyInput = Date.distantPast
+    @ObservationIgnored var submittingSessions: Set<String> = []
 
     #if DEBUG
     @ObservationIgnored var probeOpenedClaude: [(cwd: String, start: ClaudeLaunch.Start)] = []
@@ -683,6 +689,7 @@ final class Store {
             refreshConversations()
             if groupingMode.hasActive { applyGroups() }
         }
+        resumeSuspendedConversations()
         // Claude reports `shell` only while idle; a turn shows `busy`, so keep the mark until it reports plain idle.
         let shells = Set(liveBySession.values.filter { $0.activity == .shell || $0.activity != .idle && backgroundShellIDs.contains($0.sessionId) }.map(\.sessionId))
         if shells != backgroundShellIDs { backgroundShellIDs = shells }
@@ -886,7 +893,7 @@ final class Store {
     }
 
     func showsConversation(_ tab: Tab) -> Bool {
-        tab.kind == .claude && isConversationEnabled && conversationTabIDs.contains(tab.id)
+        tab.kind == .claude && isConversationEnabled && conversationTabIDs.contains(tab.id) && !conversationSuspended.contains(tab.id)
     }
 
     var selectedShowsConversation: Bool {
@@ -900,6 +907,7 @@ final class Store {
     func setConversation(_ isShown: Bool) {
         guard let id = selectedTabID else { return }
 
+        conversationSuspended.remove(id)
         if isShown { conversationTabIDs.insert(id) } else { conversationTabIDs.remove(id) }
         endTerminalSearch()
         DispatchQueue.main.async { [weak self] in self?.focusSelected() }
@@ -909,6 +917,22 @@ final class Store {
         guard let tab = tabs.first(where: { $0.id == selectedTabID }) else { return }
 
         if showsConversation(tab) { conversationFocusRequests += 1 } else { tab.terminal.requestFocus() }
+    }
+
+    func suspendConversation(_ id: Tab.ID) {
+        guard conversationTabIDs.contains(id), !conversationSuspended.contains(id) else { return }
+
+        conversationSuspended.insert(id)
+        endTerminalSearch()
+        DispatchQueue.main.async { [weak self] in self?.focusSelected() }
+    }
+
+    private func resumeSuspendedConversations() {
+        let resumable = conversationSuspended.filter { id in tabs.first { $0.id == id }.map { ConversationFallback.canLeaveTerminal(live: $0.sessionID.flatMap { liveBySession[$0] }) } ?? true }
+        guard !resumable.isEmpty else { return }
+
+        conversationSuspended.subtract(resumable)
+        DispatchQueue.main.async { [weak self] in self?.focusSelected() }
     }
 
     func syncConversations() {
@@ -1379,6 +1403,8 @@ final class Store {
             editedRepositories[sessionID] = nil
         }
         conversationTabIDs.remove(id)
+        conversationSuspended.remove(id)
+        conversationDrafts[id] = nil
         tabs.removeAll { $0.id == id }
         recentTabIDs.removeAll { $0 == id }
         if multiSelection.contains(.tab(id)) { multiSelection.removeAll { $0 == .tab(id) } }

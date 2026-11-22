@@ -10,15 +10,66 @@ struct ConversationView: View {
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
+    @State private var isDropTargeted = false
+    @State private var composerFocus = 0
+    @State private var now = Date.now
     @FocusState private var isFocused: Bool
 
     var body: some View {
         let live = tab.sessionID.flatMap { store.liveBySession[$0] }
         let isWorking = live?.activity == .working
         let waitingFor: String?? = if case let .needsInput(reason)? = live?.activity { .some(reason) } else { nil }
-        let isActive = isWorking || waitingFor != nil
         let since = tab.sessionID.flatMap { store.turnStarts[$0] } ?? model.turns.last?.prompt?.date
+        let openCall = model.turns.last?.openCall
+        let approval = live.flatMap { $0.status == "waiting" ? PendingApproval.resolve(waitingFor: $0.waitingFor, call: openCall) : nil }
+        let waiting = live.flatMap { $0.status == "waiting" ? (waitingFor: $0.waitingFor, since: $0.statusUpdatedAt) : nil }
+        let needsTerminal = model.hasLoaded && ConversationFallback.needsTerminal(live: live, call: openCall, tabAge: now.timeIntervalSince(tab.opened), now: now)
 
+        keyboard(transcript(isWorking: isWorking, waitingFor: waitingFor, since: since), approval: approval, waiting: waiting)
+            .onChange(of: needsTerminal, initial: true) { if needsTerminal { store.suspendConversation(tab.id) } }
+            .task(id: live?.statusUpdatedAt) {
+                now = .now
+                try? await Task.sleep(for: .seconds(4.5))
+                now = .now
+                try? await Task.sleep(for: .seconds(5.5))
+                now = .now
+            }
+            .onChange(of: live?.status) { model.refresh() }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                ConversationBottomBar(
+                    model: model,
+                    since: since,
+                    isWorking: isWorking,
+                    isActive: isWorking || waitingFor != nil,
+                    isAtBottom: isAtBottom,
+                    approval: approval,
+                    waiting: waiting,
+                    composerFocus: $composerFocus,
+                    jump: { _ = scrollToLatest() },
+                    answer: { _ = answer($0, waiting) },
+                    deny: { _ = deny(waiting) }
+                )
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                let files = urls.filter(\.isFileURL)
+                guard !files.isEmpty else { return false }
+
+                model.draft.files += files.filter { !model.draft.files.contains($0) }
+                composerFocus += 1
+                return true
+            } isTargeted: { isDropTargeted = $0 }
+            .overlay {
+                if isDropTargeted {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .allowsHitTesting(false)
+                }
+            }
+            .environment(\.conversationFolder, tab.cwd)
+            .accessibilityLabel("Conversation")
+    }
+
+    private func transcript(isWorking: Bool, waitingFor: String??, since: Date?) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 if model.turns.isEmpty {
@@ -28,7 +79,7 @@ struct ConversationView: View {
                     let isCurrent = turn.id == model.turns.last?.id
                     ConversationTurnView(
                         turn: turn,
-                        isFinished: !(isCurrent && isActive),
+                        isFinished: !(isCurrent && (isWorking || waitingFor != nil)),
                         isWorking: isCurrent && isWorking,
                         waitingFor: isCurrent ? waitingFor : nil,
                         since: since,
@@ -45,7 +96,7 @@ struct ConversationView: View {
             .frame(maxWidth: .infinity)
         }
         .contentMargins(.top, 24, for: .scrollContent)
-        .contentMargins(.bottom, 96, for: .scrollContent)
+        .contentMargins(.bottom, 24, for: .scrollContent)
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
@@ -54,34 +105,43 @@ struct ConversationView: View {
         } action: { old, new in
             if new.height != old.height, isAtBottom { position.scrollTo(edge: .bottom) } else { isAtBottom = new.isAtBottom }
         }
-        .focusable()
-        .focused($isFocused)
-        .focusEffectDisabled()
-        .onKeyPress(.end) { scrollToLatest() }
-        .onKeyPress(.home) {
-            withAnimation(.smooth) { position.scrollTo(edge: .top) }
-            return .handled
-        }
-        .onKeyPress(.downArrow, phases: .down) { press in press.modifiers == .command ? scrollToLatest() : .ignored }
-        .onChange(of: store.conversationFocusRequests, initial: true) { isFocused = true }
-        .onChange(of: live?.status) { model.refresh() }
-        .overlay(alignment: .bottom) {
-            ConversationStatusBar(
-                since: since,
-                isWorking: isWorking,
-                waitingFor: waitingFor,
-                tasks: model.tasks,
-                isAtBottom: isAtBottom,
-                jump: { _ = scrollToLatest() },
-                showTerminal: { AppAction.showTerminal.perform(on: store) }
-            )
-            .padding(.bottom, 16)
-            .animation(.smooth, value: isAtBottom)
-            .animation(.smooth, value: model.tasks.count)
-            .animation(.smooth, value: isActive)
-        }
-        .environment(\.conversationFolder, tab.cwd)
-        .accessibilityLabel("Conversation")
+    }
+
+    private func keyboard(_ content: some View, approval: PendingApproval?, waiting: (waitingFor: String?, since: Double?)?) -> some View {
+        let isDraftEmpty = model.draft.isEmpty
+        let isActionable = approval?.isActionable ?? false
+
+        return content
+            .focusable()
+            .focused($isFocused)
+            .focusEffectDisabled()
+            .onKeyPress(.end) { scrollToLatest() }
+            .onKeyPress(.home) {
+                withAnimation(.smooth) { position.scrollTo(edge: .top) }
+                return .handled
+            }
+            .onKeyPress(.downArrow, phases: .down) { press in press.modifiers == .command ? scrollToLatest() : .ignored }
+            .onKeyPress(.return) { isActionable && isDraftEmpty ? answer(.digit1, waiting) : .ignored }
+            .onKeyPress(.escape) { isActionable ? deny(waiting) : .ignored }
+            .onKeyPress(characters: .decimalDigits, phases: .down) { press in
+                guard case let .question(_, options)? = approval, isDraftEmpty, let digit = Int(press.characters), (1...options.count).contains(digit) else { return .ignored }
+
+                return answer(RemoteKey(rawValue: "digit\(digit)") ?? .digit1, waiting)
+            }
+            .onKeyPress(phases: [.down, .repeat]) { press in
+                let scalars = press.characters.unicodeScalars
+                guard press.modifiers.isSubset(of: .shift), !scalars.isEmpty, scalars.allSatisfy({ $0.value >= 0x20 && $0.value != 0x7F && !(0xF700...0xF8FF).contains($0.value) }) else { return .ignored }
+
+                model.draft.text += press.characters
+                composerFocus += 1
+                return .handled
+            }
+            .onChange(of: store.conversationFocusRequests, initial: true) {
+                if isActionable, isDraftEmpty { isFocused = true } else { composerFocus += 1 }
+            }
+            .onChange(of: isActionable) {
+                if isActionable, isDraftEmpty { isFocused = true } else if !isActionable { composerFocus += 1 }
+            }
     }
 
     private var emptyState: some View {
@@ -95,6 +155,21 @@ struct ConversationView: View {
             }
         }
         .padding(.top, 80)
+    }
+
+    private func answer(_ key: RemoteKey, _ waiting: (waitingFor: String?, since: Double?)?) -> KeyPress.Result {
+        guard let waiting else { return .ignored }
+
+        model.answer(key, waitingFor: waiting.waitingFor, since: waiting.since)
+        return .handled
+    }
+
+    private func deny(_ waiting: (waitingFor: String?, since: Double?)?) -> KeyPress.Result {
+        guard let waiting else { return .ignored }
+
+        model.answer(.escape, waitingFor: waiting.waitingFor, since: waiting.since)
+        composerFocus += 1
+        return .handled
     }
 
     private func scrollToLatest() -> KeyPress.Result {
@@ -290,11 +365,9 @@ private struct ConversationFold<Content: View>: View {
 private struct ConversationStatusBar: View {
     let since: Date?
     let isWorking: Bool
-    let waitingFor: String??
     let tasks: [RemoteTask]
     let isAtBottom: Bool
     let jump: () -> Void
-    let showTerminal: () -> Void
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -303,24 +376,7 @@ private struct ConversationStatusBar: View {
     var body: some View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
-                if let waitingFor {
-                    HStack(spacing: 10) {
-                        Image(systemName: "hand.raised.fill")
-                            .accessibilityHidden(true)
-                            .foregroundStyle(theme.needsYou)
-                        Text(waitingFor.map { "Needs you · \($0)" } ?? "Needs you")
-                            .lineLimit(1)
-                        Button("Show Terminal", action: showTerminal)
-                            .buttonStyle(.borderedProminent)
-                            .buttonBorderShape(.capsule)
-                            .controlSize(.small)
-                            .tint(theme.needsYou)
-                    }
-                    .padding(.leading, 14)
-                    .padding(.trailing, 8)
-                    .padding(.vertical, 7)
-                    .glassEffect(.regular.tint(theme.needsYou.opacity(0.18)), in: .capsule)
-                } else if isWorking, !isAtBottom {
+                if isWorking, !isAtBottom {
                     HStack(spacing: 8) {
                         if reduceMotion {
                             Image(systemName: "hourglass")
@@ -389,5 +445,56 @@ private struct ConversationTasksPopover: View {
         }
         .padding(14)
         .frame(width: 300, alignment: .leading)
+    }
+}
+
+private extension PendingApproval {
+    var isActionable: Bool {
+        switch self {
+        case .permission, .question, .plan: true
+        case .loading, .unrepresentable: false
+        }
+    }
+}
+
+private struct ConversationBottomBar: View {
+    let model: ConversationModel
+    let since: Date?
+    let isWorking: Bool
+    let isActive: Bool
+    let isAtBottom: Bool
+    let approval: PendingApproval?
+    let waiting: (waitingFor: String?, since: Double?)?
+    @Binding var composerFocus: Int
+    let jump: () -> Void
+    let answer: (RemoteKey) -> Void
+    let deny: () -> Void
+
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ConversationStatusBar(since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
+            if let approval, approval.isActionable || approval == .loading {
+                ConversationApprovalCard(
+                    approval: approval,
+                    since: waiting?.since.map { Date(timeIntervalSince1970: $0 / 1000) },
+                    answer: answer,
+                    deny: deny,
+                    declineWithMessage: { composerFocus += 1 },
+                    showTerminal: { AppAction.showTerminal.perform(on: store) }
+                )
+                .transition(.blurReplace)
+            }
+            ConversationComposer(model: model, isWorking: isWorking, waiting: waiting, context: model.context, focusRequest: composerFocus)
+        }
+        .frame(maxWidth: 780)
+        .padding(.horizontal, 28)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity)
+        .animation(.smooth, value: isAtBottom)
+        .animation(.smooth, value: model.tasks.count)
+        .animation(.smooth, value: isActive)
+        .animation(.smooth, value: approval)
     }
 }

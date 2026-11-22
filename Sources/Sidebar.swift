@@ -1500,7 +1500,7 @@ private struct StatusSlot: View {
     }
 }
 
-private struct ContextRing: View {
+struct ContextRing: View {
     let context: SessionContext
     let window: Int
     @Environment(\.ghosttyTheme) private var theme
@@ -1522,7 +1522,7 @@ private struct ContextRing: View {
     }
 }
 
-private func tokenCount(_ tokens: Int) -> String {
+func tokenCount(_ tokens: Int) -> String {
     if tokens < 1000 { return "\(tokens)" }
     if tokens < 1_000_000 { return "\((tokens + 500) / 1000)k" }
     return "\((Double(tokens) / 1_000_000).formatted(.number.precision(.fractionLength(0...1))))M"

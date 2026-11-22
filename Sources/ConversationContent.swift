@@ -398,7 +398,7 @@ struct ConversationToolRow: View {
     }
 }
 
-private struct ConversationDiff: View {
+struct ConversationDiff: View {
     let rows: [ToolDiffRow]
     let language: String?
     let isExpanded: Bool

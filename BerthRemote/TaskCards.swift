@@ -19,7 +19,7 @@ struct TaskCard: View {
         let foregroundDuration = call.result?.date.flatMap { end in call.use.date.map { end.timeIntervalSince($0) } }.flatMap { $0 > 0 && !call.isAsyncLaunch && isAgent ? $0 : nil }
 
         let card = HStack(alignment: .top, spacing: 12) {
-            Image(systemName: live == .waiting(call.id) ? "hand.raised" : isError ? "xmark.circle" : isAgent ? "person.2" : "terminal")
+            Image(systemName: live == .waiting(call.id) ? "exclamationmark.circle.fill" : isError ? "xmark.circle" : isAgent ? "person.2" : "terminal")
                 .font(.body)
                 .foregroundStyle(live == .waiting(call.id) ? .orange : isError ? .red : isRunning ? .green : .secondary)
                 .frame(width: 24)

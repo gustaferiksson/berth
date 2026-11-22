@@ -412,7 +412,7 @@ private struct ToolCallRow: View {
                         ProgressView()
                             .controlSize(.small)
                     } else if case .waiting = live {
-                        Image(systemName: "hand.raised")
+                        Image(systemName: "exclamationmark.circle.fill")
                             .foregroundStyle(.orange)
                     } else {
                         Image(systemName: isError ? "xmark.circle" : call.kind.icon)
