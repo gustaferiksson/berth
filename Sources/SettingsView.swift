@@ -23,8 +23,8 @@ struct SettingsView: View {
     private var tab: Binding<SettingsTab> {
         Binding {
             SettingsTab(rawValue: storedTab) ?? (storedTab == "appearance" ? .sidebar : .general)
-        } set: {
-            storedTab = $0.rawValue
+        } set: { newTab in
+            storedTab = newTab.rawValue
         }
     }
 }
