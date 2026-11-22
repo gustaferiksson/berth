@@ -2,6 +2,7 @@ import BerthCore
 import Darwin
 
 let arguments = CommandLine.arguments
+
 guard arguments.count >= 4,
       let socketPath = try? SessionHost.socketPath(directory: arguments[2], id: arguments[3])
 else {
@@ -18,14 +19,18 @@ case ("new", 5), ("start", 5):
         exit(1)
     }
     exit(arguments[1] == "new" ? SessionHost.attach(socketPath: socketPath) : 0)
+
 case ("attach", 4):
     exit(SessionHost.attach(socketPath: socketPath))
+
 case ("close", 4):
     SessionHost.hangUp(socketPath: socketPath)
+
 case ("probe", 4):
     guard let found = SessionHost.probe(socketPath: socketPath) else { exit(1) }
 
     print("host \(found.host) child \(found.child)")
+
 default:
     fputs("berth-host: unknown command\n", stderr)
     exit(2)

@@ -1,9 +1,10 @@
 import Darwin
 import Foundation
 
-@_silgen_name("forkpty") private func rawForkpty(_ master: UnsafeMutablePointer<Int32>, _ name: UnsafeMutablePointer<CChar>?, _ term: UnsafePointer<termios>?, _ window: UnsafePointer<winsize>?) -> Int32
+@_silgen_name("forkpty")
+private func rawForkpty(_ master: UnsafeMutablePointer<Int32>, _ name: UnsafeMutablePointer<CChar>?, _ term: UnsafePointer<termios>?, _ window: UnsafePointer<winsize>?) -> Int32
 
-nonisolated(unsafe) private var terminationRequested: sig_atomic_t = 0
+private nonisolated(unsafe) var terminationRequested: sig_atomic_t = 0
 
 public enum SessionHostServer {
     private final class Client {
@@ -16,11 +17,6 @@ public enum SessionHostServer {
         init(descriptor: Int32) {
             self.descriptor = descriptor
         }
-    }
-
-    private enum HangUp {
-        case none
-        case since(Date)
     }
 
     /// Owns one pty and its child until the child exits. Single-threaded poll loop; returns the child's status.
@@ -48,9 +44,9 @@ public enum SessionHostServer {
         var ring = ScrollbackRing(capacity: SessionHost.ringCapacity)
         var clients: [Client] = []
         var pendingInput: [UInt8] = []
-        var hangUp = HangUp.none
+        var hangUpStart: Date?
         var status: Int32?
-        var buffer = [UInt8](repeating: 0, count: 65536)
+        var buffer = [UInt8](repeating: 0, count: 65_536)
 
         func readMaster() -> Bool {
             let count = buffer.withUnsafeMutableBytes { read(master, $0.baseAddress, $0.count) }
@@ -58,7 +54,7 @@ public enum SessionHostServer {
 
             let bytes = Array(buffer.prefix(count))
             ring.append(bytes)
-            clients.first { $0.isAttached }?.outbox += HostFrame.output(bytes).encoded()
+            clients.first(where: \.isAttached)?.outbox += HostFrame.output(bytes).encoded()
             return true
         }
 
@@ -78,28 +74,33 @@ public enum SessionHostServer {
                 client.isAttached = true
                 client.outbox += HostFrame.hello(host: getpid(), child: child).encoded()
                 let replay = ring.contents
-                for start in stride(from: 0, to: replay.count, by: 32768) {
-                    client.outbox += HostFrame.output(Array(replay[start..<min(start + 32768, replay.count)])).encoded()
+                for start in stride(from: 0, to: replay.count, by: 32_768) {
+                    client.outbox += HostFrame.output(Array(replay[start..<min(start + 32_768, replay.count)])).encoded()
                 }
                 setWindow(cols: cols, rows: rows + 1)
-                usleep(20000)
+                poll(nil, 0, 20)
                 setWindow(cols: cols, rows: rows)
+
             case let .input(bytes) where client.isAttached:
                 pendingInput += bytes
+
             case let .resize(cols, rows) where client.isAttached:
                 setWindow(cols: cols, rows: rows)
+
             case .hangUp:
-                if case .none = hangUp { hangUp = .since(.now) }
+                if hangUpStart == nil { hangUpStart = .now }
+
             case .probe:
                 client.outbox += HostFrame.hello(host: getpid(), child: child).encoded()
                 client.closesWhenFlushed = true
+
             default:
                 break
             }
         }
 
         while true {
-            if terminationRequested != 0, case .none = hangUp { hangUp = .since(.now) }
+            if terminationRequested != 0, hangUpStart == nil { hangUpStart = .now }
             if status == nil {
                 var raw: Int32 = 0
                 if waitpid(child, &raw, WNOHANG) == child { status = raw & 0x7F == 0 ? (raw >> 8) & 0xFF : 128 + (raw & 0x7F) }
@@ -109,7 +110,7 @@ public enum SessionHostServer {
                 finish(status: status, clients: clients, socketPath: socketPath)
                 return status
             }
-            if case let .since(start) = hangUp {
+            if let start = hangUpStart {
                 let elapsed = Date.now.timeIntervalSince(start)
                 let signalNumber = elapsed < 1 ? SIGHUP : elapsed < 3 ? SIGTERM : SIGKILL
                 let foreground = tcgetpgrp(master)

@@ -9,12 +9,14 @@ struct GeneralSettings: View {
     static let worktreeKey = "startsInWorktree"
     static let languageServersKey = "languageServersEnabled"
     static let codexKey = "codexEnabled"
+    static let keepsSessionsRunningKey = "keepsSessionsRunning"
 
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
     @Environment(Store.self) private var store
     @AppStorage(worktreeKey) private var startsInWorktree = false
     @AppStorage(codexKey) private var isCodexEnabled = false
+    @AppStorage(keepsSessionsRunningKey) private var keepsSessionsRunning = false
 
     var body: some View {
         Form {
@@ -32,6 +34,13 @@ struct GeneralSettings: View {
                 Text("Agents")
             } footer: {
                 Text("Lists interactive Codex sessions from ~/.codex beside Claude's and resumes them in a tab. Hold ⌥⇧ in the launcher to start a new one. Status, needs-you alerts and the Conversation view are Claude only for now.")
+            }
+            Section {
+                Toggle("Keep sessions running when Berth quits", isOn: $keepsSessionsRunning)
+            } header: {
+                Text("Quitting")
+            } footer: {
+                Text("New tabs run behind a small background helper, so quitting or updating Berth leaves shells and agents running and relaunching reattaches them. Closing a tab or unloading an idle session still ends it. Applies to tabs opened after you turn it on.")
             }
             Section {
                 Picker("Unload idle sessions after", selection: $unloadIdleAfter) {
@@ -54,6 +63,6 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 560)
+        .frame(height: 650)
     }
 }

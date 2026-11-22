@@ -1,7 +1,8 @@
 import Darwin
 import Foundation
 
-@_silgen_name("fork") private func rawFork() -> Int32
+@_silgen_name("fork")
+private func rawFork() -> Int32
 
 public final class HostConnection {
     private let descriptor: Int32
@@ -47,7 +48,7 @@ public final class HostConnection {
         var poller = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
         guard poll(&poller, 1, Int32(timeout * 1000)) > 0 else { return [] }
 
-        var buffer = [UInt8](repeating: 0, count: 65536)
+        var buffer = [UInt8](repeating: 0, count: 65_536)
         let count = buffer.withUnsafeMutableBytes { read(descriptor, $0.baseAddress, $0.count) }
         if count < 0, errno == EINTR || errno == EAGAIN { return [] }
         guard count > 0 else { return nil }
@@ -76,6 +77,18 @@ public enum SessionHost {
         }
         address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
         return address
+    }
+
+    public static func newCommand(tool: String, directory: String, id: String, command: String) -> String {
+        [quoted(tool), "new", quoted(directory), id, quoted(command)].joined(separator: " ")
+    }
+
+    public static func attachCommand(tool: String, directory: String, id: String) -> String {
+        [quoted(tool), "attach", quoted(directory), id].joined(separator: " ")
+    }
+
+    private static func quoted(_ text: String) -> String {
+        "'" + text.replacing("'", with: "'\\''") + "'"
     }
 
     public static func probe(socketPath: String) -> (host: Int32, child: Int32)? {
@@ -132,7 +145,7 @@ public enum SessionHost {
         for _ in 0..<250 {
             if probe(socketPath: path) != nil { return }
 
-            usleep(20000)
+            poll(nil, 0, 20)
         }
         throw SessionHostError.startTimedOut
     }
@@ -173,7 +186,6 @@ public enum SessionHost {
                 }
             }
             guard poller[1].revents != 0 else { continue }
-
             guard let frames = try? connection.receive(timeout: 0) else { return 1 }
 
             for frame in frames {

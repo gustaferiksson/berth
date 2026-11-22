@@ -49,19 +49,27 @@ public enum HostFrame: Equatable, Sendable {
             guard payload[0] == version else { throw SessionHostError.unsupportedVersion(payload[0]) }
 
             return .attach(cols: UInt16(truncatingIfNeeded: integer(payload[1..<3])), rows: UInt16(truncatingIfNeeded: integer(payload[3..<5])))
+
         case .input: return .input(payload)
+
         case .resize:
             guard payload.count == 4 else { throw SessionHostError.malformedFrame }
 
             return .resize(cols: UInt16(truncatingIfNeeded: integer(payload[0..<2])), rows: UInt16(truncatingIfNeeded: integer(payload[2..<4])))
+
         case .hangUp: return .hangUp
+
         case .probe: return .probe
+
         case .output: return .output(payload)
+
         case .exit:
             guard payload.count == 4 else { throw SessionHostError.malformedFrame }
 
             return .exit(Int32(bitPattern: UInt32(truncatingIfNeeded: integer(payload[0..<4]))))
+
         case .replaced: return .replaced
+
         case .hello:
             guard payload.count == 8 else { throw SessionHostError.malformedFrame }
 
@@ -96,7 +104,7 @@ public struct HostFrameDecoder {
             guard length <= HostFrame.maxPayload else { throw SessionHostError.malformedFrame }
             guard buffer.count - offset >= 5 + length else { break }
 
-            frames.append(try HostFrame.decode(kind: buffer[offset], payload: Array(buffer[(offset + 5)..<(offset + 5 + length)])))
+            try frames.append(HostFrame.decode(kind: buffer[offset], payload: Array(buffer[(offset + 5)..<(offset + 5 + length)])))
             offset += 5 + length
         }
         buffer.removeFirst(offset)

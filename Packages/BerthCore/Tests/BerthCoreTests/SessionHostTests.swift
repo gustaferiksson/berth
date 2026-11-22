@@ -5,7 +5,7 @@ import Testing
 
 struct SessionHostTests {
     @Test func framesSurviveSplitReads() throws {
-        let frames: [HostFrame] = [.attach(cols: 120, rows: 40), .input([1, 2, 3]), .resize(cols: 80, rows: 24), .hangUp, .probe, .output(Array(repeating: 7, count: 70000)), .exit(-9), .replaced, .hello(host: 1234, child: 5678)]
+        let frames: [HostFrame] = [.attach(cols: 120, rows: 40), .input([1, 2, 3]), .resize(cols: 80, rows: 24), .hangUp, .probe, .output(Array(repeating: 7, count: 70_000)), .exit(-9), .replaced, .hello(host: 1234, child: 5678)]
         let stream = frames.flatMap { $0.encoded() }
         var decoder = HostFrameDecoder()
         var decoded: [HostFrame] = []
@@ -81,7 +81,7 @@ struct SessionHostTests {
 
         let id = UUID().uuidString
         try Self.start(directory: directory, id: id, command: "sleep 1; exit 3")
-        let connection = try HostConnection(socketPath: try SessionHost.socketPath(directory: directory, id: id))
+        let connection = try HostConnection(socketPath: SessionHost.socketPath(directory: directory, id: id))
         connection.send(.attach(cols: 80, rows: 24))
 
         var status: Int32?
@@ -135,7 +135,7 @@ struct SessionHostTests {
         for _ in 0..<100 {
             if condition() { return true }
 
-            usleep(50000)
+            poll(nil, 0, 50)
         }
         return false
     }
