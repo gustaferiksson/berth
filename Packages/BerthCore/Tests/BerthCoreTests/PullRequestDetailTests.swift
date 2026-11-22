@@ -3,14 +3,14 @@ import Foundation
 import Testing
 
 struct PullRequestDetailTests {
-    @Test func countsChecksByOutcomeAndOpenThreads() {
-        let output = #"{"data":{"repository":{"pullRequest":{"statusCheckRollup":{"state":"PENDING","contexts":{"checkRunCountsByState":[{"state":"SUCCESS","count":4},{"state":"SKIPPED","count":1},{"state":"FAILURE","count":1},{"state":"CANCELLED","count":1},{"state":"IN_PROGRESS","count":2},{"state":"QUEUED","count":1},{"state":"BRAND_NEW_STATE","count":1},{"state":"TIMED_OUT","count":0}],"statusContextCountsByState":[{"state":"SUCCESS","count":1},{"state":"ERROR","count":1},{"state":"PENDING","count":1}]}},"reviewThreads":{"nodes":[{"isResolved":false},{"isResolved":true},null,{"isResolved":false}]}}}}}"#
-        #expect(PullRequestDetail.parse(Data(output.utf8)) == PullRequestDetail(checks: PullRequestChecks(state: .running, passed: 6, failed: 3, running: 5), unresolvedThreads: 2))
+    @Test func countsChecksByOutcome() {
+        let output = #"{"data":{"repository":{"pullRequest":{"statusCheckRollup":{"state":"PENDING","contexts":{"checkRunCountsByState":[{"state":"SUCCESS","count":4},{"state":"SKIPPED","count":1},{"state":"FAILURE","count":1},{"state":"CANCELLED","count":1},{"state":"IN_PROGRESS","count":2},{"state":"QUEUED","count":1},{"state":"BRAND_NEW_STATE","count":1},{"state":"TIMED_OUT","count":0}],"statusContextCountsByState":[{"state":"SUCCESS","count":1},{"state":"ERROR","count":1},{"state":"PENDING","count":1}]}},"reviewThreads":{"nodes":[]}}}}}"#
+        #expect(PullRequestDetail.parse(Data(output.utf8))?.checks == PullRequestChecks(state: .running, passed: 6, failed: 3, running: 5))
     }
 
     @Test func pullRequestWithoutChecks() {
         let output = #"{"data":{"repository":{"pullRequest":{"statusCheckRollup":null,"reviewThreads":{"nodes":[]}}}}}"#
-        #expect(PullRequestDetail.parse(Data(output.utf8)) == PullRequestDetail(checks: nil, unresolvedThreads: 0))
+        #expect(PullRequestDetail.parse(Data(output.utf8)) == PullRequestDetail(checks: nil, id: nil, threads: []))
     }
 
     @Test func rollupStates() {

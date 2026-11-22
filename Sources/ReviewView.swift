@@ -54,9 +54,12 @@ final class ReviewModel {
     var showsCommentList = false
     var showsFiles = false
     var reveal: (document: ReviewDocument, range: LanguageServerRange)?
+    var revealLine: (document: ReviewDocument, line: Int, side: ReviewComment.Side)?
     var changeStep: Int?
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
+    var replyDrafts: [String: String] = [:]
+    private(set) var isWritingPullRequest = false
     let preview = ReviewPreviewModel()
     var editingComment: String?
     var notice: String?
@@ -74,6 +77,7 @@ final class ReviewModel {
     @ObservationIgnored private var commitSelection = 0
     @ObservationIgnored private(set) var loadCount = 0
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
+    @ObservationIgnored private var pullRequestDetailsLoadedAt: [Int: (repository: String, date: Date)] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
     @ObservationIgnored private var savedFromCommitted: Set<String> = []
 
@@ -227,6 +231,7 @@ final class ReviewModel {
     }
 
     func open(_ document: ReviewDocument) {
+        revealLine = nil
         onOpen()
         if let shown = tabs.first(where: { $0.document == document }) {
             selectedTabID = shown.id
@@ -281,9 +286,63 @@ final class ReviewModel {
         ReviewDocument(path: path, compare: changes?.uncommitted.contains { $0.path == path } == true ? .uncommitted : nil)
     }
 
-    func loadPullRequestDetail(repository: String, number: Int) async {
+    func open(_ thread: ReviewThread) {
+        let document = changes?.committed.contains { $0.path == thread.path } == true ? ReviewDocument(path: thread.path, compare: .committed) : workingDocument(thread.path)
+        reveal = nil
+        open(document)
+        revealLine = thread.line.map { (document, $0, thread.side) }
+    }
+
+    func loadPullRequestDetail(repository: String, number: Int, throttled: Bool = false) async {
+        let lastLoad = pullRequestDetailsLoadedAt[number]
+        if let lastLoad, lastLoad.repository == repository {
+            guard !throttled || lastLoad.date.timeIntervalSinceNow <= -60 else { return }
+        } else {
+            pullRequestDetails[number] = nil
+        }
+
+        let started = Date.now
+        pullRequestDetailsLoadedAt[number] = (repository, started)
         let detail = Snapshot.output != nil ? Snapshot.fixturePullRequestDetail : await Task.detached { PullRequestStatus.detail(repository: repository, number: number) }.value
-        if let detail { pullRequestDetails[number] = detail }
+        if let detail, pullRequestDetailsLoadedAt[number]?.date == started, pullRequestDetailsLoadedAt[number]?.repository == repository {
+            pullRequestDetails[number] = detail
+            pullRequestDetailsLoadedAt[number] = (repository, .now)
+        }
+    }
+
+    func sendReply(repository: String, number: Int, threadID: String, body: String) async -> Bool {
+        guard !isWritingPullRequest else { return false }
+
+        isWritingPullRequest = true
+        defer { isWritingPullRequest = false }
+        guard Snapshot.output == nil,
+              await Task.detached(operation: { PullRequestStatus.reply(repository: repository, threadID: threadID, body: body) }).value
+        else {
+            notice = "Couldn’t add reply to the pending review"
+            return false
+        }
+
+        await loadPullRequestDetail(repository: repository, number: number)
+        replyDrafts[threadID] = nil
+        return true
+    }
+
+    func sendToPullRequest(_ comment: ReviewComment, repository: String, number: Int) async {
+        guard !isWritingPullRequest, comment.element == nil, comments.contains(comment) else { return }
+
+        isWritingPullRequest = true
+        defer { isWritingPullRequest = false }
+        guard Snapshot.output == nil, pullRequestDetailsLoadedAt[number]?.repository == repository,
+              let pullRequestID = pullRequestDetails[number]?.id,
+              await Task.detached(operation: { PullRequestStatus.addThread(pullRequestID: pullRequestID, comment: comment) }).value
+        else {
+            notice = "Couldn’t add comment to the pending review"
+            return
+        }
+
+        comments.removeAll { $0 == comment }
+        await loadPullRequestDetail(repository: repository, number: number)
+        notice = "Added to your pending review on GitHub"
     }
 
     func loadSelectedContents() async {
@@ -398,6 +457,35 @@ final class ReviewModel {
     }
 }
 
+private extension Store {
+    func shownReviewPullRequest(for model: ReviewModel, sessionID: String, root: String?) -> (repository: String, pullRequest: PullRequest?)? {
+        guard let branch = model.changes?.branch else { return nil }
+
+        let looked: (repository: String, pullRequest: PullRequest?)? = if let root {
+            pullRequestBranch(inRoot: root, branch: branch).flatMap { key in pullRequests[key].map { (key.repository, $0) } }
+        } else {
+            pullRequest(in: sessionsByID[sessionID]?.checkout ?? model.folder, branch: branch)
+        }
+        let linked = pullRequests(inRoot: root, of: sessionID, branch: branch)
+        let lookupRoot = root ?? repositoryRoot(ofSession: sessionID) ?? model.folder
+        guard looked?.pullRequest == nil, let first = linked.first(where: { [.open, .draft].contains($0.state) }) ?? linked.first,
+              let repository = pullRequestBranch(inRoot: lookupRoot, branch: branch)?.repository else { return looked }
+
+        return (repository, first)
+    }
+
+    @discardableResult
+    func sendReviewPrompt(_ prompt: String, sessionID: String, noticeIn model: ReviewModel) -> Bool {
+        guard liveBySession[sessionID] != nil, let terminal = tab(forSession: sessionID)?.terminal, terminal.paste(text: prompt) else {
+            model.notice = "Claude isn’t running in this tab; comments kept"
+            return false
+        }
+
+        terminal.requestFocus()
+        return true
+    }
+}
+
 struct ReviewPanel: View {
     @Environment(Store.self) private var store
 
@@ -422,6 +510,7 @@ private struct ReviewFileList: View {
     @AppStorage("reviewBottomPane") private var storedBottomPane = ReviewBottomPane.files
     @State private var bottomPaneOverride: ReviewBottomPane?
     @FocusState private var focusedList: String?
+    @State private var threadSectionScroll: String?
 
     private var bottomPane: Binding<ReviewBottomPane> {
         Binding {
@@ -458,7 +547,19 @@ private struct ReviewFileList: View {
             .task(id: selection) { await (store.reviewModel ?? model).loadSelectedContents() }
             .task(id: extraStates) { for extra in extras { await prepare(extra.repository, extra.model) } }
             .task(id: model.changes.flatMap { shownPullRequest(root: nil, branch: $0.branch)?.pullRequest?.number }) { await loadPullRequestDetail() }
-            .alert("Review", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } }), presenting: model.notice) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                Task {
+                    for owner in owners {
+                        guard let branch = owner.model.changes?.branch,
+                              let shown = shownPullRequest(root: owner.repository?.root, branch: branch),
+                              let number = shown.pullRequest?.number
+                        else { continue }
+
+                        await owner.model.loadPullRequestDetail(repository: shown.repository, number: number, throttled: true)
+                    }
+                }
+            }
+            .alert("Review", isPresented: Binding(get: { noticeOwner != nil }, set: { if !$0 { noticeOwner?.notice = nil } }), presenting: noticeOwner?.notice) { _ in
             } message: { notice in
                 Text(notice)
             }
@@ -521,6 +622,12 @@ private struct ReviewFileList: View {
                 .environment(\.sidebarRowSize, .small)
                 .scrollContentBackground(.hidden)
                 .scrollEdgeEffectStyle(.soft, for: .top)
+                .onChange(of: threadSectionScroll) { _, section in
+                    guard name == "review", let section else { return }
+
+                    proxy.scrollTo(section, anchor: .top)
+                    threadSectionScroll = nil
+                }
                 .onChange(of: [workingPath, model.filesReveal], initial: true) {
                     guard reveals, let path = model.filesReveal ?? (model.showsFiles ? workingPath : nil) else { return }
 
@@ -642,16 +749,15 @@ private struct ReviewFileList: View {
     }
 
     private func shownPullRequest(root: String?, branch: String) -> (repository: String, pullRequest: PullRequest?)? {
-        let looked = root.map { extraPullRequest($0, branch) } ?? pullRequest
-        let linked = store.pullRequests(inRoot: root, of: sessionID, branch: branch)
-        guard looked?.pullRequest == nil, let first = linked.first(where: { [.open, .draft].contains($0.state) }) ?? linked.first, let repository = store.pullRequestBranch(inRoot: root ?? ownRoot, branch: branch)?.repository else { return looked }
+        let target = root.flatMap { store.reviewModels[Store.reviewKey(sessionID, root: $0)] } ?? model
+        guard target.changes?.branch == branch else { return nil }
 
-        return (repository, first)
+        return store.shownReviewPullRequest(for: target, sessionID: sessionID, root: root)
     }
 
     private func branchCard(_ changes: ReviewChanges, _ status: ReviewBranchStatus) -> some View {
         let shown = shownPullRequest(root: nil, branch: changes.branch)
-        return ReviewBranchCard(changes: changes, status: status, pullRequest: shown.map(\.pullRequest), detail: shown?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest, showsCommits: Bindable(model).showsCommits)
+        return ReviewBranchCard(changes: changes, status: status, pullRequest: shown.map(\.pullRequest), detail: shown?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest, showThreads: { showThreadSection(ownRoot) }, showsCommits: Bindable(model).showsCommits)
     }
 
     private var allExtras: [(repository: ReviewRepository, model: ReviewModel)] {
@@ -672,16 +778,12 @@ private struct ReviewFileList: View {
         [(model, nil)] + allExtras.map { ($0.model, $0.repository) }
     }
 
+    private var noticeOwner: ReviewModel? { owners.first { $0.model.notice != nil }?.model }
+
     private var isStacked: Bool { store.task(containing: sessionID) != nil || !extras.isEmpty }
 
     private var extraStates: [String] {
         extras.map { "\($0.repository.root)|\($0.model.changes?.branch ?? "")|\(store.pullRequests(inRoot: $0.repository.root, of: sessionID, branch: $0.model.changes?.branch).map { "\($0.number)\($0.baseRefName ?? "")" })" }
-    }
-
-    private func extraPullRequest(_ root: String, _ branch: String) -> (repository: String, pullRequest: PullRequest?)? {
-        guard let key = store.pullRequestBranch(inRoot: root, branch: branch), let found = store.pullRequests[key] else { return nil }
-
-        return (key.repository, found)
     }
 
     private func prepare(_ repository: ReviewRepository, _ model: ReviewModel) async {
@@ -729,7 +831,7 @@ private struct ReviewFileList: View {
 
     private func extraCard(_ extra: (repository: ReviewRepository, model: ReviewModel), _ changes: ReviewChanges) -> some View {
         let found = shownPullRequest(root: extra.repository.root, branch: changes.branch)
-        return ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil, showsCommits: Bindable(extra.model).showsCommits)
+        return ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil, showThreads: { showThreadSection(extra.repository.root) }, showsCommits: Bindable(extra.model).showsCommits)
     }
 
     private var ownRoot: String { store.repositoryRoot(ofSession: sessionID) ?? model.folder }
@@ -803,6 +905,7 @@ private struct ReviewFileList: View {
 
     @ViewBuilder
     private func stackedRows(_ changes: ReviewChanges, in model: ReviewModel, root: String?) -> some View {
+        threadSection(in: model, root: root)
         if changes.uncommitted.isEmpty, changes.committed.isEmpty, !changes.isDefaultBranch, let base = changes.base {
             Text("No changes, \(changes.branch) matches \(base)")
                 .foregroundStyle(theme.secondary)
@@ -903,7 +1006,14 @@ private struct ReviewFileList: View {
     private func changesList(_ changes: ReviewChanges?) -> some View {
         list(name: "review", order: changeOrder(changes)) {
             pullRequestSection(changes)
-            if let shownRepo { repoRows(shownRepo) } else if isStacked { stackedSections(changes) } else if let changes { changeSections(changes) }
+            if let shownRepo {
+                repoRows(shownRepo)
+            } else if isStacked {
+                stackedSections(changes)
+            } else if let changes {
+                threadSection(in: model, root: nil)
+                changeSections(changes)
+            }
         }
         .id(changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
         .id([shownRepo] + extras.map(\.repository.root))
@@ -952,6 +1062,24 @@ private struct ReviewFileList: View {
         }
     }
 
+    private func showThreadSection(_ root: String) {
+        expansion(of: "reviewThreads").wrappedValue = true
+        threadSectionScroll = "reviewThreads:" + root
+    }
+
+    @ViewBuilder
+    private func threadSection(in model: ReviewModel, root: String?) -> some View {
+        if let shown = store.shownReviewPullRequest(for: model, sessionID: sessionID, root: root)?.pullRequest,
+           let detail = model.pullRequestDetails[shown.number], !detail.threads.isEmpty {
+            let expanded = expansion(of: "reviewThreads")
+            GroupHeader(title: "Review Threads", help: "Threads on the pull request", count: detail.threads.count, isExpanded: expanded) { EmptyView() } accessory: { _ in EmptyView() }
+                .id("reviewThreads:" + (root ?? ownRoot))
+            if expanded.wrappedValue {
+                ReviewThreadRows(threads: detail.threads, open: model.open)
+            }
+        }
+    }
+
     @ViewBuilder private var commentsBar: some View {
         if commentCount > 0 {
             VStack(spacing: 0) {
@@ -992,6 +1120,7 @@ private struct ReviewFileList: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(owners.flatMap { owner in owner.model.comments.map { (owner: owner, comment: $0) } }, id: \.comment.id) { owner, comment in
+                    let target = store.shownReviewPullRequest(for: owner.model, sessionID: sessionID, root: owner.repository?.root)
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(comment.element.map { "Preview \($0.selector)" } ?? "\(owner.repository.map { "\($0.name):" } ?? "")\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")\(comment.compare == .committed ? ", committed" : "")")
@@ -1009,6 +1138,17 @@ private struct ReviewFileList: View {
                             .labelStyle(.iconOnly)
                             .buttonStyle(.borderless)
                             .help(comment.element == nil ? "Open in the diff" : "Open Preview")
+                        if comment.element == nil {
+                            Button("Add to Pull Request Review", systemImage: "arrow.triangle.pull") {
+                                guard let target, let number = target.pullRequest?.number else { return }
+
+                                Task { await owner.model.sendToPullRequest(comment, repository: target.repository, number: number) }
+                            }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .disabled(owner.model.isWritingPullRequest || target?.pullRequest.flatMap { owner.model.pullRequestDetails[$0.number]?.id } == nil)
+                            .help("Add to your pending review, then submit the review on GitHub")
+                        }
                         Button("Delete Comment", systemImage: "xmark") {
                             owner.model.comments.removeAll { $0.id == comment.id }
                         }
@@ -1130,13 +1270,9 @@ private struct ReviewFileList: View {
         let prompt = owners.filter { !$0.model.comments.isEmpty }.map { owner in
             ReviewComment.prompt(for: owner.model.comments, branch: owner.model.changes?.branch ?? "HEAD", base: owner.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base } ?? "HEAD", repository: owner.repository.map { ($0.name, $0.root) })
         }.joined(separator: "\n\n")
-        guard store.liveBySession[sessionID] != nil, let terminal = store.tab(forSession: sessionID)?.terminal, terminal.paste(text: prompt) else {
-            model.notice = "Claude isn’t running in this tab; comments kept"
-            return
-        }
+        guard store.sendReviewPrompt(prompt, sessionID: sessionID, noticeIn: model) else { return }
 
         for owner in owners { owner.model.comments = [] }
-        terminal.requestFocus()
     }
 
     private func createPullRequest() {
@@ -1305,6 +1441,83 @@ private struct ReviewFileNode: View {
     }
 }
 
+private struct ReviewThreadRows: View {
+    let threads: [ReviewThread]
+    let open: (ReviewThread) -> Void
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        let groups = Dictionary(grouping: threads, by: \.path)
+        ForEach(groups.keys.sorted(), id: \.self) { path in
+            let file = path as NSString
+            let group = groups[path, default: []]
+            HStack(spacing: 5) {
+                Text(file.lastPathComponent).bold()
+                if !file.deletingLastPathComponent.isEmpty {
+                    Text(file.deletingLastPathComponent)
+                        .foregroundStyle(theme.secondary)
+                        .truncationMode(.middle)
+                }
+            }
+            .font(.caption)
+            .lineLimit(1)
+            .accessibilityAddTraits(.isHeader)
+            .help(path)
+            .reviewRow(top: 5, bottom: 2)
+            ForEach(group.filter { !$0.isResolved } + group.filter(\.isResolved)) { thread in
+                Button { open(thread) } label: {
+                    row(thread)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help(thread.line.map { "Open \(path) at line \($0)" } ?? "Open \(path)")
+                .reviewRow(top: 4, bottom: 4)
+            }
+        }
+    }
+
+    private func row(_ thread: ReviewThread) -> some View {
+        let first = thread.comments.first
+        let author = first?.author ?? "Unknown author"
+        let tint = thread.isResolved ? theme.secondary : theme.branch
+        return HStack(alignment: .top, spacing: 7) {
+            Text(String(author.prefix(1)).uppercased())
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(tint)
+                .frame(width: 22, height: 22)
+                .background(tint.opacity(0.16), in: .circle)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(author).fontWeight(.semibold).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text("^[\(max(0, thread.comments.count - 1)) reply](inflect: true)")
+                        .monospacedDigit()
+                        .foregroundStyle(theme.secondary)
+                    if thread.isResolved {
+                        Image(systemName: "checkmark.circle")
+                            .foregroundStyle(theme.working)
+                            .accessibilityLabel("Resolved")
+                            .help("Resolved")
+                    }
+                    if thread.isOutdated {
+                        Text("Outdated")
+                            .foregroundStyle(theme.needsYou)
+                            .padding(.horizontal, 4)
+                            .background(theme.needsYou.opacity(0.16), in: .rect(cornerRadius: 4))
+                    }
+                }
+                .font(.caption)
+                Text(first?.body.split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: \.isNewline).first.map(String.init) ?? "")
+                    .font(.callout)
+                    .foregroundStyle(theme.secondary)
+                    .lineLimit(2)
+            }
+        }
+    }
+}
+
 private struct PullRequestStatePill: View {
     let pullRequest: PullRequest
     @Environment(\.ghosttyTheme) private var theme
@@ -1336,12 +1549,14 @@ private struct ReviewBranchCard: View {
     let detail: PullRequestDetail?
     let isClaudeLive: Bool
     let createPullRequest: (() -> Void)?
+    let showThreads: () -> Void
     @Binding var showsCommits: Bool
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
 
     var body: some View {
         let found = pullRequest ?? nil
+        let decision = detail?.reviewDecision.flatMap(InboxPullRequest.ReviewDecision.init(rawValue:)) ?? found?.reviewDecision
         VStack(alignment: .leading, spacing: 10) {
             if found == nil, changes.isDefaultBranch || changes.base == nil {
                 Text(changes.uncommitted.isEmpty ? "No uncommitted changes on \(changes.branch)" : "Uncommitted changes on \(changes.branch)")
@@ -1360,6 +1575,13 @@ private struct ReviewBranchCard: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if found != nil {
+                    if detail != nil || decision != nil {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 8) { reviewStatus(decision) }
+                            VStack(alignment: .leading, spacing: 4) { reviewStatus(decision) }
+                        }
+                        .font(.caption)
+                    }
                     checksRow
                 } else {
                     ViewThatFits(in: .horizontal) {
@@ -1433,40 +1655,73 @@ private struct ReviewBranchCard: View {
         }
     }
 
-    @ViewBuilder private var checksRow: some View {
-        if detail?.checks != nil || changes.total != nil {
-            HStack(spacing: 12) {
-                if let checks = detail?.checks {
-                    HStack(spacing: 12) {
-                        if checks.passed > 0 {
-                            Label("\(checks.passed)", systemImage: "checkmark.circle.fill").foregroundStyle(theme.working)
-                        }
-                        if checks.failed > 0 {
-                            Label("\(checks.failed)", systemImage: "xmark.circle.fill").foregroundStyle(theme.closed)
-                        }
-                        if checks.running > 0 {
-                            Label("\(checks.running)", systemImage: "clock.fill").foregroundStyle(theme.needsYou)
-                        }
-                        if let detail {
-                            Label("\(detail.unresolvedThreads)", systemImage: "bubble.left").foregroundStyle(Color.secondary)
-                                .help("Unresolved review threads")
-                        }
-                    }
+    @ViewBuilder
+    private func reviewStatus(_ decision: InboxPullRequest.ReviewDecision?) -> some View {
+        if let decision {
+            let tag: (String, Color) = switch decision {
+            case .approved: ("Approved", theme.working)
+            case .changesRequested: ("Changes requested", theme.closed)
+            case .reviewRequired: ("Review required", theme.needsYou)
+            }
+            Text(tag.0)
+                .fontWeight(.semibold)
+                .foregroundStyle(tag.1)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(tag.1.opacity(0.16), in: .rect(cornerRadius: 4))
+        }
+        if let detail {
+            let open = detail.unresolvedThreads
+            Button(action: showThreads) {
+                Label(open == 0 ? "All resolved" : "\(open) open", systemImage: open == 0 ? "checkmark" : "bubble.left")
                     .labelStyle(CompactLabel())
-                    .font(.callout.weight(.medium))
-                    .fixedSize()
-                    .help("Checks: \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
-                }
-                Spacer(minLength: 8)
-                if let total = changes.total {
-                    Text("+\(total.additions) −\(total.deletions)")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(Color.secondary)
-                        .help("Changes against \(changes.base ?? ""), uncommitted included")
-                }
+                    .monospacedDigit()
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(open == 0 ? theme.working : theme.foreground)
+            .disabled(detail.threads.isEmpty)
+            .help(detail.threads.isEmpty ? "No review threads" : "Show Review Threads")
+        }
+    }
+
+    @ViewBuilder private var checksRow: some View {
+        if detail?.checks != nil || detail?.changedFiles != nil || detail?.commits != nil || changes.total != nil {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { pullRequestFacts }
+                VStack(alignment: .leading, spacing: 4) { pullRequestFacts }
             }
         }
+    }
+
+    @ViewBuilder private var pullRequestFacts: some View {
+        if let checks = detail?.checks {
+            HStack(spacing: 8) {
+                if checks.passed > 0 {
+                    Label("\(checks.passed)", systemImage: "checkmark.circle.fill").foregroundStyle(theme.working)
+                }
+                if checks.failed > 0 {
+                    Label("\(checks.failed)", systemImage: "xmark.circle.fill").foregroundStyle(theme.closed)
+                }
+                if checks.running > 0 {
+                    Label("\(checks.running)", systemImage: "clock.fill").foregroundStyle(theme.needsYou)
+                }
+            }
+            .labelStyle(CompactLabel())
+            .font(.callout.weight(.medium))
+            .fixedSize()
+            .help("Checks · \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
+        }
+        HStack(spacing: 6) {
+            if let files = detail?.changedFiles { Text("\(files) \(files == 1 ? "file" : "files")") }
+            if let commits = detail?.commits { Text("\(commits) \(commits == 1 ? "commit" : "commits")") }
+            if let total = changes.total {
+                Text("+\(total.additions) −\(total.deletions)")
+                    .help("Changes against \(changes.base ?? ""), uncommitted included")
+            }
+        }
+        .font(.caption)
+        .monospacedDigit()
+        .foregroundStyle(Color.secondary)
     }
 
     @ViewBuilder
@@ -1534,7 +1789,7 @@ private struct ReviewBranchCard: View {
                         .font(.system(size: 10, weight: .semibold))
                         .frame(width: 10)
                         .accessibilityHidden(true)
-                    Text("\(status.commits.count)\(status.ahead > status.commits.count ? "+" : "") \(status.commits.count == 1 ? "commit" : "commits")")
+                    Text(detail?.commits != nil ? "Commits" : "\(status.commits.count)\(status.ahead > status.commits.count ? "+" : "") \(status.commits.count == 1 ? "commit" : "commits")")
                         .font(.caption)
                     Spacer(minLength: 0)
                 }
@@ -1619,6 +1874,12 @@ struct ReviewDiffColumn: View {
             } else if let model = store.reviewModel, let tab = model.selectedTab {
                 let document = tab.document
                 let path = document.path
+                let sessionID = store.selectedSessionID
+                let root = sessionID.flatMap { store.activeReviewRoots[$0] }
+                let target = sessionID.flatMap { store.shownReviewPullRequest(for: model, sessionID: $0, root: root) }
+                let number = target?.pullRequest?.number
+                let detail = number.flatMap { model.pullRequestDetails[$0] }
+                let revealLine = model.revealLine.flatMap { $0.document == document ? (line: $0.line, side: $0.side) : nil }
                 let isReadOnly = model.isReadOnly(document)
                 VStack(spacing: 0) {
                     strip(model, tab: tab, style: style)
@@ -1636,17 +1897,42 @@ struct ReviewDiffColumn: View {
                                 model.keep(tab.id)
                             }),
                             comments: Bindable(model).comments,
+                            threads: detail?.threads.filter { $0.path == path && $0.line != nil && document.compare?.isCommit != true } ?? [],
+                            replyDrafts: Bindable(model).replyDrafts,
+                            isWritingPullRequest: model.isWritingPullRequest,
                             style: style,
                             language: areLanguageServersEnabled ? model.language : nil,
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
+                            revealLine: revealLine,
                             isUnified: isUnified || !model.selectedDocumentHasBothSides,
                             takesFocus: model.focusesEditor,
                             changeStep: model.changeStep,
                             onRevealed: { model.reveal = nil },
+                            onLineRevealed: {
+                                if let pending = model.revealLine, pending.document == document, pending.line == revealLine?.line, pending.side == revealLine?.side {
+                                    model.revealLine = nil
+                                }
+                            },
                             onChangeStepped: { model.changeStep = nil },
                             editsComment: model.editingComment,
                             onEditing: { model.editingComment = nil },
                             onDefinition: model.goToDefinition,
+                            onReply: { threadID, body in
+                                guard let target, let number else { return false }
+
+                                return await model.sendReply(repository: target.repository, number: number, threadID: threadID, body: body)
+                            },
+                            onSendThread: { thread in
+                                guard let sessionID else { return }
+
+                                let repository = root.map { (URL(filePath: $0).lastPathComponent, model.changes?.root ?? $0) }
+                                store.sendReviewPrompt(ReviewThread.prompt(for: thread, repository: repository), sessionID: sessionID, noticeIn: model)
+                            },
+                            onSendComment: detail?.id != nil ? { comment in
+                                guard let target, let number else { return }
+
+                                Task { await model.sendToPullRequest(comment, repository: target.repository, number: number) }
+                            } : nil,
                             workingText: { model.workingText(path) }
                         )
                         .id(document)
