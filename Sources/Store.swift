@@ -1598,3 +1598,9 @@ final class Store {
         for id in restoredTabIDs { tabTouches[id] = nil }
     }
 }
+
+#if DEBUG
+func releaseProbeDebugOnly() {}
+#endif
+
+func releaseProbe() { releaseProbeDebugOnly() }
