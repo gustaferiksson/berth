@@ -22,20 +22,20 @@ struct ConversationComposer: View {
         let stops = isWorking && draft.isEmpty
         let placeholder = waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message Claude"
 
-        VStack(spacing: 8) {
-            if let notice = model.notice {
-                Label(notice, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 5)
-                    .glassEffect(.regular, in: .capsule)
-                    .task(id: notice) {
-                        try? await Task.sleep(for: .seconds(8))
-                        model.notice = nil
-                    }
-            }
-            GlassEffectContainer(spacing: 8) {
+        GlassEffectContainer(spacing: 8) {
+            VStack(spacing: 8) {
+                if let notice = model.notice {
+                    Label(notice, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .glassEffect(.regular, in: .capsule)
+                        .task(id: notice) {
+                            try? await Task.sleep(for: .seconds(8))
+                            model.notice = nil
+                        }
+                }
                 VStack(alignment: .leading, spacing: 8) {
                     if !draft.files.isEmpty {
                         ScrollView(.horizontal) {
@@ -57,26 +57,31 @@ struct ConversationComposer: View {
                         attach: { model.draft.files += $0.filter { !model.draft.files.contains($0) } }
                     )
                     HStack(spacing: 8) {
-                        Menu("Attach", systemImage: "plus") {
+                        Menu {
                             Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
+                        } label: {
+                            Image(systemName: "plus")
+                                .frame(width: Self.controlHeight, height: Self.controlHeight)
+                                .background(.quaternary, in: .circle)
                         }
-                        .labelStyle(.iconOnly)
                         .menuIndicator(.hidden)
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .frame(width: Self.controlHeight, height: Self.controlHeight)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Attach")
                         .help("Attach files or images. You can also drop or paste them.")
                         if let context {
                             modelMenu(context)
                         }
                         Spacer(minLength: 0)
-                        Button(stops ? "Stop" : "Send", systemImage: stops ? "stop.fill" : "arrow.up") {
+                        Button {
                             if stops { model.interrupt() } else { send() }
+                        } label: {
+                            Image(systemName: stops ? "stop.fill" : "arrow.up")
+                                .font(.body.weight(.semibold))
                         }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(.borderedProminent)
                         .buttonBorderShape(.circle)
                         .frame(width: Self.controlHeight, height: Self.controlHeight)
+                        .accessibilityLabel(stops ? "Stop" : "Send")
                         .disabled(!stops && (draft.isEmpty || model.isSending))
                         .help(stops ? "Stop Claude" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
                     }
@@ -150,12 +155,13 @@ struct ConversationComposer: View {
                     .accessibilityHidden(true)
             }
             .font(.subheadline)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 12)
+            .frame(height: Self.controlHeight)
+            .background(.quaternary, in: .capsule)
         }
         .menuIndicator(.hidden)
-        .buttonStyle(.glass)
-        .buttonBorderShape(.capsule)
-        .frame(height: Self.controlHeight)
+        .buttonStyle(.plain)
+        .fixedSize()
         .accessibilityLabel("Model and effort")
         .help("Model, effort and context")
         .popover(isPresented: $showsContext, arrowEdge: .top) {

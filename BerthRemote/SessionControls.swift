@@ -237,7 +237,7 @@ private struct Composer: View {
                     .lineLimit(1...6)
                     .focused($isFocused)
                 HStack(spacing: 8) {
-                    Menu("Attach", systemImage: "plus") {
+                    Menu {
                         if client.features.contains(RemoteUpload.feature) {
                             Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
                             Button("Files", systemImage: "folder") { isImportingFiles = true }
@@ -256,22 +256,27 @@ private struct Composer: View {
                                 Button(command.name, systemImage: command.symbol, role: command.isDestructive ? .destructive : nil) { run(command) }
                             }
                         }
+                    } label: {
+                        Image(systemName: "plus")
+                            .frame(width: Self.controlHeight, height: Self.controlHeight)
+                            .background(.quaternary, in: .circle)
                     }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .frame(width: Self.controlHeight, height: Self.controlHeight)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Attach")
                     if let context, let openContext {
                         modelMenu(context, openContext: openContext)
                     }
                     Spacer(minLength: 0)
-                    Button(stops ? "Stop" : "Send", systemImage: stops ? "stop.fill" : "arrow.up") {
+                    Button {
                         if stops { stop() } else { send() }
+                    } label: {
+                        Image(systemName: stops ? "stop.fill" : "arrow.up")
+                            .font(.body.weight(.semibold))
                     }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glassProminent)
+                    .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.circle)
                     .frame(width: Self.controlHeight, height: Self.controlHeight)
+                    .accessibilityLabel(stops ? "Stop" : "Send")
                     .disabled(!stops && (isEmpty || !isUploaded))
                 }
             }
@@ -368,12 +373,13 @@ private struct Composer: View {
                     .accessibilityHidden(true)
             }
             .font(.subheadline)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 14)
+            .frame(height: Self.controlHeight)
+            .background(.quaternary, in: .capsule)
         }
         .menuIndicator(.hidden)
-        .buttonStyle(.glass)
-        .buttonBorderShape(.capsule)
-        .frame(height: Self.controlHeight)
+        .buttonStyle(.plain)
+        .fixedSize()
         .accessibilityLabel("Model, effort and context")
     }
 
