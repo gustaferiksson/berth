@@ -18,6 +18,8 @@ final class ConversationModel {
     private(set) var queued: [String] = []
     private(set) var hasLoaded = false
     private(set) var isSending = false
+    private(set) var pickedModel: ModelChoice?
+    private(set) var pickedEffort: EffortLevel?
     var notice: String?
 
     @ObservationIgnored private unowned let store: Store
@@ -88,6 +90,38 @@ final class ConversationModel {
         notice = "Claude is still waiting, so your message wasn’t sent"
     }
 
+    func choose(_ setting: RemoteSessionSetting) async {
+        guard let sessionID, let context, !isSending else { return }
+
+        let current: RemoteSessionSetting
+        switch setting {
+        case .model:
+            current = .model(pickedModel ?? ModelChoice(modelID: context.model) ?? .default)
+
+        case .effort:
+            guard let effort = (pickedEffort?.rawValue ?? context.effort).flatMap(EffortLevel.init) else {
+                notice = "Effort is unknown until Claude has replied"
+                return
+            }
+
+            current = .effort(effort)
+        }
+
+        isSending = true
+        notice = nil
+        defer { isSending = false }
+
+        if case let .refused(message) = await store.change(setting, from: current, in: sessionID) {
+            notice = message
+            return
+        }
+
+        switch setting {
+        case let .model(choice): pickedModel = choice
+        case let .effort(level): pickedEffort = level
+        }
+    }
+
     func interrupt() {
         guard let sessionID, case let .refused(message) = store.interrupt(sessionID) else { return }
 
@@ -149,7 +183,11 @@ final class ConversationModel {
         activity = result.activity
         agentLogs = result.logs
         if tasks != result.report.tasks { tasks = result.report.tasks }
-        if context != result.report.context { context = result.report.context }
+        if context != result.report.context {
+            if context?.model != result.report.context?.model || context?.date != result.report.context?.date { pickedModel = nil }
+            if context?.effort != result.report.context?.effort { pickedEffort = nil }
+            context = result.report.context
+        }
         if queued != chunk.queuedPrompts { queued = chunk.queuedPrompts }
         guard !chunk.isContinuation || !chunk.entries.isEmpty else { return }
 

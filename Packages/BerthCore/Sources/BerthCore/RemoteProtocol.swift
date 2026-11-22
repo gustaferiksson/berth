@@ -234,15 +234,48 @@ public struct RemoteContext: Codable, Sendable, Hashable {
     public let date: Date
     public let compactions: Int
     public let lastCompaction: Date?
+    public let effort: String?
 
-    public init(model: String, tokens: Int?, window: Int?, date: Date, compactions: Int, lastCompaction: Date?) {
+    public init(model: String, tokens: Int?, window: Int?, date: Date, compactions: Int, lastCompaction: Date?, effort: String? = nil) {
         self.model = model
         self.tokens = tokens
         self.window = window
         self.date = date
         self.compactions = compactions
         self.lastCompaction = lastCompaction
+        self.effort = effort
     }
+}
+
+public nonisolated enum RemoteSessionSettingsFeature {
+    public static let name = "sessionSettings"
+}
+
+public enum ModelChoice: String, Codable, Sendable, CaseIterable {
+    case `default`, opus, fable, sonnet, haiku
+
+    public var title: String {
+        self == .default ? "Default" : rawValue.capitalized
+    }
+
+    public init?(modelID: String) {
+        guard let family = Self.allCases.first(where: { $0 != .default && modelID.localizedStandardContains($0.rawValue) }) else { return nil }
+
+        self = family
+    }
+}
+
+public enum EffortLevel: String, Codable, Sendable, CaseIterable {
+    case low, medium, high, xhigh, max
+
+    public var title: String {
+        self == .xhigh ? "Extra High" : rawValue.capitalized
+    }
+}
+
+public enum RemoteSessionSetting: Codable, Sendable, Hashable {
+    case model(ModelChoice)
+    case effort(EffortLevel)
 }
 
 public enum RemoteKey: String, Codable, Sendable, CaseIterable {
@@ -384,6 +417,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case usage
     case taskDetail(sessionID: String, taskID: String)
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
+    case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {

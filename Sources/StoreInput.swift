@@ -79,6 +79,87 @@ extension Store {
         return .sent
     }
 
+    func change(_ setting: RemoteSessionSetting, from current: RemoteSessionSetting, in sessionID: String) async -> InputOutcome {
+        guard !submittingSessions.contains(sessionID) else { return .refused("The previous message is still being sent, so the change wasn’t made") }
+
+        submittingSessions.insert(sessionID)
+        defer { submittingSessions.remove(sessionID) }
+
+        var position = current
+        for _ in 0..<2 {
+            refreshLive()
+            guard liveBySession[sessionID]?.status == "idle" else { return .refused("Claude is busy or waiting, so the change wasn’t made") }
+            guard let terminal = tab(forSession: sessionID)?.terminal, let url = index.url(ofSession: sessionID) else { return .refused("Claude isn’t running in a Berth tab for this session") }
+
+            let keys: [PickerKey]
+            switch (position, setting) {
+            case let (.model(from), .model(to)): keys = SessionPicker.keys(from: from, to: to)
+            case let (.effort(from), .effort(to)): keys = SessionPicker.keys(from: from, to: to)
+            default: return .refused("Unknown setting")
+            }
+            let command = if case .model = setting { "/model" } else { "/effort" }
+            let started = Date.now - 1
+
+            lastKeyInput = .now
+            terminal.paste(text: command)
+            try? await Task.sleep(for: .milliseconds(300))
+            terminal.sendKey(.enter)
+            try? await Task.sleep(for: .milliseconds(1200))
+            for key in keys {
+                guard liveBySession[sessionID]?.status != "waiting" else { return .refused("Claude started waiting for an answer, so the change wasn’t finished") }
+
+                terminal.sendKey(Self.press(key))
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+
+            let outcome = await pickerOutcome(in: url, since: started)
+            guard let outcome else {
+                terminal.sendKey(TerminalKeyPress(.escape))
+                return .refused("Claude didn’t confirm the change, so nothing was changed")
+            }
+            guard outcome.isSessionOnly else { return .refused("Claude saved that as your default for new sessions instead of this session only") }
+
+            switch (outcome.model, outcome.effort, setting) {
+            case let (model?, _, .model(target)):
+                if model == target { return .sent }
+                position = .model(model)
+
+            case let (_, effort?, .effort(target)):
+                if effort == target { return .sent }
+                position = .effort(effort)
+
+            default:
+                return .refused("Claude’s answer wasn’t understood, so the change may not have applied")
+            }
+        }
+        return .refused("Claude ended up on a different setting than the one picked")
+    }
+
+    private static func press(_ key: PickerKey) -> TerminalKeyPress {
+        switch key {
+        case .up: TerminalKeyPress(.arrowUp)
+        case .down: TerminalKeyPress(.arrowDown)
+        case .left: TerminalKeyPress(.arrowLeft)
+        case .right: TerminalKeyPress(.arrowRight)
+        case .sessionOnly: TerminalKeyPress(typing: "s") ?? TerminalKeyPress(.escape)
+        }
+    }
+
+    private func pickerOutcome(in url: URL, since date: Date) async -> SessionPicker.Outcome? {
+        for _ in 0..<25 {
+            try? await Task.sleep(for: .milliseconds(200))
+            let tail = await Task.detached { () -> Data? in
+                guard let handle = try? FileHandle(forReadingFrom: url), let size = try? handle.seekToEnd() else { return nil }
+
+                defer { try? handle.close() }
+                try? handle.seek(toOffset: size > 65_536 ? size - 65_536 : 0)
+                return try? handle.readToEnd()
+            }.value
+            if let outcome = tail.flatMap({ SessionPicker.outcomes(in: $0, after: date) }).flatMap(\.last) { return outcome }
+        }
+        return nil
+    }
+
     func interrupt(_ sessionID: String) -> InputOutcome {
         refreshLive()
         guard liveBySession[sessionID]?.status == "busy", let terminal = tab(forSession: sessionID)?.terminal else { return .refused("Claude isn’t working in a Berth tab for this session") }

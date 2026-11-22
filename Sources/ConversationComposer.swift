@@ -10,6 +10,9 @@ struct ConversationComposer: View {
     let context: RemoteContext?
     let focusRequest: Int
 
+    private static let inset = 12.0
+    private static let controlHeight = 28.0
+
     @Environment(\.ghosttyTheme) private var theme
     @State private var isImporting = false
     @State private var showsContext = false
@@ -33,7 +36,7 @@ struct ConversationComposer: View {
                     }
             }
             GlassEffectContainer(spacing: 8) {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 8) {
                     if !draft.files.isEmpty {
                         ScrollView(.horizontal) {
                             HStack(spacing: 8) {
@@ -41,7 +44,6 @@ struct ConversationComposer: View {
                                     ConversationAttachmentChip(file: file) { model.draft.files.removeAll { $0 == file } }
                                 }
                             }
-                            .padding([.horizontal, .top], 12)
                         }
                         .scrollIndicators(.hidden)
                     }
@@ -54,9 +56,6 @@ struct ConversationComposer: View {
                         submit: send,
                         attach: { model.draft.files += $0.filter { !model.draft.files.contains($0) } }
                     )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                    .padding(.bottom, 4)
                     HStack(spacing: 8) {
                         Menu("Attach", systemImage: "plus") {
                             Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
@@ -65,9 +64,10 @@ struct ConversationComposer: View {
                         .menuIndicator(.hidden)
                         .buttonStyle(.glass)
                         .buttonBorderShape(.circle)
+                        .frame(width: Self.controlHeight, height: Self.controlHeight)
                         .help("Attach files or images. You can also drop or paste them.")
                         if let context {
-                            contextChip(context)
+                            modelMenu(context)
                         }
                         Spacer(minLength: 0)
                         Button(stops ? "Stop" : "Send", systemImage: stops ? "stop.fill" : "arrow.up") {
@@ -76,12 +76,13 @@ struct ConversationComposer: View {
                         .labelStyle(.iconOnly)
                         .buttonStyle(.glassProminent)
                         .buttonBorderShape(.circle)
+                        .frame(width: Self.controlHeight, height: Self.controlHeight)
                         .disabled(!stops && (draft.isEmpty || model.isSending))
                         .help(stops ? "Stop Claude" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
                     }
-                    .padding([.horizontal, .bottom], 8)
                 }
-                .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                .padding(Self.inset)
+                .glassEffect(.regular, in: .rect(cornerRadius: Self.controlHeight / 2 + Self.inset))
             }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -96,20 +97,67 @@ struct ConversationComposer: View {
         }
     }
 
-    private func contextChip(_ context: RemoteContext) -> some View {
-        Button { showsContext = true } label: {
+    private func modelMenu(_ context: RemoteContext) -> some View {
+        let canChange = !isWorking && waiting == nil && !model.isSending
+        let model = model
+        let modelChoice = Binding<ModelChoice?> {
+            model.pickedModel ?? ModelChoice(modelID: context.model)
+        } set: { choice in
+            guard let choice else { return }
+
+            Task { await model.choose(.model(choice)) }
+        }
+        let effortChoice = Binding<EffortLevel?> {
+            model.pickedEffort ?? context.effort.flatMap(EffortLevel.init)
+        } set: { level in
+            guard let level else { return }
+
+            Task { await model.choose(.effort(level)) }
+        }
+        let modelTitle = model.pickedModel.flatMap { $0 == .default ? nil : $0.title } ?? modelName(context.model)
+        let label = [modelTitle, effortChoice.wrappedValue?.title].compactMap(\.self).joined(separator: " · ")
+
+        return Menu {
+            Section("Model") {
+                Picker("Model", selection: modelChoice) {
+                    ForEach(ModelChoice.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+            .disabled(!canChange)
+            Section("Effort") {
+                Picker("Effort", selection: effortChoice) {
+                    ForEach(EffortLevel.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            }
+            .disabled(!canChange || context.effort == nil && model.pickedEffort == nil)
+            Divider()
+            Button("Context", systemImage: "chart.pie") { showsContext = true }
+            Text(canChange ? "Changes apply to this session only" : "Available while Claude is idle")
+        } label: {
             HStack(spacing: 6) {
                 if let tokens = context.tokens, let window = context.window {
                     ContextRing(context: SessionContext(model: context.model, tokens: tokens, window: window), window: window)
                 }
-                Text(modelName(context.model))
+                Text(label)
                     .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
             }
             .font(.subheadline)
+            .padding(.horizontal, 6)
         }
+        .menuIndicator(.hidden)
         .buttonStyle(.glass)
         .buttonBorderShape(.capsule)
-        .accessibilityLabel("Context")
+        .frame(height: Self.controlHeight)
+        .accessibilityLabel("Model and effort")
+        .help("Model, effort and context")
         .popover(isPresented: $showsContext, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(modelName(context.model))

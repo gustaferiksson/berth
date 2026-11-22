@@ -23,6 +23,9 @@ public struct TranscriptActivity: Sendable {
     static let resultKey = Array(#""tool_use_id":""#.utf8)
     static let virtualLaunchKeys = [#""agentId":""#, #""backgroundTaskId":""#, #""taskId":""#].map { Array($0.utf8) }
     static let chunkBytes = 4 << 20
+    static let requestPrefix = Array(#"{"type":"api-request","#.utf8)
+    static let mainThreadSources = [#""querySource":"repl_main_thread"#, #""querySource":"main_thread"#].map { Array($0.utf8) }
+    static let requestEffort = Array(#""output_config":{"effort":""#.utf8)
 
     public private(set) var end = 0
     var pending: [String: Launch] = [:]
@@ -33,6 +36,7 @@ public struct TranscriptActivity: Sendable {
     var reply: Reply?
     var compactions = 0
     var lastCompaction: Date?
+    var effort: String?
 
     public init() {}
 
@@ -88,7 +92,7 @@ public struct TranscriptActivity: Sendable {
         guard let reply else { return nil }
 
         let fits = window.map { reply.tokens ?? 0 <= $0 } ?? false
-        return RemoteContext(model: reply.model, tokens: reply.tokens, window: fits ? window : nil, date: reply.date, compactions: compactions, lastCompaction: lastCompaction)
+        return RemoteContext(model: reply.model, tokens: reply.tokens, window: fits ? window : nil, date: reply.date, compactions: compactions, lastCompaction: lastCompaction, effort: effort)
     }
 
     public static func catalogModel(_ model: String, catalogs: [Data]) -> (window: Int?, name: String?) {
@@ -112,6 +116,16 @@ public struct TranscriptActivity: Sendable {
                 let line = UnsafeRawBufferPointer(rebasing: buffer[start..<base.distance(to: newline)])
                 start = base.distance(to: newline) + 1
                 let find = { (pattern: [UInt8]) in memmem(line.baseAddress, line.count, pattern, pattern.count) }
+                if line.starts(with: Self.requestPrefix) {
+                    if Self.mainThreadSources.contains(where: { find($0) != nil }), let found = find(Self.requestEffort) {
+                        effort = Self.level(at: UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + Self.requestEffort.count)...]))
+                    }
+                    continue
+                }
+                if let found = find(SessionPicker.effortConfirmation) {
+                    effort = Self.level(at: UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + SessionPicker.effortConfirmation.count)...])) ?? effort
+                    continue
+                }
                 let resultID = find(Self.resultKey).map { found in
                     String(decoding: UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + Self.resultKey.count)...]).prefix { $0 != UInt8(ascii: "\"") }, as: UTF8.self)
                 }
@@ -141,6 +155,11 @@ public struct TranscriptActivity: Sendable {
             note(replies)
             return start
         }
+    }
+
+    static func level(at text: UnsafeRawBufferPointer) -> String? {
+        let word = String(decoding: text.prefix { $0 >= UInt8(ascii: "a") && $0 <= UInt8(ascii: "z") }, as: UTF8.self)
+        return EffortLevel(rawValue: word) == nil ? nil : word
     }
 
     mutating func note(_ replies: [Data]) {
