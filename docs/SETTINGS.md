@@ -20,7 +20,7 @@ Changes apply to a running Berth without a relaunch, except where the table says
 | `unloadIdleSessionsAfter` | `-float` | `14400` | Seconds before an idle Claude tab is unloaded; `0` is never. Settings offers 3600, 14400 and 86400. |
 | `startsInWorktree` | `-bool` | `false` | Start new sessions in a git repo with `claude -w`. |
 | `sidebarPosition` | `-string` | `left` | `left` or `right`. |
-| `sidebarDensity` | `-string` | `comfortable` | `comfortable`, `cozy` (tighter rows) or `compact` (one line per row, the pull request beside the title). Settings > Appearance. |
+| `sidebarDensity` | `-string` | `comfortable` | `comfortable`, `cozy` (tighter rows) or `compact` (one line per row, the pull request beside the title). Settings > Sidebar. |
 | `groupingMode` | `-string` | `project` | `project`, `repository`, `recent` or `flat`. Read at launch. |
 | `showsCustomGroups` | `-bool` | `true` | Show custom groups in the sidebar. Read at launch. |
 | `reviewEnabled` | `-bool` | `false` | Turn on Review (⇧⌘R). |
@@ -40,7 +40,7 @@ Changes apply to a running Berth without a relaunch, except where the table says
 
 ## Terminal overrides
 
-`~/.config/berth/ghostty` holds Ghostty settings that apply only inside Berth. It is read after your Ghostty config, so its keys win (a `theme` there also drives Berth's colours). Edit it from Settings > Appearance > Terminal, or by hand; edits apply right away. Berth never creates it on its own. If Ghostty rejects the file (an unknown key, say), Berth ignores it, keeps your own config and shows the error in red in Settings.
+`~/.config/berth/ghostty` holds Ghostty settings that apply only inside Berth. It is read after your Ghostty config, so its keys win (a `theme` there also drives Berth's colours). Edit it from Settings > Terminal, or by hand; edits apply right away. Berth never creates it on its own. If Ghostty rejects the file (an unknown key, say), Berth ignores it, keeps your own config and shows the error in red in Settings.
 
 ```
 font-size = 14
@@ -69,7 +69,7 @@ holding an array of entries:
 | `isEnabled` | bool | `true` | `false` turns the entry off. |
 
 An entry that can't be read (a required field missing, a wrong type) is skipped and the others
-still run. Settings > General > Language Servers then says how many were skipped, and keeps them
+still run. Settings > Review > Servers then says how many were skipped, and keeps them
 (after the readable entries) when it writes the list back.
 
 - **Built-ins.** SourceKit-LSP (`sourcekit-lsp`), rust-analyzer (`rust-analyzer`) and TypeScript

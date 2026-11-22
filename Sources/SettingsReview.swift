@@ -1,12 +1,12 @@
-import AppKit
+import BerthCore
 import SwiftUI
 
-struct AppearanceSettings: View {
+struct ReviewSettings: View {
     @Environment(Store.self) private var store
-    @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
-    @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
-    @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
+    @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
+    @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
+    @State private var editedServer: LanguageServerEntry?
     @AppStorage(ReviewStyle.colorSchemeKey) private var reviewColorScheme = ReviewColorScheme.terminal
     @AppStorage(ReviewStyle.fontFamilyKey) private var reviewFontFamily = ""
     @AppStorage(ReviewStyle.fontSizeKey) private var reviewFontSize = 0.0
@@ -14,54 +14,14 @@ struct AppearanceSettings: View {
     @AppStorage(ReviewStyle.showsMinimapKey) private var reviewShowsMinimap = true
 
     var body: some View {
-        let configFile = GhosttyConfig.configFiles.last
         let style = ReviewStyle(scheme: reviewColorScheme, fontFamily: reviewFontFamily, fontSize: reviewFontSize, lineHeightMultiple: reviewLineHeight, ghostty: store.theme)
         Form {
             Section {
-                Picker("Position", selection: $sidebarPosition) {
-                    Text("Left").tag(SidebarPosition.left)
-                    Text("Right").tag(SidebarPosition.right)
-                }
-                .pickerStyle(.segmented)
-                Picker("Density", selection: $density) {
-                    ForEach(SidebarDensity.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                SidebarDensityPreview(density: density)
-                Toggle("Show plan usage", isOn: $showsPlanUsage)
+                Toggle("Review changes in Berth", isOn: $isReviewEnabled)
             } header: {
-                Text("Sidebar")
+                Text("Review")
             } footer: {
-                Text("Compact shows one line per session, with the pull request beside the title. Plan usage shows the 5-hour and weekly limits with a pace marker. Berth reads Claude Code’s sign-in from the Keychain (macOS may ask once), asks Anthropic for your usage at most once a minute and never stores the token.")
-            }
-            Section {
-                LabeledContent {
-                    if let configFile {
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: configFile)])
-                        }
-                    }
-                } label: {
-                    Text("Ghostty Config")
-                    Text(configFile.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "None")
-                }
-                LabeledContent("Theme", value: GhosttyConfig.themeName ?? "Default")
-                LabeledContent {
-                    Button("Edit…", action: GhosttyConfig.editOverrides)
-                    Button("Reveal in Finder", action: GhosttyConfig.revealOverrides)
-                } label: {
-                    Text("Terminal Overrides")
-                    Text("Ghostty settings that apply only inside Berth")
-                }
-                if let issue = GhosttyConfig.overrideIssue {
-                    Text(issue)
-                        .foregroundStyle(.red)
-                        .textSelection(.enabled)
-                }
-            } header: {
-                Text("Terminal")
-            } footer: {
-                Text("Berth takes its colours and terminal settings from your Ghostty config. Edits apply right away. ~/.config/berth/ghostty is read after it, so its settings win.")
+                Text("Experimental. Adds Review Changes (⇧⌘R) to Claude sessions: a diff of the session’s branch and uncommitted work, with line comments sent back to Claude.")
             }
             if isReviewEnabled {
                 Section {
@@ -82,13 +42,54 @@ struct AppearanceSettings: View {
                     Toggle("Show minimap", isOn: $reviewShowsMinimap)
                     ReviewStylePreview(style: style)
                 } header: {
-                    Text("Review")
+                    Text("Diff Style")
+                }
+
+                Section {
+                    Toggle("Enable language servers", isOn: $areLanguageServersEnabled)
+                } header: {
+                    Text("Language Servers")
+                } footer: {
+                    Text("Language servers add go to definition (⌘-click), hover and diagnostics. They and the build scripts they run execute the repository’s code.")
+                }
+            }
+            if isReviewEnabled, areLanguageServersEnabled {
+                Section {
+                    ForEach(servers) { $server in
+                        LabeledContent {
+                            Button("Edit…") { editedServer = server }
+                            Toggle("Enabled", isOn: $server.isEnabled)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                        } label: {
+                            Text(server.name)
+                            Text(([server.command] + server.arguments).joined(separator: " "))
+                        }
+                    }
+                    Button("Add Server…") { editedServer = LanguageServerEntry(name: "", command: "") }
+                    let unreadable = LanguageServerEntry.stored(configuredServers).unreadable.count
+                    if unreadable > 0 {
+                        Label("^[\(unreadable) entry](inflect: true) in languageServers couldn’t be read and won’t run.", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text("Servers")
+                } footer: {
+                    Text("A server starts in the nearest folder above the file with one of its root markers, or the repository root when it has none. Commands resolve from that folder’s node_modules/.bin, then PATH.")
                 }
             }
         }
         .formStyle(.grouped)
-        .frame(height: 760)
-        .onChange(of: showsPlanUsage) { Task { await store.refreshPlanUsage() } }
+        .frame(height: isReviewEnabled ? 720 : 230)
+        .sheet(item: $editedServer) { LanguageServerEditor(server: $0, servers: servers) }
+    }
+
+    private var servers: Binding<[LanguageServerEntry]> {
+        Binding {
+            LanguageServerEntry.configured(configuredServers)
+        } set: { entries in
+            configuredServers = LanguageServerEntry.storage(entries, keeping: LanguageServerEntry.stored(configuredServers).unreadable)
+        }
     }
 }
 
@@ -140,37 +141,5 @@ private struct ReviewStylePreview: View {
         }
         .padding(.vertical, 8)
         .background(Color(nsColor: style.background), in: .rect(cornerRadius: 6))
-    }
-}
-
-private struct SidebarDensityPreview: View {
-    let density: SidebarDensity
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach([("Fix rounding in invoice totals", "#4821"), ("Add the usage export endpoint", "#4790"), ("Tidy the CI pipeline", "")], id: \.0) { title, pullRequest in
-                VStack(alignment: .leading, spacing: density.isCompact ? 0 : 4) {
-                    HStack {
-                        Text(title)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        if density.isCompact {
-                            Text(verbatim: pullRequest).font(.caption.monospaced())
-                        }
-                        Text(verbatim: "2m").font(.caption)
-                    }
-                    if !density.isCompact {
-                        Text(verbatim: "billing · fix/rounding")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, density.rowPadding)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 6))
-        .accessibilityHidden(true)
     }
 }
