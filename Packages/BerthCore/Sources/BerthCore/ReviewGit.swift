@@ -27,6 +27,13 @@ public struct ReviewFile: Sendable, Hashable {
 public enum ReviewCompare: Sendable, Hashable {
     case uncommitted
     case committed
+    case commit(String)
+
+    public var isCommit: Bool {
+        if case .commit = self { return true }
+
+        return false
+    }
 }
 
 public enum ReviewBaseReason: String, Sendable {
@@ -159,6 +166,25 @@ public enum ReviewGit {
         return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, defaultBase: defaultBase, base: base, baseReason: baseReason, bases: bases, head: head, mergeBase: mergeBase, uncommitted: uncommitted, committed: committed, total: total, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
     }
 
+    public static func graph(in root: String, skip: Int, limit: Int) async throws -> [GraphCommit] {
+        let head = await (try? git(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], in: root)) == nil ? [] : ["HEAD"]
+        let log = try await git(["log", "-z", "--topo-order", "--skip=\(skip)", "--max-count=\(limit)", "--decorate=full", "--no-show-signature", "--no-color", "--format=%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s", "--branches", "--remotes", "--tags"] + head + ["--"], in: root)
+        return log.split(separator: 0).compactMap(GraphCommit.parse)
+    }
+
+    public static func commitFiles(_ sha: String, in root: String) async throws -> [ReviewFile] {
+        try validateCommitSHA(sha)
+        let revisions = try await line(["rev-list", "--parents", "--max-count=1", "\(sha)^{commit}", "--"], in: root).split(separator: " ")
+        let parent = if revisions.count > 1 { String(revisions[1]) } else { try await line(["hash-object", "-t", "tree", "/dev/null"], in: root) }
+        return try await changes(git(["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", "--no-color", parent, sha, "--"], in: root)).sorted { $0.path < $1.path }
+    }
+
+    private static func validateCommitSHA(_ sha: String) throws {
+        guard (7...64).contains(sha.utf8.count), sha.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
+            throw ReviewGitError.git(arguments: ["rev-parse", sha], message: "Invalid commit SHA")
+        }
+    }
+
     public static func branchStatus(of changes: ReviewChanges) async throws -> ReviewBranchStatus {
         let root = changes.root
         let head = changes.head
@@ -256,10 +282,18 @@ public enum ReviewGit {
     }
 
     public static func contents(of file: ReviewFile, compare: ReviewCompare, in changes: ReviewChanges) async throws -> ReviewContents {
-        let original = try await (file.status == .added ? nil : blob(compare == .committed ? changes.mergeBase : changes.head, path: file.oldPath ?? file.path, in: changes.root))
+        let revisions: (original: String, modified: String?)
+        switch compare {
+        case .uncommitted: revisions = (changes.head, nil)
+        case .committed: revisions = (changes.mergeBase, changes.head)
+        case let .commit(sha):
+            try validateCommitSHA(sha)
+            revisions = ("\(sha)^", sha)
+        }
+        let original = try await (file.status == .added ? nil : blob(revisions.original, path: file.oldPath ?? file.path, in: changes.root))
 
         if file.status == .deleted { return ReviewContents(original: original, modified: nil) }
-        if compare == .committed { return try await ReviewContents(original: original, modified: blob(changes.head, path: file.path, in: changes.root)) }
+        if let modified = revisions.modified { return try await ReviewContents(original: original, modified: blob(modified, path: file.path, in: changes.root)) }
         return try ReviewContents(original: original, modified: workingTreeText(file.path, in: changes.root))
     }
 

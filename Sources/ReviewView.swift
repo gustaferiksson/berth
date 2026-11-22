@@ -37,6 +37,14 @@ final class ReviewModel {
     private(set) var contents: [ReviewDocument: ReviewContents] = [:]
     private(set) var language: ReviewLanguage?
     private(set) var tabs: [ReviewTab] = []
+    private(set) var graphCommits: [GraphCommit] = []
+    private(set) var graphRows: [GraphRow] = []
+    private(set) var graphHasMore = false
+    private(set) var graphHasLoaded = false
+    private(set) var isLoadingGraph = false
+    private(set) var graphError: String?
+    private(set) var selectedCommit: String?
+    private(set) var commitFiles: [String: [ReviewFile]] = [:]
     var selectedTabID: UUID? {
         didSet { if selectedTabID != nil { isPreviewSelected = false } }
     }
@@ -62,6 +70,8 @@ final class ReviewModel {
     var showsCommits = false
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private var queuedLoad: Task<Void, Never>?
+    @ObservationIgnored private var graphLoading: Task<Void, Never>?
+    @ObservationIgnored private var commitSelection = 0
     @ObservationIgnored private(set) var loadCount = 0
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
@@ -71,13 +81,14 @@ final class ReviewModel {
     var selectedTab: ReviewTab? { tabs.first { $0.id == selectedTabID } }
     var selectedDocument: ReviewDocument? { selectedTab?.document }
     var selectedDocumentHasBothSides: Bool {
-        guard let document = selectedDocument, let compare = document.compare else { return false }
+        guard let document = selectedDocument, let changes else { return false }
 
-        let status = (compare == .committed ? changes?.committed : changes?.uncommitted)?.first { $0.path == document.path }?.status
+        let status = listedFile(for: document, in: changes)?.status
         return status != nil && status != .added && status != .deleted
     }
 
     static let baseBranchesKey = "reviewBaseBranches"
+    private static let graphPageSize = 200
 
     init(folder: String) {
         self.folder = folder
@@ -100,6 +111,7 @@ final class ReviewModel {
 
     private func loadLists() async {
         loadCount += 1
+        let refreshGraph = graphHasLoaded || isLoadingGraph || graphError != nil
         do {
             let picks = UserDefaults.standard.dictionary(forKey: Self.baseBranchesKey) as? [String: [String: String]] ?? [:]
             let pullRequestBase = pullRequestBase
@@ -121,7 +133,7 @@ final class ReviewModel {
             contents = contents.filter { $0.key == selectedDocument }
 
             let existing = { (document: ReviewDocument) -> ReviewDocument? in
-                if let compare = document.compare, (compare == .committed ? changes.committed : changes.uncommitted).contains(where: { $0.path == document.path }) { return document }
+                if document.compare?.isCommit == true || self.listedFile(for: document, in: changes) != nil { return document }
                 return FileManager.default.fileExists(atPath: URL(filePath: changes.root).appending(path: document.path).path) ? ReviewDocument(path: document.path, compare: nil) : nil
             }
             tabs = tabs.compactMap { tab in
@@ -144,6 +156,65 @@ final class ReviewModel {
             return
         }
         if let selectedDocument { await loadContents(of: selectedDocument) }
+        if refreshGraph {
+            await graphLoading?.value
+            await loadGraph()
+        }
+    }
+
+    func loadGraph(more: Bool = false) async {
+        if let graphLoading { return await graphLoading.value }
+        guard let root = changes?.root, !more || graphHasMore else { return }
+
+        let skip = more ? graphCommits.count : 0
+        let limit = more ? Self.graphPageSize : max(Self.graphPageSize, graphCommits.count)
+        isLoadingGraph = true
+        let load = Task {
+            defer {
+                graphLoading = nil
+                isLoadingGraph = false
+            }
+            do {
+                let page = try await ReviewGit.graph(in: root, skip: skip, limit: limit)
+                let loaded = Set(graphCommits.map(\.sha))
+                if more, page.contains(where: { loaded.contains($0.sha) }) {
+                    let refreshed = try await ReviewGit.graph(in: root, skip: 0, limit: skip + limit)
+                    graphCommits = refreshed
+                    graphHasMore = refreshed.count == skip + limit
+                } else {
+                    graphCommits = more ? graphCommits + page : page
+                    graphHasMore = page.count == limit
+                }
+                graphRows = ReviewGraph.layout(graphCommits)
+                if let selectedCommit, !graphCommits.contains(where: { $0.sha == selectedCommit }) { self.selectedCommit = nil }
+                graphHasLoaded = true
+                graphError = nil
+            } catch {
+                graphError = Self.describe(error)
+            }
+        }
+        graphLoading = load
+        await load.value
+    }
+
+    func openCommit(_ sha: String) async {
+        guard let root = changes?.root else { return }
+
+        selectedCommit = sha
+        commitSelection += 1
+        let selection = commitSelection
+        do {
+            let files = if let cached = commitFiles[sha] { cached } else { try await ReviewGit.commitFiles(sha, in: root) }
+            commitFiles[sha] = files
+            guard selection == commitSelection, selectedCommit == sha, let first = files.first else { return }
+
+            open(ReviewDocument(path: first.path, compare: .commit(sha)))
+        } catch {
+            guard selection == commitSelection, selectedCommit == sha else { return }
+
+            selectedCommit = nil
+            notice = "Couldn’t read commit \(sha.prefix(7)). \(Self.describe(error))"
+        }
     }
 
     func pickBase(_ ref: String) {
@@ -221,15 +292,40 @@ final class ReviewModel {
         await loadContents(of: document)
     }
 
+    private func listedFile(for document: ReviewDocument, in changes: ReviewChanges) -> ReviewFile? {
+        let files: [ReviewFile]
+        switch document.compare {
+        case .uncommitted: files = changes.uncommitted
+        case .committed: files = changes.committed
+        case let .commit(sha): files = commitFiles[sha] ?? []
+        case nil: return nil
+        }
+        return files.first { $0.path == document.path }
+    }
+
+    func isReadOnly(_ document: ReviewDocument) -> Bool {
+        switch document.compare {
+        case .commit: true
+        case .committed: changes?.uncommitted.contains { $0.path == document.path } != false
+        case .uncommitted, nil: false
+        }
+    }
+
     private func loadContents(of document: ReviewDocument) async {
         guard let changes else { return }
 
         do {
-            let listed = document.compare.flatMap { compare in (compare == .committed ? changes.committed : changes.uncommitted).first { $0.path == document.path } }
-            let text = listed == nil ? try ReviewGit.workingTreeText(document.path, in: changes.root) : nil
-            let loaded = if let listed, let compare = document.compare { try await ReviewGit.contents(of: listed, compare: compare, in: changes) } else { ReviewContents(original: text, modified: text) }
+            let loaded: ReviewContents
+            if let listed = listedFile(for: document, in: changes), let compare = document.compare {
+                loaded = try await ReviewGit.contents(of: listed, compare: compare, in: changes)
+            } else {
+                guard document.compare?.isCommit != true else { return }
+
+                let text = try ReviewGit.workingTreeText(document.path, in: changes.root)
+                loaded = ReviewContents(original: text, modified: text)
+            }
             contents[document] = loaded
-            guard document.compare != .committed || !changes.uncommitted.contains(where: { $0.path == document.path }) else { return }
+            guard !isReadOnly(document) else { return }
 
             if drafts[document.path] == nil { loadedTexts[document.path] = if case let .text(text)? = loaded.modified { text } else { nil } }
             editors[document.path] = editors[document.path] ?? ReviewTextView(usingTextLayoutManager: true)
@@ -241,7 +337,7 @@ final class ReviewModel {
 
     func goToDefinition(_ location: LanguageServerLocation, from origin: LanguageServerRange) {
         let target = location.url.resolvingSymlinksInPath().path
-        guard let root = changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root), let current = tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
+        guard let root = changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root), let current = tabs.firstIndex(where: { $0.id == selectedTabID }), tabs[current].document.compare?.isCommit != true else { return }
 
         let path = String(target.dropFirst(root.count))
         let isReadOnly = selectedDocument?.compare == .committed && changes?.uncommitted.contains { $0.path == path } != false
@@ -268,7 +364,7 @@ final class ReviewModel {
     }
 
     func save(_ text: String, to path: String) {
-        guard let changes, changes.uncommitted.first(where: { $0.path == path })?.status != .deleted else {
+        guard selectedDocument?.compare?.isCommit != true, let changes, changes.uncommitted.first(where: { $0.path == path })?.status != .deleted else {
             notice = "\(path) is read only here"
             return
         }
@@ -290,7 +386,7 @@ final class ReviewModel {
     }
 
     private func setWorkingTreeText(_ text: ReviewText?, of path: String) {
-        for document in contents.keys where document.path == path && (document.compare != .committed || changes?.uncommitted.contains { $0.path == path } == false) {
+        for document in contents.keys where document.path == path && !isReadOnly(document) {
             contents[document] = contents[document].map { ReviewContents(original: document.compare == nil ? text : $0.original, modified: text) }
         }
     }
@@ -323,7 +419,17 @@ private struct ReviewFileList: View {
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedReviewSections") private var collapsedSections = ""
     @AppStorage("reviewChangesAsTree") private var changesAsTree = false
+    @AppStorage("reviewBottomPane") private var storedBottomPane = ReviewBottomPane.files
+    @State private var bottomPaneOverride: ReviewBottomPane?
     @FocusState private var focusedList: String?
+
+    private var bottomPane: Binding<ReviewBottomPane> {
+        Binding {
+            bottomPaneOverride ?? storedBottomPane
+        } set: { pane in
+            if store.persistsTabs { storedBottomPane = pane } else { bottomPaneOverride = pane }
+        }
+    }
 
     var body: some View {
         content
@@ -337,7 +443,12 @@ private struct ReviewFileList: View {
                 model.pullRequestBase = base
                 await model.load()
             }
-            .onChange(of: model.filesReveal) { if $1 != nil { model.showsFiles = true } }
+            .onChange(of: model.filesReveal, initial: true) { _, path in
+                guard path != nil else { return }
+
+                bottomPane.wrappedValue = .files
+                model.showsFiles = true
+            }
             .onChange(of: store.activeReviewRoots[sessionID]) { _, root in
                 guard let task = store.task(containing: sessionID), shownRepo != nil else { return }
 
@@ -390,6 +501,7 @@ private struct ReviewFileList: View {
 
     private func list(name: String = "", order: [ReviewDocument] = [], reveals: Bool = false, @ViewBuilder _ sections: () -> some View) -> some View {
         let content = sections()
+        let workingPath = model.selectedDocument.flatMap { $0.compare?.isCommit == true ? nil : $0.path }
         return ScrollViewReader { proxy in
             List { content }
                 .environment(\.headerInset, ReviewInset.content - ReviewInset.listMargin)
@@ -409,8 +521,8 @@ private struct ReviewFileList: View {
                 .environment(\.sidebarRowSize, .small)
                 .scrollContentBackground(.hidden)
                 .scrollEdgeEffectStyle(.soft, for: .top)
-                .onChange(of: [model.selectedDocument?.path, model.filesReveal], initial: true) {
-                    guard reveals, let path = model.filesReveal ?? (model.showsFiles ? model.selectedDocument?.path : nil) else { return }
+                .onChange(of: [workingPath, model.filesReveal], initial: true) {
+                    guard reveals, let path = model.filesReveal ?? (model.showsFiles ? workingPath : nil) else { return }
 
                     model.filesReveal = nil
                     model.expandedFolders.formUnion(path.split(separator: "/").dropLast().reduce(into: [String]()) { $0.append(($0.last.map { $0 + "/" } ?? "") + $1) })
@@ -739,10 +851,16 @@ private struct ReviewFileList: View {
     }
 
     private func movePersistedPanelTab() {
-        switch UserDefaults.standard.string(forKey: "reviewPanelTab") {
+        let tab = UserDefaults.standard.string(forKey: "reviewPanelTab")
+        switch tab {
         case "preview": model.showPreview()
+
         case "comments": model.showsCommentList = true
-        case "files": model.showsFiles = true
+
+        case "files", "graph":
+            bottomPane.wrappedValue = tab == "graph" ? .graph : .files
+            model.showsFiles = true
+
         default: return
         }
         if store.persistsTabs { UserDefaults.standard.removeObject(forKey: "reviewPanelTab") }
@@ -763,11 +881,17 @@ private struct ReviewFileList: View {
                 .padding(.bottom, 8)
             }
             if let changes, showsFiles(changes) {
-                ReviewFilesSplit(isExpanded: $model.showsFiles) {
+                ReviewFilesSplit(isExpanded: $model.showsFiles, pane: bottomPane) {
                     changesList(changes)
-                } files: {
-                    list(name: "files", order: filesOrder(changes), reveals: true) {
-                        ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) }
+                } bottom: {
+                    switch bottomPane.wrappedValue {
+                    case .files:
+                        list(name: "files", order: filesOrder(changes), reveals: true) {
+                            ForEach(model.tree) { ReviewFileNode(node: $0, compare: nil, changes: changes, model: model) }
+                        }
+
+                    case .graph:
+                        ReviewGraphView(model: model, changes: changes)
                     }
                 }
             } else {
@@ -784,7 +908,7 @@ private struct ReviewFileList: View {
         .id(changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } : nil)
         .id([shownRepo] + extras.map(\.repository.root))
         .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
-            guard let document, let compare = document.compare, let active = store.reviewModel else { return }
+            guard let document, let compare = document.compare, !compare.isCommit, let active = store.reviewModel else { return }
 
             active.collapsedChangeFolders = active.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
         }
@@ -1097,7 +1221,7 @@ private struct ReviewChangeRow: View {
             .animation(.easeOut(duration: 0.12), value: showsOpenFile)
             Text(file.status.rawValue)
                 .font(.caption2.weight(.medium).monospaced())
-                .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
+                .foregroundStyle(file.status.color(in: theme))
                 .frame(width: 12)
         }
         .font(.callout)
@@ -1495,7 +1619,7 @@ struct ReviewDiffColumn: View {
             } else if let model = store.reviewModel, let tab = model.selectedTab {
                 let document = tab.document
                 let path = document.path
-                let isReadOnly = document.compare == .committed && model.changes?.uncommitted.contains { $0.path == path } != false
+                let isReadOnly = model.isReadOnly(document)
                 VStack(spacing: 0) {
                     strip(model, tab: tab, style: style)
                     Divider()
@@ -1657,11 +1781,19 @@ struct ReviewDiffColumn: View {
         let folders = document.path.split(separator: "/").dropLast()
         let namesakes = Set(model.tabs.map(\.document.path)).subtracting([document.path]).filter { ($0 as NSString).lastPathComponent == name }.map { $0.split(separator: "/").dropLast() }
         let parents = namesakes.isEmpty ? [] : (1..<folders.count + 1).lazy.map { folders.suffix($0) }.first { suffix in namesakes.allSatisfy { $0.suffix(suffix.count) != suffix } } ?? folders
+        let compare = switch document.compare {
+        case .committed: " (Committed)"
+        case .uncommitted: " (Uncommitted)"
+        case let .commit(sha): " (\(sha.prefix(7)))"
+        case nil: ""
+        }
+        let title = document.compare?.isCommit == true ? name + compare : name
+        let previewHint = if !tab.isPreview { "" } else if document.compare?.isCommit == true { ". Double-click to keep this preview tab." } else { ". Double-click or edit to keep this preview tab." }
         return HStack(spacing: 6) {
             Image(systemName: document.compare == nil ? "doc" : "plus.forwardslash.minus")
                 .font(.caption)
                 .accessibilityHidden(true)
-            Text(name)
+            Text(title)
                 .italic(tab.isPreview)
                 .lineLimit(1)
             if !parents.isEmpty {
@@ -1682,7 +1814,7 @@ struct ReviewDiffColumn: View {
         .contentShape(.rect)
         .onTapGesture { model.selectedTabID = tab.id }
         .simultaneousGesture(TapGesture(count: 2).onEnded { model.keep(tab.id) })
-        .help("\(document.path)\(document.compare == .committed ? " (Committed)" : document.compare == .uncommitted ? " (Uncommitted)" : "")\(tab.isPreview ? ", preview: double-click or edit to keep it" : "")")
+        .help("\(document.path)\(compare)\(previewHint)")
         .contextMenu {
             let absolute = model.changes.map { ($0.root as NSString).appendingPathComponent(document.path) }
             if let absolute {

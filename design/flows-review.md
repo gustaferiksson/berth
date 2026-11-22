@@ -49,13 +49,11 @@ This is the slim first version; the rest is listed under Later.
 
 - Toolbar: a Show / Hide Changes button, `sidebar.left` next to the traffic lights when the
   panel is on the left, `sidebar.right` at the trailing end when it is on the right.
-- Panel, 272 pt ideal (220–440), on the Ghostty theme like the sessions sidebar: the header, then
-  an icon tab bar (Changes `plusminus`, Files `folder`, Comments `text.bubble` with a count when
-  there are comments; `@AppStorage` `reviewPanelTab`, default `changes`) over one tab's content.
-  Changes holds the card and one list of collapsible sections (the sessions sidebar's headers and
-  disclosure); Comments lists the session's comments with a delete button each and Send N Comments.
+- Panel, 272 pt ideal (220–440), on the Ghostty theme like the sessions sidebar. Changes holds the
+  card and one list of collapsible sections above a resizable Files or Graph pane. The comments bar
+  below it lists the session's comments with a delete button each and Send N Comments.
   Collapsed sections persist in `@AppStorage` `collapsedReviewSections` (comma-separated ids
-  `uncommitted`, `committed`). Reveal in Files switches to the Files tab.
+  `uncommitted`, `committed`). Reveal in Files expands the bottom pane and selects Files.
 - Uncommitted and Committed (count, summed +/-) sections, each only when it
   has files. Rows: status letter A/M/D/R in the theme's working, needs-you, closed and branch
   colours, file name, +/- counts. Each row opens its own compare. Nothing changed: "No
@@ -65,6 +63,9 @@ This is the slim first version; the rest is listed under Later.
   status colour (Uncommitted first). A file row opens its Uncommitted compare when it has one,
   else the plain file. Folders only expand. The list highlights the current tab's row: its
   compare's row, or the Files row for a plain file.
+- Graph: switch the bottom pane to Graph to browse the repository’s commit history with branch,
+  remote and tag labels. Select a commit to expand its changed files and preview the first diff.
+  Load More shows older commits. See `Sources/ReviewGraphView.swift`.
 - Hovering a file row (any section) shows an Open File button (`doc`) before the counts; it opens
   the working-tree file as the plain file, through the same `ReviewModel.open`. Deleted files
   have none.
@@ -153,6 +154,9 @@ This is the slim first version; the rest is listed under Later.
   (HEAD on the right) with its own text view, no draft and no language server. A plain file is
   a single editable pane (identical sides shown unified); edits show against the file on disk
   until saved.
+- A commit document is a path and a commit SHA. It shows a read-only diff against the first
+  parent, with the short SHA in the tab and path bar. Commit diffs stay open through refresh and
+  have no language-server features or inline comments.
 - Diff: `ReviewDiffPane` gets the file's `ReviewContents`, a draft binding and `onComment`.
   Base on the left (read only), working tree on the right (editable unless deleted), in the
   Review style (Settings > Appearance > Review: colour scheme, One Dark by default, or Match

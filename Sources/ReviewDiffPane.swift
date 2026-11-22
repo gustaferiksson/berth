@@ -37,6 +37,7 @@ struct ReviewDiffPane: View {
             let original = if case let .text(text)? = contents.original { text } else { "" }
             let loaded = if case let .text(text)? = contents.modified { text } else { "" }
             let modified = draft ?? loaded
+            let language = compare?.isCommit == true || contents.modified == nil ? nil : language
             ReviewDiffViews(
                 path: path,
                 compare: compare,
@@ -49,8 +50,8 @@ struct ReviewDiffPane: View {
                 style: style,
                 showsMinimap: showsMinimap,
                 comments: $comments,
-                language: contents.modified == nil ? nil : language,
-                diagnostics: contents.modified == nil || editor == nil && compare == .committed ? [] : language?.diagnostics(for: path) ?? [],
+                language: language,
+                diagnostics: editor == nil && compare == .committed ? [] : language?.diagnostics(for: path) ?? [],
                 reveal: reveal,
                 isUnified: isUnified,
                 splitRatio: splitRatio,
@@ -74,10 +75,10 @@ struct ReviewDiffPane: View {
                 guard !Task.isCancelled else { return }
 
                 analysis = computed
-                if contents.modified != nil, let text = editor == nil && compare == .committed ? workingText() : modified { await language?.sync(path, text: text) }
+                if let language, let text = editor == nil && compare == .committed ? workingText() : modified { await language.sync(path, text: text) }
             }
             .onChange(of: language == nil) {
-                Task { if contents.modified != nil, let text = editor == nil && compare == .committed ? workingText() : modified { await language?.sync(path, text: text) } }
+                Task { if let language, let text = editor == nil && compare == .committed ? workingText() : modified { await language.sync(path, text: text) } }
             }
         }
     }
@@ -493,7 +494,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         private func comment(on textView: ReviewTextView, lines: ClosedRange<Int>) {
-            guard let rows = textView.side?.rows, rows.indices.contains(lines.upperBound) else { return }
+            guard let parent, parent.compare?.isCommit != true, let rows = textView.side?.rows, rows.indices.contains(lines.upperBound) else { return }
 
             let isRemoval = textView === left && lines.contains { left.side?.changedLines.contains($0) == true }
             let numbered = textView === left && !isRemoval ? right : textView
@@ -505,8 +506,8 @@ private struct ReviewDiffViews: NSViewRepresentable {
             let texts = source.split(separator: "\n", omittingEmptySubsequences: false).dropFirst(first).prefix(last - first + 1)
             let snippet = texts.map { isRemoval ? "-\($0)" : String($0) }.joined(separator: "\n")
             let numbers = last > first ? "Lines \(first + 1)–\(last + 1)" : "Line \(first + 1)"
-            let path = parent?.path ?? ""
-            let compare = parent.flatMap(\.compare)
+            let path = parent.path
+            let compare = parent.compare
 
             let other = textView === left ? right : left
             draft?.view.removeFromSuperview()

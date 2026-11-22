@@ -1,9 +1,15 @@
 import SwiftUI
 
-struct ReviewFilesSplit<Changes: View, Files: View>: View {
+enum ReviewBottomPane: String, CaseIterable {
+    case files
+    case graph
+}
+
+struct ReviewFilesSplit<Changes: View, Bottom: View>: View {
     @Binding var isExpanded: Bool
+    @Binding var pane: ReviewBottomPane
     @ViewBuilder let changes: Changes
-    @ViewBuilder let files: Files
+    @ViewBuilder let bottom: Bottom
     @AppStorage("reviewFilesRatio") private var storedRatio = defaultRatio
     @State private var draggedRatio: Double?
     @State private var available = 0.0
@@ -15,17 +21,17 @@ struct ReviewFilesSplit<Changes: View, Files: View>: View {
 
     var body: some View {
         let ratio = draggedRatio ?? storedRatio
-        let filesHeight = isExpanded ? min(max(ratio * available, Self.minimum), max(available - Self.minimum, Self.minimum)) : Self.headerHeight
+        let bottomHeight = isExpanded ? min(max(ratio * available, Self.minimum), max(available - Self.minimum, Self.minimum)) : Self.headerHeight
         VStack(spacing: 0) {
             changes
                 .frame(maxHeight: .infinity)
             VStack(spacing: 0) {
                 header
                 if isExpanded {
-                    files
+                    bottom
                 }
             }
-            .frame(height: filesHeight, alignment: .top)
+            .frame(height: bottomHeight, alignment: .top)
             .overlay(alignment: .top) { Divider() }
             .overlay(alignment: .top) { grip }
         }
@@ -35,26 +41,34 @@ struct ReviewFilesSplit<Changes: View, Files: View>: View {
     }
 
     private var header: some View {
-        Button { isExpanded.toggle() } label: {
-            HStack(spacing: 4) {
-                Text("Files")
-                    .fontWeight(.semibold)
-                    .foregroundStyle(theme.secondary)
-                Spacer(minLength: 4)
+        HStack(spacing: 12) {
+            ForEach(ReviewBottomPane.allCases, id: \.self) { title in
+                Button {
+                    pane = title
+                    isExpanded = true
+                } label: {
+                    Text(title == .files ? "Files" : "Graph")
+                        .fontWeight(pane == title ? .semibold : .regular)
+                        .foregroundStyle(pane == title ? theme.foreground : theme.secondary)
+                        .frame(height: Self.headerHeight)
+                        .contentShape(.rect)
+                }
+                .accessibilityAddTraits(pane == title ? .isSelected : [])
+            }
+            Spacer(minLength: 4)
+            Button { isExpanded.toggle() } label: {
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(theme.secondary)
-                    .frame(width: 10)
-                    .accessibilityHidden(true)
+                    .frame(width: 22, height: Self.headerHeight)
+                    .contentShape(.rect)
             }
-            .font(.subheadline)
-            .padding(.horizontal, ReviewInset.content)
-            .frame(maxWidth: .infinity)
-            .frame(height: Self.headerHeight)
-            .contentShape(.rect)
+            .accessibilityLabel(isExpanded ? "Collapse Bottom Pane" : "Expand Bottom Pane")
         }
+        .font(.subheadline)
+        .padding(.horizontal, ReviewInset.content)
+        .frame(height: Self.headerHeight)
         .buttonStyle(.plain)
-        .help("Every file in the repository")
     }
 
     @ViewBuilder private var grip: some View {

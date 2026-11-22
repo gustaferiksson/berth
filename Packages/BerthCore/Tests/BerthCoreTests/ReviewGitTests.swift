@@ -160,7 +160,7 @@ final class ReviewGitTests {
         try Data(repeating: 65, count: 3 * 1024 * 1024).write(to: repo.appending(path: "huge.txt"))
         let changes = try await ReviewGit.changes(in: repo.path)
         let contents = { (path: String, compare: ReviewCompare) in
-            let files = compare == .committed ? changes.committed : changes.uncommitted
+            let files = [.committed: changes.committed, .uncommitted: changes.uncommitted][compare] ?? []
             return try await ReviewGit.contents(of: #require(files.first { $0.path == path }), compare: compare, in: changes)
         }
 
@@ -207,7 +207,7 @@ final class ReviewGitTests {
         let changes = try await ReviewGit.changes(in: repo.path)
         try await git(repo, "commit", "--quiet", "-am", "Later work")
         let contents = { (path: String, compare: ReviewCompare) in
-            let files = compare == .committed ? changes.committed : changes.uncommitted
+            let files = [.committed: changes.committed, .uncommitted: changes.uncommitted][compare] ?? []
             return try await ReviewGit.contents(of: #require(files.first { $0.path == path }), compare: compare, in: changes)
         }
 

@@ -36,6 +36,7 @@ struct ReviewPathBar: View {
             switch document.compare {
             case .uncommitted: Text("Uncommitted")
             case .committed: Text("Committed")
+            case let .commit(sha): Text("Commit \(sha.prefix(7))")
             case nil: EmptyView()
             }
         }
