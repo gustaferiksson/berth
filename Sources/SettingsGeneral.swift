@@ -8,11 +8,9 @@ struct GeneralSettings: View {
     static let worktreeKey = "startsInWorktree"
     static let languageServersKey = "languageServersEnabled"
 
-    @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
     @AppStorage(worktreeKey) private var startsInWorktree = false
-    @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
     @AppStorage(reviewKey) private var isReviewEnabled = false
     @AppStorage(languageServersKey) private var areLanguageServersEnabled = false
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
@@ -25,20 +23,6 @@ struct GeneralSettings: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Notify when a session needs you", isOn: $notifiesWhenNeeded)
-            } header: {
-                Text("Notifications")
-            } footer: {
-                Text("The Dock icon always shows how many sessions need you.")
-            }
-            Section {
-                Toggle("Show plan usage", isOn: $showsPlanUsage)
-            } header: {
-                Text("Plan Usage")
-            } footer: {
-                Text("Shows the 5-hour and weekly limits with a pace marker. Berth reads Claude Code’s sign-in from the Keychain (macOS may ask once), asks Anthropic for your usage at most once a minute and never stores the token.")
-            }
-            Section {
                 Toggle("Start new sessions in a worktree", isOn: $startsInWorktree)
                 Picker("Unload idle sessions after", selection: $unloadIdleAfter) {
                     Text("Never").tag(0.0)
@@ -46,19 +30,11 @@ struct GeneralSettings: View {
                     Text("4 hours").tag(14_400.0)
                     Text("1 day").tag(86_400.0)
                 }
+                Toggle("Notify when a session needs you", isOn: $notifiesWhenNeeded)
             } header: {
                 Text("Sessions")
             } footer: {
-                Text("Unloaded sessions stay in the sidebar and resume when clicked. Pinned, working and waiting sessions stay loaded.")
-            }
-            Section {
-                Picker("Position", selection: $sidebarPosition) {
-                    Text("Left").tag(SidebarPosition.left)
-                    Text("Right").tag(SidebarPosition.right)
-                }
-                .pickerStyle(.segmented)
-            } header: {
-                Text("Sidebar")
+                Text("Unloaded sessions stay in the sidebar and resume when clicked. Pinned, working and waiting sessions stay loaded. The Dock icon always shows how many sessions need you.")
             }
             Section {
                 Toggle("Review changes in Berth", isOn: $isReviewEnabled)
@@ -129,7 +105,6 @@ struct GeneralSettings: View {
             store.remote.update()
         }
         .onChange(of: remoteToken) { store.remote.update() }
-        .onChange(of: showsPlanUsage) { Task { await store.refreshPlanUsage() } }
     }
 
     private var servers: Binding<[LanguageServerEntry]> {
