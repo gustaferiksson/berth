@@ -15,32 +15,18 @@ struct ReviewTaskHeader: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let state = issue.map(store.state(of:))
-        let color = state == .open ? theme.working : state == .completed ? theme.merged : Color.secondary
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if issue != nil {
-                    Image(systemName: state == .completed ? "checkmark.circle.fill" : state == .notPlanned ? "slash.circle.fill" : "smallcircle.filled.circle")
-                        .font(.title3)
-                        .foregroundStyle(color)
-                        .accessibilityHidden(true)
-                }
-                Text(title)
-                    .font(.headline)
-                    .lineLimit(2)
-                    .help(title)
-            }
+        VStack(alignment: .leading, spacing: 7) {
             if let issue {
-                Group {
-                    if let url = issue.url {
-                        Link(destination: url) { Text(verbatim: "#\(issue.number) · \(issue.repository)") }
-                    } else {
-                        Text(verbatim: "#\(issue.number) · \(issue.repository)")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(Color.secondary)
-                .help("Open issue \(issue.repository)#\(issue.number)")
+                IssueStatePill(issue: issue)
+            }
+            Text(title)
+                .font(.headline)
+                .lineLimit(2)
+                .help(title)
+            if let issue {
+                Text(verbatim: issue.repository)
+                    .font(.caption)
+                    .foregroundStyle(Color.secondary)
             }
             Button { isExpanded.toggle() } label: {
                 HStack(spacing: 4) {
@@ -89,68 +75,94 @@ struct ReviewTaskHeader: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
+        .padding(.horizontal, 10)
+        .padding(.top, 10)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-struct ReviewRepoMenu: View {
-    let tabs: [(id: String, title: String)]
+struct ReviewRepoRow: Identifiable {
+    let id: String
+    let name: String
+    let branch: String?
+    let base: String?
+    let pullRequest: PullRequest?
+}
+
+struct ReviewRepoRows: View {
+    let rows: [ReviewRepoRow]
     @Binding var selection: String
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let selected = tabs.first { $0.id == selection }?.title ?? "All"
-        HStack(spacing: 8) {
-            Menu {
-                Picker("Repository", selection: $selection) {
-                    ForEach(tabs, id: \.id) { Text($0.title).tag($0.id) }
+        VStack(spacing: 2) {
+            ForEach(rows) { row in
+                HStack(spacing: 8) {
+                    Button { selection = row.id } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: row.id == "all" ? "square.stack.3d.up" : "folder")
+                                .foregroundStyle(theme.secondary)
+                                .accessibilityHidden(true)
+                            Text(row.name)
+                                .fontWeight(.semibold)
+                                .lineLimit(1)
+                            if let branch = row.branch {
+                                Text(row.base.map { "\(branch) → \($0)" } ?? branch)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(theme.branch)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .layoutPriority(-1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    if let pullRequest = row.pullRequest {
+                        PullRequestTag(pullRequest: pullRequest)
+                            .fixedSize()
+                    }
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                Label(selected, systemImage: selection == "all" ? "square.stack.3d.up" : "shippingbox")
+                .font(.callout)
+                .padding(.horizontal, 6)
+                .frame(height: 28)
+                .background(theme.foreground.opacity(row.id == selection ? 0.09 : 0), in: .rect(cornerRadius: 8))
+                .help(row.id == "all" ? "Show every repository" : "Show \(row.name)")
             }
-            .menuStyle(.button)
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .fixedSize()
-            .help("Show one repository or all of them")
-            Text("^[\(tabs.count - 1) repo](inflect: true)")
-                .font(.caption)
-                .foregroundStyle(theme.secondary)
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 4)
+        .padding(.bottom, 4)
     }
 }
 
 struct ReviewOtherPullRequests: View {
     let pullRequests: [PullRequest]
     let insets: EdgeInsets
-    @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
+        if !pullRequests.isEmpty {
+            Text("Other pull requests")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.secondary)
+                .listRowInsets(insets)
+        }
         ForEach(pullRequests, id: \.number) { pullRequest in
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "circle.fill")
-                    .font(.system(size: 7))
-                    .foregroundStyle(pullRequest.state.color(in: theme))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: "#\(pullRequest.number) \(pullRequest.title)")
+            HStack(spacing: 8) {
+                Button { openURL(pullRequest.url) } label: {
+                    Text(pullRequest.title)
                         .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    Text(verbatim: [pullRequest.state.rawValue, [.open, .draft].contains(pullRequest.state) ? pullRequest.checks.map { "checks \($0.rawValue)" } : nil].compactMap(\.self).joined(separator: " · "))
-                        .font(.caption)
-                        .foregroundStyle(Color.secondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
                 }
-                Spacer(minLength: 0)
+                .buttonStyle(.plain)
+                .help(pullRequest.title)
+                PullRequestTag(pullRequest: pullRequest)
+                    .fixedSize()
             }
-            .help(pullRequest.title)
             .listRowInsets(insets)
         }
     }

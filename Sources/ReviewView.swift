@@ -635,8 +635,17 @@ private struct ReviewFileList: View {
     }
 
     private func repoTabs(_ task: StoredTask) -> some View {
-        let tabs = [(id: ownRoot, title: URL(filePath: ownRoot).lastPathComponent)] + extras.map { (id: $0.repository.root, title: $0.repository.name) } + [(id: "all", title: "All")]
-        return ReviewRepoMenu(tabs: tabs, selection: Binding(get: { shownRepo ?? "all" }, set: { store.reviewRepoTabs[task.id] = $0 }))
+        let own = model.changes.map { changes in
+            ReviewRepoRow(id: ownRoot, name: URL(filePath: ownRoot).lastPathComponent, branch: changes.branch, base: pullRequestBase(changes, root: nil), pullRequest: shownPullRequest(root: nil, branch: changes.branch)?.pullRequest)
+        } ?? ReviewRepoRow(id: ownRoot, name: URL(filePath: ownRoot).lastPathComponent, branch: nil, base: nil, pullRequest: nil)
+        let others = extras.map { extra in
+            ReviewRepoRow(id: extra.repository.root, name: extra.repository.name, branch: extra.model.changes?.branch, base: extra.model.changes.flatMap { pullRequestBase($0, root: extra.repository.root) }, pullRequest: extra.model.changes.flatMap { shownPullRequest(root: extra.repository.root, branch: $0.branch)?.pullRequest })
+        }
+        return ReviewRepoRows(rows: [own] + others + [ReviewRepoRow(id: "all", name: "All repos", branch: nil, base: nil, pullRequest: nil)], selection: Binding(get: { shownRepo ?? "all" }, set: { store.reviewRepoTabs[task.id] = $0 }))
+    }
+
+    private func pullRequestBase(_ changes: ReviewChanges, root: String?) -> String? {
+        shownPullRequest(root: root, branch: changes.branch)?.pullRequest?.baseRefName ?? (changes.isDefaultBranch ? nil : changes.base)
     }
 
     @ViewBuilder
@@ -751,8 +760,14 @@ private struct ReviewFileList: View {
     private func inspector(_ changes: ReviewChanges?) -> some View {
         VStack(spacing: 0) {
             if let task = store.task(containing: sessionID) {
-                taskCard(task)
-                if !extras.isEmpty { repoTabs(task) }
+                VStack(spacing: 0) {
+                    taskCard(task)
+                    if !extras.isEmpty { repoTabs(task) }
+                }
+                .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(theme.foreground.opacity(0.1)))
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
             }
             if let changes, showsFiles(changes) {
                 ReviewFilesSplit(isExpanded: $model.showsFiles) {
@@ -1155,6 +1170,30 @@ private struct ReviewFileNode: View {
     }
 }
 
+private struct PullRequestStatePill: View {
+    let pullRequest: PullRequest
+    @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.openURL) private var openURL
+    @State private var isHovering = false
+
+    var body: some View {
+        let color = pullRequest.state.color(in: theme)
+        Button { openURL(pullRequest.url) } label: {
+            Label(pullRequest.state.rawValue, systemImage: [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][pullRequest.state] ?? "arrow.triangle.pull")
+                .labelStyle(CompactLabel())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(color)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .pointerStyle(.link)
+        .help("Open pull request #\(pullRequest.number) on GitHub")
+    }
+}
+
 private struct ReviewBranchCard: View {
     let changes: ReviewChanges
     let status: ReviewBranchStatus
@@ -1164,6 +1203,7 @@ private struct ReviewBranchCard: View {
     let createPullRequest: (() -> Void)?
     @Binding var showsCommits: Bool
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         let found = pullRequest ?? nil
@@ -1184,6 +1224,83 @@ private struct ReviewBranchCard: View {
                     .foregroundStyle(Color.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if found != nil {
+                    checksRow
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        facts
+                        VStack(alignment: .leading, spacing: 2) { facts }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Color.secondary)
+                }
+            }
+            if !status.commits.isEmpty, found.map({ $0.headRefName == nil || $0.headRefName == changes.branch }) ?? true {
+                commits
+            }
+            actions(found)
+        }
+        .lineLimit(1)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .geometryGroup()
+    }
+
+    private func headline(_ found: PullRequest?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if pullRequest != nil {
+                HStack(spacing: 8) {
+                    if let found {
+                        PullRequestStatePill(pullRequest: found)
+                        Text(verbatim: "#\(found.number)")
+                            .font(.caption.weight(.medium))
+                            .monospacedDigit()
+                            .foregroundStyle(Color.secondary)
+                    } else {
+                        Label("No pull request", systemImage: "arrow.triangle.branch")
+                            .labelStyle(CompactLabel())
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.secondary.opacity(0.16), in: .rect(cornerRadius: 4))
+                    }
+                    Spacer(minLength: 0)
+                    if let found { moreMenu(found) }
+                }
+            }
+            if let found {
+                Text(found.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .help(found.title)
+            } else {
+                Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits")")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+            }
+        }
+    }
+
+    @ViewBuilder private var facts: some View {
+        if status.behind > 0 {
+            Label("\(status.behind) behind", systemImage: "arrow.down")
+                .help("\(status.behind) behind \(changes.base ?? "")")
+        }
+        if let total = changes.total {
+            Text("+\(total.additions) −\(total.deletions)")
+                .monospacedDigit()
+                .help("Changes against \(changes.base ?? ""), uncommitted included")
+        }
+        if status.ahead > 0 {
+            pushState
+        }
+    }
+
+    @ViewBuilder private var checksRow: some View {
+        if detail?.checks != nil || changes.total != nil {
+            HStack(spacing: 12) {
                 if let checks = detail?.checks {
                     HStack(spacing: 12) {
                         if checks.passed > 0 {
@@ -1202,75 +1319,18 @@ private struct ReviewBranchCard: View {
                     }
                     .labelStyle(CompactLabel())
                     .font(.callout.weight(.medium))
+                    .fixedSize()
                     .help("Checks: \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
                 }
-                ViewThatFits(in: .horizontal) {
-                    facts(found)
-                    VStack(alignment: .leading, spacing: 2) { facts(found) }
-                }
-                .font(.caption)
-                .foregroundStyle(Color.secondary)
-            }
-            if !status.commits.isEmpty, found.map({ $0.headRefName == nil || $0.headRefName == changes.branch }) ?? true {
-                commits
-            }
-            actions(found)
-        }
-        .lineLimit(1)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .geometryGroup()
-    }
-
-    @ViewBuilder
-    private func headline(_ found: PullRequest?) -> some View {
-        let color = found?.state.color(in: theme) ?? Color.secondary
-        VStack(alignment: .leading, spacing: 6) {
-            if pullRequest != nil {
-                HStack {
-                    Label(found?.state.rawValue ?? "No pull request", systemImage: found.map { [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][$0.state] ?? "arrow.triangle.pull" } ?? "arrow.triangle.branch")
-                        .labelStyle(CompactLabel())
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(color)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(color.opacity(0.16), in: .capsule)
-                    if let found {
-                        Text(verbatim: "#\(found.number)")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(Color.secondary)
-                    }
-                    Spacer(minLength: 0)
-                    if let found { links(found) }
+                Spacer(minLength: 8)
+                if let total = changes.total {
+                    Text("+\(total.additions) −\(total.deletions)")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(Color.secondary)
+                        .help("Changes against \(changes.base ?? ""), uncommitted included")
                 }
             }
-            if let found {
-                Text(found.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .help(found.title)
-            } else {
-                Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits")")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func facts(_ found: PullRequest?) -> some View {
-        if found == nil, status.behind > 0 {
-            Label("\(status.behind) behind", systemImage: "arrow.down")
-                .help("\(status.behind) behind \(changes.base ?? "")")
-        }
-        if let total = changes.total {
-            Text("+\(total.additions) −\(total.deletions)")
-                .monospacedDigit()
-                .help("Changes against \(changes.base ?? ""), uncommitted included")
-        }
-        if found == nil, status.ahead > 0 {
-            pushState
         }
     }
 
@@ -1287,31 +1347,24 @@ private struct ReviewBranchCard: View {
         }
     }
 
-    private func links(_ found: PullRequest) -> some View {
-        HStack(spacing: 10) {
-            Link(destination: found.url) {
-                Label("Open on GitHub", systemImage: "arrow.up.right.square")
-                    .labelStyle(.iconOnly)
+    private func moreMenu(_ found: PullRequest) -> some View {
+        Menu {
+            Button("Open on GitHub", systemImage: "arrow.up.right.square") { openURL(found.url) }
+            Button("Copy Link", systemImage: "link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(found.url.absoluteString, forType: .string)
             }
-            .help("Open pull request #\(found.number) on GitHub")
-            Menu {
-                Button("Copy Link", systemImage: "link") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(found.url.absoluteString, forType: .string)
-                }
-                Button("Copy Number", systemImage: "number") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("#\(found.number)", forType: .string)
-                }
+            Button("Copy Number", systemImage: "number") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("#\(found.number)", forType: .string)
             }
-            label: {
-                Image(systemName: "ellipsis")
-                    .accessibilityLabel("More")
-            }
-            .menuIndicator(.hidden)
-            .frame(width: 20)
+        } label: {
+            Image(systemName: "ellipsis")
+                .accessibilityLabel("More")
         }
+        .menuIndicator(.hidden)
         .foregroundStyle(theme.secondary)
+        .frame(width: 20)
         .padding(.trailing, 4)
     }
 

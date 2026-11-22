@@ -4,17 +4,17 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum SidebarDensity: String, CaseIterable {
-    case comfortable, cozy, compact
+    case comfortable, compact
 
     static let key = "sidebarDensity"
 
     var title: String { rawValue.capitalized }
     var isCompact: Bool { self == .compact }
     var rowPadding: CGFloat { self == .comfortable ? 8 : 5 }
-    var headerHeight: CGFloat { self == .comfortable ? 24 : self == .cozy ? 22 : 20 }
-    var headerTopPadding: CGFloat { self == .comfortable ? 4 : self == .cozy ? 3 : 1 }
-    var headerBottomInset: CGFloat { self == .comfortable ? 4 : self == .cozy ? 3 : 1 }
-    var showMoreInset: CGFloat { self == .comfortable ? 4 : self == .cozy ? 3 : 1 }
+    var headerHeight: CGFloat { self == .comfortable ? 24 : 20 }
+    var headerTopPadding: CGFloat { self == .comfortable ? 4 : 1 }
+    var headerBottomInset: CGFloat { self == .comfortable ? 4 : 1 }
+    var showMoreInset: CGFloat { self == .comfortable ? 4 : 1 }
     var suggestionBottomPadding: CGFloat { self == .comfortable ? 8 : 5 }
 }
 
@@ -1245,25 +1245,82 @@ struct IssueTag: View {
 
     var body: some View {
         let state = store.state(of: issue)
-        let color = state == .open ? theme.working : state == .completed ? theme.merged : Color.secondary
+        let color = state.color(in: theme)
         Button {
             if let url = issue.url { openURL(url) }
         } label: {
             Label {
                 Text(verbatim: "#\(issue.number)")
             } icon: {
-                Image(systemName: state == .completed ? "checkmark.circle" : state == .notPlanned ? "slash.circle" : "smallcircle.filled.circle")
+                Image(systemName: state.symbol)
             }
             .labelStyle(CompactLabel())
             .font(.caption.monospaced())
             .foregroundStyle(color)
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
+            .background(color.opacity(isHovering ? 0.28 : 0.16), in: .capsule)
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
+        .pointerStyle(.link)
         .help("Open issue \(issue.repository)#\(issue.number)")
+    }
+}
+
+struct IssueStatePill: View {
+    let issue: IssueRef
+    @Environment(Store.self) private var store
+    @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.openURL) private var openURL
+    @State private var isHovering = false
+
+    var body: some View {
+        let state = store.state(of: issue)
+        let color = state.color(in: theme)
+        HStack(spacing: 6) {
+            Button {
+                if let url = issue.url { openURL(url) }
+            } label: {
+                Label(state.title, systemImage: state.symbol)
+                    .labelStyle(CompactLabel())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(color)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(color.opacity(isHovering ? 0.28 : 0.16), in: .capsule)
+            }
+            .buttonStyle(.plain)
+            .onHover { isHovering = $0 }
+            .pointerStyle(.link)
+            Text(verbatim: "#\(issue.number)")
+                .font(.caption.weight(.medium))
+                .monospacedDigit()
+                .foregroundStyle(Color.secondary)
+            Spacer(minLength: 0)
+        }
+        .help("Open issue \(issue.repository)#\(issue.number)")
+    }
+}
+
+extension IssueState? {
+    func color(in theme: GhosttyTheme) -> Color {
+        if self == .open { return theme.working }
+        if self == .completed { return theme.merged }
+        return Color.secondary
+    }
+
+    var symbol: String {
+        if self == .completed { return "checkmark.circle" }
+        if self == .notPlanned { return "slash.circle" }
+        return "smallcircle.filled.circle"
+    }
+
+    var title: String {
+        if self == .open { return "Open" }
+        if self == .completed { return "Completed" }
+        if self == .notPlanned { return "Not planned" }
+        return "Issue"
     }
 }
 
@@ -1430,7 +1487,7 @@ private struct CardRow<Detail: View>: View {
         }
         .opacity(isLocked && state == nil ? 0.55 : 1)
         .padding(.leading, 8)
-        .padding(.trailing, -8)
+        .padding(.trailing, -10)
         .padding(.vertical, density.rowPadding)
         .overlay(alignment: .topLeading) {
             StatusSlot(state: state, isUnread: isUnread, isOpen: isOpen, hasBackgroundShell: hasBackgroundShell, chevron: chevron).offset(x: -8, y: density.rowPadding)
@@ -1581,11 +1638,12 @@ struct PullRequestTag: View {
             .font(.caption.monospaced())
             .foregroundStyle(color)
             .padding(.horizontal, 4)
-            .padding(.vertical, 2)
+            .frame(height: 16)
             .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
+        .pointerStyle(.link)
         .help("Open pull request #\(pullRequest.number)\(checks.map { ", checks \($0.rawValue)" } ?? "")\(more > 0 ? ", \(more) more on this session" : "")")
     }
 }
