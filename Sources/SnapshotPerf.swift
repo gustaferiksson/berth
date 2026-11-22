@@ -75,6 +75,31 @@ extension Snapshot {
             await sweep("resize across the 801 pt sidebar yield (1100 to 1000 in 2 pt steps)", Array(stride(from: 1100.0, through: 1000, by: -2)))
             window.setContentSize(NSSize(width: startWidth, height: height))
         }
+        if steps.contains("scroll"), let content = window.contentView {
+            content.layoutSubtreeIfNeeded()
+            var views = [content]
+            var scrollViews: [NSScrollView] = []
+            while let view = views.popLast() {
+                if let scrollView = view as? NSScrollView { scrollViews.append(scrollView) }
+                views.append(contentsOf: view.subviews)
+            }
+            if let scrollView = scrollViews.max(by: { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }), let document = scrollView.documentView {
+                let clip = scrollView.contentView
+                let distance = max(0, document.frame.height - clip.bounds.height)
+                let cpuStart = cpuMilliseconds()
+                var times: [Double] = []
+                for step in 0...80 {
+                    let fraction = Double(abs(40 - step)) / 40
+                    let y = document.frame.minY + distance * (document.isFlipped ? fraction : 1 - fraction)
+                    times.append(timed {
+                        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: y))
+                        scrollView.reflectScrolledClipView(clip)
+                    })
+                    await Task.yield()
+                }
+                report("scroll bottom to top and back", times, cpuMilliseconds() - cpuStart)
+            }
+        }
         if steps.contains("sidebar") {
             await toggle("toggle session sidebar (\(rounds * 2) toggles)") { sidebarSplit?.toggleSidebar(nil) }
         }

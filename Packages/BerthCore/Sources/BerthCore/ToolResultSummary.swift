@@ -6,8 +6,29 @@ public struct ToolResultSummary: Sendable, Equatable {
     public let isError: Bool
 }
 
+public struct ToolCallDetails: Sendable {
+    public let summary: ToolResultSummary?
+    public let arguments: String
+    public let diff: [ToolDiffRow]
+}
+
 public extension ToolCall {
-    var resultSummary: ToolResultSummary? {
+    private static let home = FileManager.default.homeDirectoryForCurrentUser.path
+
+    var details: ToolCallDetails {
+        let rows: [ToolDiffRow] = if result?.isError == false, use.name == "Edit", let old = use.oldText, let new = use.newText {
+            ToolDiff.rows(old: old, new: new)
+        } else if result?.isError == false, use.name == "Write", let content = use.newText {
+            ToolDiff.rows(old: "", new: content)
+        } else {
+            []
+        }
+        return ToolCallDetails(summary: resultSummary(rows: rows), arguments: arguments, diff: rows)
+    }
+
+    var resultSummary: ToolResultSummary? { details.summary }
+
+    private func resultSummary(rows: [ToolDiffRow]) -> ToolResultSummary? {
         guard let result else { return nil }
 
         let lines = result.text.split(separator: "\n", omittingEmptySubsequences: true).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -17,8 +38,7 @@ public extension ToolCall {
         if use.name == "REPL" { return nil }
         if first.hasPrefix("<system>") { return ToolResultSummary(text: "Done", moreLines: 0, isError: false) }
 
-        if use.name == "Edit", let old = use.oldText, let new = use.newText {
-            let rows = ToolDiff.rows(old: old, new: new)
+        if use.name == "Edit", use.oldText != nil, use.newText != nil {
             let added = rows.count { $0.kind == .added }
             let removed = rows.count { $0.kind == .removed }
             let parts = [added > 0 ? "Added \(added) \(added == 1 ? "line" : "lines")" : nil, removed > 0 ? "\(added > 0 ? "removed" : "Removed") \(removed) \(removed == 1 ? "line" : "lines")" : nil].compactMap(\.self)
@@ -54,7 +74,7 @@ public extension ToolCall {
     var arguments: String {
         if use.name == "REPL" { return "" }
         if let command = use.command { return String(command.prefix { $0 != "\n" }) }
-        if let path = use.filePath { return path.replacing(FileManager.default.homeDirectoryForCurrentUser.path, with: "~") }
+        if let path = use.filePath { return path.replacing(Self.home, with: "~") }
         return use.detail ?? ""
     }
 }
