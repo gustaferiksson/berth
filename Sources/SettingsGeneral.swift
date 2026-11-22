@@ -17,6 +17,8 @@ struct GeneralSettings: View {
     @AppStorage(worktreeKey) private var startsInWorktree = false
     @AppStorage(codexKey) private var isCodexEnabled = false
     @AppStorage(keepsSessionsRunningKey) private var keepsSessionsRunning = false
+    @AppStorage(ControlService.enabledKey) private var isControlEnabled = false
+    @State private var control = ControlInstaller()
 
     var body: some View {
         Form {
@@ -43,6 +45,17 @@ struct GeneralSettings: View {
                 Text("New tabs run behind a small background helper, so quitting or updating Berth leaves shells and agents running and relaunching reattaches them. Closing a tab or unloading an idle session still ends it. Applies to tabs opened after you turn it on.")
             }
             Section {
+                Toggle("Let sessions control Berth", isOn: $isControlEnabled)
+                    .onChange(of: isControlEnabled) { store.control.update() }
+                if isControlEnabled {
+                    ControlInstallRows(installer: control)
+                }
+            } header: {
+                Text("Agent Control")
+            } footer: {
+                Text("Sessions in tabs opened after you turn this on get a berth command that lists tabs, opens terminals in their folder, reads their output and closes the ones they opened. It talks to Berth over a private socket in Application Support.")
+            }
+            Section {
                 Picker("Unload idle sessions after", selection: $unloadIdleAfter) {
                     Text("Never").tag(0.0)
                     Text("1 hour").tag(3600.0)
@@ -63,6 +76,6 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 650)
+        .frame(height: 800)
     }
 }

@@ -109,6 +109,20 @@ public enum SessionHost {
         connection.send(.hangUp)
     }
 
+    /// The scrollback ring as the host holds it, without attaching: the tab's own client stays connected.
+    public static func dump(socketPath: String) -> [UInt8]? {
+        guard let connection = try? HostConnection(socketPath: socketPath), connection.send(.dump) else { return nil }
+
+        var output: [UInt8] = []
+        let deadline = Date.now.addingTimeInterval(2)
+        while Date.now < deadline {
+            guard let frames = try? connection.receive(timeout: 0.1) else { break }
+
+            for case let .output(bytes) in frames { output += bytes }
+        }
+        return output
+    }
+
     /// Reads what a fresh attach would show, then detaches without hanging anything up. Replaces the attached client.
     public static func scrollback(socketPath: String) -> [UInt8]? {
         guard let connection = try? HostConnection(socketPath: socketPath), connection.send(.attach(cols: 80, rows: 24)) else { return nil }

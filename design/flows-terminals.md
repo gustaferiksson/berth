@@ -82,6 +82,20 @@ One client at a time (a new attach sends `replaced`), a 256 KB scrollback ring r
 
 `Tab.isHosted` tabs don't count in `busySessionCount` or `Store.isIdle`. Orphaned hosts (no saved tab) aren't cleaned up.
 
+### Agent control (see docs/adr/0008)
+
+Agent control (opt-in, Settings > General `controlEnabled`, off by default; #223): `ControlService` (owned by `Store`, started before tabs restore) runs a `ControlServer` on `~/Library/Application Support/<bundle id>/control/control.sock` (socket 0600, folder 0700, peer uid must equal ours, a path over 104 bytes is refused and shown in `failure`). Each launch makes a random token; tabs created while it runs get `BERTH_SOCKET`, `BERTH_TAB_ID` (the full tab uuid) and `BERTH_TOKEN` through `Store.terminal(id:…)`. Tabs that started earlier, including hosted ones reattached after a relaunch, hold a stale token and are refused.
+
+One JSON request line in, one response line out per connection (`ControlRequest`, `ControlResponse` in BerthCore; the server checks the token before the handler sees anything). The CLI is `berth-cli` (target `Packages/BerthCore/Sources/berth-cli`, embedded in `Contents/MacOS` like `berth-host`; the name avoids `Berth` on a case-insensitive volume) and Settings links `~/.local/bin/berth` to it. Parsing and output are `ControlCommand`.
+
+- `ls [--json]`: every tab with an 8 hex id (any unique prefix resolves), kind, title, folder, session id, live status; `*` marks tabs the caller opened.
+- `open-terminal [--cwd] [--background] [-- cmd…]`: `Store.openShell` in the caller's folder; `--background` restores the previous selection. The command runs as `ControlExitStatus.wrapping`, which writes its status to `control/exits/<tab uuid>` before the tab ends.
+- `send <tab> <text> [--no-enter]` and `close <tab>`: only tabs the caller opened (`openedBy`, in memory), so a session can't type into or close the user's terminals or other sessions.
+- `wait <tab> [--timeout]`: until the exit file exists or the tab is gone; the CLI exits with that status.
+- `capture <tab>`: any tab. libghostty-spm exposes no screen read on a live surface, so it reads the session host's scrollback ring through `HostFrame.dump` (a request that doesn't attach, so the tab's client isn't replaced) and strips escapes with `TerminalText.plain`; tabs not behind a host report capture as unsupported.
+
+Settings > General installs on a click only: the symlink, `~/.claude/skills/berth/SKILL.md` (`ControlInstall.skill`) and a SessionStart hook (`ControlInstall.hookCommand`, prints one line when `BERTH_TAB_ID` is set) merged into `~/.claude/settings.json` by `ControlInstall.settings(adding:)`: other keys kept, idempotent, unreadable or oddly shaped files refused, the old file copied to `settings.json.berth-backup`, and the sheet shows the added JSON first. `-snapshotControl` exercises it end to end.
+
 ### Idle unload
 
 Idle unload (`IdleTabs.unloadable`, `Store.unloadIdleTabs`, in the 5 min poll): closes Claude tabs whose live session is `idle` with no `attachID` and untouched for longer than Settings > General `unloadIdleSessionsAfter` (Never, 1 h, 4 h default, 1 day). Touched is the latest of open time, last deselection, `lastActivity` and `statusUpdatedAt`. Spared: the selected tab, pinned sessions, the most recent Claude tab in `recentTabIDs` (⌘J's target), working, waiting, attached and dead ones. The row stays and resumes on click.

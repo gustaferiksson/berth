@@ -67,6 +67,7 @@ final class Store {
 
     let updater = AppUpdater()
     @ObservationIgnored lazy var remote = RemoteServer(store: self)
+    @ObservationIgnored lazy var control = ControlService(store: self)
 
     var tabs: [Tab] = [] {
         didSet {
@@ -1010,7 +1011,7 @@ final class Store {
 
     func openShell(cwd: String, command: String? = nil, id: UUID = UUID()) {
         let launch = hostLaunch(command, id: id)
-        tabs.append(Tab(id: id, kind: .shell, cwd: cwd, sessionID: nil, terminal: terminal(cwd: cwd, command: launch.command) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
+        tabs.append(Tab(id: id, kind: .shell, cwd: cwd, sessionID: nil, terminal: terminal(id: id, cwd: cwd, command: launch.command) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
         selectedTabID = id
     }
 
@@ -1317,7 +1318,7 @@ final class Store {
         let id = UUID()
         let environment = session.map { [ClaudeLaunch.sessionVariable: attachID ?? $0] } ?? [:]
         let launch = hostLaunch(harness.command(start), id: id)
-        tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, agent: agent, terminal: terminal(cwd: cwd, command: launch.command, environment: environment) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
+        tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, agent: agent, terminal: terminal(id: id, cwd: cwd, command: launch.command, environment: environment) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
         if isConversationEnabled, harness.supports(.conversation), UserDefaults.standard.string(forKey: GeneralSettings.conversationViewKey) == "conversation" { conversationTabIDs.insert(id) }
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
@@ -1365,13 +1366,13 @@ final class Store {
         if selectedTabID == id { terminal.requestFocus() }
     }
 
-    private func terminal(cwd: String, command: String?, environment: [String: String] = [:], onClose: @escaping () -> Void) -> TerminalViewState {
+    private func terminal(id: UUID, cwd: String, command: String?, environment: [String: String] = [:], onClose: @escaping () -> Void) -> TerminalViewState {
         let terminal = TerminalViewState(controller: GhosttyConfig.controller)
         terminal.makePlatformView = { VisibleDropTerminalView(frame: .zero) }
         terminal.configuration = TerminalSurfaceOptions(
             backend: .exec,
             workingDirectory: cwd,
-            envVars: environment,
+            envVars: environment.merging(control.environment(for: id)) { current, _ in current },
             command: command,
             waitAfterCommand: false
         )
@@ -1554,7 +1555,7 @@ final class Store {
         guard let command = attachCommand(of: id) else { return }
 
         let environment = sessionID.map { [ClaudeLaunch.sessionVariable: $0] } ?? [:]
-        tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, agent: agent, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }, isHosted: true))
+        tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, agent: agent, terminal: terminal(id: id, cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }, isHosted: true))
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
         if kind == .claude { restoredTabIDs.insert(id) }

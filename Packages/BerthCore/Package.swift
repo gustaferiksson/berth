@@ -14,10 +14,12 @@ let package = Package(
     products: [
         .library(name: "BerthCore", targets: ["BerthCore"]),
         .executable(name: "berth-host", targets: ["berth-host"]),
+        .executable(name: "berth-cli", targets: ["berth-cli"]),
     ],
     targets: [
         .target(name: "BerthCore", swiftSettings: strict),
         .executableTarget(name: "berth-host", dependencies: ["BerthCore"], swiftSettings: strict),
+        .executableTarget(name: "berth-cli", dependencies: ["BerthCore"], swiftSettings: strict),
         .testTarget(name: "BerthCoreTests", dependencies: ["BerthCore"], resources: [.copy("Fixtures")], swiftSettings: strict),
     ]
 )

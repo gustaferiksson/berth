@@ -225,6 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard let output = Snapshot.output else {
             UNUserNotificationCenter.current().delegate = self
+            store.control.update()
             store.start(restoringTabs: true)
             store.updater.start()
             store.remote.update()
