@@ -130,7 +130,9 @@ extension Snapshot {
             switch name {
             case "type": store.conversationModels[tab.id]?.draft.text = argument
 
-            case "attach": store.conversationModels[tab.id]?.draft.files.append(URL(fileURLWithPath: argument))
+            case "attach": store.conversationModels[tab.id]?.append([URL(fileURLWithPath: argument)])
+
+            case "remove": store.conversationModels[tab.id]?.remove(URL(fileURLWithPath: argument))
 
             case "send": await store.conversationModels[tab.id]?.send()
 

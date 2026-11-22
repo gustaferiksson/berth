@@ -5,8 +5,47 @@ import Observation
 struct ConversationDraft {
     var text = ""
     var files: [URL] = []
+    private(set) var numbers: [URL: Int] = [:]
 
     var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty }
+
+    var orderedFiles: [URL] {
+        files.sorted { (text.range(of: token(for: $0))?.lowerBound ?? text.endIndex) < (text.range(of: token(for: $1))?.lowerBound ?? text.endIndex) }
+    }
+
+    static func isImage(_ url: URL) -> Bool {
+        ["jpg", "jpeg", "png", "gif", "webp"].contains(url.pathExtension.lowercased())
+    }
+
+    private func token(for url: URL) -> String {
+        numbers[url].map { "[Image #\($0)]" } ?? "\0"
+    }
+
+    mutating func attach(_ urls: [URL]) -> String {
+        var tokens: [String] = []
+        for url in urls where !files.contains(url) {
+            files.append(url)
+            guard Self.isImage(url) else { continue }
+
+            numbers[url] = (numbers.values.max() ?? 0) + 1
+            tokens.append(token(for: url))
+        }
+        return tokens.joined(separator: " ")
+    }
+
+    mutating func remove(_ url: URL) {
+        let token = token(for: url)
+        files.removeAll { $0 == url }
+        numbers[url] = nil
+        text = text.replacing(token, with: "")
+    }
+
+    mutating func prune() {
+        for url in files where numbers[url] != nil && !text.contains(token(for: url)) {
+            files.removeAll { $0 == url }
+            numbers[url] = nil
+        }
+    }
 }
 
 @Observable
@@ -49,6 +88,33 @@ final class ConversationModel {
         set { store.conversationDrafts[tabID] = newValue.text.isEmpty && newValue.files.isEmpty ? nil : newValue }
     }
 
+    func attach(_ urls: [URL]) -> String {
+        var draft = draft
+        let tokens = draft.attach(urls)
+        self.draft = draft
+        return tokens
+    }
+
+    func append(_ urls: [URL]) {
+        let tokens = attach(urls)
+        guard !tokens.isEmpty else { return }
+
+        draft.text += (draft.text.isEmpty || draft.text.last?.isWhitespace == true ? "" : " ") + tokens + " "
+    }
+
+    func remove(_ url: URL) {
+        var draft = draft
+        draft.remove(url)
+        self.draft = draft
+    }
+
+    func setText(_ text: String) {
+        var draft = draft
+        draft.text = text
+        draft.prune()
+        self.draft = draft
+    }
+
     func send() async {
         let sent = draft
         guard let sessionID, !sent.isEmpty, !isSending else { return }
@@ -59,7 +125,7 @@ final class ConversationModel {
         defer { isSending = false }
 
         let text = sent.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let outcome = await store.submit(sent.text, files: sent.files, to: sessionID)
+        let outcome = await store.submit(sent.text, files: sent.orderedFiles, to: sessionID)
         guard case let .refused(message) = outcome else {
             if !text.isEmpty { show(pending: text) }
             return
@@ -103,7 +169,7 @@ final class ConversationModel {
             guard store.liveBySession[sessionID]?.status != "waiting" else { continue }
 
             draft = ConversationDraft()
-            if case let .refused(message) = await store.submit(sent.text, files: sent.files, to: sessionID) {
+            if case let .refused(message) = await store.submit(sent.text, files: sent.orderedFiles, to: sessionID) {
                 notice = message
                 if draft.isEmpty { draft = sent }
             }

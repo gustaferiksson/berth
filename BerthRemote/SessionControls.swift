@@ -198,7 +198,7 @@ private struct Composer: View {
 
     private static let inset = 7.5
     private static let controlHeight = 34.0
-    private static let fieldHeight = 50.0
+    private static let tileSize = 56.0
     private static let hitSlop = 4.0
 
     @Environment(RemoteClient.self) private var client
@@ -221,23 +221,19 @@ private struct Composer: View {
         GlassEffectContainer(spacing: 8) {
             VStack(alignment: .leading, spacing: 0) {
                 if !attachments.isEmpty {
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 8) {
-                            ForEach(attachments) { attachment in
-                                AttachmentChip(attachment: attachment, state: client.uploads[attachment.id]) {
-                                    attachments.removeAll { $0.id == attachment.id }
-                                }
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileSize, maximum: Self.tileSize), spacing: Self.inset)], alignment: .leading, spacing: Self.inset) {
+                        ForEach(attachments) { attachment in
+                            AttachmentTile(attachment: attachment, state: client.uploads[attachment.id], size: Self.tileSize, radius: Self.controlHeight / 2) {
+                                attachments.removeAll { $0.id == attachment.id }
                             }
                         }
                     }
-                    .scrollIndicators(.hidden)
                     .padding(.top, Self.inset)
                 }
                 TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message Claude", text: $draft, axis: .vertical)
                     .lineLimit(1...6)
                     .focused($isFocused)
-                    .padding(.horizontal, 5)
-                    .frame(minHeight: Self.fieldHeight)
+                    .padding(.vertical, Self.inset)
                 HStack(spacing: 8) {
                     Menu {
                         if client.features.contains(RemoteUpload.feature) {
@@ -280,7 +276,8 @@ private struct Composer: View {
                             Image(systemName: stops ? "stop.fill" : "arrow.up")
                                 .accessibilityHidden(true)
                                 .font(.body.weight(.semibold))
-                                .foregroundStyle(.background)
+                                // swiftlint:disable:next fixed_black_white_in_remote
+                                .foregroundStyle(.white)
                                 .frame(width: Self.controlHeight, height: Self.controlHeight)
                                 .background(Color.accentColor, in: .circle)
                                 .padding(Self.hitSlop)
