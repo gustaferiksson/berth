@@ -16,7 +16,7 @@ final class HoverCardPanel {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.ignoresMouseEvents = false
+        panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
     }
 
@@ -25,14 +25,6 @@ final class HoverCardPanel {
 
         pendingHide?.cancel()
         return true
-    }
-
-    func pointerMoved(insideCard isInside: Bool) {
-        if isInside {
-            pendingHide?.cancel()
-        } else if let owner {
-            hideSoon(owner: owner)
-        }
     }
 
     func show(_ card: some View, owner: String, isDark: Bool, beside row: NSRect, column: NSRect, in window: NSWindow, trailing: Bool) {
@@ -90,7 +82,6 @@ struct SessionHoverTrigger: ViewModifier {
     @State private var isDismissed = false
     @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.openURL) private var openURL
 
     func body(content: Content) -> some View {
         content
@@ -121,9 +112,8 @@ struct SessionHoverTrigger: ViewModifier {
                     let row = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
                     let column = anchor.enclosingScrollView.map { window.convertToScreen($0.convert($0.bounds, to: nil)) } ?? row
                     HoverCardPanel.shared.show(
-                        SessionHoverCard(session: session, pullRequests: pullRequests, context: context, excerpt: excerpt, store: store)
-                            .environment(\.ghosttyTheme, theme)
-                            .environment(\.openURL, openURL),
+                        SessionHoverCard(session: session, pullRequests: pullRequests, context: context, excerpt: excerpt)
+                            .environment(\.ghosttyTheme, theme),
                         owner: session.id,
                         isDark: theme.isDark,
                         beside: row,
@@ -170,13 +160,9 @@ struct SessionHoverCard: View {
     let pullRequests: [SessionPullRequest]
     let context: SessionContext?
     let excerpt: HoverExcerpt?
-    let store: Store
-    @State private var copiedBranch = false
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
-        let tab = store.tab(forSession: session.id)
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.title)
@@ -193,44 +179,19 @@ struct SessionHoverCard: View {
             folderRow
             if let excerpt { excerptRow(excerpt) }
             footer
-            actions(tab: tab)
         }
         .frame(width: 260, alignment: .leading)
         .padding(6)
-        .onHover { HoverCardPanel.shared.pointerMoved(insideCard: $0) }
     }
 
     private var branchRow: some View {
         let project = URL(filePath: session.checkout).lastPathComponent
-        return Button {
-            guard let branch = session.branch else { return }
-
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(branch, forType: .string)
-            copiedBranch = true
-            Task {
-                try? await Task.sleep(for: .seconds(1))
-                copiedBranch = false
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text(copiedBranch ? "Copied" : [session.agent.harness.isOptIn ? session.agent.harness.name : nil, project, session.branch].compactMap(\.self).joined(separator: " · "))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if session.branch != nil {
-                    Image(systemName: copiedBranch ? "checkmark" : "doc.on.doc")
-                        .accessibilityHidden(true)
-                        .imageScale(.small)
-                        .opacity(copiedBranch ? 1 : 0.6)
-                }
-            }
+        return Text([session.agent.harness.isOptIn ? session.agent.harness.name : nil, project, session.branch].compactMap(\.self).joined(separator: " · "))
             .font(.caption)
             .foregroundStyle(.primary.opacity(0.7))
-            .modifier(HoverFill())
-        }
-        .buttonStyle(.plain)
-        .disabled(session.branch == nil)
-        .help("Copy branch name")
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, 6)
     }
 
     private func pullRequestRow(for item: SessionPullRequest) -> some View {
@@ -239,31 +200,25 @@ struct SessionHoverCard: View {
             + [isLive ? item.pullRequest.checks.map { "Checks \($0.rawValue)" } : nil]
             .compactMap(\.self)
             + [isLive ? item.pullRequest.reviewDecision.flatMap(Self.reviewText) : nil].compactMap(\.self)
-        return Button {
-            openURL(item.pullRequest.url)
-            HoverCardPanel.shared.hide()
-        } label: {
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "circle.fill")
-                    .accessibilityHidden(true)
-                    .font(.system(size: 7))
-                    .foregroundStyle(item.state.color(in: theme))
-                    .padding(.top, 4)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(verbatim: "#\(item.number) \(item.pullRequest.title)")
-                        .font(.caption.weight(.medium))
-                        .lineLimit(1)
-                    Text(verbatim: status.joined(separator: " · "))
-                        .font(.caption2)
-                        .foregroundStyle(.primary.opacity(0.7))
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
+        return HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "circle.fill")
+                .accessibilityHidden(true)
+                .font(.system(size: 7))
+                .foregroundStyle(item.state.color(in: theme))
+                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(verbatim: "#\(item.number) \(item.pullRequest.title)")
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                Text(verbatim: status.joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.primary.opacity(0.7))
+                    .lineLimit(1)
             }
-            .modifier(HoverFill())
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .help("Open pull request")
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
     }
 
     private static func reviewText(_ decision: InboxPullRequest.ReviewDecision) -> String? {
@@ -273,51 +228,29 @@ struct SessionHoverCard: View {
     }
 
     private var folderRow: some View {
-        Button {
-            let folder = URL(filePath: session.cwd)
-            guard NSEvent.modifierFlags.contains(.command) else {
-                NSWorkspace.shared.activateFileViewerSelecting([folder])
-                HoverCardPanel.shared.hide()
-                return
-            }
-
-            store.openShell(cwd: session.cwd)
-            store.activate(store.selectedTabID.map(SidebarItem.tab))
-            HoverCardPanel.shared.hide()
-        } label: {
-            Text((session.cwd as NSString).abbreviatingWithTildeInPath)
-                .font(.caption.monospaced())
-                .foregroundStyle(.primary.opacity(0.7))
-                .lineLimit(1)
-                .truncationMode(.head)
-                .modifier(HoverFill())
-        }
-        .buttonStyle(.plain)
-        .help("Reveal in Finder, ⌘-click for a terminal here")
+        Text((session.cwd as NSString).abbreviatingWithTildeInPath)
+            .font(.caption.monospaced())
+            .foregroundStyle(.primary.opacity(0.7))
+            .lineLimit(1)
+            .truncationMode(.head)
+            .padding(.horizontal, 6)
     }
 
     private func excerptRow(_ excerpt: HoverExcerpt) -> some View {
-        Button {
-            store.activate(.session(session.id))
-            HoverCardPanel.shared.hide()
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(excerpt.prompt)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(excerpt.prompt)
+                .font(.caption)
+                .lineLimit(3)
+            if let reply = excerpt.reply {
+                Text(reply)
                     .font(.caption)
+                    .foregroundStyle(.primary.opacity(0.7))
                     .lineLimit(3)
-                if let reply = excerpt.reply {
-                    Text(reply)
-                        .font(.caption)
-                        .foregroundStyle(.primary.opacity(0.7))
-                        .lineLimit(3)
-                }
             }
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .modifier(HoverFill())
         }
-        .buttonStyle(.plain)
-        .help("Open session")
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 6)
     }
 
     private var footer: some View {
@@ -331,62 +264,5 @@ struct SessionHoverCard: View {
         .font(.caption)
         .foregroundStyle(.primary.opacity(0.7))
         .padding(.horizontal, 6)
-    }
-
-    private func actions(tab: Tab?) -> some View {
-        let isPinned = store.pinnedSessions.contains { $0.id == session.id }
-        let isFlagged = store.flaggedIDs.contains(session.id)
-        return HStack(spacing: 2) {
-            HoverAction(symbol: "arrow.up.forward.square", title: "Open") { store.activate(.session(session.id)) }
-            HoverAction(symbol: isPinned ? "pin.slash" : "pin", title: isPinned ? "Unpin" : "Pin") {
-                if isPinned { store.unpin(session.id) } else { store.pin(session.id) }
-            }
-            HoverAction(symbol: isFlagged ? "flag.fill" : "flag", title: isFlagged ? "Unflag" : "Flag") {
-                if isFlagged { store.unflag(session.id) } else { store.flag(session.id) }
-            }
-            HoverAction(symbol: "archivebox", title: "Archive") { store.archive(session.id) }
-            if let tab {
-                HoverAction(symbol: "eject", title: "Unload Session") { store.close(tab.id) }
-            }
-        }
-        .padding(.top, 2)
-    }
-}
-
-private struct HoverFill: ViewModifier {
-    @State private var isHovering = false
-
-    func body(content: Content) -> some View {
-        content
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(isHovering ? 0.1 : 0), in: .rect(cornerRadius: 6))
-            .contentShape(.rect)
-            .onHover { isHovering = $0 }
-    }
-}
-
-private struct HoverAction: View {
-    let symbol: String
-    let title: String
-    let perform: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Button {
-            perform()
-            HoverCardPanel.shared.hide()
-        } label: {
-            Image(systemName: symbol)
-                .accessibilityHidden(true)
-                .frame(width: 30, height: 24)
-                .background(Color.primary.opacity(isHovering ? 0.1 : 0), in: .rect(cornerRadius: 6))
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .help(title)
-        .accessibilityLabel(title)
     }
 }
