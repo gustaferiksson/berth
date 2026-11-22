@@ -70,7 +70,7 @@ struct ConversationView: View {
 
     private func transcript(isWorking: Bool, waitingFor: String??, since: Date?) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            LazyVStack(alignment: .leading, spacing: 28) {
                 if model.turns.isEmpty {
                     emptyState
                 }
@@ -83,6 +83,7 @@ struct ConversationView: View {
                         waitingFor: isCurrent ? waitingFor : nil,
                         since: since,
                         tasks: model.tasks,
+                        details: model.details,
                         reviewChanges: isReviewEnabled ? { AppAction.showChanges.perform(on: store) } : nil
                     )
                 }
@@ -189,6 +190,7 @@ private struct ConversationTurnView: View {
     let waitingFor: String??
     let since: Date?
     let tasks: [RemoteTask]
+    let details: [String: ToolCallDetails]
     let reviewChanges: (() -> Void)?
 
     @Environment(\.ghosttyTheme) private var theme
@@ -205,10 +207,10 @@ private struct ConversationTurnView: View {
             ForEach(turn.parts.enumerated(), id: \.element.id) { index, part in
                 if case let .work(calls) = part, !turn.isInterrupted, isFinished || index < lastIndex {
                     ConversationFold(label: isFinished && workCount == 1 ? turn.duration.map { "Worked for \($0.formatted(elapsedFormat))" } ?? "Worked" : ToolCall.summary(of: calls)) {
-                        ConversationPartView(part: part, tasks: tasks, openCall: nil, isWaiting: false)
+                        ConversationPartView(part: part, tasks: tasks, details: details, openCall: nil, isWaiting: false)
                     }
                 } else {
-                    ConversationPartView(part: part, tasks: tasks, openCall: isFinished ? nil : turn.openCall, isWaiting: waitingFor != nil)
+                    ConversationPartView(part: part, tasks: tasks, details: details, openCall: isFinished ? nil : turn.openCall, isWaiting: waitingFor != nil)
                 }
             }
             if isFinished, !turn.isInterrupted, let changes = turn.fileChanges {
@@ -271,6 +273,7 @@ private struct ConversationTurnView: View {
 private struct ConversationPartView: View {
     let part: TurnPart
     let tasks: [RemoteTask]
+    let details: [String: ToolCallDetails]
     let openCall: ToolCall?
     let isWaiting: Bool
 
@@ -282,7 +285,7 @@ private struct ConversationPartView: View {
         case let .work(calls):
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(calls) { call in
-                    ConversationToolRow(call: call, state: call.id == openCall?.id ? (isWaiting ? .waiting : .running) : .finished)
+                    ConversationToolRow(call: call, details: details[call.id] ?? call.details, state: call.id == openCall?.id ? (isWaiting ? .waiting : .running) : .finished)
                 }
             }
 
@@ -303,32 +306,15 @@ private struct ConversationFold<Content: View>: View {
 
     @Environment(\.ghosttyTheme) private var theme
     @State private var isExpanded = conversationExpandsAll
-    @State private var isHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Button {
                 withAnimation(.smooth(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                HStack(spacing: 8) {
-                    Text(verbatim: "✻")
-                        .accessibilityHidden(true)
-                    Text(label)
-                        .monospacedDigit()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .accessibilityHidden(true)
-                }
-                .font(theme.conversationFont(-1))
-                .foregroundStyle(theme.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(theme.foreground.opacity(isHovered ? 0.1 : 0.05), in: .capsule)
-                .contentShape(.capsule)
+                ConversationFoldLabel(label: label, isExpanded: isExpanded)
             }
             .buttonStyle(.plain)
-            .onHover { isHovered = $0 }
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             if isExpanded {
                 content
@@ -340,6 +326,34 @@ private struct ConversationFold<Content: View>: View {
                     }
             }
         }
+    }
+}
+
+private struct ConversationFoldLabel: View {
+    let label: String
+    let isExpanded: Bool
+
+    @Environment(\.ghosttyTheme) private var theme
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(verbatim: "✻")
+                .accessibilityHidden(true)
+            Text(label)
+                .monospacedDigit()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .semibold))
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .accessibilityHidden(true)
+        }
+        .font(theme.conversationFont(-1))
+        .foregroundStyle(theme.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(theme.foreground.opacity(isHovered ? 0.1 : 0.05), in: .capsule)
+        .contentShape(.capsule)
+        .onHover { isHovered = $0 }
     }
 }
 

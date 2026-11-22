@@ -13,6 +13,8 @@ struct ConversationDraft {
 final class ConversationModel {
     let tabID: Tab.ID
     private(set) var turns: [Turn] = []
+    @ObservationIgnored private(set) var details: [String: ToolCallDetails] = [:]
+    @ObservationIgnored private var completedCalls: Set<String> = []
     private(set) var tasks: [RemoteTask] = []
     private(set) var context: RemoteContext?
     private(set) var queued: [String] = []
@@ -157,7 +159,13 @@ final class ConversationModel {
     }
 
     func start() {
-        watcher = FileWatcher(paths: [Store.claudeDirectory.appending(path: "projects").path], latency: 0.3) { [weak self] _ in self?.refresh() }
+        watcher = FileWatcher(paths: [Store.claudeDirectory.appending(path: "projects").path], latency: 0.3) { [weak self] paths in
+            guard let self else { return }
+
+            if let sessionID, !paths.contains(where: { $0.contains(sessionID) }) { return }
+
+            refresh()
+        }
         refresh()
     }
 
@@ -214,6 +222,22 @@ final class ConversationModel {
         if !chunk.isContinuation || !chunk.entries.isEmpty {
             entries = (chunk.isContinuation ? entries : []) + chunk.entries
             turns = Turn.turns(from: entries)
+            var currentDetails: [String: ToolCallDetails] = [:]
+            var currentCompleted: Set<String> = []
+            for turn in turns {
+                for part in turn.parts {
+                    let calls: [ToolCall] = switch part {
+                    case let .work(calls), let .cards(calls): calls
+                    case .reply: []
+                    }
+                    for call in calls {
+                        currentDetails[call.id] = if let cached = details[call.id], call.result == nil || completedCalls.contains(call.id) { cached } else { call.details }
+                        if call.result != nil { currentCompleted.insert(call.id) }
+                    }
+                }
+            }
+            details = currentDetails
+            completedCalls = currentCompleted
         }
         reconcilePending()
     }

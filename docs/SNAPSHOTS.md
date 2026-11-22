@@ -66,6 +66,8 @@ Fixture: `Packages/BerthCore` with a scratch type error, or a copy of the packag
 
 `-snapshotPerf YES` (`SnapshotPerf.swift`) times, as main-thread ms and process CPU, window resizes (a sweep down to 900 pt and back, and across the 801 pt sidebar yield), the session sidebar toggle and the Review panel toggle; `-snapshotPerfRounds <n>` (toggle pairs, default 1), `-snapshotPerfSteps resize,sidebar,panel` (default all) and `-snapshotPerfSetup closeDiff,hidePanel,hideSessions` (run first). Release timing needs `SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG`.
 
+`-snapshotPerfSteps resize,scroll` adds an opt-in scroll step that times 40 equal steps from bottom to top and back in the window’s tallest scroll document (also available with `-snapshotConversation YES -snapshotPerf YES`).
+
 ## Fixture homes, URLs and window state
 
 To test folder following against real transcript records, point a fixture home at `CFFIXED_USER_HOME=/abs/home` (Store reads `~/.claude` through it) holding `projects/<slug>/snapshot-review.jsonl`, and don't pass `-snapshotReviewPullRequest` (fixture sessions replace the scan). With a scratch repo nested in the checkout, export `GIT_CEILING_DIRECTORIES` so a broken scratch repo doesn't resolve to the parent. Snapshot modes swallow `openURL` (PR and issue chips, cards, `Link`s) and print `snapshot openURL <url>`, so nothing reaches the browser.
@@ -127,6 +129,8 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 ### Conversation view
 
 `-snapshotConversation YES` (needs an empty `CFFIXED_USER_HOME`; pass `-reviewEnabled NO`, `-conversationEnabled YES`; `-snapshotConversationStatus busy|waiting|idle`, `-snapshotConversationExpanded YES`, `-snapshotConversationHeight <pt>`) seeds an invented transcript, saves `<out>.conversation.png` and `<out>.terminal.png` and prints the surface identity across toggles.
+
+`-snapshotConversationRepeat <n>` repeats the fixture transcript with unique record, message and tool IDs and monotonic timestamps for longer conversation performance runs (try `16`, about 500 entries; the image is kept in the first repetition only, since the reader takes the last 256 KB).
 
 `-snapshotConversationDrive "<step>|…"` (type:, attach:, send:, decline:, stop, show, allow, deny, choose:<n>, status:<s>[/<waitingFor>], restamp, drop, wait:<ms>, snap:<name>, log), `-snapshotConversationWaitingFor`, `-snapshotConversationPending bash|edit|question|plan` and `-snapshotConversationRawLog /abs/file` (raw-mode pty logger, so Esc and digits reach the file) prove what reaches the pty.
 

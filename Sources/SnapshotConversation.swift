@@ -47,7 +47,8 @@ extension Snapshot {
         }
         let virtual = { (record: [String: Any]) -> [String: Any] in record.merging(["isVirtual": true]) { $1 } }
         let file = "\(conversationFolder)/Sources/Export.swift"
-        return [
+        let start = clock
+        let records = [
             prompt("Why does the usage export fail on CI? It passes locally.", 0),
             assistant(4, [text("I'll start with the export code and the CI log.")]),
             assistant(3, [use("t1", "Grep", ["pattern": "func exportRows", "path": "Sources"])]),
@@ -82,6 +83,32 @@ extension Snapshot {
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
         ] + pendingRecords(assistant: assistant, use: use, result: result)
+        let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
+        guard repetitions > 1 else { return records }
+
+        let duration = clock.timeIntervalSince(start) + 1
+        return (0..<repetitions).flatMap { repetition in
+            records.map { original in
+                var record = original
+                if let uuid = original["uuid"] as? String { record["uuid"] = "\(uuid)-r\(repetition)" }
+                if let timestamp = original["timestamp"] as? String, let date = try? format.parse(timestamp) {
+                    record["timestamp"] = date.addingTimeInterval(Double(repetition) * duration).formatted(format)
+                }
+                if var message = original["message"] as? [String: Any] {
+                    if let id = message["id"] as? String { message["id"] = "\(id)-r\(repetition)" }
+                    if let blocks = message["content"] as? [[String: Any]] {
+                        message["content"] = blocks.filter { repetition == 0 || $0["type"] as? String != "image" }.map { original in
+                            var block = original
+                            if original["type"] as? String == "tool_use", let id = original["id"] as? String { block["id"] = "\(id)-r\(repetition)" }
+                            if original["type"] as? String == "tool_result", let id = original["tool_use_id"] as? String { block["tool_use_id"] = "\(id)-r\(repetition)" }
+                            return block
+                        }
+                    }
+                    record["message"] = message
+                }
+                return record
+            }
+        }
     }
 
     private static func fixtureImage() -> Data {
@@ -199,6 +226,12 @@ extension Snapshot {
         while Date.now < deadline, store.conversationModels[tab.id]?.turns.isEmpty ?? true { try? await Task.sleep(for: .milliseconds(100)) }
         try? await Task.sleep(for: .seconds(2))
         surface("in conversation")
+        if UserDefaults.standard.bool(forKey: "snapshotPerf") {
+            await measurePerformance(window: window, store: store)
+            ProcessAncestry.hangUpDescendants()
+            print("conversation performance complete")
+            exit(0)
+        }
         if let model = store.conversationModels[tab.id] {
             print("conversation shows \(model.entryCount) entries in \(model.turns.count) turns, \(model.tasks.count) running tasks, queued \(model.queued.count), context \(model.context.map { "\($0.model) \($0.tokens ?? 0) tokens" } ?? "none")")
             for turn in model.turns {
