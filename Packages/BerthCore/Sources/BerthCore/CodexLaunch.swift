@@ -1,12 +1,11 @@
 import Foundation
 
 public enum CodexLaunch {
-    public enum Start: Sendable {
-        case new, resume
-    }
+    public typealias Start = LaunchStart
 
     public static func command(_ start: Start) -> String {
-        "/bin/zsh -ilc 'codex\(start == .resume ? " resume \"$\(ClaudeLaunch.sessionVariable)\"" : "") || exec /bin/zsh -il'"
+        let resumes = start == .resume || start == .attach
+        return "/bin/zsh -ilc 'codex\(resumes ? " resume \"$\(ClaudeLaunch.sessionVariable)\"" : "") || exec /bin/zsh -il'"
     }
 
     public static func claim(for opened: Date, cwd: String, in sessions: [SessionSummary], excluding claimed: Set<String>) -> SessionSummary? {

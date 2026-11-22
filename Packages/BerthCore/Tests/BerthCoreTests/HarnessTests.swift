@@ -1,0 +1,48 @@
+@testable import BerthCore
+import Foundation
+import Testing
+
+struct HarnessTests {
+    @Test func claudeSupportsEveryCapabilityAndCodexNone() {
+        #expect(Capability.allCases.allSatisfy { Harness.claude.supports($0) })
+        #expect(Capability.allCases.allSatisfy { !Harness.codex.supports($0) })
+    }
+
+    @Test func everyAgentHasItsHarness() {
+        #expect(Harness.all.map(\.agent) == [.claude, .codex])
+        #expect(Harness.all.allSatisfy { $0.agent.harness.agent == $0.agent })
+        #expect(Agent.codex.name == "Codex" && Agent.claude.name == "Claude")
+        #expect(Harness.all.map(\.isOptIn) == [false, true])
+        #expect(Harness.all.map(\.liveSource) == [.sessionFiles, .notTracked])
+    }
+
+    @Test func launchCommandsComeFromTheDescriptor() {
+        #expect(Harness.claude.command(.resume) == ClaudeLaunch.command(.resume))
+        #expect(Harness.claude.command(.newInWorktree).contains(" -w "))
+        #expect(Harness.codex.command(.resume) == #"/bin/zsh -ilc 'codex resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
+        #expect(Harness.codex.command(.new) == Harness.codex.command(.newInWorktree))
+        #expect(Harness.codex.command(.resume) == Harness.codex.command(.attach))
+    }
+
+    @Test func onlyCodexClaimsItsSessionAfterOpening() {
+        let opened = Date(timeIntervalSince1970: 100)
+        let session = SessionSummary(id: "rollout", cwd: "/a", title: "t", lastActivity: opened, agent: .codex, startedAt: opened.addingTimeInterval(1))
+        #expect(Harness.claude.claimsNewSession == false)
+        #expect(Harness.codex.claim?(opened, "/a", [session], []).map(\.id) == "rollout")
+        #expect(Harness.codex.claim?(opened, "/a", [session], ["rollout"]) == nil)
+    }
+
+    @Test func claudeAdapterReadsTranscriptEntriesAndCodexHasNone() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "harness-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let lines = [
+            #"{"type":"user","uuid":"u1","message":{"role":"user","content":"hello there"}}"#,
+            #"{"type":"assistant","uuid":"a1","message":{"content":[{"type":"text","text":"hi"}]}}"#,
+        ]
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+
+        let chunk = try #require(Harness.claude.readTranscript?(url, nil, []))
+        #expect(chunk.entries.map(\.kind) == [.prompt, .reply])
+        #expect(Harness.codex.readTranscript == nil)
+    }
+}

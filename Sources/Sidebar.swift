@@ -370,7 +370,7 @@ private struct SidebarList: View, Equatable {
         .fileImporter(isPresented: Binding(get: { browseRoot != nil }, set: { if !$0 { browseRoot = nil } }), allowedContentTypes: [.folder]) { result in
             guard case let .success(url) = result else { return }
 
-            store.openClaude(cwd: url.path)
+            store.openSession(cwd: url.path)
         }
         .fileDialogDefaultDirectory(browseRoot.map { URL(filePath: $0) })
         .overlay {
@@ -599,7 +599,7 @@ private struct SidebarList: View, Equatable {
             },
             accessory: { isHovering in
                 if let singleFolder {
-                    Button("New Session", systemImage: "plus") { store.openClaude(cwd: singleFolder) }
+                    Button("New Session", systemImage: "plus") { store.openSession(cwd: singleFolder) }
                         .help("New session in \(URL(filePath: singleFolder).lastPathComponent)")
                         .labelStyle(.iconOnly)
                         .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
@@ -625,7 +625,7 @@ private struct SidebarList: View, Equatable {
         let folders = NSOrderedSet(array: candidates).array.compactMap { $0 as? String }.filter { FileManager.default.fileExists(atPath: $0) }
         Section("Start in") {
             ForEach(folders, id: \.self) { folder in
-                Button(URL(filePath: folder).lastPathComponent) { store.openClaude(cwd: folder) }
+                Button(URL(filePath: folder).lastPathComponent) { store.openSession(cwd: folder) }
             }
         }
         Section {
@@ -638,7 +638,7 @@ private struct SidebarList: View, Equatable {
     @ViewBuilder
     private func customGroupMenu(_ custom: CustomGroup, at index: Int, of count: Int, singleFolder: String?) -> some View {
         if let singleFolder {
-            Button("New Session") { store.openClaude(cwd: singleFolder) }
+            Button("New Session") { store.openSession(cwd: singleFolder) }
         } else {
             Menu("New Session in") { startItems(custom) }
         }
@@ -653,7 +653,7 @@ private struct SidebarList: View, Equatable {
 
     @ViewBuilder
     private func folderGroupMenu(_ folders: [String], root: String, title: String) -> some View {
-        Button("New Session") { store.openClaude(cwd: root) }
+        Button("New Session") { store.openSession(cwd: root) }
         Menu("Add to Group") {
             ForEach(store.customGroups) { custom in
                 Button(custom.name) { for folder in folders { store.addFolder(folder, to: custom.id) } }
@@ -1544,12 +1544,12 @@ private struct CardRow<Detail: View>: View {
                         .help("Running in another terminal")
                         .accessibilityHidden(true)
                 }
-                if agent == .codex {
-                    Image(systemName: "terminal")
+                if agent.harness.isOptIn {
+                    Image(systemName: agent.harness.glyph)
                         .font(.system(size: 9))
                         .foregroundStyle(Color.secondary)
-                        .help("Codex")
-                        .accessibilityLabel("Codex")
+                        .help(agent.harness.name)
+                        .accessibilityLabel(agent.harness.name)
                 }
                 if isFlagged {
                     Image(systemName: "flag.fill")

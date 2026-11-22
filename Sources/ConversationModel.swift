@@ -148,7 +148,7 @@ final class ConversationModel {
             needsRead = true
             return
         }
-        guard let sessionID = store.tabs.first(where: { $0.id == tabID })?.sessionID, let url = store.index.url(ofSession: sessionID) else {
+        guard let tab = store.tabs.first(where: { $0.id == tabID }), let sessionID = tab.sessionID, let readTranscript = tab.agent.harness.readTranscript, let url = store.index.url(ofSession: sessionID) else {
             hasLoaded = true
             return
         }
@@ -164,7 +164,7 @@ final class ConversationModel {
         let catalogDirectory = Store.claudeDirectory.appending(path: "cache/model-catalog")
         Task {
             let (chunk, result) = await Task.detached {
-                let chunk = TranscriptTail.read(url, after: after, queue: queue)
+                let chunk = readTranscript(url, after, queue)
                 return (chunk, TranscriptActivity.report(url, previous: previous, logs: previousLogs, live: live, catalogDirectory: catalogDirectory))
             }.value
             isReading = false
