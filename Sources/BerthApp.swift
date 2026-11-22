@@ -38,7 +38,10 @@ struct BerthApp: App {
                 AppAction.checkForUpdates.menuButton(appDelegate.store)
             }
             CommandGroup(after: .newItem) {
-                ForEach([AppAction.newSession, .pullRequests, .searchSessions, .newTerminal, .newGroup], id: \.self) { $0.menuButton(appDelegate.store) }
+                ForEach([AppAction.newSession, .pullRequests, .searchSessions, .newTerminal, .newTerminalForSession, .newGroup], id: \.self) { action in
+                    action.menuButton(appDelegate.store)
+                        .disabled(!action.isAvailable(in: appDelegate.store))
+                }
             }
             CommandGroup(before: .saveItem) {
                 if isReviewEnabled {

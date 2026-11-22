@@ -403,7 +403,7 @@ struct ContextRing: View {
         }
         .padding(2)
         .frame(width: 20, height: 20)
-        .accessibilityLabel(fill.map { "Context \($0.formatted(.percent.precision(.fractionLength(0)))) full" } ?? "Context")
+        .accessibilityLabel(fill.map { "Context \($0.formatted(.wholePercent)) full" } ?? "Context")
     }
 }
 
@@ -420,7 +420,7 @@ struct ContextSheet: View {
                         Gauge(value: Double(tokens), in: 0...Double(window)) {
                             Text("Used")
                         } currentValueLabel: {
-                            Text((Double(tokens) / Double(window)).formatted(.percent.precision(.fractionLength(0))))
+                            Text((Double(tokens) / Double(window)).formatted(.wholePercent))
                         }
                         .tint(Double(tokens) / Double(window) >= 0.9 ? .red : Double(tokens) / Double(window) >= 0.7 ? .orange : .accentColor)
                     }

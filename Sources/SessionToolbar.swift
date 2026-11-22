@@ -39,24 +39,35 @@ extension Store {
     }
 }
 
+// A toolbar-less inspector gets no tracking separator, so the window's trailing items would sit over it.
 struct SessionToolbar: ToolbarContent {
     let store: Store
     let isReviewEnabled: Bool
 
     var body: some ToolbarContent {
         if store.canShowConversation {
-            ToolbarItem(placement: .automatic) { ConversationSwitch(store: store) }
+            ToolbarItem(placement: .principal) { ConversationSwitch(store: store) }
         }
         if store.showsSessionToolbar, let sessionID = store.selectedSessionID {
+            ToolbarItem(placement: .primaryAction) { ContextButton(context: store.sessionsByID[sessionID]?.context) }
+        }
+    }
+}
+
+struct ChangesToolbar: ToolbarContent {
+    let store: Store
+    let isReviewEnabled: Bool
+
+    var body: some ToolbarContent {
+        if store.showsSessionToolbar, let sessionID = store.selectedSessionID {
             let pullRequests = store.sessionsByID[sessionID].map { store.pullRequests(of: $0) } ?? []
-            ToolbarSpacer(.fixed, placement: .automatic)
             if isReviewEnabled || !pullRequests.isEmpty {
-                ToolbarItemGroup(placement: .automatic) {
-                    if let first = pullRequests.first { PullRequestTag(pullRequest: first.pullRequest, more: pullRequests.count - 1) }
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if let first = pullRequests.first { PullRequestButton(pullRequest: first.pullRequest) }
                     if isReviewEnabled { ChangesToggle(store: store) }
                 }
             }
-            ToolbarItem(placement: .automatic) { ContextButton(context: store.sessionsByID[sessionID]?.context) }
         }
     }
 }
@@ -75,6 +86,21 @@ private struct ConversationSwitch: View {
     }
 }
 
+private struct PullRequestButton: View {
+    let pullRequest: PullRequest
+    @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Button { openURL(pullRequest.url) } label: {
+            Label { Text(verbatim: "#\(pullRequest.number)") } icon: { Image(systemName: "arrow.triangle.pull") }
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(pullRequest.state.color(in: theme))
+        }
+        .help("Open pull request #\(pullRequest.number)")
+    }
+}
+
 private struct ChangesToggle: View {
     let store: Store
     @Environment(\.ghosttyTheme) private var theme
@@ -82,7 +108,7 @@ private struct ChangesToggle: View {
     var body: some View {
         let isShown = AppAction.hideChanges.isAvailable(in: store)
         let action = isShown ? AppAction.hideChanges : .showChanges
-        Toggle(isOn: Binding(get: { isShown }, set: { ($0 ? AppAction.showChanges : .hideChanges).perform(on: store) })) {
+        Button { action.perform(on: store) } label: {
             if let size = store.selectedChangeSize {
                 HStack(spacing: 5) {
                     Text(verbatim: "+\(size.additions)").foregroundStyle(theme.working)
@@ -93,7 +119,6 @@ private struct ChangesToggle: View {
                 Image(systemName: action.symbol)
             }
         }
-        .toggleStyle(.button)
         .accessibilityLabel(action.title)
         .help("\(action.title) (⇧⌘R)")
     }
@@ -106,7 +131,7 @@ private struct ContextButton: View {
 
     var body: some View {
         let fill = context.flatMap { context in context.window.map { Double(context.tokens) / Double($0) } }
-        let percent = fill?.formatted(.percent.precision(.fractionLength(0)))
+        let percent = fill?.formatted(.wholePercent)
         Button { isShown.toggle() } label: {
             HStack(spacing: 5) {
                 if let context, let window = context.window {
@@ -137,7 +162,7 @@ private struct ContextButton: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(14)
+            .padding(16)
             .frame(width: 260, alignment: .leading)
         }
     }

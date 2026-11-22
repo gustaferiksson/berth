@@ -27,12 +27,16 @@ public nonisolated struct UsageWindow: Codable, Sendable, Hashable, Identifiable
         min(max(1 - resetsAt.timeIntervalSince(now) / length, 0), 1)
     }
 
+    public var usedPercent: Int {
+        Int((used * 100).rounded())
+    }
+
     public func summary(at now: Date) -> String {
         let minutes = max(Int(resetsAt.timeIntervalSince(now) / 60), 1)
         let days = minutes / 1440
         let hours = minutes / 60 % 24
         let remaining = days > 0 ? "\(days)d \(hours)h" : hours > 0 ? "\(hours)h \(minutes % 60)m" : "\(minutes)m"
-        return "Resets in \(remaining) · \(Int((used * 100).rounded()))% used · pace \(Int((pace(at: now) * 100).rounded()))%"
+        return "Resets in \(remaining) · \(usedPercent)% used · pace \(Int((pace(at: now) * 100).rounded()))%"
     }
 
     public func isAhead(at now: Date) -> Bool {

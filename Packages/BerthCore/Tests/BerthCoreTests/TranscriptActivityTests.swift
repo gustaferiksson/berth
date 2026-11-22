@@ -31,6 +31,31 @@ struct TranscriptActivityTests {
         #expect(tasks.map(\.title) == ["Start the dev server", "Review the parser", "Watch CI"])
     }
 
+    @Test func stoppedAgentCountsAgainOnceItsLogGrowsPastTheMeta() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let subagents = folder.appending(path: "s/subagents")
+        try FileManager.default.createDirectory(at: subagents, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let transcript = folder.appending(path: "s.jsonl")
+        try Data((launches.joined(separator: "\n") + "\n").utf8).write(to: transcript)
+        let meta = subagents.appending(path: "agent-agent1.meta.json")
+        let log = subagents.appending(path: "agent-agent1.jsonl")
+        try Data(#"{"stoppedByUser":true}"#.utf8).write(to: meta)
+        try Data("{}\n".utf8).write(to: log)
+        let stoppedAt = Date.now
+        try FileManager.default.setAttributes([.modificationDate: stoppedAt], ofItemAtPath: meta.path)
+        try FileManager.default.setAttributes([.modificationDate: stoppedAt - 1], ofItemAtPath: log.path)
+        let catalogs = folder.appending(path: "catalogs")
+
+        let stopped = TranscriptActivity.report(transcript, previous: TranscriptActivity(), logs: [:], live: live, catalogDirectory: catalogs)
+        #expect(!stopped.report.tasks.map(\.id).contains("agent1"))
+
+        try FileManager.default.setAttributes([.modificationDate: stoppedAt + 60], ofItemAtPath: log.path)
+        let resumed = TranscriptActivity.report(transcript, previous: TranscriptActivity(), logs: [:], live: live, catalogDirectory: catalogs)
+        #expect(resumed.report.tasks.map(\.id).contains("agent1"))
+    }
+
     @Test func launchesFromReplScriptsCountAndEndLikeDirectTools() {
         let lines = [
             #"{"type":"user","timestamp":"2026-11-01T10:00:01.000Z","isVirtual":true,"turnCompanion":true,"message":{"content":[{"tool_use_id":"repl_1","type":"tool_result","content":""}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"agent1","description":"Review the parser"}}"#,

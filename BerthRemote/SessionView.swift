@@ -151,7 +151,7 @@ struct SessionView: View {
                             HStack(spacing: 4) {
                                 ContextRing(context: context)
                                 if let fill = context.fill, fill >= 0.8 {
-                                    Text(fill, format: .percent.precision(.fractionLength(0)))
+                                    Text(fill, format: .wholePercent)
                                         .font(.footnote.weight(.medium).monospacedDigit())
                                 }
                             }

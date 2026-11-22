@@ -155,6 +155,7 @@ struct ReviewOtherPullRequests: View {
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(.rect)
+                        .pointerStyle(.link)
                 }
                 .buttonStyle(.plain)
                 .help(pullRequest.title)

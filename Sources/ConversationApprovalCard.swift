@@ -38,7 +38,7 @@ struct ConversationApprovalCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(theme.needsYou.opacity(0.1)), in: .rect(cornerRadius: 22))
+        .glassEffect(.regular.tint(theme.needsYou.opacity(0.1)), in: .rect(cornerRadius: 26))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(isQuestion ? "Question from Claude" : "Approval needed")
     }
@@ -103,7 +103,7 @@ struct ConversationApprovalCard: View {
                             .padding(.vertical, 2)
                         }
                         .buttonStyle(.bordered)
-                        .buttonBorderShape(.roundedRectangle(radius: 14))
+                        .buttonBorderShape(.roundedRectangle(radius: 10))
                         .help("Choose \(option.label) (\(index + 1))")
                     }
                 }
@@ -130,8 +130,7 @@ struct ConversationApprovalCard: View {
 
         case .loading:
             HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
+                ConversationSpinner()
                 Text("Waiting for details")
                     .foregroundStyle(.secondary)
             }

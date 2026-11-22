@@ -59,7 +59,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     }
 
     private var occurrenceSearch: Task<Void, Never>?
-    private lazy var pointerTracking = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+    private lazy var pointerTracking = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self)
 
     override var layoutManager: NSLayoutManager? {
         layoutManagerRequests += 1
@@ -102,7 +102,11 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
-        pointerMoved(to: convert(event.locationInWindow, from: nil), modifiers: event.modifierFlags)
+        pointerMoved(to: convert(event.locationInWindow, from: nil), event: event)
+    }
+
+    override func cursorUpdate(with _: NSEvent) {
+        (link == nil ? NSCursor.iBeam : .pointingHand).set()
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -112,7 +116,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
             guard let self, let window else { return event }
 
-            pointerMoved(to: convert(window.mouseLocationOutsideOfEventStream, from: nil), modifiers: event.modifierFlags)
+            pointerMoved(to: convert(window.mouseLocationOutsideOfEventStream, from: nil), event: event)
             return event
         }
     }
@@ -127,6 +131,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         if link != nil {
             link = nil
             needsDisplay = true
+            NSCursor.arrow.set()
         }
     }
 
@@ -206,13 +211,13 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         hoverCard = nil
     }
 
-    private func pointerMoved(to point: NSPoint, modifiers: NSEvent.ModifierFlags) {
+    private func pointerMoved(to point: NSPoint, event: NSEvent) {
         let target = onHover == nil ? nil : pointerTarget(at: point)
-        let newLink = modifiers.contains(.command) && onDefinition != nil ? target : nil
-        if newLink != nil || link != nil { (newLink == nil ? NSCursor.iBeam : .pointingHand).set() }
+        let newLink = event.modifierFlags.contains(.command) && onDefinition != nil ? target : nil
         if newLink?.textView !== link?.textView || newLink?.range != link?.range {
             link = newLink
             needsDisplay = true
+            cursorUpdate(with: event)
         }
         let problems = diagnosticSegments.filter { $0.rect.contains(point) }
         let unchanged = target?.textView === hoverTarget?.textView && target?.range == hoverTarget?.range && problems.map(\.diagnostic) == hoverDiagnostics

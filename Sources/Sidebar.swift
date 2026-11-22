@@ -249,7 +249,7 @@ private struct SidebarList: View, Equatable {
     }
 
     private var items: [SidebarItem] {
-        (isCollapsed(Sidebar.attentionID) ? [] : layout.attentionIDs).map(SidebarItem.session)
+        let owners = (isCollapsed(Sidebar.attentionID) ? [] : layout.attentionIDs).map(SidebarItem.session)
             + (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
             + activeItems
             + (isCollapsed(Sidebar.workingID) ? [] : layout.workingIDs).map(SidebarItem.session)
@@ -258,6 +258,18 @@ private struct SidebarList: View, Equatable {
             + groups.filter { !isCollapsed($0.id) }.flatMap { $0.layout.tabIDs.map(SidebarItem.tab) + rows(of: $0.entries).map(\.item) }
             + (isSnoozedExpanded ? layout.snoozedIDs : []).map(SidebarItem.session)
             + (isArchiveExpanded ? layout.archivedIDs : []).map(SidebarItem.session)
+        return owners.flatMap { item -> [SidebarItem] in
+            let parent: Tab.ID? = if case let .tab(id) = item {
+                id
+            } else if case let .session(id) = item {
+                store.tab(forSession: id)?.id
+            } else {
+                nil
+            }
+            guard let parent else { return [item] }
+
+            return [item] + store.tabs.filter { $0.parentTabID == parent }.map { .tab($0.id) }
+        }
     }
 
     var body: some View {
@@ -686,6 +698,29 @@ private struct SidebarList: View, Equatable {
     }
 }
 
+private struct OwnedTerminalItems: View {
+    let parent: Tab.ID?
+    let indent: Double
+    let select: (SidebarItem) -> Void
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        if let parent {
+            ForEach(store.tabs.filter { $0.parentTabID == parent }) { tab in
+                TabRow(tab: tab, live: nil, terminal: tab.terminal) { store.close(tab.id) }
+                    .padding(.leading, indent)
+                    .modifier(RowChrome(item: .tab(tab.id), hoverID: tab.id.uuidString, isLocked: false, indent: indent) { select(.tab(tab.id)) })
+                    .help((tab.folder as NSString).abbreviatingWithTildeInPath)
+                    .contextMenu {
+                        Button("Close Terminal") { store.close(tab.id) }
+                    }
+                    .environment(\.sidebarDensity, .compact)
+                    .id(SidebarItem.tab(tab.id))
+            }
+        }
+    }
+}
+
 private struct TabItem: View {
     let id: Tab.ID
     let select: (SidebarItem) -> Void
@@ -693,26 +728,29 @@ private struct TabItem: View {
 
     var body: some View {
         let tab = store.tabs.first { $0.id == id }
-        // A layout container makes the row one static view, so List builds only the visible rows.
-        HStack(spacing: 0) {
-            if let tab, tab.kind == .shell {
-                TabRow(tab: tab, live: nil, terminal: tab.terminal) { store.close(tab.id) }
-                    .help((tab.folder as NSString).abbreviatingWithTildeInPath)
-            } else if let tab {
-                TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
+        Group {
+            HStack(spacing: 0) {
+                if let tab, tab.kind == .shell {
+                    TabRow(tab: tab, live: nil, terminal: tab.terminal) { store.close(tab.id) }
+                        .help((tab.folder as NSString).abbreviatingWithTildeInPath)
+                } else if let tab {
+                    TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
+                }
             }
-        }
-        .modifier(RowChrome(item: .tab(id), hoverID: id.uuidString, isLocked: false) { select(.tab(id)) })
-        .help(tab?.kind == .shell ? (tab?.folder as NSString?)?.abbreviatingWithTildeInPath ?? "" : "")
-        .contextMenu {
-            if store.multiSelection.contains(.tab(id)) {
-                MultiSelectionMenu()
-            } else if tab?.kind == .shell {
-                Button("Close Terminal") { store.close(id) }
-            } else {
-                Button("Unload Session") { store.close(id) }
-                if let sessionID = tab?.sessionID { CopySessionIDButton(sessionID: sessionID) }
+            .modifier(RowChrome(item: .tab(id), hoverID: id.uuidString, isLocked: false) { select(.tab(id)) })
+            .help(tab?.kind == .shell ? (tab?.folder as NSString?)?.abbreviatingWithTildeInPath ?? "" : "")
+            .contextMenu {
+                if store.multiSelection.contains(.tab(id)) {
+                    MultiSelectionMenu()
+                } else if tab?.kind == .shell {
+                    Button("Close Terminal") { store.close(id) }
+                } else {
+                    Button("New Terminal") { store.newTerminal(for: id) }
+                    Button("Unload Session") { store.close(id) }
+                    if let sessionID = tab?.sessionID { CopySessionIDButton(sessionID: sessionID) }
+                }
             }
+            OwnedTerminalItems(parent: id, indent: 16, select: select)
         }
     }
 }
@@ -742,52 +780,55 @@ private struct SessionItem: View {
         let suggestion = store.taskSuggestions[id]
         let suggestionLabel = suggestion.flatMap(suggestionText)
         let pullRequests = session.map(store.pullRequests(of:)) ?? []
-        // A layout container makes the row one static view, so List builds only the visible rows.
-        VStack(alignment: .leading, spacing: 0) {
-            if let session {
-                SessionRow(
-                    session: session,
-                    projectName: place == .archived || place == .group(folder: session.checkout) ? nil : URL(filePath: session.checkout).lastPathComponent,
-                    live: live,
-                    isOpen: tab != nil,
-                    isLocked: isLocked,
-                    hasBackgroundShell: store.backgroundShellIDs.contains(id),
-                    isUnread: store.isUnread(session),
-                    isFlagged: store.flaggedIDs.contains(id),
-                    context: tab != nil || live != nil ? session.context : nil,
-                    pullRequest: pullRequests.first.map { link in
-                        var pullRequest = link.pullRequest
-                        if pullRequest.checks == .passed { pullRequest.checks = nil }
-                        return pullRequest
-                    },
-                    morePullRequests: max(pullRequests.count - 1, 0),
-                    suggestion: suggestionLabel,
-                    showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
-                )
-                .modifier(SessionHoverTrigger(session: session, pullRequests: pullRequests, context: tab != nil || live != nil ? session.context : nil, isNoticeShown: store.lockedSessionID == id, store: store))
-                .padding(.leading, place == .task ? Self.taskIndent : 0)
-                if let suggestion, let suggestionLabel, !density.isCompact {
-                    SuggestionLine(text: suggestionLabel, accept: { store.accept(suggestion) }, dismiss: { store.dismiss(suggestion) })
-                        .padding(.leading, place == .task ? Self.taskIndent : 0)
+        Group {
+            VStack(alignment: .leading, spacing: 0) {
+                if let session {
+                    SessionRow(
+                        session: session,
+                        projectName: place == .archived || place == .group(folder: session.checkout) ? nil : URL(filePath: session.checkout).lastPathComponent,
+                        live: live,
+                        isOpen: tab != nil,
+                        isLocked: isLocked,
+                        hasBackgroundShell: store.backgroundShellIDs.contains(id),
+                        isUnread: store.isUnread(session),
+                        isFlagged: store.flaggedIDs.contains(id),
+                        context: tab != nil || live != nil ? session.context : nil,
+                        pullRequest: pullRequests.first.map { link in
+                            var pullRequest = link.pullRequest
+                            if pullRequest.checks == .passed { pullRequest.checks = nil }
+                            return pullRequest
+                        },
+                        morePullRequests: max(pullRequests.count - 1, 0),
+                        suggestion: suggestionLabel,
+                        showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
+                    )
+                    .modifier(SessionHoverTrigger(session: session, pullRequests: pullRequests, context: tab != nil || live != nil ? session.context : nil, isNoticeShown: store.lockedSessionID == id, store: store))
+                    .padding(.leading, place == .task ? Self.taskIndent : 0)
+                    if let suggestion, let suggestionLabel, !density.isCompact {
+                        SuggestionLine(text: suggestionLabel, accept: { store.accept(suggestion) }, dismiss: { store.dismiss(suggestion) })
+                            .padding(.leading, place == .task ? Self.taskIndent : 0)
+                    }
                 }
             }
-        }
-        .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: isLocked, indent: place == .task ? Self.taskIndent : 0) {
-            select(.session(id))
-        })
-        .opacity(place == .snoozed ? 0.6 : 1)
-        .help(place == .snoozed ? snoozeHelp : "")
-        .contextMenu {
-            if store.multiSelection.contains(.session(id)) {
-                MultiSelectionMenu()
-            } else if place == .archived {
-                Button("Unarchive") { store.unarchive(id) }
-                flagButton
-                Divider()
-                CopySessionIDButton(sessionID: id)
-            } else if let session {
-                menu(session, tab: tab)
+            .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: isLocked, indent: place == .task ? Self.taskIndent : 0) {
+                select(.session(id))
+            })
+            .opacity(place == .snoozed ? 0.6 : 1)
+            .help(place == .snoozed ? snoozeHelp : "")
+            .contextMenu {
+                if store.multiSelection.contains(.session(id)) {
+                    MultiSelectionMenu()
+                } else if place == .archived {
+                    if let tab { Button("New Terminal") { store.newTerminal(for: tab.id) } }
+                    Button("Unarchive") { store.unarchive(id) }
+                    flagButton
+                    Divider()
+                    CopySessionIDButton(sessionID: id)
+                } else if let session {
+                    menu(session, tab: tab)
+                }
             }
+            OwnedTerminalItems(parent: tab?.id, indent: place == .task ? Self.taskIndent * 2 : Self.taskIndent, select: select)
         }
     }
 
@@ -806,7 +847,10 @@ private struct SessionItem: View {
     @ViewBuilder
     private func menu(_ session: SessionSummary, tab: Tab?) -> some View {
         if place == .snoozed { Button("Unsnooze") { store.unsnooze(id) } }
-        if let tab { Button("Unload Session") { store.close(tab.id) } }
+        if let tab {
+            Button("New Terminal") { store.newTerminal(for: tab.id) }
+            Button("Unload Session") { store.close(tab.id) }
+        }
         if place == .pinned {
             Button("Unpin") { store.unpin(id) }
         } else {
@@ -1473,7 +1517,7 @@ private struct TabRow: View {
                 if !density.isCompact { Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(Color.secondary) }
             }
         } else {
-            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, modified: nil, close: close) {
+            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, modified: nil, isTerminal: true, close: close) {
                 let folder = (tab.folder as NSString).abbreviatingWithTildeInPath
                 if density.isCompact {
                     ViewThatFits(in: .horizontal) {
@@ -1500,6 +1544,7 @@ private struct CardRow<Detail: View>: View {
     var hasBackgroundShell = false
     var isUnread = false
     var isFlagged = false
+    var isTerminal = false
     var agent = Agent.claude
     var context: SessionContext?
     var chevron: String?
@@ -1517,6 +1562,7 @@ private struct CardRow<Detail: View>: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if let issue { IssueTag(issue: issue).fixedSize() }
                 Text(title)
+                    .font(.body)
                     .fontWeight(isUnread ? .semibold : .regular)
                     .foregroundStyle(Color.primary)
                     .lineLimit(1)
@@ -1535,7 +1581,6 @@ private struct CardRow<Detail: View>: View {
                         .frame(width: 16, height: 16)
                         .contentShape(.rect)
                         .help("Close terminal")
-                        .padding(.trailing, 21)
                 }
                 if isLocked {
                     Image(systemName: "lock.fill")
@@ -1598,7 +1643,7 @@ private struct CardRow<Detail: View>: View {
         .padding(.trailing, -10)
         .padding(.vertical, density.rowPadding)
         .overlay(alignment: .topLeading) {
-            StatusSlot(state: state, isUnread: isUnread, isOpen: isOpen, hasBackgroundShell: hasBackgroundShell, chevron: chevron).offset(x: -8, y: density.rowPadding)
+            StatusSlot(state: state, isUnread: isUnread, isOpen: isOpen, hasBackgroundShell: hasBackgroundShell, isTerminal: isTerminal, chevron: chevron).offset(x: -8, y: density.rowPadding)
         }
     }
 }
@@ -1631,6 +1676,7 @@ private struct StatusSlot: View {
     let isUnread: Bool
     var isOpen = false
     var hasBackgroundShell = false
+    var isTerminal = false
     var chevron: String?
     @Environment(\.ghosttyTheme) private var theme
 
@@ -1667,6 +1713,11 @@ private struct StatusSlot: View {
                     .frame(width: 6, height: 6)
                     .help("Open in a tab")
                     .accessibilityLabel("Open in a tab")
+            } else if isTerminal {
+                Image(systemName: "apple.terminal")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color.secondary)
+                    .accessibilityHidden(true)
             }
         }
         .frame(width: 8, height: 16)
@@ -1691,7 +1742,7 @@ struct ContextRing: View {
         }
         .frame(width: 13, height: 13)
         .help("\(tokenCount(context.tokens)) of \(tokenCount(window)) context")
-        .accessibilityLabel("Context \(fill.formatted(.percent.precision(.fractionLength(0)))) full")
+        .accessibilityLabel("Context \(fill.formatted(.wholePercent)) full")
     }
 }
 
@@ -1790,6 +1841,7 @@ private struct BranchText: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
+        .pointerStyle(.link)
         .help("Copy branch name")
         .task(id: isCopied) {
             guard isCopied else { return }

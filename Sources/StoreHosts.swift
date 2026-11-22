@@ -4,6 +4,12 @@ import Foundation
 extension Store {
     static let hostsDirectory = URL.applicationSupportDirectory.appending(path: Bundle.main.bundleIdentifier ?? "dev.gustaf.berth").appending(path: "hosts").path
 
+    #if DEBUG
+    private static let isHostingAllowed = (Snapshot.output == nil && SettingsSnapshot.output == nil) || UserDefaults.standard.string(forKey: "snapshotHost") != nil
+    #else
+    private static let isHostingAllowed = true
+    #endif
+
     private static var hostTool: String? {
         let tool = Bundle.main.executableURL?.deletingLastPathComponent().appending(path: "berth-host").path
         return tool.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
@@ -16,11 +22,15 @@ extension Store {
     }
 
     func hostSocket(of id: UUID) -> String? {
-        try? SessionHost.socketPath(directory: Self.hostsDirectory, id: id.uuidString)
+        guard Self.isHostingAllowed else { return nil }
+
+        return try? SessionHost.socketPath(directory: Self.hostsDirectory, id: id.uuidString)
     }
 
     func attachCommand(of id: UUID) -> String? {
-        Self.hostTool.map { SessionHost.attachCommand(tool: $0, directory: Self.hostsDirectory, id: id.uuidString) }
+        guard hostSocket(of: id) != nil else { return nil }
+
+        return Self.hostTool.map { SessionHost.attachCommand(tool: $0, directory: Self.hostsDirectory, id: id.uuidString) }
     }
 
     func hangUpHost(of id: UUID) {

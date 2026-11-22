@@ -5,21 +5,64 @@ import Observation
 struct ConversationDraft {
     var text = ""
     var files: [URL] = []
+    private(set) var numbers: [URL: Int] = [:]
 
     var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && files.isEmpty }
+
+    var orderedFiles: [URL] {
+        files.sorted { (text.range(of: token(for: $0))?.lowerBound ?? text.endIndex) < (text.range(of: token(for: $1))?.lowerBound ?? text.endIndex) }
+    }
+
+    static func isImage(_ url: URL) -> Bool {
+        ["jpg", "jpeg", "png", "gif", "webp"].contains(url.pathExtension.lowercased())
+    }
+
+    private func token(for url: URL) -> String {
+        numbers[url].map { "[Image #\($0)]" } ?? "\0"
+    }
+
+    mutating func attach(_ urls: [URL]) -> String {
+        var tokens: [String] = []
+        for url in urls where !files.contains(url) {
+            files.append(url)
+            guard Self.isImage(url) else { continue }
+
+            numbers[url] = (numbers.values.max() ?? 0) + 1
+            tokens.append(token(for: url))
+        }
+        return tokens.joined(separator: " ")
+    }
+
+    mutating func remove(_ url: URL) {
+        let token = token(for: url)
+        files.removeAll { $0 == url }
+        numbers[url] = nil
+        text = text.replacing(token, with: "")
+    }
+
+    mutating func prune() {
+        for url in files where numbers[url] != nil && !text.contains(token(for: url)) {
+            files.removeAll { $0 == url }
+            numbers[url] = nil
+        }
+    }
 }
 
 @Observable
 final class ConversationModel {
     let tabID: Tab.ID
     private(set) var turns: [Turn] = []
+    @ObservationIgnored private(set) var details: [String: ToolCallDetails] = [:]
+    @ObservationIgnored private var completedCalls: Set<String> = []
     private(set) var tasks: [RemoteTask] = []
     private(set) var context: RemoteContext?
     private(set) var queued: [String] = []
+    @ObservationIgnored private var pending: [PendingPrompt] = []
     private(set) var hasLoaded = false
     private(set) var isSending = false
     private(set) var pickedModel: ModelChoice?
     private(set) var pickedEffort: EffortLevel?
+    var openSubagent: Subagent?
     var notice: String?
 
     @ObservationIgnored private unowned let store: Store
@@ -27,6 +70,7 @@ final class ConversationModel {
     @ObservationIgnored private var url: URL?
     @ObservationIgnored private var end: Int?
     @ObservationIgnored private var queue: [String] = []
+    @ObservationIgnored private var queuedByClaude: [String] = []
     @ObservationIgnored private var activity = TranscriptActivity()
     @ObservationIgnored private var agentLogs: [String: AgentLog] = [:]
     @ObservationIgnored private var isReading = false
@@ -47,6 +91,33 @@ final class ConversationModel {
         set { store.conversationDrafts[tabID] = newValue.text.isEmpty && newValue.files.isEmpty ? nil : newValue }
     }
 
+    func attach(_ urls: [URL]) -> String {
+        var draft = draft
+        let tokens = draft.attach(urls)
+        self.draft = draft
+        return tokens
+    }
+
+    func append(_ urls: [URL]) {
+        let tokens = attach(urls)
+        guard !tokens.isEmpty else { return }
+
+        draft.text += (draft.text.isEmpty || draft.text.last?.isWhitespace == true ? "" : " ") + tokens + " "
+    }
+
+    func remove(_ url: URL) {
+        var draft = draft
+        draft.remove(url)
+        self.draft = draft
+    }
+
+    func setText(_ text: String) {
+        var draft = draft
+        draft.text = text
+        draft.prune()
+        self.draft = draft
+    }
+
     func send() async {
         let sent = draft
         guard let sessionID, !sent.isEmpty, !isSending else { return }
@@ -56,10 +127,30 @@ final class ConversationModel {
         draft = ConversationDraft()
         defer { isSending = false }
 
-        guard case let .refused(message) = await store.submit(sent.text, files: sent.files, to: sessionID) else { return }
+        let text = sent.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let outcome = await store.submit(sent.text, files: sent.orderedFiles, to: sessionID)
+        guard case let .refused(message) = outcome else {
+            if !text.isEmpty { show(pending: text) }
+            return
+        }
 
         notice = message
         if draft.isEmpty { draft = sent }
+    }
+
+    func show(pending text: String) {
+        pending.append(PendingPrompt(text: text, sentAt: .now))
+        reconcilePending()
+        Task {
+            try? await Task.sleep(for: .seconds(PendingPrompts.grace + 1))
+            reconcilePending()
+        }
+    }
+
+    private func reconcilePending() {
+        pending = PendingPrompts.reconcile(pending, entries: entries, queued: queuedByClaude, now: .now)
+        let shown = PendingPrompts.shown(pending, queued: queuedByClaude)
+        if queued != shown { queued = shown }
     }
 
     func decline(waitingFor: String?, since: Double?) async {
@@ -81,7 +172,7 @@ final class ConversationModel {
             guard store.liveBySession[sessionID]?.status != "waiting" else { continue }
 
             draft = ConversationDraft()
-            if case let .refused(message) = await store.submit(sent.text, files: sent.files, to: sessionID) {
+            if case let .refused(message) = await store.submit(sent.text, files: sent.orderedFiles, to: sessionID) {
                 notice = message
                 if draft.isEmpty { draft = sent }
             }
@@ -134,8 +225,20 @@ final class ConversationModel {
         notice = message
     }
 
+    func openAgent(agentID: String?, toolUseID: String?) {
+        guard let sessionID, let session = store.index.url(ofSession: sessionID) else { return }
+
+        openSubagent = Subagent.locate(session: session, agentID: agentID, toolUseID: toolUseID)
+    }
+
     func start() {
-        watcher = FileWatcher(paths: [Store.claudeDirectory.appending(path: "projects").path], latency: 0.3) { [weak self] _ in self?.refresh() }
+        watcher = FileWatcher(paths: [Store.claudeDirectory.appending(path: "projects").path], latency: 0.3) { [weak self] paths in
+            guard let self else { return }
+
+            if let sessionID, !paths.contains(where: { $0.contains(sessionID) }) { return }
+
+            refresh()
+        }
         refresh()
     }
 
@@ -188,10 +291,27 @@ final class ConversationModel {
             if context?.effort != result.report.context?.effort { pickedEffort = nil }
             context = result.report.context
         }
-        if queued != chunk.queuedPrompts { queued = chunk.queuedPrompts }
-        guard !chunk.isContinuation || !chunk.entries.isEmpty else { return }
-
-        entries = (chunk.isContinuation ? entries : []) + chunk.entries
-        turns = Turn.turns(from: entries)
+        queuedByClaude = chunk.queuedPrompts
+        if !chunk.isContinuation || !chunk.entries.isEmpty {
+            entries = (chunk.isContinuation ? entries : []) + chunk.entries
+            turns = Turn.turns(from: entries)
+            var currentDetails: [String: ToolCallDetails] = [:]
+            var currentCompleted: Set<String> = []
+            for turn in turns {
+                for part in turn.parts {
+                    let calls: [ToolCall] = switch part {
+                    case let .work(calls), let .cards(calls): calls
+                    case .reply: []
+                    }
+                    for call in calls {
+                        currentDetails[call.id] = if let cached = details[call.id], call.result == nil || completedCalls.contains(call.id) { cached } else { call.details }
+                        if call.result != nil { currentCompleted.insert(call.id) }
+                    }
+                }
+            }
+            details = currentDetails
+            completedCalls = currentCompleted
+        }
+        reconcilePending()
     }
 }

@@ -258,7 +258,7 @@ struct SessionHoverCard: View {
             Text("Last prompt \(session.lastPrompt.formatted(.relative(presentation: .named)))")
             if let context, let window = context.window {
                 ContextRing(context: context, window: window)
-                Text("\(Int((Double(context.tokens) / Double(window) * 100).rounded()))%")
+                Text(Double(context.tokens) / Double(window), format: .wholePercent)
             }
         }
         .font(.caption)

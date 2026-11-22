@@ -3,13 +3,13 @@ import GhosttyTerminal
 import SwiftUI
 
 enum AppAction: Hashable {
-    case commandPalette, filterSidebar, newSession, pullRequests, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
+    case commandPalette, filterSidebar, newSession, pullRequests, searchSessions, newTerminal, newTerminalForSession, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
     case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
     case goBack, goForward, previousChange, nextChange
     case caret(CaretAction)
 
-    static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
+    static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
         + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
@@ -23,6 +23,7 @@ enum AppAction: Hashable {
         case .pullRequests: "Open Pull Request…"
         case .searchSessions: "Search Sessions…"
         case .newTerminal: "New Terminal"
+        case .newTerminalForSession: "New Terminal for Session"
         case .switchTerminal: "Switch Terminal / Claude"
         case .findInTerminal: "Find…"
         case .clearTerminal: "Clear Terminal"
@@ -63,7 +64,7 @@ enum AppAction: Hashable {
         case .pullRequests: "github pr review requested mine assigned checkout worktree"
         case .filterSidebar: "search sessions tasks terminals narrow"
         case .searchSessions: "find transcripts"
-        case .newTerminal: "shell tab"
+        case .newTerminal, .newTerminalForSession: "shell tab"
         case .switchTerminal: "shell toggle jump"
         case .findInTerminal: "search terminal scrollback text"
         case .clearTerminal: "screen scrollback"
@@ -92,7 +93,7 @@ enum AppAction: Hashable {
         case .newSession: "plus.bubble"
         case .pullRequests: "arrow.triangle.pull"
         case .searchSessions: "magnifyingglass"
-        case .newTerminal: "plus.rectangle"
+        case .newTerminal, .newTerminalForSession: "plus.rectangle"
         case .switchTerminal: "apple.terminal"
         case .findInTerminal: "text.magnifyingglass"
         case .clearTerminal: "eraser"
@@ -152,6 +153,7 @@ enum AppAction: Hashable {
 
     func isAvailable(in store: Store) -> Bool {
         switch self {
+        case .newTerminalForSession: store.tabs.contains { $0.id == store.selectedTabID && $0.kind == .claude }
         case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown && !store.selectedShowsConversation
         case .clearTerminal: store.focusedTerminal != nil
         case .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession: !sessionIDs(in: store).isEmpty
@@ -191,6 +193,9 @@ enum AppAction: Hashable {
         case .searchSessions: store.launcherMode = .search
 
         case .newTerminal: store.newTerminal()
+
+        case .newTerminalForSession:
+            if let id = store.selectedTabID { store.newTerminal(for: id) }
 
         case .switchTerminal: store.switchTerminal()
 

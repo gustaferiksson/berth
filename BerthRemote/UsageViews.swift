@@ -17,15 +17,15 @@ struct UsageSummary: View {
                                     .foregroundStyle(.secondary)
                                     .frame(width: 58, alignment: .leading)
                                 UsageTrack(window: window, now: timeline.date, height: 8)
-                                Text(window.used, format: .percent.precision(.fractionLength(0)))
+                                Text("\(window.usedPercent)%")
                                     .font(.footnote)
                                     .monospacedDigit()
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(UsageTrack.aheadTint(window, now: timeline.date) ?? .secondary)
                                     .frame(width: 40, alignment: .trailing)
                             }
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel(window.title)
-                            .accessibilityValue(window.summary(at: timeline.date))
+                            .accessibilityValue(window.isAhead(at: timeline.date) ? "\(window.summary(at: timeline.date)), ahead of pace" : window.summary(at: timeline.date))
                         }
                     }
                 }
@@ -43,6 +43,16 @@ struct UsageTrack: View {
 
     @State private var width = 0.0
 
+    static func aheadTint(_ window: UsageWindow, now: Date) -> Color? {
+        guard window.isAhead(at: now) else { return nil }
+
+        return window.severity(at: now) == .critical ? .red : .orange
+    }
+
+    private var isOvershootOnly: Bool {
+        window.isAhead(at: now) && window.severity(at: now) == .normal
+    }
+
     private var fill: Color {
         switch window.severity(at: now) {
         case .normal: .accentColor
@@ -57,7 +67,13 @@ struct UsageTrack: View {
                 Rectangle().fill(.quaternary)
                 Rectangle()
                     .fill(fill)
-                    .frame(width: width * window.used)
+                    .frame(width: width * (isOvershootOnly ? window.pace(at: now) : window.used))
+                if isOvershootOnly {
+                    Rectangle()
+                        .fill(.orange.opacity(0.7))
+                        .frame(width: width * (window.used - window.pace(at: now)))
+                        .offset(x: width * window.pace(at: now))
+                }
             }
             .clipShape(.capsule)
             Capsule()
@@ -84,12 +100,13 @@ struct UsageSheet: View {
                             UsageTrack(window: window, now: timeline.date, height: 10)
                                 .listRowSeparator(.hidden)
                                 .accessibilityHidden(true)
-                            LabeledContent("Used", value: window.used.formatted(.percent.precision(.fractionLength(0))))
-                            LabeledContent("Pace", value: window.pace(at: timeline.date).formatted(.percent.precision(.fractionLength(0))))
+                            LabeledContent("Used", value: "\(window.usedPercent)%")
+                                .foregroundStyle(UsageTrack.aheadTint(window, now: timeline.date) ?? .primary)
+                            LabeledContent("Pace", value: window.pace(at: timeline.date).formatted(.wholePercent))
                             LabeledContent("Resets", value: window.resetsAt.formatted(date: .abbreviated, time: .shortened))
                         }
                         .accessibilityElement(children: .combine)
-                        .accessibilityValue(window.summary(at: timeline.date))
+                        .accessibilityValue(window.isAhead(at: timeline.date) ? "\(window.summary(at: timeline.date)), ahead of pace" : window.summary(at: timeline.date))
                     }
                     Section {} footer: {
                         Text("The line on each bar marks how much of the window has passed. Usage past the line is faster than an even pace.")
