@@ -297,7 +297,7 @@ private struct PullRequestTag: View {
         .font(.caption.weight(.medium))
         .foregroundStyle(color)
         .padding(.horizontal, 8)
-        .background { Capsule().fill(color.opacity(0.15)).padding(.vertical, -2) }
+        .background { RoundedRectangle(cornerRadius: 6).fill(color.opacity(0.15)).padding(.vertical, -2) }
         .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Pull request \(String(pullRequest.number)), \(pullRequest.state)\(pullRequest.checks.map { ", " + ChecksStyle.title($0) } ?? "")")

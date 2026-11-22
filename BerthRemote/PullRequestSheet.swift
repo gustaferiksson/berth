@@ -152,7 +152,7 @@ private struct PullRequestStatePill: View {
             .foregroundStyle(color)
             .padding(.horizontal, 10)
             .padding(.vertical, 3)
-            .background(color.opacity(0.15), in: .capsule)
+            .background(color.opacity(0.15), in: .rect(cornerRadius: 6))
     }
 }
 
