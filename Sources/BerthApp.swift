@@ -240,6 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_: Notification) {
+        store.isTerminating = true
         store.saveOpenTabs()
         ProcessAncestry.hangUpDescendants()
         store.updater.installOnQuit()

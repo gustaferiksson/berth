@@ -19,6 +19,7 @@ struct Tab: Identifiable {
     var agent = Agent.claude
     let terminal: TerminalViewState
     let opened = Date.now
+    var isHosted = false
 }
 
 extension Tab {
@@ -302,6 +303,7 @@ final class Store {
     @ObservationIgnored private var waitingSessionIDs: Set<String>?
     @ObservationIgnored private var tabTouches: [Tab.ID: Date] = [:]
     @ObservationIgnored private var restoredTabIDs: Set<Tab.ID> = []
+    @ObservationIgnored var isTerminating = false
     @ObservationIgnored private var recentTabIDs: [Tab.ID] = []
 
     #if DEBUG
@@ -797,13 +799,13 @@ final class Store {
     }
 
     var busySessionCount: Int {
-        tabs.compactMap(\.sessionID).count { (liveBySession[$0]?.activity ?? .idle) != .idle }
+        tabs.filter { !$0.isHosted }.compactMap(\.sessionID).count { (liveBySession[$0]?.activity ?? .idle) != .idle }
     }
 
     var isIdle: Bool {
         busySessionCount == 0
             && lastKeyInput.timeIntervalSinceNow < -30
-            && !terminals.contains { $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
+            && !terminals.contains { !$0.isHosted && $0.title(terminalTitle: $0.terminal.title, sessionTitle: nil) == $0.terminal.title }
             && !reviewModels.values.contains(where: \.hasUnsavedEdits)
     }
 
@@ -1006,9 +1008,9 @@ final class Store {
         tabs.filter { $0.kind == .shell }
     }
 
-    func openShell(cwd: String, command: String? = nil) {
-        let id = UUID()
-        tabs.append(Tab(id: id, kind: .shell, cwd: cwd, sessionID: nil, terminal: terminal(cwd: cwd, command: command) { [weak self] in self?.close(id) }))
+    func openShell(cwd: String, command: String? = nil, id: UUID = UUID()) {
+        let launch = hostLaunch(command, id: id)
+        tabs.append(Tab(id: id, kind: .shell, cwd: cwd, sessionID: nil, terminal: terminal(cwd: cwd, command: launch.command) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
         selectedTabID = id
     }
 
@@ -1313,8 +1315,8 @@ final class Store {
 
         let id = UUID()
         let environment = [ClaudeLaunch.sessionVariable: attachID ?? session]
-        let command = ClaudeLaunch.command(start)
-        tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }))
+        let launch = hostLaunch(ClaudeLaunch.command(start), id: id)
+        tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, terminal: terminal(cwd: cwd, command: launch.command, environment: environment) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
         if isConversationEnabled, UserDefaults.standard.string(forKey: GeneralSettings.conversationViewKey) == "conversation" { conversationTabIDs.insert(id) }
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
@@ -1334,8 +1336,8 @@ final class Store {
 
         let id = UUID()
         let environment = sessionID.map { [ClaudeLaunch.sessionVariable: $0] } ?? [:]
-        let command = CodexLaunch.command(sessionID == nil ? .new : .resume)
-        tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: sessionID, agent: .codex, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }))
+        let launch = hostLaunch(CodexLaunch.command(sessionID == nil ? .new : .resume), id: id)
+        tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: sessionID, agent: .codex, terminal: terminal(cwd: cwd, command: launch.command, environment: environment) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
     }
@@ -1518,6 +1520,7 @@ final class Store {
     func close(_ id: Tab.ID) {
         let processes = ProcessAncestry.descendants()
         let sessionID = tabs.first { $0.id == id }?.sessionID
+        if !isTerminating, tabs.first(where: { $0.id == id })?.isHosted == true { hangUpHost(of: id) }
         if let pid = sessionID.flatMap({ liveBySession[$0]?.pid }), ProcessAncestry.isDescendant(pid, of: getpid()) {
             for signal in [SIGHUP, SIGTERM] { kill(pid, signal) }
         }
@@ -1548,6 +1551,7 @@ final class Store {
     }
 
     private struct SavedTab: Codable {
+        let id: UUID?
         let kind: Tab.Kind
         let cwd: String
         let sessionID: String?
@@ -1558,8 +1562,18 @@ final class Store {
     func saveOpenTabs() {
         guard persistsTabs else { return }
 
-        let saved = tabs.map { SavedTab(kind: $0.kind, cwd: $0.folder, sessionID: $0.sessionID, isSelected: $0.id == selectedTabID, agent: $0.agent) }
+        let saved = tabs.map { SavedTab(id: $0.id, kind: $0.kind, cwd: $0.folder, sessionID: $0.sessionID, isSelected: $0.id == selectedTabID, agent: $0.agent) }
         UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: "openTabs")
+    }
+
+    func reattach(id: UUID, kind: Tab.Kind, cwd: String, sessionID: String?, agent: Agent = .claude) {
+        guard let command = attachCommand(of: id) else { return }
+
+        let environment = sessionID.map { [ClaudeLaunch.sessionVariable: $0] } ?? [:]
+        tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, agent: agent, terminal: terminal(cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }, isHosted: true))
+        selectedTabID = id
+        recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
+        if kind == .claude { restoredTabIDs.insert(id) }
     }
 
     private func restoreOpenTabs() async {
@@ -1570,6 +1584,11 @@ final class Store {
         let threshold = unloadIdleThreshold
         var selected: Tab.ID?
         for tab in saved {
+            if let id = tab.id, let socket = hostSocket(of: id), SessionHost.probe(socketPath: socket) != nil {
+                reattach(id: id, kind: tab.kind, cwd: tab.cwd, sessionID: tab.sessionID, agent: tab.agent ?? .claude)
+                if tab.isSelected == true { selected = id }
+                continue
+            }
             if tab.kind == .shell {
                 openShell(cwd: tab.cwd)
             } else {
