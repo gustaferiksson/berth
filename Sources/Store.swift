@@ -218,6 +218,10 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(seenAt, forKey: "seenSessions") } }
     }
 
+    @ObservationIgnored private var codexIDs = Set(UserDefaults.standard.stringArray(forKey: "codexSessionIDs") ?? []) {
+        didSet { if persistsTabs { UserDefaults.standard.set(codexIDs.sorted(), forKey: "codexSessionIDs") } }
+    }
+
     private(set) var flaggedIDs = Set(UserDefaults.standard.stringArray(forKey: "flaggedSessions") ?? []) {
         didSet { if persistsTabs { UserDefaults.standard.set(flaggedIDs.sorted(), forKey: "flaggedSessions") } }
     }
@@ -331,16 +335,23 @@ final class Store {
     }
 
     private func applyGroups() {
+        if hasScanned, isCodexEnabled {
+            let listed = Set(summaries.filter { $0.agent == .codex }.map(\.id))
+            if listed != codexIDs { codexIDs = listed }
+        }
+        let retained = hasScanned && !isCodexEnabled ? codexIDs : []
         if hasScanned {
             let seen = Dictionary(summaries.map { ($0.id, seenAt[$0.id] ?? .now) }) { first, _ in first }
+                .merging(seenAt.filter { retained.contains($0.key) }) { first, _ in first }
             if seen != seenAt { seenAt = seen }
 
-            let flagged = flaggedIDs.intersection(summaries.map(\.id))
+            let flagged = flaggedIDs.intersection(summaries.map(\.id)).union(flaggedIDs.intersection(retained))
             if flagged != flaggedIDs { flaggedIDs = flagged }
         }
 
         let split = SessionArchive.split(summaries, archivedAt: archivedAt)
-        if hasScanned, split.kept != archivedAt { archivedAt = split.kept }
+        let keptArchive = split.kept.merging(archivedAt.filter { retained.contains($0.key) }) { first, _ in first }
+        if hasScanned, keptArchive != archivedAt { archivedAt = keptArchive }
         if split.archived != archivedSessions { archivedSessions = split.archived }
         if split.active != activeSessions { activeSessions = split.active }
         let byID = Dictionary((split.active + split.archived).map { ($0.id, $0) }) { first, _ in first }
@@ -348,7 +359,8 @@ final class Store {
         let selected = multiSelection.filter { item in if case let .session(id) = item { byID[id] != nil } else { true } }
         if selected != multiSelection { multiSelection = selected }
         let pins = SessionPins.split(split.active, pinned: pinnedIDs)
-        if hasScanned, pins.kept != pinnedIDs { pinnedIDs = pins.kept }
+        let keptPins = pinnedIDs.filter { pins.kept.contains($0) || retained.contains($0) }
+        if hasScanned, keptPins != pinnedIDs { pinnedIDs = keptPins }
         if pins.pinned != pinnedSessions { pinnedSessions = pins.pinned }
         let live = grouping.active(split.active, live: liveBySession)
         let liveRank = Dictionary(uniqueKeysWithValues: liveSessions.enumerated().map { ($1.id, $0) })
