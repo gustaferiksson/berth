@@ -283,6 +283,7 @@ private struct MarkdownTable: View {
 struct CodeBox: View {
     let text: String
     var language = ""
+    var syntax: String?
     var tint: Color?
     var maxHeight: CGFloat = .infinity
 
@@ -300,7 +301,7 @@ struct CodeBox: View {
                     .padding(.top, 10)
             }
             ScrollView(maxHeight.isFinite ? [.horizontal, .vertical] : .horizontal) {
-                Text(verbatim: text)
+                HighlightedText(text: text, language: syntax ?? language)
                     .font((codeSize == "small" ? Font.caption : codeSize == "large" ? .callout : .footnote).monospaced())
                     .lineSpacing(1)
                     .padding(12)
@@ -434,13 +435,13 @@ private struct ToolCallDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let command = call.use.command {
-                CodeBox(text: command)
+                CodeBox(text: command, syntax: "bash")
             } else if call.use.oldText != nil || call.use.newText != nil {
                 if let oldText = call.use.oldText {
-                    CodeBox(text: oldText, tint: .red, maxHeight: 240)
+                    CodeBox(text: oldText, syntax: call.use.filePath, tint: .red, maxHeight: 240)
                 }
                 if let newText = call.use.newText {
-                    CodeBox(text: newText, tint: .green, maxHeight: 240)
+                    CodeBox(text: newText, syntax: call.use.filePath, tint: .green, maxHeight: 240)
                 }
             } else if call.kind != .agent, let detail = call.use.detail ?? (call.kind == .other ? call.use.text : nil) {
                 Text(detail)

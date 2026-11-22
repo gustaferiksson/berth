@@ -105,7 +105,7 @@ private struct ReviewStylePreview: View {
     """#
     private static let lines = sample.split(separator: "\n").map { NSRange($0.startIndex..<$0.endIndex, in: sample) }
     private static let numbers = ["1", "2", "3", "3", "4", "5"]
-    private static let spans = ReviewHighlighter.spans(in: sample, path: "preview.swift")
+    private static let spans = CodeHighlighter.spans(in: sample, language: "preview.swift")
 
     var body: some View {
         var code = AttributedString(Self.sample)

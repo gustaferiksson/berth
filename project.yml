@@ -37,6 +37,9 @@ packages:
   TreeSitterCSS:
     url: https://github.com/tree-sitter/tree-sitter-css
     exactVersion: 0.23.2
+  TreeSitterBash:
+    url: https://github.com/tree-sitter/tree-sitter-bash
+    exactVersion: 0.25.1
 
 settings:
   base:
@@ -57,6 +60,7 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      - path: Shared
       - path: Resources/AppIcon.icon
       - path: Resources/highlights-typescript.scm
         buildPhase: resources
@@ -72,6 +76,7 @@ targets:
       - package: TreeSitterMarkdown
       - package: TreeSitterYAML
       - package: TreeSitterCSS
+      - package: TreeSitterBash
     entitlements:
       path: Resources/Berth.entitlements
       properties: {}
@@ -110,7 +115,20 @@ targets:
       - path: Packages/BerthCore/Sources/BerthCore/PlanUsage.swift
       - path: Packages/BerthCore/Sources/BerthCore/Conversation.swift
       - path: Packages/BerthCore/Sources/BerthCore/MarkdownBlock.swift
+      - path: Shared
       - path: Resources/AppIcon.icon
+      - path: Resources/highlights-typescript.scm
+        buildPhase: resources
+    dependencies:
+      - package: SwiftTreeSitter
+      - package: TreeSitterSwift
+      - package: TreeSitterTypeScript
+      - package: TreeSitterJavaScript
+      - package: TreeSitterJSON
+      - package: TreeSitterMarkdown
+      - package: TreeSitterYAML
+      - package: TreeSitterCSS
+      - package: TreeSitterBash
     settings:
       base:
         PRODUCT_NAME: BerthRemote

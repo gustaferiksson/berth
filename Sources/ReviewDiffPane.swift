@@ -88,27 +88,27 @@ nonisolated struct ReviewDiffAnalysis: Sendable {
     let original: String
     let modified: String
     let diff: ReviewDiff
-    let originalRuns: [ReviewHighlighter.Span]
-    let modifiedRuns: [ReviewHighlighter.Span]
+    let originalRuns: [CodeHighlighter.Span]
+    let modifiedRuns: [CodeHighlighter.Span]
 
     init(original: String, modified: String, base: String, path: String) {
         self.original = original
         self.modified = modified
         diff = ReviewDiff(original: base, modified: modified)
-        originalRuns = Self.runs(ReviewHighlighter.spans(in: original, path: path), length: original.utf16.count)
-        modifiedRuns = Self.runs(ReviewHighlighter.spans(in: modified, path: path), length: modified.utf16.count)
+        originalRuns = Self.runs(CodeHighlighter.spans(in: original, language: path), length: original.utf16.count)
+        modifiedRuns = Self.runs(CodeHighlighter.spans(in: modified, language: path), length: modified.utf16.count)
     }
 
-    static func runs(_ spans: [ReviewHighlighter.Span], length: Int) -> [ReviewHighlighter.Span] {
+    static func runs(_ spans: [CodeHighlighter.Span], length: Int) -> [CodeHighlighter.Span] {
         var owners = [Int32](repeating: -1, count: length)
         for (index, span) in spans.enumerated() where span.range.location < length {
             for offset in span.range.location..<min(NSMaxRange(span.range), length) { owners[offset] = Int32(index) }
         }
 
-        var runs: [ReviewHighlighter.Span] = []
+        var runs: [CodeHighlighter.Span] = []
         var start = 0
         for offset in 0...length where offset == length || owners[offset] != owners[start] {
-            if start < length, owners[start] >= 0 { runs.append(ReviewHighlighter.Span(range: NSRange(location: start, length: offset - start), capture: spans[Int(owners[start])].capture)) }
+            if start < length, owners[start] >= 0 { runs.append(CodeHighlighter.Span(range: NSRange(location: start, length: offset - start), capture: spans[Int(owners[start])].capture)) }
             start = offset
         }
         return runs

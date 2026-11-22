@@ -273,7 +273,7 @@ final class ReviewReferencesPeek: NSView, NSOutlineViewDataSource, NSOutlineView
         if previewed?.path != reference.path || previewed?.isBase != reference.isBase {
             previewed = (reference.path, reference.isBase)
             let text = NSMutableAttributedString(string: reference.text, attributes: [.font: style.font, .foregroundColor: style.foreground])
-            for span in ReviewHighlighter.spans(in: reference.text, path: reference.path) where NSMaxRange(span.range) <= text.length {
+            for span in CodeHighlighter.spans(in: reference.text, language: reference.path) where NSMaxRange(span.range) <= text.length {
                 text.addAttributes([.foregroundColor: style.color(forCapture: span.capture), .font: style.font(forCapture: span.capture)], range: span.range)
             }
             preview.textStorage?.setAttributedString(text)

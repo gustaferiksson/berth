@@ -159,7 +159,7 @@ private struct ChangeDiffView: View {
                 ContentUnavailableView(diff.isTruncated ? "Truncated" : "No Changes to Show", systemImage: diff.isTruncated ? "scissors" : "checkmark.circle", description: Text(diff.isTruncated ? "This file is too large to show here." : "The file’s contents are the same."))
 
             case let .loaded(diff):
-                DiffLines(diff: diff)
+                DiffLines(diff: diff, language: key.path)
 
             case .failed:
                 ContentUnavailableView {
@@ -199,8 +199,10 @@ private struct ChangeDiffView: View {
 
 private struct DiffLines: View {
     let diff: RemoteFileDiff
+    let language: String
 
     @State private var viewportWidth: CGFloat = 0
+    @State private var highlighted: [AttributedString] = []
 
     var body: some View {
         let font = UIFont.monospacedSystemFont(ofSize: UIFont.preferredFont(forTextStyle: .footnote).pointSize, weight: .regular)
@@ -213,7 +215,7 @@ private struct DiffLines: View {
         ScrollView([.horizontal, .vertical]) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(diff.lines.indices, id: \.self) { index in
-                    DiffRow(line: diff.lines[index], gutter: gutter, width: width)
+                    DiffRow(line: diff.lines[index], highlighted: highlighted.indices.contains(index) ? highlighted[index] : nil, gutter: gutter, width: width)
                 }
                 if diff.isTruncated {
                     Text("Truncated")
@@ -225,6 +227,10 @@ private struct DiffLines: View {
             }
         }
         .defaultScrollAnchor(.topLeading)
+        .task(id: diff) {
+            let rows = diff.lines.map { (old: $0.kind == .removed || $0.kind == .context, new: $0.kind == .added || $0.kind == .context, text: $0.text.replacing("\t", with: "    ")) }
+            highlighted = await CodeHighlighting.diffLines(rows, language: language)
+        }
         .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.width } action: { _, width in viewportWidth = width }
         .font(.system(.footnote, design: .monospaced))
     }
@@ -232,6 +238,7 @@ private struct DiffLines: View {
 
 private struct DiffRow: View {
     let line: RemoteDiffLine
+    let highlighted: AttributedString?
     let gutter: CGFloat
     let width: CGFloat
 
@@ -249,7 +256,7 @@ private struct DiffRow: View {
                     .frame(width: gutter, alignment: .trailing)
                     .foregroundStyle(.secondary)
                     .padding(.trailing, 8)
-                Text(verbatim: "\(marker)\(line.text.replacing("\t", with: "    "))")
+                Text("\(Text(verbatim: marker))\(Text(highlighted ?? AttributedString(line.text.replacing("\t", with: "    "))))")
             }
         }
         .lineLimit(1)
