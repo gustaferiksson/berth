@@ -280,6 +280,7 @@ private struct Composer: View {
                             Image(systemName: stops ? "stop.fill" : "arrow.up")
                                 .accessibilityHidden(true)
                                 .font(.body.weight(.semibold))
+                                // swiftlint:disable:next fixed_black_white_in_remote
                                 .foregroundStyle(.white)
                                 .frame(width: Self.controlHeight, height: Self.controlHeight)
                                 .background(Color.accentColor, in: .circle)
