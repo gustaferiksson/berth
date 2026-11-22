@@ -8,6 +8,8 @@ Snapshot without touching the screen (Debug build only): `.build/Build/Products/
 
 ## Sidebar fixtures
 
+`-snapshotSessionTerminals YES` opens a shell-backed Claude tab for a fixture session, two compact terminals indented under it, and one plain terminal in the Terminals group.
+
 Add `-snapshotFakeStatus YES` to fake the top project's first three sessions as "needs you", "working" and "shell", `-snapshotSelectRow <n>` to select the top project's nth session, `-snapshotHover "<header or row title or branch>|..."` to force hover states, `-snapshotExpandedGroups "<group id>|..."` to open their Show More, `-snapshotPinned YES` to pin the first session of the last two groups, `-snapshotFlagged YES` to flag the top project's 1st and 3rd sessions, `-snapshotUnread YES` to mark its 2nd and 4th unread, `-snapshotMultiSelect "2|shift4|5|term1"` (opens shell-backed claude tabs for the named top-project rows, clicks the first, ⌘-clicks `<n>` and `term<n>`, ⇧-clicks `shift<n>`, saves `<out>.selected.png`, then runs the menu's Unload and Pin and the palette's Flag, printing selection, tabs, flags, menu and palette titles each step), `-snapshotLongNames YES` (fixture sessions with long project, branch and title names and every PR state), `-snapshotChecks "<state>|…"` (passed, failed, running or empty for each `-snapshotLongNames` fixture session in order, as its PR's check rollup), `-snapshotPlanUsage YES` (fake 42% Session and 81% Week plan usage, `-snapshotPlanUsageAhead YES` for 55% and 66% ahead of pace; pass `-showsPlanUsage YES` too, since the fetch never runs in snapshot mode), `-snapshotFakeContext YES` (the top group's first four sessions at 34%, 63%, 81% and 94% of a 200k window; claude tabs open for the 81% and 94% ones, the 94% one selected; add `-snapshotFakeStatus YES` so the 63% one is live without a tab), `-snapshotSidebarWidth <pt>` (default 300), and `-snapshotGhosttyTheme "<name>"` to replace the Ghostty config with just that theme, `-groupingMode project|repository|recent`, `-showsCustomGroups NO`, `-sidebarPosition right`, `-snapshotCustomGroups /abs/groups.json` (JSON `[CustomGroup]`; a JSON string can't be passed as an argument, NSArgumentDomain drops it).
 
 ## Launcher, palette, search, stats and dialogs
@@ -129,6 +131,8 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 `-snapshotConversationDrive "<step>|…"` (type:, attach:, remove:, send:, decline:, stop, show, allow, deny, choose:<n>, status:<s>[/<waitingFor>], restamp, drop, wait:<ms>, snap:<name>, log), `-snapshotConversationWaitingFor`, `-snapshotConversationPending bash|edit|question|plan` and `-snapshotConversationRawLog /abs/file` (raw-mode pty logger, so Esc and digits reach the file) prove what reaches the pty.
 
 ### Session host (see docs/adr/0006)
+
+Snapshot mode never uses the session host (no hosted launch, reattach or hang-up, whatever `keepsSessionsRunning` says), so a snapshot can't spawn or touch the real hosts in Application Support; only `-snapshotHost` enables it, and that already requires a temp `CFFIXED_USER_HOME`.
 
 `-snapshotHost new|reattach|close -snapshotHostID <uuid> -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`; end with `close`).
 `-snapshotControl YES -controlEnabled YES -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`) runs the embedded `berth-cli` against the live control socket from a fake caller tab and prints `ls`, `open-terminal`, `wait` (exit status), `send`, `capture`, a refused send and close on the caller, a close, a wrong token and a missing environment.

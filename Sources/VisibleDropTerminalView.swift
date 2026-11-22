@@ -5,6 +5,11 @@ import GhosttyTerminal
 final class VisibleDropTerminalView: AppTerminalView {
     private lazy var dropTypes = registeredDraggedTypes
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .iBeam)
+    }
+
     override func setSurfaceVisible(_ visible: Bool) {
         super.setSurfaceVisible(visible)
         let types = dropTypes

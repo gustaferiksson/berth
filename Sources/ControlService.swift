@@ -110,7 +110,9 @@ final class ControlService {
         let command = request.command.map { ControlExitStatus.wrapping($0, recordingIn: Self.exitsDirectory + "/" + id.uuidString) }
         try? FileManager.default.createDirectory(atPath: Self.exitsDirectory, withIntermediateDirectories: true)
         let previous = store.selectedTabID
-        store.openShell(cwd: cwd, command: command, id: id)
+        let callerTab = store.tabs.first { $0.id == caller }
+        let parent = callerTab?.kind == .claude ? callerTab?.id : callerTab?.parentTabID
+        store.openShell(cwd: cwd, command: command, id: id, parent: parent)
         openedBy = openedBy.filter { opened in store.tabs.contains { $0.id == opened.key } }
         openedBy[id] = caller
         if request.background == true {

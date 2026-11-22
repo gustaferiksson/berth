@@ -52,7 +52,7 @@ struct SessionToolbar: ToolbarContent {
             ToolbarSpacer(.fixed, placement: .automatic)
             if isReviewEnabled || !pullRequests.isEmpty {
                 ToolbarItemGroup(placement: .automatic) {
-                    if let first = pullRequests.first { PullRequestTag(pullRequest: first.pullRequest, more: pullRequests.count - 1) }
+                    if let first = pullRequests.first { PullRequestButton(pullRequest: first.pullRequest) }
                     if isReviewEnabled { ChangesToggle(store: store) }
                 }
             }
@@ -72,6 +72,21 @@ private struct ConversationSwitch: View {
         .pickerStyle(.segmented)
         .labelStyle(.iconOnly)
         .help("Show Terminal or Conversation (⌥⌘J)")
+    }
+}
+
+private struct PullRequestButton: View {
+    let pullRequest: PullRequest
+    @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Button { openURL(pullRequest.url) } label: {
+            Label { Text(verbatim: "#\(pullRequest.number)") } icon: { Image(systemName: "arrow.triangle.pull") }
+                .labelStyle(.titleAndIcon)
+                .foregroundStyle(pullRequest.state.color(in: theme))
+        }
+        .help("Open pull request #\(pullRequest.number)")
     }
 }
 
@@ -106,7 +121,7 @@ private struct ContextButton: View {
 
     var body: some View {
         let fill = context.flatMap { context in context.window.map { Double(context.tokens) / Double($0) } }
-        let percent = fill?.formatted(.percent.precision(.fractionLength(0)))
+        let percent = fill.map { "\(Int(($0 * 100).rounded()))%" }
         Button { isShown.toggle() } label: {
             HStack(spacing: 5) {
                 if let context, let window = context.window {

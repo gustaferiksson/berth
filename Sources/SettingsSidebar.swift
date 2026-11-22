@@ -4,7 +4,8 @@ struct SidebarSettings: View {
     @Environment(Store.self) private var store
     @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
-    @AppStorage("showsUsageDivisions") private var showsUsageDivisions = false
+    @AppStorage("showsSessionUsageDivisions") private var showsSessionUsageDivisions = false
+    @AppStorage("showsWeeklyUsageDivisions") private var showsWeeklyUsageDivisions = false
     @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
 
     var body: some View {
@@ -27,7 +28,9 @@ struct SidebarSettings: View {
             }
             Section {
                 Toggle("Show plan usage", isOn: $showsPlanUsage)
-                Toggle("Divide bars into days and hours", isOn: $showsUsageDivisions)
+                Toggle("Divide session bar into hours", isOn: $showsSessionUsageDivisions)
+                    .disabled(!showsPlanUsage)
+                Toggle("Divide weekly bar into days", isOn: $showsWeeklyUsageDivisions)
                     .disabled(!showsPlanUsage)
             } header: {
                 Text("Usage")
@@ -36,7 +39,7 @@ struct SidebarSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 520)
+        .frame(height: 570)
         .onChange(of: showsPlanUsage) { Task { await store.refreshPlanUsage() } }
     }
 }

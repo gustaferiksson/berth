@@ -10,6 +10,8 @@ the terminal area exactly like Claude tabs.
   `isSurfaceVisible = false` for the rest).
 - Selection history: every change of `selectedTabID` moves that id to the front of a
   most-recently-selected list. Closing a tab removes it from the list.
+- A shell tab's optional `parentTabID` links it to a Claude tab. Owned terminals open
+  in the session's folder. `SavedTab.parentID` persists that link only behind `persistsTabs`.
 - A terminal's folder is its OSC 7 directory, else the folder it was opened in.
 - Terminals are restored on relaunch like the panel shells were (same `openTabs` entry,
   opened in the folder they started in).
@@ -20,15 +22,20 @@ the terminal area exactly like Claude tabs.
   terminals. Same header as other groups: chevron, title, count, + (New Terminal).
   Collapse state is shared with the other groups (`collapsedGroups`, id `terminals`).
 - Rows in opening order. Line 1: Ghostty's title while a command runs, else the folder
-  name. Line 2: the folder, abbreviated with `~`. Working dots while a command runs.
+  name. Line 2: the folder, abbreviated with `~`. Working dots while a command runs, else a terminal symbol in the same leading slot as session status dots, so titles align with session titles; the close button sits at the same trailing inset as a session's age.
   Same selection and hover chrome as session rows. Context menu: Close Terminal.
-- Sidebar order for ↑/↓, ⌘1 to ⌘9 and ⌃⇥ / ⇧⌘]: terminals, then Pinned, then groups.
+- Only unowned terminals appear in Terminals. Owned terminals use compact rows indented
+  one level under their owner wherever its session or tab row appears, including tasks.
+  They show whenever the owner row shows, following its filtering and collapse state.
+- Sidebar order for ↑/↓, ⌘1 to ⌘9 and ⌃⇥ / ⇧⌘] puts owned terminals immediately
+  after their owner, in opening order.
 
 ## Keys
 
 | Key | From | Result |
 |---|---|---|
 | ⌘T, + on the header | anywhere | New terminal in the current folder, added to Terminals, selected and focused |
+| New Terminal for Session, session row New Terminal | an open Claude tab | New owned terminal in the session folder, selected and focused; no shortcut |
 | ⌘J | a Claude tab, Harbor or nothing selected | Most recently selected terminal, selected and focused; none open: a new one in the current folder |
 | ⌘J | a terminal | Most recently selected Claude tab, selected and focused; none open: nothing happens |
 | ⌘W | a terminal | Ghostty closes the surface; the row goes away |
@@ -44,6 +51,11 @@ folder, else home.
 
 ## Edge cases
 
+- Closing a session tab closes all its owned terminals through `Store.close`, including
+  hosted terminals. Relaunch and host reattachment re-link saved ownership; a terminal
+  whose parent was not restored becomes plain.
+- CLI `open-terminal` belongs to the caller's Claude tab, or an owned caller's parent.
+  Other callers create plain terminals; an explicit `--cwd` still sets the folder.
 - Closing the selected terminal selects the most recently selected remaining tab
   (terminal or Claude) and focuses it. Closing a background terminal changes nothing.
 - Closing the last terminal: the Terminals group disappears and selection falls back as
@@ -60,7 +72,7 @@ Moved from CLAUDE.md.
 
 ### Terminals and tabs
 
-Terminals (`design/flows-terminals.md`): plain shells and Claude tabs share `Store.tabs` (kind `shell` / `claude`) and `selectedTabID`. Shells sit in a "Terminals" group at the very top (id `terminals`, hidden when empty, + is New Terminal, row menu Close Terminal); Claude tabs sit in their session's group (row menu Unload Session). `recentTabIDs` is the selection history, pushed only by `activate` and `openClaude`; closing the selected tab falls back to its first entry. ⌘J (View ▸ Switch Terminal / Claude, toolbar button) activates the most recent tab of the other kind, else the last one of that kind; from a Claude tab with no terminal it opens one, from a terminal with no Claude tab it does nothing.
+Terminals (`design/flows-terminals.md`): plain shells and Claude tabs share `Store.tabs` (kind `shell` / `claude`) and `selectedTabID`. Unowned shells sit in a "Terminals" group at the very top (id `terminals`, hidden when empty, + is New Terminal, row menu Close Terminal); Claude tabs sit in their session's group (row menu New Terminal and Unload Session). Owned shells carry `Tab.parentTabID`, render compact and indented after their owner, and close with it. `SavedTab.parentID` restores the link across resumed or reattached tabs, falling back to plain when the parent is absent. `recentTabIDs` is the selection history, pushed only by `activate` and `openClaude`; closing the selected tab falls back to its first entry. ⌘J (View ▸ Switch Terminal / Claude, toolbar button) activates the most recent tab of the other kind, else the last one of that kind; from a Claude tab with no terminal it opens one, from a terminal with no Claude tab it does nothing.
 
 ⌘T (File menu, the group's +) opens a terminal in `Store.currentCwd`: the selected tab's folder (a terminal's OSC 7 directory, `TerminalViewState .workingDirectory`, else the folder it opened in; a Claude tab's session folder), else home. libghostty injects its zsh integration via `ZDOTDIR` for plain shells (verified). Terminal rows show Ghostty's title and working dots while a command runs (the integration's OSC 2), else the folder's name; line 2 is the folder. Relaunch reopens terminals in their last folder and Claude tabs (skipping locked sessions and a missing resume folder) and reselects the saved `isSelected` tab.
 
