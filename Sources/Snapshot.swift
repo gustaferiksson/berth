@@ -262,7 +262,8 @@ enum Snapshot {
             }
             store.planUsage = PlanUsage(windows: windows)
         }
-        if let tab = UserDefaults.standard.string(forKey: "snapshotReviewPanelTab") {
+        let graphCommitIndex = UserDefaults.standard.string(forKey: "snapshotReviewGraphCommit").flatMap(Int.init)
+        if let tab = UserDefaults.standard.string(forKey: "snapshotReviewPanelTab") ?? graphCommitIndex.map({ _ in "graph" }) {
             var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
             arguments["reviewPanelTab"] = tab
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
@@ -526,9 +527,19 @@ enum Snapshot {
         if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotReviewCommitsExpanded") { store.reviewModels["snapshot-review"]?.showsCommits = true }
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30
+            if let index = graphCommitIndex, index >= 0 {
+                while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                if !model.graphHasLoaded { await model.loadGraph() }
+                while Date.now < deadline, index >= model.graphCommits.count, model.graphHasMore, model.graphError == nil {
+                    await model.loadGraph(more: true)
+                }
+                if model.graphCommits.indices.contains(index) {
+                    await model.openCommit(model.graphCommits[index].sha)
+                }
+            }
             while Date.now < deadline, model.error == nil, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
                 if let changes = model.changes, model.selectedTab == nil {
-                    if UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
+                    if graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
                     let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
                     guard let document = requested ?? changes.uncommitted.first.map({ ReviewDocument(path: $0.path, compare: .uncommitted) }) ?? changes.committed.first.map({ ReviewDocument(path: $0.path, compare: .committed) }) else { break }
 
@@ -557,7 +568,7 @@ enum Snapshot {
                 }
             }
             print("review files tree \(model.tree.map { $0.children == nil ? $0.name : "\($0.name)/ (\($0.children?.count ?? 0))" }), expanded folders \(model.expandedFolders.sorted())")
-            print("review selected \(describe(model)), contents loaded \(model.selectedDocument.flatMap { model.contents[$0] } != nil), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+            print("review selected \(describe(model)), graph count \(model.graphCommits.count), selected commit \(model.selectedCommit ?? "-"), contents loaded \(model.selectedDocument.flatMap { model.contents[$0] } != nil), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
             let shownSides = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }
             let sides = shownSides.count == 1 ? [shownSides[0].unifiedOriginal, shownSides[0]].compactMap(\.self) : shownSides
@@ -618,7 +629,8 @@ enum Snapshot {
                 let unchanged = zip((0..<diff.original.lineCount).filter { !diff.original.changedLines.contains($0) }, (0..<diff.modified.lineCount).filter { !diff.modified.changedLines.contains($0) })
                 let shifted = unchanged.count(where: { pair in rows[0][pair.0].flatMap { left in rows[1][pair.1].map { left != $0 } } ?? false })
                 let arithmetic = unchanged.count(where: { pair in rows[1][pair.1].map { $0 != sides[1].top(ofRow: (sides[1].side ?? diff.modified).rows[pair.1]) } ?? false })
-                print("\(label) \(sides[1].unifiedOriginal == nil ? "side by side" : "unified, width \(sides[1].frame.width) for \(sides[1].minimumWidth), text is the file \(sides[1].string == model.drafts[model.selectedDocument?.path ?? ""] ?? model.selectedDocument.flatMap { model.contents[$0]?.modified }.flatMap { if case let .text(text) = $0 { text } else { nil } } ?? "")"), height \(sides[1].frame.height) for top(ofRow: rowCount) \(sides[1].top(ofRow: sides[1].side?.rowCount ?? 0)), pane \(sides[1].enclosingScrollView?.superview?.frame.width ?? -1) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.count(where: { $0.1 != $0.2 })), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
+                let draft = model.selectedDocument.flatMap { $0.compare?.isCommit == true ? nil : model.drafts[$0.path] }
+                print("\(label) \(sides[1].unifiedOriginal == nil ? "side by side" : "unified, width \(sides[1].frame.width) for \(sides[1].minimumWidth), text is the file \(sides[1].string == draft ?? model.selectedDocument.flatMap { model.contents[$0]?.modified }.flatMap { if case let .text(text) = $0 { text } else { nil } } ?? "")"), height \(sides[1].frame.height) for top(ofRow: rowCount) \(sides[1].top(ofRow: sides[1].side?.rowCount ?? 0)), pane \(sides[1].enclosingScrollView?.superview?.frame.width ?? -1) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.count(where: { $0.1 != $0.2 })), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
             }
             report("review")
             if let ratio = UserDefaults.standard.string(forKey: "snapshotReviewSplit").flatMap(Double.init), let file = model.selectedDocument {
@@ -668,7 +680,7 @@ enum Snapshot {
                 save(".split-reset.png")
                 UserDefaults.standard.set(saved, forKey: "reviewSplitRatio")
             }
-            if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument {
+            if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument, file.compare?.isCommit != true {
                 let right = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last }
                 let point = { (textView: ReviewTextView, spec: String) -> NSPoint? in
                     let numbers = spec.split(separator: ":").compactMap { Int($0) }
@@ -977,7 +989,7 @@ enum Snapshot {
                     }
                 }
             }
-            if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last {
+            if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last, model.selectedDocument?.compare?.isCommit != true {
                 window.makeFirstResponder(right)
                 right.setSelectedRange(NSRange(location: 0, length: 0))
                 right.insertText(edit, replacementRange: right.selectedRange())
@@ -1550,7 +1562,7 @@ enum Snapshot {
                     let document = target.count == 3 ? ["u": ReviewDocument(path: target[2], compare: .uncommitted), "c": ReviewDocument(path: target[2], compare: .committed)][target[1]] ?? model.workingDocument(target[2]) : nil
                     if spec == "refresh" { await store.refreshReview() }
                     if spec == "keep" { model.selectedTabID.map(model.keep) }
-                    if spec == "save", let path = model.selectedDocument?.path, let draft = model.drafts[path] { model.save(draft, to: path) }
+                    if spec == "save", let document = model.selectedDocument, document.compare?.isCommit != true, let draft = model.drafts[document.path] { model.save(draft, to: document.path) }
                     if spec == "back" || spec == "forward" { model.go(by: spec == "back" ? -1 : 1) }
                     if spec == "reveal" { model.filesReveal = model.selectedDocument?.path }
                     if spec.hasPrefix("file"), let index = Int(spec.dropFirst(4)), let file = model.changes.map({ $0.uncommitted.map { ReviewDocument(path: $0.path, compare: .uncommitted) } + $0.committed.map { ReviewDocument(path: $0.path, compare: .committed) } })?.dropFirst(index).first { model.open(file) }
@@ -1694,7 +1706,9 @@ enum Snapshot {
         guard !model.tabs.isEmpty else { return "closed" }
 
         return "tabs " + model.tabs.map { tab in
-            "\(tab.id == model.selectedTabID ? "[" : "")\(tab.document.path)\(tab.document.compare.map { " \($0)" } ?? " file") \(tab.isPreview ? "preview" : "kept") \(tab.index + 1)/\(tab.history.count)\(tab.id == model.selectedTabID ? "]" : "")"
+            let document = tab.document
+            let name = if case let .commit(sha) = document.compare { "commit \(sha.prefix(7)):\(document.path)" } else { document.path + (document.compare.map { " \($0)" } ?? " file") }
+            return "\(tab.id == model.selectedTabID ? "[" : "")\(name) \(tab.isPreview ? "preview" : "kept") \(tab.index + 1)/\(tab.history.count)\(tab.id == model.selectedTabID ? "]" : "")"
         }.joined(separator: ", ")
     }
 
