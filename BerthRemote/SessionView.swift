@@ -100,7 +100,9 @@ struct SessionView: View {
                 SessionControls(
                     session: session,
                     sessionID: sessionID,
-                    pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil
+                    pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil,
+                    context: activity?.context,
+                    openContext: { isShowingContext = true }
                 )
             }
         }
