@@ -1058,6 +1058,15 @@ private struct ReviewChangeRow: View {
     @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
 
+    private var showsOpenFile: Bool {
+        guard file.status != .deleted else { return false }
+
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "snapshotReviewHoverRow") == file.path { return true }
+        #endif
+        return isHovering || model.selectedDocument?.path == file.path
+    }
+
     var body: some View {
         HStack(spacing: 6) {
             Text((file.path as NSString).lastPathComponent)
@@ -1074,24 +1083,31 @@ private struct ReviewChangeRow: View {
                 }
             }
             .fixedSize()
-            Text(file.status.rawValue)
-                .font(.caption2.weight(.medium).monospaced())
-                .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
-                .frame(width: 12)
-            ZStack {
-                if file.status != .deleted, isHovering || model.selectedDocument?.path == file.path {
+            .opacity(showsOpenFile ? 0 : 1)
+            .overlay(alignment: .trailing) {
+                if showsOpenFile {
                     Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
                         .foregroundStyle(theme.secondary)
                         .help("Open File")
+                        .fixedSize()
                 }
             }
-            .frame(width: 16, alignment: .trailing)
+            .animation(.easeOut(duration: 0.12), value: showsOpenFile)
+            Text(file.status.rawValue)
+                .font(.caption2.weight(.medium).monospaced())
+                .foregroundStyle([ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][file.status] ?? theme.secondary)
+                .frame(width: 12)
         }
         .font(.callout)
         .monospacedDigit()
         .onHover { isHovering = $0 }
+        .contextMenu {
+            if file.status != .deleted {
+                Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
+            }
+        }
         .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 }
