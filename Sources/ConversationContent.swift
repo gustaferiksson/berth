@@ -480,8 +480,7 @@ struct ConversationTaskRow: View {
             }
             Spacer(minLength: 0)
             if isRunning, !reduceMotion {
-                ProgressView()
-                    .controlSize(.small)
+                ConversationSpinner()
             }
         }
         .padding(10)
@@ -504,5 +503,18 @@ struct ConversationTaskRow: View {
             Text(verbatim: parts.joined(separator: " · "))
                 .monospacedDigit()
         }
+    }
+}
+
+struct ConversationSpinner: View {
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            Circle()
+                .trim(from: 0, to: 0.75)
+                .stroke(.foreground, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * 360))
+        }
+        .frame(width: 14, height: 14)
+        .accessibilityLabel("Loading")
     }
 }

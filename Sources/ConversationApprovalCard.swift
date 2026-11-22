@@ -130,8 +130,7 @@ struct ConversationApprovalCard: View {
 
         case .loading:
             HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
+                ConversationSpinner()
                 Text("Waiting for details")
                     .foregroundStyle(.secondary)
             }
