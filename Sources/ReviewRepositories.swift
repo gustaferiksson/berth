@@ -75,9 +75,8 @@ struct ReviewTaskHeader: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 10)
-        .padding(.bottom, 10)
+        .padding(.horizontal, ReviewInset.content - ReviewInset.fill)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -126,7 +125,7 @@ struct ReviewRepoRows: View {
                     }
                 }
                 .font(.callout)
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 4)
                 .frame(height: 28)
                 .background(theme.foreground.opacity(row.id == selection ? 0.09 : 0), in: .rect(cornerRadius: 8))
                 .help(row.id == "all" ? "Show every repository" : "Show \(row.name)")
@@ -146,7 +145,7 @@ struct ReviewOtherPullRequests: View {
             Text("Other pull requests")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.secondary)
-                .reviewEdgeRow()
+                .reviewRow(bottom: 6)
         }
         ForEach(pullRequests, id: \.number) { pullRequest in
             HStack(spacing: 8) {
@@ -162,7 +161,7 @@ struct ReviewOtherPullRequests: View {
                 PullRequestTag(pullRequest: pullRequest)
                     .fixedSize()
             }
-            .reviewEdgeRow()
+            .reviewRow(bottom: 6)
         }
     }
 }
@@ -210,31 +209,29 @@ struct ReviewSubheading: View {
                 .foregroundStyle(theme.secondary)
             Text("+\(files.compactMap(\.additions).reduce(0, +)) −\(files.compactMap(\.deletions).reduce(0, +))")
                 .foregroundStyle(theme.secondary)
-                .padding(.trailing, 14)
+                .padding(.trailing, ReviewInset.countsTrailing)
         }
         .font(.subheadline)
         .frame(height: 22)
-        .reviewEdgeRow(top: 2, bottom: 0)
+        .reviewRow(top: 2)
     }
 }
 
-private struct ReviewEdgeRow: ViewModifier {
-    let top: Double
-    let bottom: Double
-    @AppStorage("reviewChangesAsTree") private var changesAsTree = false
-
-    func body(content: Content) -> some View {
-        content
-            .padding(.leading, changesAsTree ? -17.5 : -8)
-            .padding(.trailing, -8.5)
-            .padding(.top, top)
-            .padding(.bottom, bottom)
-            .listRowInsets(.vertical, 0)
-    }
+enum ReviewInset {
+    static let fill = 8.0
+    static let content = 16.0
+    static let listMargin = 8.0
+    static let tree = 16.0
+    static let countsTrailing = 40.0
 }
 
 extension View {
-    func reviewEdgeRow(top: Double = 0, bottom: Double = 6) -> some View {
-        modifier(ReviewEdgeRow(top: top, bottom: bottom))
+    func reviewRow(top: Double = 0, bottom: Double = 0, leading: Double = 0) -> some View {
+        padding(.leading, ReviewInset.content - ReviewInset.listMargin + leading)
+            .padding(.trailing, ReviewInset.content - ReviewInset.listMargin)
+            .padding(.top, top)
+            .padding(.bottom, bottom)
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
     }
 }

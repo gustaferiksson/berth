@@ -48,7 +48,7 @@ struct ReviewFilesSplit<Changes: View, Files: View>: View {
                     .accessibilityHidden(true)
             }
             .font(.subheadline)
-            .padding(.horizontal, 8.5)
+            .padding(.horizontal, ReviewInset.content)
             .frame(maxWidth: .infinity)
             .frame(height: Self.headerHeight)
             .contentShape(.rect)
