@@ -4,6 +4,7 @@ struct SidebarSettings: View {
     @Environment(Store.self) private var store
     @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
+    @AppStorage("showsUsageDivisions") private var showsUsageDivisions = false
     @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
 
     var body: some View {
@@ -26,6 +27,8 @@ struct SidebarSettings: View {
             }
             Section {
                 Toggle("Show plan usage", isOn: $showsPlanUsage)
+                Toggle("Divide bars into days and hours", isOn: $showsUsageDivisions)
+                    .disabled(!showsPlanUsage)
             } header: {
                 Text("Usage")
             } footer: {
