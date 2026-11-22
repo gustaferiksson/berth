@@ -17,6 +17,7 @@ public enum TranscriptTail {
     static let maxTailBytes = 32 * 1024 * 1024
     static let maxText = 4000
     static let minEntries = 50
+    static let minPrompts = 5
     static let maxDetail = 300
     static let maxImages = 4
     static let thumbnailPixels = 360
@@ -40,7 +41,7 @@ public enum TranscriptTail {
             guard (try? handle.seek(toOffset: UInt64(start))) != nil else { return nil }
 
             let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: start > 0, queue: [], baseOffset: start)
-            if start == 0 || window >= maxTailBytes || parsed.entries.count >= minEntries {
+            if start == 0 || window >= maxTailBytes || parsed.entries.count >= minEntries && parsed.entries.count(where: { $0.kind == .prompt }) >= minPrompts {
                 return Chunk(entries: parsed.entries, end: start + parsed.consumed, isContinuation: false, queue: parsed.queue, imageLines: parsed.imageLines)
             }
             window *= 2
