@@ -388,7 +388,7 @@ private struct ToolCallRow: View {
     var body: some View {
         let isError = call.result?.isError == true
         let isWaiting = live == .waiting(call.id)
-        let verb = Text(live == nil ? call.verb.past : isWaiting ? "Waiting for approval" : call.verb.present)
+        let verb = Text(live == nil ? call.verb.past : isWaiting ? (call.use.name == "AskUserQuestion" ? "Waiting for your answer" : "Waiting for approval") : call.verb.present)
         let separator = isWaiting ? " · " : " "
         let subject = Text(call.subject).font([.command, .read, .edit, .search, .other].contains(call.kind) ? .subheadline.monospaced() : .subheadline)
         let description = [.command, .agent].contains(call.kind) ? call.use.detail.flatMap { $0.isEmpty ? nil : $0 } : nil

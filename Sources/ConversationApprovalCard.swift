@@ -64,12 +64,12 @@ struct ConversationApprovalCard: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 ScrollView {
-                    ConversationDiff(rows: ToolDiff.rows(old: edit.old, new: edit.new), isExpanded: true)
+                    ConversationDiff(rows: ToolDiff.rows(old: edit.old, new: edit.new), language: target, isExpanded: true)
                 }
                 .frame(maxHeight: 220)
                 .fixedSize(horizontal: false, vertical: true)
             } else {
-                ConversationCodeBlock(text: target, maxHeight: 160)
+                ConversationCodeBlock(text: target, syntax: tool == "Bash" ? "bash" : nil, maxHeight: 160)
             }
             buttons(allow: "Allow", deny: "Deny")
 
@@ -90,6 +90,7 @@ struct ConversationApprovalCard: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(verbatim: option.label)
                                         .font(.body.weight(.semibold))
+                                        .foregroundStyle(.primary)
                                     if let detail = option.detail {
                                         Text(verbatim: detail)
                                             .font(.subheadline)
