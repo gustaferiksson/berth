@@ -376,7 +376,7 @@ struct ConversationToolRow: View {
                     .frame(width: markerWidth - 8, alignment: .leading)
                     .accessibilityHidden(true)
                 if state == .waiting {
-                    Text("Waiting for approval")
+                    Text(call.use.name == "AskUserQuestion" ? "Waiting for your answer" : "Waiting for approval")
                         .foregroundStyle(theme.needsYou)
                 } else if let summary {
                     Text("\(Text(verbatim: summary.text).foregroundStyle(isError ? theme.closed : theme.secondary))\(Text(verbatim: summary.moreLines > 0 ? " … +\(summary.moreLines) \(summary.moreLines == 1 ? "line" : "lines")" : "").foregroundStyle(theme.secondary.opacity(0.7)))")
@@ -398,7 +398,7 @@ struct ConversationToolRow: View {
     }
 }
 
-private struct ConversationDiff: View {
+struct ConversationDiff: View {
     let rows: [ToolDiffRow]
     let language: String?
     let isExpanded: Bool

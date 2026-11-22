@@ -68,7 +68,84 @@ extension Snapshot {
             assistant(3, [use("t8", "Agent", ["description": "Review the docs for the export column", "subagent_type": "general-purpose", "prompt": "Read docs/columns.md and list what must change for the plan name column.", "run_in_background": true])]),
             result("t8", "Async agent launched successfully.\nagentId: agent-docs (internal ID, do not mention to user)", 1, ["toolUseResult": ["isAsync": true, "status": "async_launched", "agentId": "agent-docs", "description": "Review the docs for the export column"]]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ]
+        ] + pendingRecords(assistant: assistant, use: use, result: result)
+    }
+
+    private static func pendingRecords(assistant: (TimeInterval, [[String: Any]]) -> [String: Any], use: (String, String, [String: Any]) -> [String: Any], result: (String, String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        let file = "\(conversationFolder)/Sources/Export.swift"
+        let call: [String: Any]
+        switch UserDefaults.standard.string(forKey: "snapshotConversationPending") ?? "" {
+        case "bash": call = use("tp", "Bash", ["command": "rm -rf .build && swift build -c release 2>&1 | tail -20", "description": "Clean and rebuild in release mode"])
+        case "edit": call = use("tp", "Edit", ["file_path": file, "old_string": "let formatter = DateFormatter()\nformatter.dateFormat = \"yyyy-MM-dd\"\nreturn rows.map { formatter.string(from: $0.date) }", "new_string": "let formatter = DateFormatter()\nformatter.dateFormat = \"yyyy-MM-dd\"\nformatter.timeZone = TimeZone(identifier: \"UTC\")\nreturn rows.map { formatter.string(from: $0.date) }"])
+        case "question": call = use("tp", "AskUserQuestion", ["questions": [["question": "Which time zone should the export use?", "header": "Zone", "multiSelect": false, "options": [["label": "Europe/Stockholm", "description": "Matches the Mac the export is built on"], ["label": "UTC", "description": "Matches the CI runner"], ["label": "Per account", "description": "Read it from each account's settings"]]]]])
+        case "plan": call = use("tp", "ExitPlanMode", ["plan": "## Plan\n\n1. Add a `planName` column to `Row`\n2. Fill it in `exportRows(for:)` from the account\n3. Update the CSV header and the two export tests\n\nNothing else reads `Row`, so the change stays inside `Export.swift` and `ExportTests.swift`.\n\n```swift\nlet planName: String\n```"])
+        default: return []
+        }
+        return [result("t9", "1\tdocs", 1, [:]), assistant(2, [call])]
+    }
+
+    private static func fakeConversationLive(status: String, waitingFor: String?, updatedSecondsAgo: Double) -> LiveSession? {
+        let started = Int(conversationStart.timeIntervalSince1970 * 1000) - 60_000
+        let updated = Int((Date.now.timeIntervalSince1970 - updatedSecondsAgo) * 1000)
+        let waiting = waitingFor.map { #","waitingFor":"\#($0)""# } ?? ""
+        return try? JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":\#(getpid()),"sessionId":"\#(conversationSession)","cwd":"\#(conversationFolder)","status":"\#(status)"\#(waiting),"statusUpdatedAt":\#(updated),"startedAt":\#(started)}"#.utf8))
+    }
+
+    private static func driveConversation(_ script: String, store: Store, tab: Tab, rawLog: String?, save: (String) -> Void) async {
+        var shown = store.liveBySession[conversationSession].map { (waitingFor: $0.waitingFor, since: $0.statusUpdatedAt) }
+        let state = {
+            let live = store.liveBySession[conversationSession]
+            let model = store.conversationModels[tab.id]
+            print("  state: status \(live?.status ?? "none") updated \(live?.statusUpdatedAt.map { Int($0) % 100_000 } ?? -1), waitingFor \(live?.waitingFor ?? "none"), shows conversation \(store.selectedShowsConversation), suspended \(store.conversationSuspended.contains(tab.id)), draft \(model?.draft.text.debugDescription ?? "-") files \(model?.draft.files.map(\.lastPathComponent) ?? []), notice \(model?.notice ?? "none")")
+        }
+        let log = {
+            guard let rawLog, let data = FileManager.default.contents(atPath: rawLog) else { return print("  log: empty") }
+
+            print("  log: \(data.map { $0 == 0x1B ? "ESC" : $0 == 0x0D ? "CR" : $0 < 0x20 ? "^\($0)" : String(UnicodeScalar($0)) }.joined(separator: " ").replacing("E S C", with: "ESC"))")
+        }
+        for step in script.split(separator: "|").map(String.init) {
+            let (name, argument) = step.firstIndex(of: ":").map { (String(step[..<$0]), String(step[step.index(after: $0)...])) } ?? (step, "")
+            print("step \(step)")
+            switch name {
+            case "type": store.conversationModels[tab.id]?.draft.text = argument
+
+            case "attach": store.conversationModels[tab.id]?.draft.files.append(URL(fileURLWithPath: argument))
+
+            case "send": await store.conversationModels[tab.id]?.send()
+
+            case "decline": if let model = store.conversationModels[tab.id] { Task { await model.decline(waitingFor: shown?.waitingFor, since: shown?.since) } }
+
+            case "stop": store.conversationModels[tab.id]?.interrupt()
+
+            case "allow": store.conversationModels[tab.id]?.answer(.digit1, waitingFor: shown?.waitingFor, since: shown?.since)
+
+            case "deny": store.conversationModels[tab.id]?.answer(.escape, waitingFor: shown?.waitingFor, since: shown?.since)
+
+            case "choose": store.conversationModels[tab.id]?.answer(RemoteKey(rawValue: "digit\(argument)") ?? .digit1, waitingFor: shown?.waitingFor, since: shown?.since)
+
+            case "show": shown = store.liveBySession[conversationSession].map { (waitingFor: $0.waitingFor, since: $0.statusUpdatedAt) }
+
+            case "status":
+                let parts = argument.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+                store.fakeLiveSessions = fakeConversationLive(status: parts[0], waitingFor: parts.count > 1 ? parts[1] : nil, updatedSecondsAgo: 20).map { [$0] } ?? []
+                store.refreshLive()
+
+            case "restamp":
+                store.fakeLiveSessions = store.fakeLiveSessions.compactMap { fakeConversationLive(status: $0.status ?? "idle", waitingFor: $0.waitingFor, updatedSecondsAgo: 1) }
+                store.refreshLive()
+
+            case "drop": store.fakeLiveSessions = []
+
+            case "snap": save(".\(argument).png")
+
+            case "log": log()
+
+            default: break
+            }
+            try? await Task.sleep(for: .milliseconds(name == "wait" ? Int(argument) ?? 500 : 700))
+            state()
+        }
+        log()
     }
 
     static func captureConversation(store: Store, window: NSWindow, output: URL) async {
@@ -79,14 +156,13 @@ extension Snapshot {
             try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
         }
         let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? "busy"
-        let waitingFor = status == "waiting" ? #","waitingFor":"permission prompt""# : ""
-        let started = Int(conversationStart.timeIntervalSince1970 * 1000) - 60_000
-        store.openShell(cwd: conversationFolder, command: "/bin/zsh -c 'echo the terminal is still running; sleep 600'")
+        let rawLog = UserDefaults.standard.string(forKey: "snapshotConversationRawLog")
+        let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'echo the terminal is still running; sleep 600'"
+        store.openShell(cwd: conversationFolder, command: command)
         store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: conversationFolder, sessionID: conversationSession, terminal: $0.terminal) : $0 }
-        if let live = try? JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":\#(getpid()),"sessionId":"\#(conversationSession)","cwd":"\#(conversationFolder)","status":"\#(status)"\#(waitingFor),"startedAt":\#(started)}"#.utf8)) {
-            store.fakeLiveSessions = [live]
-            store.refreshLive()
-        }
+        let waitingFor = UserDefaults.standard.string(forKey: "snapshotConversationWaitingFor") ?? "permission prompt"
+        store.fakeLiveSessions = fakeConversationLive(status: status, waitingFor: status == "waiting" ? waitingFor : nil, updatedSecondsAgo: 20).map { [$0] } ?? []
+        store.refreshLive()
         guard let tab = store.tabs.first(where: { $0.id == store.selectedTabID }) else { exit(1) }
 
         let surface = { (label: String) in
@@ -115,6 +191,11 @@ extension Snapshot {
             for task in model.tasks { print("  running \(task.kind) \(task.title) \(task.agentType ?? "")") }
         }
         save(".conversation.png")
+        if let script = UserDefaults.standard.string(forKey: "snapshotConversationDrive") {
+            await driveConversation(script, store: store, tab: tab, rawLog: rawLog, save: save)
+            ProcessAncestry.hangUpDescendants()
+            exit(0)
+        }
         AppAction.showTerminal.perform(on: store)
         try? await Task.sleep(for: .seconds(1))
         surface("after Show Terminal")

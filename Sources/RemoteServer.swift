@@ -2,7 +2,6 @@ import AppKit
 import BerthCore
 import CryptoKit
 import Foundation
-import GhosttyTerminal
 import Network
 import Observation
 
@@ -49,7 +48,6 @@ final class RemoteServer {
     @ObservationIgnored private var clients: [ObjectIdentifier: Client] = [:]
     @ObservationIgnored private var lastSessions: Data?
     @ObservationIgnored private var token = ""
-    @ObservationIgnored private var submitting: Set<String> = []
     @ObservationIgnored private var uploads: [String: Upload] = [:]
     @ObservationIgnored private var reviewChanges: [String: ReviewChanges] = [:]
     @ObservationIgnored private let imageCache = NSCache<NSString, NSData>()
@@ -498,80 +496,15 @@ final class RemoteServer {
     private func submit(_ text: String, attachments: [String], in sessionID: String, from connection: NWConnection) async {
         let files = attachments.compactMap { UUID(uuidString: $0).flatMap { uploads[$0.uuidString] }.flatMap { $0.isComplete ? $0.file : nil } }
         guard files.count == attachments.count else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "An attachment didn’t finish uploading, so the message wasn’t sent")), to: connection) }
-        guard !submitting.contains(sessionID) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "The previous message is still being sent or the session is starting, so this one wasn’t sent")), to: connection) }
+        guard case let .refused(message) = await store.submit(text, files: files, to: sessionID) else { return }
 
-        submitting.insert(sessionID)
-        defer { submitting.remove(sessionID) }
-
-        guard store.sessionsByID[sessionID] != nil || store.tab(forSession: sessionID) != nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown session")), to: connection) }
-
-        store.refreshLive()
-        guard store.liveBySession[sessionID]?.status != "waiting" else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude is waiting for an answer, so the message wasn’t sent")), to: connection) }
-
-        if store.tab(forSession: sessionID) == nil || store.liveBySession[sessionID] == nil {
-            if store.isLockedElsewhere(store.liveBySession[sessionID]), store.tab(forSession: sessionID) == nil {
-                return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "This session is running in another terminal, so it is read-only here")), to: connection)
-            }
-            store.activate(.session(sessionID))
-            let deadline = Date.now + 30
-            while Date.now < deadline, store.tab(forSession: sessionID) == nil || store.liveBySession[sessionID] == nil {
-                try? await Task.sleep(for: .milliseconds(250))
-                store.refreshLive()
-            }
-            try? await Task.sleep(for: .seconds(2))
-        }
-
-        store.refreshLive()
-        guard let terminal = store.tab(forSession: sessionID)?.terminal, store.liveBySession[sessionID] != nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude didn’t start for this session")), to: connection) }
-
-        let images = files.filter { ["jpg", "jpeg", "png", "gif", "webp"].contains($0.pathExtension.lowercased()) }
-        let message = (files.filter { !images.contains($0) }.map { "@\($0.path)" } + [text]).filter { !$0.isEmpty }.joined(separator: " ")
-        store.lastKeyInput = .now
-        for image in images {
-            guard isAcceptingInput(sessionID, from: connection) else { return }
-
-            terminal.paste(text: image.path)
-            try? await Task.sleep(for: .milliseconds(500))
-        }
-        guard isAcceptingInput(sessionID, from: connection) else { return }
-
-        terminal.paste(text: images.isEmpty ? message : " \(message)")
-        if !images.isEmpty { try? await Task.sleep(for: .milliseconds(300)) }
-        guard isAcceptingInput(sessionID, from: connection) else { return }
-
-        store.lastKeyInput = .now
-        terminal.sendKey(.enter)
-    }
-
-    private func isAcceptingInput(_ sessionID: String, from connection: NWConnection) -> Bool {
-        store.refreshLive()
-        guard store.liveBySession[sessionID]?.status == "waiting" else { return true }
-
-        send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude started waiting for an answer, so the message wasn’t sent")), to: connection)
-        return false
+        send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection)
     }
 
     private func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, since waitingSince: Double?, from connection: NWConnection) {
-        store.refreshLive()
-        guard let live = store.liveBySession[sessionID], live.status == "waiting", live.waitingFor == waitingFor, live.statusUpdatedAt == waitingSince else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude’s question changed, so the key wasn’t sent")), to: connection) }
-        guard let terminal = store.tab(forSession: sessionID)?.terminal else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude isn’t running in a Berth tab for this session")), to: connection) }
+        guard case let .refused(message) = store.press(key, in: sessionID, answering: waitingFor, since: waitingSince) else { return }
 
-        store.lastKeyInput = .now
-        let press = switch key {
-        case .enter: TerminalKeyPress(.enter)
-        case .escape: TerminalKeyPress(.escape)
-        case .shiftTab: TerminalKeyPress(.tab, modifiers: .shift)
-        case .digit1: TerminalKeyPress(.digit1)
-        case .digit2: TerminalKeyPress(.digit2)
-        case .digit3: TerminalKeyPress(.digit3)
-        case .digit4: TerminalKeyPress(.digit4)
-        case .digit5: TerminalKeyPress(.digit5)
-        case .digit6: TerminalKeyPress(.digit6)
-        case .digit7: TerminalKeyPress(.digit7)
-        case .digit8: TerminalKeyPress(.digit8)
-        case .digit9: TerminalKeyPress(.digit9)
-        }
-        terminal.sendKey(press)
+        send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection)
     }
 
     private func perform(_ action: RemoteSessionAction, on sessionID: String, from connection: NWConnection) {
@@ -598,11 +531,9 @@ final class RemoteServer {
             store.archive(sessionID)
 
         case .interrupt:
-            store.refreshLive()
-            guard store.liveBySession[sessionID]?.status == "busy", let terminal = store.tab(forSession: sessionID)?.terminal else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude isn’t working in a Berth tab for this session")), to: connection) }
+            guard case let .refused(message) = store.interrupt(sessionID) else { return }
 
-            store.lastKeyInput = .now
-            terminal.sendKey(TerminalKeyPress(.escape))
+            send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection)
         }
     }
 
