@@ -4,7 +4,11 @@ import Foundation
 extension Store {
     static let hostsDirectory = URL.applicationSupportDirectory.appending(path: Bundle.main.bundleIdentifier ?? "dev.gustaf.berth").appending(path: "hosts").path
 
+    #if DEBUG
     private static let isHostingAllowed = (Snapshot.output == nil && SettingsSnapshot.output == nil) || UserDefaults.standard.string(forKey: "snapshotHost") != nil
+    #else
+    private static let isHostingAllowed = true
+    #endif
 
     private static var hostTool: String? {
         let tool = Bundle.main.executableURL?.deletingLastPathComponent().appending(path: "berth-host").path
