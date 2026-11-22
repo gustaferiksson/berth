@@ -1790,6 +1790,7 @@ private struct BranchText: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
+        .pointerStyle(.link)
         .help("Copy branch name")
         .task(id: isCopied) {
             guard isCopied else { return }
