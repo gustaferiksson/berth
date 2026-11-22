@@ -280,7 +280,7 @@ private struct Composer: View {
                             Image(systemName: stops ? "stop.fill" : "arrow.up")
                                 .accessibilityHidden(true)
                                 .font(.body.weight(.semibold))
-                                .foregroundStyle(.background)
+                                .foregroundStyle(.white)
                                 .frame(width: Self.controlHeight, height: Self.controlHeight)
                                 .background(Color.accentColor, in: .circle)
                                 .padding(Self.hitSlop)

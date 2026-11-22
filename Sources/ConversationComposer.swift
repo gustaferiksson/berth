@@ -82,7 +82,7 @@ struct ConversationComposer: View {
                             } label: {
                                 Image(systemName: stops ? "stop.fill" : "arrow.up")
                                     .font(.system(size: 15, weight: .bold))
-                                    .foregroundStyle(.background)
+                                    .foregroundStyle(.white)
                                     .frame(width: Self.controlHeight, height: Self.controlHeight)
                                     .background(Color.accentColor, in: .circle)
                                     .contentShape(.circle)
