@@ -164,7 +164,60 @@ nonisolated enum PullRequestStatus {
         return PullRequestDetail.parse(output)
     }
 
-    private static func run(_ executable: String, arguments: [String]) -> Data? {
+    static func reply(repository: String, threadID: String, body: String) -> Bool {
+        guard let gh, let target = reviewTarget(gh, nodeID: threadID, repository: repository) else { return false }
+
+        let reviewID: String
+        if let pending = target.pendingReviewID {
+            reviewID = pending
+        } else {
+            let query = "mutation($id: ID!) { addPullRequestReview(input: {pullRequestId: $id}) { pullRequestReview { id state } } }"
+            let result = reviewData(gh, arguments: ["api", "graphql", "-f", "query=\(query)", "-f", "id=\(target.pullRequestID)"])?["addPullRequestReview"] as? NSDictionary
+            guard let review = result?["pullRequestReview"] as? NSDictionary,
+                  review["state"] as? String == "PENDING",
+                  let id = review["id"] as? String
+            else { return false }
+
+            reviewID = id
+        }
+
+        let arguments = ReviewThread.replyArguments(threadID: threadID, body: body) + ["-f", "reviewID=\(reviewID)"]
+        let result = reviewData(gh, arguments: arguments)?["addPullRequestReviewThreadReply"] as? NSDictionary
+        return (result?["comment"] as? NSDictionary)?["id"] is String
+    }
+
+    static func addThread(pullRequestID: String, comment: ReviewComment) -> Bool {
+        guard let gh, let target = reviewTarget(gh, nodeID: pullRequestID) else { return false }
+
+        let arguments = ReviewThread.newThreadArguments(pullRequestID: pullRequestID, comment: comment) + (target.pendingReviewID.map { ["-f", "reviewID=\($0)"] } ?? [])
+        let result = reviewData(gh, arguments: arguments)?["addPullRequestReviewThread"] as? NSDictionary
+        return (result?["thread"] as? NSDictionary)?["id"] is String
+    }
+
+    private static func reviewTarget(_ gh: String, nodeID: String, repository: String? = nil) -> (pullRequestID: String, pendingReviewID: String?)? {
+        let query = "query($id: ID!) { node(id: $id) { ...ReviewTarget ... on PullRequestReviewThread { pullRequest { ...ReviewTarget } } } } fragment ReviewTarget on PullRequest { id repository { nameWithOwner } reviews(first: 100, states: [PENDING]) { nodes { id viewerDidAuthor } } }"
+        guard let node = reviewData(gh, arguments: ["api", "graphql", "-f", "query=\(query)", "-f", "id=\(nodeID)"])?["node"] as? NSDictionary else { return nil }
+
+        let pullRequest = node["pullRequest"] as? NSDictionary ?? node
+        guard let pullRequestID = pullRequest["id"] as? String,
+              let name = (pullRequest["repository"] as? NSDictionary)?["nameWithOwner"] as? String,
+              repository == nil || name.lowercased() == repository?.lowercased()
+        else { return nil }
+
+        let reviews = ((pullRequest["reviews"] as? NSDictionary)?["nodes"] as? NSArray)?.compactMap { $0 as? NSDictionary }
+        return (pullRequestID, reviews?.first(where: { $0["viewerDidAuthor"] as? Bool == true })?["id"] as? String)
+    }
+
+    private static func reviewData(_ gh: String, arguments: [String]) -> NSDictionary? {
+        guard let output = run(gh, arguments: arguments, requireSuccess: true),
+              let response = (try? JSONSerialization.jsonObject(with: output)) as? NSDictionary,
+              response["errors"] == nil
+        else { return nil }
+
+        return response["data"] as? NSDictionary
+    }
+
+    private static func run(_ executable: String, arguments: [String], requireSuccess: Bool = false) -> Data? {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(filePath: executable)
@@ -175,7 +228,7 @@ nonisolated enum PullRequestStatus {
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        return data
+        return !requireSuccess || process.terminationStatus == 0 ? data : nil
     }
 }
 

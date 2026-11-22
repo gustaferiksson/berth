@@ -14,14 +14,27 @@ final class ReviewInlineComment: NSView {
     private var hoverBackground: CGColor?
     private let padding: CGFloat = 8
     private let headerHeight: CGFloat = 16
+    private var pullRequestItem: NSMenuItem?
+    var onSendToPullRequest: (() -> Void)? {
+        didSet { pullRequestItem?.isEnabled = onSendToPullRequest != nil }
+    }
 
-    init(title: String, text: String, kind: Kind, style: ReviewStyle) {
+    var isSubmitting = false {
+        didSet {
+            field.isEditable = !isSubmitting
+            buttons[0].isEnabled = !isSubmitting
+            buttons[1].isEnabled = !isSubmitting && !field.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    init(title: String, text: String, kind: Kind, style: ReviewStyle, submitTitle: String? = nil) {
         self.kind = kind
         header = NSTextField(labelWithString: title)
         if case .draft = kind {
-            buttons = [NSButton(title: "Cancel", target: nil, action: #selector(cancel)), NSButton(title: text.isEmpty ? "Add Comment" : "Save", target: nil, action: #selector(add))]
-            buttons[1].keyEquivalent = "\r"
-            buttons[1].isEnabled = !text.isEmpty
+            buttons = [NSButton(title: "Cancel", target: nil, action: #selector(cancel)), NSButton(title: submitTitle ?? (text.isEmpty ? "Add Comment" : "Save"), target: nil, action: #selector(add))]
+            buttons[1].keyEquivalent = submitTitle == nil ? "\r" : ""
+            buttons[1].isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if submitTitle != nil { buttons[1].toolTip = "Add to your pending review, then submit the review on GitHub" }
         } else {
             let delete = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Delete Comment") ?? NSImage(), target: nil, action: #selector(delete))
             delete.isBordered = false
@@ -50,10 +63,24 @@ final class ReviewInlineComment: NSView {
         field.textContainer?.lineFragmentPadding = 0
         field.textContainer?.widthTracksTextView = false
         field.onSubmit = { [weak self] in self?.add() }
+        field.submitsOnReturn = submitTitle == nil
         field.onCancel = { [weak self] in self?.cancel() }
         field.onChange = { [weak self] in self?.fieldDidChange() }
         field.onClick = { [weak self] in self?.edit() }
-        if case .card = kind { field.menu = cardMenu() }
+        if case .card = kind {
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            menu.addItem(withTitle: "Edit Comment", action: #selector(edit), keyEquivalent: "").target = self
+            menu.addItem(withTitle: "Copy Comment", action: #selector(copyText), keyEquivalent: "").target = self
+            menu.addItem(.separator())
+            let send = menu.addItem(withTitle: "Add to Pull Request Review", action: #selector(sendToPullRequest), keyEquivalent: "")
+            send.target = self
+            send.isEnabled = false
+            send.toolTip = "Add to your pending review, then submit the review on GitHub"
+            pullRequestItem = send
+            self.menu = menu
+            field.menu = menu
+        }
 
         for button in buttons {
             button.target = self
@@ -83,7 +110,7 @@ final class ReviewInlineComment: NSView {
         field.textColor = style.foreground
         field.insertionPointColor = style.foreground
         field.selectedTextAttributes = [.backgroundColor: style.selection]
-        field.placeholder = NSAttributedString(string: "Leave a comment", attributes: [.font: style.font, .foregroundColor: style.secondary])
+        field.placeholder = NSAttributedString(string: field.submitsOnReturn ? "Leave a comment" : "Leave a reply", attributes: [.font: style.font, .foregroundColor: style.secondary])
         needsLayout = true
         field.needsDisplay = true
     }
@@ -115,8 +142,6 @@ final class ReviewInlineComment: NSView {
     }
 
     override func resetCursorRects() {
-        if case .card = kind { return addCursorRect(bounds, cursor: .pointingHand) }
-
         addCursorRect(bounds, cursor: .arrow)
     }
 
@@ -134,11 +159,8 @@ final class ReviewInlineComment: NSView {
         layer?.backgroundColor = restingBackground
     }
 
-    private func cardMenu() -> NSMenu {
-        let menu = NSMenu()
-        menu.addItem(withTitle: "Edit Comment", action: #selector(edit), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Copy Comment", action: #selector(copyText), keyEquivalent: "").target = self
-        return menu
+    @objc private func sendToPullRequest() {
+        onSendToPullRequest?()
     }
 
     @objc private func copyText() {
@@ -157,18 +179,18 @@ final class ReviewInlineComment: NSView {
     private func fieldDidChange() {
         guard case let .draft(_, _, onResize) = kind else { return }
 
-        buttons[1].isEnabled = !field.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        buttons[1].isEnabled = !isSubmitting && !field.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         onResize()
     }
 
     @objc private func add() {
-        guard case let .draft(onAdd, _, _) = kind else { return }
+        guard !isSubmitting, case let .draft(onAdd, _, _) = kind else { return }
 
         onAdd(field.string.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     @objc private func cancel() {
-        guard case let .draft(_, onCancel, _) = kind else { return }
+        guard !isSubmitting, case let .draft(_, onCancel, _) = kind else { return }
 
         onCancel()
     }
@@ -194,9 +216,10 @@ final class ReviewCommentField: NSTextView {
     var onCancel: () -> Void = {}
     var onChange: () -> Void = {}
     var onClick: () -> Void = {}
+    var submitsOnReturn = true
 
     override func resetCursorRects() {
-        if !isEditable { return addCursorRect(bounds, cursor: .pointingHand) }
+        if !isEditable { return addCursorRect(bounds, cursor: .arrow) }
 
         super.resetCursorRects()
     }
@@ -216,7 +239,7 @@ final class ReviewCommentField: NSTextView {
         guard isEditable, !hasMarkedText() else { return super.keyDown(with: event) }
 
         let flags = event.modifierFlags.intersection([.shift, .command, .option, .control])
-        if [36, 76].contains(event.keyCode), flags.isEmpty {
+        if submitsOnReturn, [36, 76].contains(event.keyCode), flags.isEmpty {
             onSubmit()
         } else if event.keyCode == 53, flags.isEmpty {
             onCancel()
