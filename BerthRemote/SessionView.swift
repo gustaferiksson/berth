@@ -26,11 +26,13 @@ struct SessionView: View {
                     let isLast = turn.id == turns.last?.id
                     let openCall = isLast ? turn.openCall : nil
                     TurnView(
+                        sessionID: sessionID,
                         turn: turn,
                         isFinished: !isLast || !isBusy,
                         isWorking: isLast && session?.status == "busy",
                         turnStartedAt: session?.turnStartedAt,
-                        liveCall: openCall.flatMap { session?.status == "busy" ? .running($0.id) : session?.status == "waiting" ? .waiting($0.id) : nil }
+                        liveCall: openCall.flatMap { session?.status == "busy" ? .running($0.id) : session?.status == "waiting" ? .waiting($0.id) : nil },
+                        openChanges: client.features.contains(RemoteChangesFeature.name) ? { isShowingChanges = true } : nil
                     )
                 }
                 if !queued.isEmpty {
@@ -125,20 +127,31 @@ struct SessionView: View {
                     .monospaced()
                     .foregroundStyle(.secondary)
             }
-            if activity?.context != nil {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { isShowingContext = true } label: { ContextRing(context: activity?.context) }
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if let tasks = activity?.tasks, !tasks.isEmpty {
+                    Button { isShowingRunning = true } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "terminal")
+                            Text(tasks.count.formatted())
+                                .font(.footnote.weight(.semibold).monospacedDigit())
+                        }
+                    }
+                    .accessibilityLabel("Running, \(tasks.count)")
+                }
+                if client.features.contains(RemoteChangesFeature.name) {
+                    Button("Changes", systemImage: "plusminus") { isShowingChanges = true }
+                }
+                if let pullRequest = session?.pullRequest, client.features.contains(RemotePullRequestFeature.name) {
+                    Button("Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull") { isShowingPullRequest = true }
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu("Session Actions", systemImage: "ellipsis") {
                     Button("Open on Mac", systemImage: "macbook", action: openOnMac)
-                    if client.features.contains(RemoteChangesFeature.name) {
-                        Button("Changes", systemImage: "plusminus") { isShowingChanges = true }
+                    if activity?.context != nil {
+                        Button("Context", systemImage: "chart.pie") { isShowingContext = true }
                     }
-                    if let pullRequest = session?.pullRequest, client.features.contains(RemotePullRequestFeature.name) {
-                        Button("Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull") { isShowingPullRequest = true }
-                    } else if let pullRequest = session?.pullRequest, pullRequest.url.scheme == "https" {
+                    if let pullRequest = session?.pullRequest, !client.features.contains(RemotePullRequestFeature.name), pullRequest.url.scheme == "https" {
                         Link(destination: pullRequest.url) {
                             Label("Open Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull")
                         }

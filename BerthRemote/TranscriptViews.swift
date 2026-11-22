@@ -11,11 +11,13 @@ let focusesAndExpands = false
 #endif
 
 struct TurnView: View {
+    let sessionID: String
     let turn: Turn
     let isFinished: Bool
     let isWorking: Bool
     let turnStartedAt: Date?
     let liveCall: LiveCall?
+    let openChanges: (() -> Void)?
 
     @State private var showsWork = false
     @ScaledMetric(relativeTo: .subheadline) private var iconWidth = 22
@@ -23,6 +25,11 @@ struct TurnView: View {
     var body: some View {
         let lastWork = turn.parts.lastIndex { if case .work = $0 { true } else { false } }
         let folded = isFinished && !turn.isInterrupted ? lastWork.map { turn.parts[...$0] } : nil
+        let foldedCards = folded?.flatMap { part -> [ToolCall] in
+            guard case let .cards(calls) = part else { return [] }
+
+            return calls
+        } ?? []
 
         VStack(alignment: .leading, spacing: 16) {
             if let prompt = turn.prompt {
@@ -31,7 +38,7 @@ struct TurnView: View {
             if let folded {
                 DisclosureGroup(isExpanded: $showsWork) {
                     VStack(alignment: .leading, spacing: 16) {
-                        ForEach(folded) { TurnPartView(part: $0, liveCall: nil) }
+                        ForEach(folded.filter { !$0.isCards }) { TurnPartView(sessionID: sessionID, part: $0, liveCall: nil) }
                     }
                     .padding(.leading, 14)
                     .overlay(alignment: .leading) {
@@ -55,7 +62,13 @@ struct TurnView: View {
                 }
                 if !refs.isEmpty { ToolImageRow(refs: refs) }
             }
-            ForEach(turn.parts[(folded?.endIndex ?? 0)...]) { TurnPartView(part: $0, liveCall: liveCall) }
+            if !foldedCards.isEmpty {
+                TaskCards(calls: foldedCards, sessionID: sessionID, liveCall: nil)
+            }
+            ForEach(turn.parts[(folded?.endIndex ?? 0)...]) { TurnPartView(sessionID: sessionID, part: $0, liveCall: liveCall) }
+            if folded != nil, let changes = turn.fileChanges {
+                ChangedFilesCard(changes: changes, openDiff: openChanges)
+            }
             if turn.isInterrupted {
                 Label("Interrupted", systemImage: "stop.circle")
                     .font(.subheadline)
@@ -129,6 +142,7 @@ struct QueuedPrompt: View {
 }
 
 private struct TurnPartView: View {
+    let sessionID: String
     let part: TurnPart
     let liveCall: LiveCall?
 
@@ -138,6 +152,8 @@ private struct TurnPartView: View {
             MarkdownText(text: entry.text)
         case let .work(calls):
             WorkGroupView(calls: calls, liveCall: liveCall)
+        case let .cards(calls):
+            TaskCards(calls: calls, sessionID: sessionID, liveCall: liveCall)
         }
     }
 }
@@ -427,7 +443,8 @@ private struct ToolCallRow: View {
     var body: some View {
         let isError = call.result?.isError == true
         let isWaiting = live == .waiting(call.id)
-        let verb = Text(live == nil ? call.verb.past : isWaiting ? "Waiting for approval:" : call.verb.present)
+        let verb = Text(live == nil ? call.verb.past : isWaiting ? "Waiting for approval" : call.verb.present)
+        let separator = isWaiting ? " · " : " "
         let subject = Text(call.subject).font([.command, .read, .edit, .search, .other].contains(call.kind) ? .subheadline.monospaced() : .subheadline)
         let description = [.command, .agent].contains(call.kind) ? call.use.detail.flatMap { $0.isEmpty ? nil : $0 } : nil
         let fixed: String? = switch call.use.name {
@@ -435,7 +452,7 @@ private struct ToolCallRow: View {
         case "REPL": call.use.detail.flatMap { $0.isEmpty ? nil : $0 } ?? "Running a script"
         default: nil
         }
-        let title = fixed.map { Text(verbatim: $0) } ?? description.map { isWaiting ? Text("\(verb) \($0)") : Text($0) } ?? Text("\(verb) \(subject)")
+        let title = fixed.map { Text(verbatim: $0) } ?? description.map { isWaiting ? Text("\(verb)\(separator)\($0)") : Text($0) } ?? Text("\(verb)\(separator)\(subject)")
 
         VStack(alignment: .leading, spacing: 8) {
             DisclosureGroup(isExpanded: $isExpanded) {
