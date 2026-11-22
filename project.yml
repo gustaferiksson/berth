@@ -71,6 +71,11 @@ targets:
         codeSign: true
         copy:
           destination: executables
+      - target: BerthCLI
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
       - package: GhosttyKit
         product: GhosttyTerminal
       - package: SwiftTreeSitter
@@ -121,6 +126,18 @@ targets:
     settings:
       base:
         PRODUCT_NAME: berth-host
+        ENABLE_HARDENED_RUNTIME: YES
+
+  BerthCLI:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Packages/BerthCore/Sources/berth-cli
+    dependencies:
+      - package: BerthCore
+    settings:
+      base:
+        PRODUCT_NAME: berth-cli
         ENABLE_HARDENED_RUNTIME: YES
 
   BerthRemote:

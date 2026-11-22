@@ -12,6 +12,7 @@ public enum HostFrame: Equatable, Sendable {
     case resize(cols: UInt16, rows: UInt16)
     case hangUp
     case probe
+    case dump
     case output([UInt8])
     case exit(Int32)
     case replaced
@@ -21,7 +22,7 @@ public enum HostFrame: Equatable, Sendable {
     public static let maxPayload = 1 << 20
 
     private enum Kind: UInt8 {
-        case attach = 0x01, input, resize, hangUp, probe
+        case attach = 0x01, input, resize, hangUp, probe, dump
         case output = 0x81, exit, replaced, hello
     }
 
@@ -32,6 +33,7 @@ public enum HostFrame: Equatable, Sendable {
         case let .resize(cols, rows): (.resize, Self.bytes(cols) + Self.bytes(rows))
         case .hangUp: (.hangUp, [])
         case .probe: (.probe, [])
+        case .dump: (.dump, [])
         case let .output(bytes): (.output, bytes)
         case let .exit(status): (.exit, Self.bytes(UInt32(bitPattern: status)))
         case .replaced: (.replaced, [])
@@ -60,6 +62,8 @@ public enum HostFrame: Equatable, Sendable {
         case .hangUp: return .hangUp
 
         case .probe: return .probe
+
+        case .dump: return .dump
 
         case .output: return .output(payload)
 

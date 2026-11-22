@@ -75,6 +75,24 @@ struct SessionHostTests {
         #expect(!FileManager.default.fileExists(atPath: path))
     }
 
+    @Test func dumpReadsScrollbackWithoutReplacingTheAttachedClient() throws {
+        let directory = try Self.shortDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        let id = UUID().uuidString
+        try Self.start(directory: directory, id: id, command: "echo dump-marker; exec cat")
+        let path = try SessionHost.socketPath(directory: directory, id: id)
+        let attached = try HostConnection(socketPath: path)
+        attached.send(.attach(cols: 80, rows: 24))
+        #expect(try Self.read(attached, until: "dump-marker").contains("dump-marker"))
+
+        let dumped = try #require(SessionHost.dump(socketPath: path))
+        #expect(String(decoding: dumped, as: UTF8.self).contains("dump-marker"))
+        #expect(try !Self.frames(attached).contains(.replaced))
+
+        SessionHost.hangUp(socketPath: path)
+    }
+
     @Test func clientsReceiveTheChildsExitStatus() throws {
         let directory = try Self.shortDirectory()
         defer { try? FileManager.default.removeItem(atPath: directory) }

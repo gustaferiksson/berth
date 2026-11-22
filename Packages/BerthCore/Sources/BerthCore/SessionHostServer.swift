@@ -94,6 +94,13 @@ public enum SessionHostServer {
                 client.outbox += HostFrame.hello(host: getpid(), child: child).encoded()
                 client.closesWhenFlushed = true
 
+            case .dump:
+                let replay = ring.contents
+                for start in stride(from: 0, to: replay.count, by: 32_768) {
+                    client.outbox += HostFrame.output(Array(replay[start..<min(start + 32_768, replay.count)])).encoded()
+                }
+                client.closesWhenFlushed = true
+
             default:
                 break
             }
