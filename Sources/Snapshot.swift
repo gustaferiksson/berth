@@ -368,9 +368,10 @@ enum Snapshot {
             print("ordered tabs: \(store.sidebarOrderedTabs.count)")
         }
         if UserDefaults.standard.bool(forKey: "snapshotPlanUsage") {
+            let ahead = UserDefaults.standard.bool(forKey: "snapshotPlanUsageAhead")
             store.planUsage = PlanUsage(windows: [
-                UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: .now.addingTimeInterval(2 * 3600)),
-                UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.81, resetsAt: .now.addingTimeInterval(3 * 86_400)),
+                UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: ahead ? 0.55 : 0.42, resetsAt: .now.addingTimeInterval(ahead ? 3.5 * 3600 : 2 * 3600)),
+                UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: ahead ? 0.66 : 0.81, resetsAt: .now.addingTimeInterval(ahead ? 4 * 86_400 : 3 * 86_400)),
             ])
         }
         if UserDefaults.standard.bool(forKey: "snapshotFakeContext") {

@@ -40,14 +40,14 @@ struct UsageWindowRow: View {
             UsageTrack(window: window, now: now)
             Text(window.used, format: .percent.precision(.fractionLength(0)))
                 .monospacedDigit()
-                .foregroundStyle(theme.secondary)
+                .foregroundStyle(UsageTrack.aheadTint(window, now: now, theme: theme) ?? theme.secondary)
                 .frame(width: 34, alignment: .trailing)
         }
         .font(.caption)
         .help(window.summary(at: now))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(window.title)
-        .accessibilityValue(window.summary(at: now))
+        .accessibilityValue(window.isAhead(at: now) ? "\(window.summary(at: now)), ahead of pace" : window.summary(at: now))
     }
 }
 
@@ -64,12 +64,22 @@ struct UsageTrack: View {
         Int((window.length / (window.length >= 2 * 86_400 ? 86_400 : 3600)).rounded())
     }
 
+    static func aheadTint(_ window: UsageWindow, now: Date, theme: GhosttyTheme) -> Color? {
+        guard window.isAhead(at: now) else { return nil }
+
+        return window.severity(at: now) == .critical ? theme.closed : theme.needsYou
+    }
+
     private var fill: Color {
         switch window.severity(at: now) {
         case .normal: theme.foreground.opacity(0.55)
         case .warning: theme.needsYou
         case .critical: theme.closed
         }
+    }
+
+    private var isOvershootOnly: Bool {
+        window.isAhead(at: now) && window.severity(at: now) == .normal
     }
 
     var body: some View {
@@ -86,7 +96,13 @@ struct UsageTrack: View {
                 }
                 Rectangle()
                     .fill(fill)
-                    .frame(width: width * window.used)
+                    .frame(width: width * (isOvershootOnly ? window.pace(at: now) : window.used))
+                if isOvershootOnly {
+                    Rectangle()
+                        .fill(theme.needsYou.opacity(0.7))
+                        .frame(width: width * (window.used - window.pace(at: now)))
+                        .offset(x: width * window.pace(at: now))
+                }
             }
             .clipShape(.capsule)
             Capsule()
