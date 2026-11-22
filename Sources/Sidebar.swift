@@ -20,6 +20,7 @@ enum SidebarDensity: String, CaseIterable {
 
 extension EnvironmentValues {
     @Entry var sidebarDensity = SidebarDensity.comfortable
+    @Entry var headerInset: Double?
 }
 
 struct SidebarLayout: Equatable {
@@ -833,6 +834,7 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
     @FocusState private var isNameFocused: Bool
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.sidebarDensity) private var density
+    @Environment(\.headerInset) private var inset
 
     var body: some View {
         Group {
@@ -844,10 +846,11 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
         }
         .font(.subheadline)
         .padding(.top, density.headerTopPadding)
-        .padding(.leading, -6)
-        .padding(.trailing, 6)
+        .padding(.leading, inset ?? -6)
+        .padding(.trailing, inset ?? 6)
         .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 0, drop: drop))
-        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: density.headerBottomInset, trailing: 8))
+        .listRowInsets(EdgeInsets(top: 0, leading: inset == nil ? 8 : 0, bottom: density.headerBottomInset, trailing: inset == nil ? 8 : 0))
+        .listRowSeparator(inset == nil ? .automatic : .hidden)
         .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
             if !isHovering || restingWidth == 0 { restingWidth = width }
         }
