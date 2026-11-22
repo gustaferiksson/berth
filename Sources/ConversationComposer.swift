@@ -12,7 +12,7 @@ struct ConversationComposer: View {
 
     private static let inset = 6.0
     private static let controlHeight = 28.0
-    private static let fieldHeight = 41.0
+    private static let tileSize = 56.0
 
     @Environment(\.ghosttyTheme) private var theme
     @State private var isImporting = false
@@ -39,27 +39,23 @@ struct ConversationComposer: View {
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     if !draft.files.isEmpty {
-                        ScrollView(.horizontal) {
-                            HStack(spacing: 8) {
-                                ForEach(draft.files, id: \.self) { file in
-                                    ConversationAttachmentChip(file: file) { model.draft.files.removeAll { $0 == file } }
-                                }
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileSize, maximum: Self.tileSize), spacing: Self.inset)], alignment: .leading, spacing: Self.inset) {
+                            ForEach(draft.files, id: \.self) { file in
+                                ConversationAttachmentTile(file: file, number: draft.numbers[file], size: Self.tileSize, radius: Self.controlHeight / 2) { model.remove(file) }
                             }
                         }
-                        .scrollIndicators(.hidden)
                         .padding(.top, Self.inset)
                     }
                     ConversationComposerField(
-                        text: Binding { model.draft.text } set: { model.draft.text = $0 },
+                        text: Binding { model.draft.text } set: { model.setText($0) },
                         placeholder: placeholder,
                         font: theme.font,
                         color: NSColor(theme.foreground),
                         focusRequest: focusRequest,
                         submit: send,
-                        attach: { model.draft.files += $0.filter { !model.draft.files.contains($0) } }
+                        attach: { model.attach($0) }
                     )
-                    .padding(.horizontal, 4)
-                    .frame(minHeight: Self.fieldHeight)
+                    .padding(.vertical, Self.inset)
                     HStack(spacing: 8) {
                         Menu {
                             Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
@@ -105,7 +101,7 @@ struct ConversationComposer: View {
             }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-            model.draft.files += ((try? result.get()) ?? []).filter { !model.draft.files.contains($0) }
+            model.append((try? result.get()) ?? [])
         }
     }
 
@@ -196,34 +192,58 @@ struct ConversationComposer: View {
     }
 }
 
-private struct ConversationAttachmentChip: View {
+private struct ConversationAttachmentTile: View {
     let file: URL
+    let number: Int?
+    let size: Double
+    let radius: Double
     let remove: () -> Void
 
     var body: some View {
-        let isImage = UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true
-        let icon = isImage ? NSImage(contentsOf: file) ?? NSWorkspace.shared.icon(forFile: file.path) : NSWorkspace.shared.icon(forFile: file.path)
+        let isImage = number != nil || UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true
+        let image = isImage ? NSImage(contentsOf: file) : nil
 
-        HStack(spacing: 6) {
-            Image(nsImage: icon)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 22, height: 22)
-                .clipShape(.rect(cornerRadius: 5))
-                .accessibilityHidden(true)
-            Text(verbatim: file.lastPathComponent)
-                .lineLimit(1)
-                .frame(maxWidth: 160)
-            Button("Remove", systemImage: "xmark.circle.fill", action: remove)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: file.path))
+                    .resizable()
+                    .scaledToFit()
+                    .padding(8)
+                    .background(.quaternary)
+            }
         }
-        .font(.caption)
-        .padding(.leading, 5)
-        .padding(.trailing, 8)
-        .padding(.vertical, 4)
-        .background(.quaternary, in: .capsule)
-        .help(file.path)
+        .frame(width: size, height: size)
+        .clipShape(.rect(cornerRadius: radius))
+        .overlay(alignment: .bottomLeading) {
+            if let number {
+                Text(number, format: .number)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.black.opacity(0.6), in: .capsule)
+                    .padding(4)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button(action: remove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 18, height: 18)
+                    .background(.black.opacity(0.6), in: .circle)
+                    .padding(4)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(file.lastPathComponent)")
+        }
+        .help(file.lastPathComponent)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(number.map { "Image \($0), \(file.lastPathComponent)" } ?? file.lastPathComponent)
     }
 }

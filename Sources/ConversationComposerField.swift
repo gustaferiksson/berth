@@ -8,7 +8,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let color: NSColor
     let focusRequest: Int
     let submit: () -> Void
-    let attach: ([URL]) -> Void
+    let attach: ([URL]) -> String
 
     private static let maxLines = 8.0
 
@@ -96,7 +96,7 @@ struct ConversationComposerField: NSViewRepresentable {
 final class ComposerTextView: NSTextView {
     var placeholder = ""
     var onSubmit: () -> Void = {}
-    var onAttach: ([URL]) -> Void = { _ in }
+    var onAttach: ([URL]) -> String = { _ in "" }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -135,7 +135,7 @@ final class ComposerTextView: NSTextView {
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
-            return onAttach(urls)
+            return insertTokens(for: urls)
         }
         guard pasteboard.string(forType: .string) == nil, let image = NSImage(pasteboard: pasteboard), let png = NSBitmapImageRep(data: image.tiffRepresentation ?? Data())?.representation(using: .png, properties: [:]) else { return pasteAsPlainText(sender) }
 
@@ -145,7 +145,16 @@ final class ComposerTextView: NSTextView {
         let file = folder.appending(path: "Pasted Image.png")
         guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil, (try? png.write(to: file)) != nil else { return }
 
-        onAttach([file])
+        insertTokens(for: [file])
+    }
+
+    private func insertTokens(for urls: [URL]) {
+        let tokens = onAttach(urls)
+        guard !tokens.isEmpty else { return }
+
+        let caret = selectedRange().location
+        let needsSpace = caret > 0 && !(string as NSString).substring(with: NSRange(location: caret - 1, length: 1)).allSatisfy(\.isWhitespace)
+        insertText((needsSpace ? " " : "") + tokens + " ", replacementRange: selectedRange())
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -156,7 +165,7 @@ final class ComposerTextView: NSTextView {
         let urls = fileURLs(in: sender)
         guard !urls.isEmpty else { return super.performDragOperation(sender) }
 
-        onAttach(urls)
+        insertTokens(for: urls)
         return true
     }
 

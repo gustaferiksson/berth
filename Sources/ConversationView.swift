@@ -52,7 +52,7 @@ struct ConversationView: View {
             }
             .overlay {
                 ConversationDropTarget(isTargeted: $isDropTargeted) { files in
-                    model.draft.files += files.filter { !model.draft.files.contains($0) }
+                    model.append(files)
                     composerFocus += 1
                 }
                 .overlay {

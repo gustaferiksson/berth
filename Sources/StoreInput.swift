@@ -35,9 +35,30 @@ extension Store {
         refreshLive()
         guard let terminal = tab(forSession: sessionID)?.terminal, liveBySession[sessionID] != nil else { return .refused("Claude didn’t start for this session") }
 
-        let images = files.filter { ["jpg", "jpeg", "png", "gif", "webp"].contains($0.pathExtension.lowercased()) }
-        let message = (files.filter { !images.contains($0) }.map { "@\($0.path)" } + [text]).filter { !$0.isEmpty }.joined(separator: " ")
+        let images = files.filter(ConversationDraft.isImage)
+        let others = files.filter { !images.contains($0) }.map { "@\($0.path)" }
+        let parts = text.split(separator: /\[Image #\d+\]/, omittingEmptySubsequences: false).map(String.init)
         lastKeyInput = .now
+        if !images.isEmpty, parts.count == images.count + 1 {
+            for (index, image) in images.enumerated() {
+                if let refusal = refusalWhileWaiting(sessionID) { return refusal }
+
+                let leading = index == 0 ? (others + [parts[0]]).filter { !$0.isEmpty }.joined(separator: " ") : parts[index]
+                if !leading.isEmpty { terminal.paste(text: leading) }
+                terminal.paste(text: image.path)
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            if let refusal = refusalWhileWaiting(sessionID) { return refusal }
+
+            if !parts[images.count].isEmpty { terminal.paste(text: parts[images.count]) }
+            try? await Task.sleep(for: .milliseconds(300))
+            if let refusal = refusalWhileWaiting(sessionID) { return refusal }
+
+            lastKeyInput = .now
+            terminal.sendKey(.enter)
+            return .sent
+        }
+        let message = (others + [text]).filter { !$0.isEmpty }.joined(separator: " ")
         for image in images {
             if let refusal = refusalWhileWaiting(sessionID) { return refusal }
 
