@@ -64,6 +64,15 @@ struct ConversationView: View {
                     }
                 }
             }
+            .disabled(model.openSubagent != nil)
+            .accessibilityHidden(model.openSubagent != nil)
+            .overlay {
+                if let subagent = model.openSubagent {
+                    ConversationSubagentView(subagent: subagent) { model.openSubagent = nil }
+                        .id(subagent.id)
+                }
+            }
+            .environment(\.openAgentConversation, OpenAgentConversation(open: model.openAgent))
             .environment(\.conversationFolder, tab.cwd)
             .accessibilityLabel("Conversation")
     }
@@ -183,7 +192,7 @@ private struct ConversationScrollState: Equatable {
     let isAtBottom: Bool
 }
 
-private struct ConversationTurnView: View {
+struct ConversationTurnView: View {
     let turn: Turn
     let isFinished: Bool
     let isWorking: Bool
@@ -446,28 +455,31 @@ private struct ConversationTaskList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(tasks) { task in
-                HStack(spacing: 10) {
-                    Image(systemName: task.symbol)
-                        .foregroundStyle(theme.secondary)
-                        .frame(width: 20)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(verbatim: task.title)
-                            .lineLimit(1)
-                        Text(verbatim: task.agentType ?? task.kindName)
+                ConversationAgentButton(isAgent: task.kind == RemoteTask.agent, agentID: task.id, toolUseID: task.id, title: task.title, dismissesPopover: true) {
+                    HStack(spacing: 10) {
+                        Image(systemName: task.symbol)
+                            .foregroundStyle(theme.secondary)
+                            .frame(width: 20)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(verbatim: task.title)
+                                .lineLimit(1)
+                            Text(verbatim: task.agentType ?? task.kindName)
+                                .font(.caption)
+                                .foregroundStyle(theme.secondary)
+                        }
+                        Spacer(minLength: 12)
+                        ConversationElapsed(since: task.started)
                             .font(.caption)
                             .foregroundStyle(theme.secondary)
                     }
-                    Spacer(minLength: 12)
-                    ConversationElapsed(since: task.started)
-                        .font(.caption)
-                        .foregroundStyle(theme.secondary)
+                    .accessibilityElement(children: .combine)
                 }
-                .accessibilityElement(children: .combine)
             }
         }
         .padding(14)
         .frame(width: 320, alignment: .leading)
+        .transaction { $0.animation = nil }
     }
 }
 

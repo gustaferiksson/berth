@@ -21,6 +21,10 @@ public struct ToolCall: Identifiable, Sendable {
 
     public var cardTitle: String { use.detail.flatMap { $0.isEmpty ? nil : $0 } ?? use.command.map { String($0.prefix { $0 != "\n" }) } ?? (kind == .agent ? "Agent" : "Background shell") }
 
+    public var agentID: String? {
+        result?.text.firstMatch(of: /agentId:\s*([A-Za-z0-9_-]+)/).map { String($0.1) }
+    }
+
     public var agentType: String? {
         (try? JSONSerialization.jsonObject(with: Data(use.text.utf8)) as? [String: Any])?["subagent_type"] as? String
     }

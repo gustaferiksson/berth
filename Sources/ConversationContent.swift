@@ -564,33 +564,35 @@ struct ConversationTaskRow: View {
         let tint = isError ? theme.closed : isRunning ? theme.working : theme.secondary
         let foreground = call.result?.date.flatMap { end in call.use.date.map { end.timeIntervalSince($0) } }.flatMap { $0 > 0 && !call.isAsyncLaunch && isAgent ? $0 : nil }
 
-        HStack(spacing: 12) {
-            Image(systemName: isError ? "xmark.circle" : isAgent ? "person.2" : "terminal")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(tint)
-                .frame(width: 28, height: 28)
-                .background(tint.opacity(0.14), in: .rect(cornerRadius: 8))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(verbatim: task?.title ?? call.cardTitle)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(2)
-                caption(foreground: foreground)
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
-                    .lineLimit(1)
+        ConversationAgentButton(isAgent: isAgent, agentID: call.agentID, toolUseID: call.use.toolID, title: task?.title ?? call.cardTitle) {
+            HStack(spacing: 12) {
+                Image(systemName: isError ? "xmark.circle" : isAgent ? "person.2" : "terminal")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(tint)
+                    .frame(width: 28, height: 28)
+                    .background(tint.opacity(0.14), in: .rect(cornerRadius: 8))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(verbatim: task?.title ?? call.cardTitle)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(2)
+                    caption(foreground: foreground)
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if isRunning, !reduceMotion {
+                    ConversationSpinner()
+                }
             }
-            Spacer(minLength: 0)
-            if isRunning, !reduceMotion {
-                ConversationSpinner()
-            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 12))
+            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(theme.foreground.opacity(0.08)) }
+            .accessibilityElement(children: .combine)
+            .contextMenu { Button("Copy Title") { copyToPasteboard(task?.title ?? call.cardTitle) } }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 12))
-        .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(theme.foreground.opacity(0.08)) }
-        .accessibilityElement(children: .combine)
-        .contextMenu { Button("Copy Title") { copyToPasteboard(task?.title ?? call.cardTitle) } }
     }
 
     private func caption(foreground: TimeInterval?) -> some View {

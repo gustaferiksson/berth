@@ -23,7 +23,7 @@ public enum TranscriptTail {
     static let thumbnailPixels = 360
     static let maxThumbnailBytes = 96 * 1024
 
-    public static func read(_ url: URL, after offset: Int?, queue: [String] = []) -> Chunk? {
+    public static func read(_ url: URL, after offset: Int?, queue: [String] = [], includeSidechain: Bool = false) -> Chunk? {
         guard let handle = try? FileHandle(forReadingFrom: url), let size = (try? handle.seekToEnd()).map(Int.init) else { return nil }
 
         defer { try? handle.close() }
@@ -31,7 +31,7 @@ public enum TranscriptTail {
         if let offset, offset <= size, size - offset <= maxTailBytes {
             guard (try? handle.seek(toOffset: UInt64(offset))) != nil else { return nil }
 
-            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: false, queue: queue, baseOffset: offset)
+            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: false, queue: queue, baseOffset: offset, includeSidechain: includeSidechain)
             return Chunk(entries: parsed.entries, end: offset + parsed.consumed, isContinuation: true, queue: parsed.queue, imageLines: parsed.imageLines)
         }
 
@@ -40,7 +40,7 @@ public enum TranscriptTail {
             let start = max(0, size - window)
             guard (try? handle.seek(toOffset: UInt64(start))) != nil else { return nil }
 
-            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: start > 0, queue: [], baseOffset: start)
+            let parsed = entries(in: (try? handle.readToEnd()) ?? Data(), dropFirst: start > 0, queue: [], baseOffset: start, includeSidechain: includeSidechain)
             if start == 0 || window >= maxTailBytes || parsed.entries.count >= minEntries && parsed.entries.count(where: { $0.kind == .prompt }) >= minPrompts {
                 return Chunk(entries: parsed.entries, end: start + parsed.consumed, isContinuation: false, queue: parsed.queue, imageLines: parsed.imageLines)
             }
@@ -58,7 +58,7 @@ public enum TranscriptTail {
         return Data(base64Encoded: String(padded)).map { $0.range(of: Data("narration".utf8)) != nil } ?? false
     }
 
-    static func entries(in data: Data, dropFirst: Bool, queue: [String], baseOffset: Int = 0) -> (entries: [RemoteEntry], consumed: Int, queue: [String], imageLines: [String: Range<Int>]) {
+    static func entries(in data: Data, dropFirst: Bool, queue: [String], baseOffset: Int = 0, includeSidechain: Bool = false) -> (entries: [RemoteEntry], consumed: Int, queue: [String], imageLines: [String: Range<Int>]) {
         let consumed = data.lastIndex(of: UInt8(ascii: "\n")).map { data.distance(from: data.startIndex, to: $0) + 1 } ?? 0
         let lines = data.prefix(consumed).split(separator: UInt8(ascii: "\n")).dropFirst(dropFirst ? 1 : 0)
         let decoder = JSONDecoder()
@@ -68,7 +68,7 @@ public enum TranscriptTail {
                   line.range(of: Data(#""type":"user""#.utf8)) != nil || line.range(of: Data(#""type":"assistant""#.utf8)) != nil || line.range(of: Data(#""type":"queued_command""#.utf8)) != nil,
                   let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                   let type = object["type"] as? String,
-                  object["isSidechain"] as? Bool != true, object["isMeta"] as? Bool != true,
+                  includeSidechain || object["isSidechain"] as? Bool != true, object["isMeta"] as? Bool != true,
                   let uuid = (object["uuid"] as? String).map({ String($0.prefix(maxText)) })
             else { return [] }
 
@@ -86,7 +86,7 @@ public enum TranscriptTail {
 
             let blocks = message["content"] as? [[String: Any]] ?? []
 
-            if type == "user", let text = (try? decoder.decode(Record.self, from: Data(line)))?.typedPrompt {
+            if type == "user", let text = (try? decoder.decode(Record.self, from: Data(line)))?.typedPrompt(includingSidechain: includeSidechain) {
                 return [prompt(id: uuid, text: String(text.prefix(maxText)), date: date, blocks: blocks)]
             }
 

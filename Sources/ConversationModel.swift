@@ -62,6 +62,7 @@ final class ConversationModel {
     private(set) var isSending = false
     private(set) var pickedModel: ModelChoice?
     private(set) var pickedEffort: EffortLevel?
+    var openSubagent: Subagent?
     var notice: String?
 
     @ObservationIgnored private unowned let store: Store
@@ -222,6 +223,12 @@ final class ConversationModel {
         guard let sessionID, case let .refused(message) = store.press(key, in: sessionID, answering: waitingFor, since: since) else { return }
 
         notice = message
+    }
+
+    func openAgent(agentID: String?, toolUseID: String?) {
+        guard let sessionID, let session = store.index.url(ofSession: sessionID) else { return }
+
+        openSubagent = Subagent.locate(session: session, agentID: agentID, toolUseID: toolUseID)
     }
 
     func start() {

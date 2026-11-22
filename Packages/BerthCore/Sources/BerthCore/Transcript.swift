@@ -322,12 +322,16 @@ struct Record: Decodable {
             && (attachment?.origin?.kind == "human" || attachment?.humanTurn == true)
     }
 
-    var typedPrompt: String? {
-        origin.map { $0.kind == "human" } ?? true && isCompactSummary != true ? promptText : nil
+    var typedPrompt: String? { typedPrompt(includingSidechain: false) }
+
+    var promptText: String? { promptText(includingSidechain: false) }
+
+    func typedPrompt(includingSidechain: Bool) -> String? {
+        origin.map { $0.kind == "human" } ?? true && isCompactSummary != true ? promptText(includingSidechain: includingSidechain) : nil
     }
 
-    var promptText: String? {
-        guard type == "user", isMeta != true, isSidechain != true,
+    func promptText(includingSidechain: Bool) -> String? {
+        guard type == "user", isMeta != true, includingSidechain || isSidechain != true,
               let text = message?.content.first(where: { $0.type == "text" })?.text,
               !text.contains("<command-name>"), !text.contains("<local-command"), !text.contains("<bash-stdout>"), !text.hasPrefix("Caveat:")
         else { return nil }
