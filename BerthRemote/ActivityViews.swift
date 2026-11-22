@@ -21,60 +21,65 @@ struct RunningStrip: View {
     let tasks: [RemoteTask]
     let action: () -> Void
 
+    private var summary: String {
+        let counts = [(RemoteTask.agent, "agent", "agents"), (RemoteTask.shell, "shell", "shells"), (RemoteTask.monitor, "monitor", "monitors")]
+            .compactMap { kind, one, many -> String? in
+                let count = tasks.count(where: { $0.kind == kind })
+                return count == 0 ? nil : "\(count) \(count == 1 ? one : many)"
+            }
+        return counts.isEmpty ? "\(tasks.count) running" : counts.joined(separator: " · ")
+    }
+
     var body: some View {
+        let kinds = [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor].filter { kind in tasks.contains { $0.kind == kind } }
+        let newest = tasks.max { $0.started < $1.started }
+        let oldest = tasks.min { $0.started < $1.started }
+
         Button(action: action) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(tasks.prefix(3)) { task in
-                        HStack(spacing: 8) {
-                            Image(systemName: task.symbol)
-                                .frame(width: 16)
-                                .foregroundStyle(.secondary)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 0) {
-                                title(task)
-                                    .lineLimit(1)
-                                TimelineView(.periodic(from: .now, by: 1)) { context in
-                                    Text("\(task.agentType ?? task.kindName) · \(Duration.seconds(max(0, context.date.timeIntervalSince(task.started)).rounded(.down)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2)))")
-                                        .monospacedDigit()
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            }
-                        }
-                    }
-                    if tasks.count > 3 {
-                        Text("+\(tasks.count - 3) more")
-                            .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                HStack(spacing: -8) {
+                    ForEach(kinds.enumerated(), id: \.offset) { _, kind in
+                        Image(systemName: RemoteTask(id: "", kind: kind, title: "", started: .now).symbol)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tint)
+                            .frame(width: 26, height: 26)
+                            .background(.fill.tertiary, in: .circle)
+                            .overlay(Circle().stroke(.background, lineWidth: 2))
                     }
                 }
-                Spacer(minLength: 0)
+                .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(summary)
+                        .font(.footnote.weight(.semibold))
+                    if let newest {
+                        Text(newest.title)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                if let oldest {
+                    ElapsedText(since: oldest.started)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 Image(systemName: "chevron.up")
                     .font(.caption.bold())
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
             }
-            .font(.footnote)
             .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(.rect)
-            .glassEffect(.regular, in: .rect(cornerRadius: 18))
+            .contentShape(.capsule)
+            .glassEffect(.regular, in: .capsule)
         }
         .buttonStyle(.plain)
         .padding(.horizontal)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Running, \(summary)")
         .accessibilityHint("Shows what is running")
-    }
-
-    @ViewBuilder
-    private func title(_ task: RemoteTask) -> some View {
-        if task.kind == RemoteTask.shell {
-            Text(verbatim: task.command ?? task.title)
-                .monospaced()
-        } else {
-            Text(task.title)
-        }
     }
 }
 
@@ -84,10 +89,13 @@ struct RunningSheet: View {
     @Environment(RemoteClient.self) private var client
     @Environment(\.dismiss) private var dismiss
     @State private var path: [String]
+    @State private var detent = PresentationDetent.medium
 
     init(sessionID: String, taskID: String? = nil) {
         self.sessionID = sessionID
-        _path = State(initialValue: [taskID ?? UserDefaults.standard.string(forKey: "snapshotRunningTask")].compactMap(\.self))
+        let initial = [taskID ?? UserDefaults.standard.string(forKey: "snapshotRunningTask")].compactMap(\.self)
+        _path = State(initialValue: initial)
+        _detent = State(initialValue: initial.isEmpty ? .medium : .large)
     }
 
     var body: some View {
@@ -115,7 +123,10 @@ struct RunningSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .large], selection: $detent)
+        .onChange(of: path.isEmpty) { _, isEmpty in
+            if !isEmpty { detent = .large }
+        }
     }
 }
 
@@ -167,6 +178,80 @@ private struct TaskRow: View {
 private struct ScrollExtent: Equatable {
     let isAtBottom: Bool
     let height: Double
+    let overflows: Bool
+}
+
+private struct ToolRow: Identifiable {
+    let id: String
+    let call: RemoteToolCall
+
+    var kind: ToolKind { ToolKind(name: call.name) }
+
+    func phrase(isLive: Bool) -> String {
+        if call.name == "Poll" { return isLive ? "Waiting" : "Waited" }
+        if call.name == "REPL" { return call.summary.isEmpty ? (isLive ? "Running a script" : "Ran a script") : call.summary }
+
+        let verb = switch call.name {
+        case "Write": isLive ? "Writing" : "Wrote"
+        case "WebSearch": isLive ? "Searching the web for" : "Searched the web for"
+        case "WebFetch": isLive ? "Fetching" : "Fetched"
+        default: isLive ? kind.verb.present : kind.verb.past
+        }
+        return [verb, subject].filter { !$0.isEmpty }.joined(separator: " ")
+    }
+
+    private var subject: String {
+        switch kind {
+        case .read, .edit: call.summary.hasPrefix("/") ? URL(filePath: call.summary).lastPathComponent : call.summary
+        case .web where call.name == "WebFetch": URL(string: call.summary)?.host() ?? call.summary
+        case .other: call.name.components(separatedBy: "__").last ?? ""
+        case .todo: ""
+        default: call.summary
+        }
+    }
+
+    var icon: String {
+        call.name == "Poll" ? "hourglass" : call.name == "REPL" ? "curlybraces" : kind.icon
+    }
+
+    static func rows(_ calls: [RemoteToolCall]) -> [Self] {
+        var counts: [String: Int] = [:]
+        return calls.map { call in
+            let key = "\(call.date?.timeIntervalSince1970 ?? 0)\(call.name)\(call.summary)"
+            counts[key, default: 0] += 1
+            return Self(id: "\(key)#\(counts[key] ?? 0)", call: call)
+        }
+    }
+}
+
+private struct ToolRowView: View {
+    let row: ToolRow
+    let isLive: Bool
+    let isExpanded: Bool
+
+    var body: some View {
+        let hasMore = !row.call.summary.isEmpty && row.call.name != "Poll"
+        VStack(alignment: .leading, spacing: 6) {
+            Label {
+                Text(verbatim: row.phrase(isLive: isLive))
+                    .lineLimit(isExpanded ? nil : 1)
+            } icon: {
+                Image(systemName: row.icon)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.subheadline)
+            if isExpanded, hasMore {
+                Text(verbatim: row.call.summary)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+        .accessibilityElement(children: isExpanded ? .contain : .combine)
+        .accessibilityAddTraits(hasMore ? .isButton : [])
+    }
 }
 
 private struct TaskDetailView: View {
@@ -174,55 +259,48 @@ private struct TaskDetailView: View {
     let taskID: String
 
     @Environment(RemoteClient.self) private var client
+    @State private var expanded: Set<String> = []
 
     var body: some View {
         let task = client.activity[sessionID]?.tasks.first { $0.id == taskID }
         let detail = client.taskDetails[taskID]
         let canFetch = client.features.contains(RemoteTaskDetail.feature)
+        let rows = ToolRow.rows(detail?.calls ?? [])
+        let isShell = task?.kind == RemoteTask.shell || (task == nil && detail?.output != nil)
 
         ScrollViewReader { proxy in
             List {
-                if let task {
-                    Section {
-                        LabeledContent("Running for") {
-                            ElapsedText(since: task.started)
-                        }
-                        if task.command != task.title {
-                            Text(task.title)
-                        }
-                        if let agentType = task.agentType {
-                            LabeledContent("Type", value: agentType)
-                        }
-                        if let stats = task.stats {
-                            LabeledContent("Activity") { stats }
-                        }
-                    }
-                    if let command = task.command {
-                        Section("Command") {
-                            Text(verbatim: command)
-                                .font(.callout.monospaced())
-                                .textSelection(.enabled)
-                        }
-                    }
-                } else {
-                    Label("Finished", systemImage: "checkmark.circle")
-                        .foregroundStyle(.secondary)
+                Section {
+                    header(task)
                 }
-                if task?.kind == RemoteTask.agent || task == nil, let calls = detail?.calls {
-                    Section("Recent Tool Calls") {
-                        ForEach(calls.reversed().enumerated(), id: \.offset) { _, call in
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(verbatim: call.name)
-                                    .font(.footnote.bold().monospaced())
-                                Text(verbatim: call.summary)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(3)
+                if let task, let command = task.command, command != task.title {
+                    Section("Command") {
+                        Text(verbatim: command)
+                            .font(.callout.monospaced())
+                            .textSelection(.enabled)
+                    }
+                }
+                if let reply = detail?.reply {
+                    Section("Latest Message") {
+                        Text(reply)
+                            .textSelection(.enabled)
+                    }
+                }
+                if !isShell, task?.kind != RemoteTask.monitor, detail?.calls != nil {
+                    Section("Tool Calls") {
+                        ForEach(rows) { row in
+                            Button {
+                                withAnimation(.snappy) {
+                                    if !expanded.insert(row.id).inserted { expanded.remove(row.id) }
+                                }
+                            } label: {
+                                ToolRowView(row: row, isLive: task != nil && row.id == rows.last?.id, isExpanded: expanded.contains(row.id))
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
-                if task?.kind == RemoteTask.shell || (task == nil && detail?.output != nil) {
+                if isShell {
                     Section {
                         Text(verbatim: detail?.output?.isEmpty == false ? detail?.output ?? "" : "No output yet")
                             .font(.caption.monospaced())
@@ -237,15 +315,16 @@ private struct TaskDetailView: View {
                 Color.clear
                     .frame(height: 1)
                     .listRowBackground(Color.clear)
+                    .listRowInsets(.init())
                     .id("end")
             }
-            .onScrollGeometryChange(for: ScrollExtent.self) { ScrollExtent(isAtBottom: $0.visibleRect.maxY >= $0.contentSize.height - 40, height: $0.contentSize.height) } action: { old, new in
-                guard old.isAtBottom, new.height > old.height else { return }
+            .onScrollGeometryChange(for: ScrollExtent.self) { ScrollExtent(isAtBottom: $0.visibleRect.maxY >= $0.contentSize.height - 40, height: $0.contentSize.height, overflows: $0.contentSize.height > $0.containerSize.height) } action: { old, new in
+                guard old.overflows, new.overflows, old.isAtBottom, new.height > old.height else { return }
 
                 proxy.scrollTo("end", anchor: .bottom)
             }
         }
-        .navigationTitle(task?.kindName ?? "Finished")
+        .navigationTitle(task?.title ?? "Finished")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             while !Task.isCancelled, task?.kind != RemoteTask.monitor {
@@ -253,6 +332,67 @@ private struct TaskDetailView: View {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+    }
+
+    @ViewBuilder
+    private func header(_ task: RemoteTask?) -> some View {
+        if let task {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    Image(systemName: task.symbol)
+                        .font(.title3)
+                        .foregroundStyle(.tint)
+                        .frame(width: 40, height: 40)
+                        .background(.tint.opacity(0.15), in: .circle)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(task.agentType ?? task.kindName)
+                            .font(.headline)
+                        Label("Running", systemImage: "circle.fill")
+                            .labelStyle(StatusLabelStyle())
+                    }
+                }
+                HStack(alignment: .top, spacing: 0) {
+                    metric("Time") { ElapsedText(since: task.started) }
+                    if let toolCount = task.toolCount {
+                        metric(toolCount == 1 ? "Tool Use" : "Tool Uses") { Text(toolCount.formatted()) }
+                    }
+                    if let tokens = task.tokens {
+                        metric("Tokens") { Text(tokens.formatted(.number.notation(.compactName))) }
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+        } else {
+            Label("Finished", systemImage: "checkmark.circle")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func metric(_ title: LocalizedStringKey, @ViewBuilder value: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            value()
+                .font(.title3.weight(.semibold).monospacedDigit())
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct StatusLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon
+                .font(.caption2)
+                .imageScale(.small)
+                .foregroundStyle(.green)
+            configuration.title
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
     }
 }
 
