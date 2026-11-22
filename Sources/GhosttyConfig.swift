@@ -1,6 +1,7 @@
 import Foundation
 import GhosttyTerminal
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum GhosttyConfig {
     static let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -13,24 +14,87 @@ enum GhosttyConfig {
             + (1...8).flatMap { ["super+\($0)", "super+digit_\($0)"] }
     ).map { "keybind = \($0)=unbind" }
 
+    static let watchedPaths = directories + ["\(home)/.config"]
+    static let overrideFile = "\(home)/.config/berth/ghostty"
+    static let overrideExample = """
+    # Ghostty settings that apply only inside Berth, read after your Ghostty config.
+    # font-size = 14
+    # theme = Atom One Dark
+    # cursor-style = bar
+
+    """
+
+    private(set) static var overrideIssue: String?
+
     static let controller: TerminalController = {
         let controller = TerminalController(configSource: .generated(load().contents), theme: TerminalTheme())
         if let issue = controller.lastConfigurationIssue {
             NSLog("Berth: Ghostty config issue: %@", issue)
         }
+        overrideIssue = dropRejectedOverrides(from: controller)
         return controller
     }()
 
-    static func load() -> (contents: String, values: [String: String]) {
+    static var overrideText: String { (try? String(contentsOfFile: overrideFile, encoding: .utf8)) ?? "" }
+
+    static var appliedValues: [String: String] {
+        _ = controller
+        return load(overrides: overrideIssue == nil ? overrideText : "").values
+    }
+
+    static func reload() {
+        controller.updateConfigSource(.generated(load().contents))
+        overrideIssue = dropRejectedOverrides(from: controller)
+    }
+
+    static func editOverrides() {
+        if !FileManager.default.fileExists(atPath: overrideFile) {
+            try? FileManager.default.createDirectory(atPath: (overrideFile as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try? overrideExample.write(toFile: overrideFile, atomically: true, encoding: .utf8)
+        }
         #if DEBUG
-        let override = UserDefaults.standard.string(forKey: "snapshotGhosttyTheme").map { "theme = \($0)" }
-        #else
-        let override: String? = nil
+        if SettingsSnapshot.output != nil {
+            print("snapshot edit \(overrideFile)")
+            return
+        }
         #endif
-        let userConfig = override ?? configFiles
+        let url = URL(filePath: overrideFile)
+        guard let editor = NSWorkspace.shared.urlForApplication(toOpen: .plainText) else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            return
+        }
+
+        NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    static func revealOverrides() {
+        let url = URL(filePath: overrideFile)
+        guard FileManager.default.fileExists(atPath: overrideFile) else {
+            NSWorkspace.shared.open(url.deletingLastPathComponent().deletingLastPathComponent())
+            return
+        }
+
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    // libghostty rejects the whole config on any diagnostic, so a bad override line must not cost the user's own config.
+    private static func dropRejectedOverrides(from controller: TerminalController) -> String? {
+        guard let issue = controller.lastConfigurationIssue, !overrideText.isEmpty else { return nil }
+
+        controller.updateConfigSource(.generated(load(overrides: "").contents))
+        return controller.lastConfigurationIssue == nil ? issue.replacing(/\S+\.conf:/, with: "line ") : nil
+    }
+
+    static func load(overrides: String = overrideText) -> (contents: String, values: [String: String]) {
+        #if DEBUG
+        let themeOverride = UserDefaults.standard.string(forKey: "snapshotGhosttyTheme").map { "theme = \($0)" }
+        #else
+        let themeOverride: String? = nil
+        #endif
+        let userConfig = themeOverride ?? configFiles
             .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }
             .joined(separator: "\n")
-        let lines = userConfig.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let lines = (userConfig + "\n" + overrides).split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         let themeContents = settings(in: lines).last { $0.key == "theme" }.flatMap { themeFile(named: $0.value) } ?? ""
         let withoutTheme = lines.filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("theme") }
         let combined = [themeContents] + withoutTheme
@@ -47,8 +111,7 @@ enum GhosttyConfig {
     }
 
     static var themeName: String? {
-        let lines = configFiles
-            .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+        let lines = (configFiles.compactMap { try? String(contentsOfFile: $0, encoding: .utf8) } + [overrideIssue == nil ? overrideText : ""])
             .flatMap { $0.split(separator: "\n").map(String.init) }
         return settings(in: lines).last { $0.key == "theme" }?.value
     }

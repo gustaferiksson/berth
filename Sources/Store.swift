@@ -215,7 +215,7 @@ final class Store {
     }
 
     private(set) var hasScanned = false
-    private(set) var theme = GhosttyTheme(values: GhosttyConfig.load().values)
+    private(set) var theme = GhosttyTheme(values: GhosttyConfig.appliedValues)
     private(set) var pullRequests = Snapshot.fixturePullRequests
     private(set) var linkedPullRequests = Snapshot.fixtureLinkedPullRequests
     private(set) var inbox = Snapshot.fixtureInbox
@@ -284,7 +284,11 @@ final class Store {
                 refresh()
             }
         }
-        themeWatcher = FileWatcher(paths: GhosttyConfig.directories, latency: 0.5) { [weak self] _ in self?.reloadTheme() }
+        themeWatcher = FileWatcher(paths: GhosttyConfig.watchedPaths, latency: 0.5) { [weak self] changed in
+            guard changed.contains(where: { $0.contains("/ghostty") || $0.contains("/berth/ghostty") }) else { return }
+
+            self?.reloadTheme()
+        }
         pullRequestPolling = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(300))
@@ -565,7 +569,8 @@ final class Store {
     }
 
     private func reloadTheme() {
-        let values = GhosttyConfig.load().values
+        GhosttyConfig.reload()
+        let values = GhosttyConfig.appliedValues
         theme = GhosttyTheme(values: values)
         GhosttyConfig.controller.setTerminalConfiguration(GhosttyConfig.colorConfiguration(values))
     }

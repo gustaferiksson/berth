@@ -38,6 +38,16 @@ Changes apply to a running Berth without a relaunch, except where the table says
 | `reviewBaseBranches` | `-dict` | unset | The base picked in Review's header, per repository root: `{"<root>" = {"<branch>" = "<ref>";};}`. Unset branches use the PR's base, else `gh-merge-base` or an upstream on another branch, else the nearest branch towards the default branch. |
 | `remoteEnabled` | `-bool` | `false` | Berth Remote. Turn it on in Settings, which creates the token; a `defaults write` alone does nothing. |
 
+## Terminal overrides
+
+`~/.config/berth/ghostty` holds Ghostty settings that apply only inside Berth. It is read after your Ghostty config, so its keys win (a `theme` there also drives Berth's colours). Edit it from Settings > Appearance > Terminal, or by hand; edits apply right away. Berth never creates it on its own. If Ghostty rejects the file (an unknown key, say), Berth ignores it, keeps your own config and shows the error in red in Settings.
+
+```
+font-size = 14
+theme = Atom One Dark
+cursor-style = bar
+```
+
 Remove a key with `defaults delete $ID <key>` to go back to its default.
 
 ## Language servers and linters
