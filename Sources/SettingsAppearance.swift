@@ -3,6 +3,8 @@ import SwiftUI
 
 struct AppearanceSettings: View {
     @Environment(Store.self) private var store
+    @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
+    @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
     @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
     @AppStorage(ReviewStyle.colorSchemeKey) private var reviewColorScheme = ReviewColorScheme.terminal
@@ -16,31 +18,50 @@ struct AppearanceSettings: View {
         let style = ReviewStyle(scheme: reviewColorScheme, fontFamily: reviewFontFamily, fontSize: reviewFontSize, lineHeightMultiple: reviewLineHeight, ghostty: store.theme)
         Form {
             Section {
+                Picker("Position", selection: $sidebarPosition) {
+                    Text("Left").tag(SidebarPosition.left)
+                    Text("Right").tag(SidebarPosition.right)
+                }
+                .pickerStyle(.segmented)
                 Picker("Density", selection: $density) {
                     ForEach(SidebarDensity.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 SidebarDensityPreview(density: density)
+                Toggle("Show plan usage", isOn: $showsPlanUsage)
             } header: {
                 Text("Sidebar")
             } footer: {
-                Text("Compact shows one line per session, with the pull request beside the title.")
+                Text("Compact shows one line per session, with the pull request beside the title. Plan usage shows the 5-hour and weekly limits with a pace marker. Berth reads Claude Code’s sign-in from the Keychain (macOS may ask once), asks Anthropic for your usage at most once a minute and never stores the token.")
             }
             Section {
-                LabeledContent("Config", value: configFile.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "None")
-                LabeledContent("Theme", value: GhosttyConfig.themeName ?? "Default")
-                if let configFile {
-                    HStack {
-                        Spacer()
+                LabeledContent {
+                    if let configFile {
                         Button("Reveal in Finder") {
                             NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: configFile)])
                         }
                     }
+                } label: {
+                    Text("Ghostty Config")
+                    Text(configFile.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? "None")
+                }
+                LabeledContent("Theme", value: GhosttyConfig.themeName ?? "Default")
+                LabeledContent {
+                    Button("Edit…", action: GhosttyConfig.editOverrides)
+                    Button("Reveal in Finder", action: GhosttyConfig.revealOverrides)
+                } label: {
+                    Text("Terminal Overrides")
+                    Text("Ghostty settings that apply only inside Berth")
+                }
+                if let issue = GhosttyConfig.overrideIssue {
+                    Text(issue)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
                 }
             } header: {
-                Text("Ghostty")
+                Text("Terminal")
             } footer: {
-                Text("Berth takes its colours and terminal settings from your Ghostty config. Edits apply right away.")
+                Text("Berth takes its colours and terminal settings from your Ghostty config. Edits apply right away. ~/.config/berth/ghostty is read after it, so its settings win.")
             }
             if isReviewEnabled {
                 Section {
@@ -66,7 +87,8 @@ struct AppearanceSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: isReviewEnabled ? 860 : 480)
+        .frame(height: 760)
+        .onChange(of: showsPlanUsage) { Task { await store.refreshPlanUsage() } }
     }
 }
 

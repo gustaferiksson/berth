@@ -29,6 +29,7 @@ enum SettingsSnapshot {
             }
             try? await Task.sleep(for: .seconds(0.5))
         }
+        print("terminal overrides: issue \(GhosttyConfig.overrideIssue ?? "none"), font-size \(GhosttyConfig.appliedValues["font-size"] ?? "unset"), theme \(GhosttyConfig.themeName ?? "unset")")
         guard let image = image(of: window) else { exit(1) }
 
         try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: output)
