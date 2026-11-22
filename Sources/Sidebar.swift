@@ -1742,7 +1742,7 @@ struct ContextRing: View {
         }
         .frame(width: 13, height: 13)
         .help("\(tokenCount(context.tokens)) of \(tokenCount(window)) context")
-        .accessibilityLabel("Context \(fill.formatted(.percent.precision(.fractionLength(0)))) full")
+        .accessibilityLabel("Context \(fill.formatted(.wholePercent)) full")
     }
 }
 

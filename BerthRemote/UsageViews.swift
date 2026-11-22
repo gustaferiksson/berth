@@ -102,7 +102,7 @@ struct UsageSheet: View {
                                 .accessibilityHidden(true)
                             LabeledContent("Used", value: "\(window.usedPercent)%")
                                 .foregroundStyle(UsageTrack.aheadTint(window, now: timeline.date) ?? .primary)
-                            LabeledContent("Pace", value: "\(Int((window.pace(at: timeline.date) * 100).rounded()))%")
+                            LabeledContent("Pace", value: window.pace(at: timeline.date).formatted(.wholePercent))
                             LabeledContent("Resets", value: window.resetsAt.formatted(date: .abbreviated, time: .shortened))
                         }
                         .accessibilityElement(children: .combine)
