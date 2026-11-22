@@ -62,7 +62,7 @@ struct ChangesToolbar: ToolbarContent {
         if store.showsSessionToolbar, let sessionID = store.selectedSessionID {
             let pullRequests = store.sessionsByID[sessionID].map { store.pullRequests(of: $0) } ?? []
             if isReviewEnabled || !pullRequests.isEmpty {
-                ToolbarSpacer(.fixed, placement: .primaryAction)
+                ToolbarSpacer(.flexible, placement: .primaryAction)
                 ToolbarItemGroup(placement: .primaryAction) {
                     if let first = pullRequests.first { PullRequestButton(pullRequest: first.pullRequest) }
                     if isReviewEnabled { ChangesToggle(store: store) }
