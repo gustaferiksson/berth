@@ -1032,6 +1032,14 @@ struct RowFill: View {
             .padding(.leading, 8 + indent)
             .padding(.trailing, 8)
             .padding(.vertical, 2)
+            .background(alignment: .leading) {
+                if indent > 0 {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.12))
+                        .frame(width: 1)
+                        .padding(.leading, 14)
+                }
+            }
     }
 }
 
@@ -1206,23 +1214,21 @@ private struct TaskRow: View {
             isLocked: false,
             modified: task.sessions[0].lastPrompt,
             isUnread: !isExpanded && isUnread,
-            chevron: isExpanded ? "chevron.down" : "chevron.right"
+            chevron: isExpanded ? "chevron.down" : "chevron.right",
+            issue: task.issue
         ) {
-            HStack(spacing: 8) {
-                if let issue = task.issue { IssueTag(issue: issue).fixedSize() }
-                if density.isCompact {
-                    Text(task.sessions.count, format: .number)
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(Color.secondary)
-                        .help("^[\(task.sessions.count) session](inflect: true)")
-                } else {
-                    Text("^[\(task.sessions.count) session](inflect: true)")
-                        .font(.caption)
-                        .foregroundStyle(Color.secondary)
-                }
+            if density.isCompact {
+                Text(task.sessions.count, format: .number)
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.secondary)
+                    .fixedSize()
+                    .help("^[\(task.sessions.count) session](inflect: true)")
+            } else {
+                Text("^[\(task.sessions.count) session](inflect: true)")
+                    .font(.caption)
+                    .foregroundStyle(Color.secondary)
             }
-            .fixedSize(horizontal: density.isCompact, vertical: false)
         }
         .help(task.title)
         .accessibilityElement(children: .combine)
@@ -1339,6 +1345,7 @@ private struct CardRow<Detail: View>: View {
     var isFlagged = false
     var context: SessionContext?
     var chevron: String?
+    var issue: IssueRef?
     var close: (() -> Void)?
     @ViewBuilder let detail: Detail
     @Environment(\.ghosttyTheme) private var theme
@@ -1350,6 +1357,7 @@ private struct CardRow<Detail: View>: View {
         let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 5 >= $0 * 4 && context.tokens <= $0 ? $0 : nil } }
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if let issue { IssueTag(issue: issue).fixedSize() }
                 Text(title)
                     .fontWeight(isUnread ? .semibold : .regular)
                     .foregroundStyle(Color.primary)
