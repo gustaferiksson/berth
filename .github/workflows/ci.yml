@@ -82,10 +82,18 @@ jobs:
           wait $format
 
   mac:
-    name: Build Mac app
+    name: Build Mac app (${{ matrix.configuration }})
     needs: changes
     if: needs.changes.outputs.mac == 'true'
     runs-on: xcode-27
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - configuration: Debug
+            signing: CODE_SIGN_IDENTITY=-
+          - configuration: Release
+            signing: CODE_SIGNING_ALLOWED=NO CODE_SIGN_STYLE=Manual
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -96,8 +104,8 @@ jobs:
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
-          key: mac-debug-${{ github.sha }}
-          restore-keys: mac-debug-
+          key: mac-${{ matrix.configuration }}-${{ github.sha }}
+          restore-keys: mac-${{ matrix.configuration }}-
 
       # Xcode rebuilds on mtime, and a fresh checkout stamps every file as new.
       - name: Restore file mtimes
@@ -107,7 +115,7 @@ jobs:
           echo "8cdae72ea524e7c79c5a61bdfb5004cdab0082074f5fb558f1dba270f91e26b2  $RUNNER_TEMP/git-restore-mtime" | shasum -a 256 -c
           python3 "$RUNNER_TEMP/git-restore-mtime" --quiet
 
-      - name: Build (Debug, ad-hoc)
+      - name: Build
         env:
           HOMEBREW_NO_AUTO_UPDATE: '1'
           HOMEBREW_NO_INSTALL_CLEANUP: '1'
@@ -115,14 +123,14 @@ jobs:
           set -euo pipefail
           brew install xcodegen
           xcodegen generate --quiet
-          xcodebuild -project Berth.xcodeproj -scheme Berth -configuration Debug -derivedDataPath .build -showBuildTimingSummary \
+          xcodebuild -project Berth.xcodeproj -scheme Berth -configuration ${{ matrix.configuration }} -derivedDataPath .build -showBuildTimingSummary \
             -destination 'platform=macOS,arch=arm64' -skipPackagePluginValidation -skipMacroValidation \
-            CODE_SIGN_IDENTITY=- ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO DEBUG_INFORMATION_FORMAT=dwarf build 2>&1 | tail -80
+            ${{ matrix.signing }} ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO DEBUG_INFORMATION_FORMAT=dwarf build 2>&1 | tail -80
 
       - name: Verify the bundle
         run: |
           set -euo pipefail
-          app=.build/Build/Products/Debug/Berth.app
+          app=.build/Build/Products/${{ matrix.configuration }}/Berth.app
           test -f $app/Contents/Resources/Assets.car
           name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconName" "$app/Contents/Info.plist")
           [ "$name" = "AppIcon" ] || { echo "CFBundleIconName is '$name', expected AppIcon"; exit 1; }
@@ -132,13 +140,17 @@ jobs:
         if: github.event_name == 'push'
         with:
           path: .build
-          key: mac-debug-${{ github.sha }}
+          key: mac-${{ matrix.configuration }}-${{ github.sha }}
 
   ios:
-    name: Build Berth Remote
+    name: Build Berth Remote (${{ matrix.configuration }})
     needs: changes
     if: needs.changes.outputs.ios == 'true'
     runs-on: xcode-27
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [ Debug, Release ]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -147,10 +159,10 @@ jobs:
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
-          key: ios-debug-${{ github.sha }}
-          restore-keys: ios-debug-
+          key: ios-${{ matrix.configuration }}-${{ github.sha }}
+          restore-keys: ios-${{ matrix.configuration }}-
 
-      - name: Build (Debug, unsigned)
+      - name: Build (unsigned)
         env:
           HOMEBREW_NO_AUTO_UPDATE: '1'
           HOMEBREW_NO_INSTALL_CLEANUP: '1'
@@ -158,14 +170,14 @@ jobs:
           set -euo pipefail
           brew install xcodegen
           xcodegen generate --quiet
-          xcodebuild -project Berth.xcodeproj -scheme BerthRemote -configuration Debug -derivedDataPath .build -quiet \
-            -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+          xcodebuild -project Berth.xcodeproj -scheme BerthRemote -configuration ${{ matrix.configuration }} -derivedDataPath .build -quiet \
+            -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGN_STYLE=Manual build
 
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: github.event_name == 'push'
         with:
           path: .build
-          key: ios-debug-${{ github.sha }}
+          key: ios-${{ matrix.configuration }}-${{ github.sha }}
 
   ci:
     name: CI
