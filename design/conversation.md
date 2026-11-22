@@ -1,0 +1,11 @@
+# Conversation view
+
+Moved from CLAUDE.md. The decision to read the transcript is docs/adr/0004.
+
+Conversation view (Settings > General `conversationEnabled`, off by default; `conversationDefaultView` picks what new Claude tabs open in): a per-tab, in-memory mode (`Store.conversationTabIDs`, ⌥⌘J `AppAction.showConversation` / `.showTerminal`, View menu, palette, toolbar) that shows the session as a conversation (`ConversationView`, `ConversationContent`, `ConversationModel`) in the terminal's card slot while the claude TUI keeps running in the hidden, still-mounted surface. It reads the transcript like the remote (`TranscriptTail`, `TranscriptReport` for tasks and context, shared with `RemoteServer`), one reader per shown tab, dropped when hidden; the turn model (`Conversation.swift`) and `MarkdownBlock` live in BerthCore and compile into BerthRemote by path.
+
+Text arrives per content block, not per token. `Store.focusSelected()` focuses the conversation or the surface. The composer (`ConversationComposer`, an AppKit `ConversationComposerField` so pasted images can be caught: ↩ and ⌘↩ send, ⇧↩ and ⌥↩ newline; drafts per tab in `Store.conversationDrafts`) and the approval card (`ConversationApprovalCard`; `PendingApproval.resolve` in BerthCore maps permission prompts, single-select AskUserQuestion and plans to the keys the phone sends; ↩ allows with an empty draft, ⎋ denies, 1-9 answer) send through `Store.submit` / `press` / `interrupt` (`StoreInput.swift`), shared with `RemoteServer`.
+
+`ConversationFallback` switches the tab to the terminal (`Store.conversationSuspended`) for an unknown `waitingFor`, multi-question or multi-select questions, a permission prompt with no tool call after 4 s, or a session not live after 10 s, and back once it is live and not waiting. In turns Poll is dropped, REPL rows show their description, SendMessage reads Message(...) and `<system>` results read Done; finished work folds per run and replies are never folded. The "N running" capsule names its kinds ("1 agent · 1 shell", `RemoteTask.summary(of:)`) and expands an inline task list (`-snapshotConversationTasks YES`).
+
+Drops land on an AppKit `ConversationDropTarget` overlay over the card and composer. Run Berth snapshots under `env -i PATH=/usr/bin:/bin` from a Ghostty shell, or `ghostty_surface_new` crashes on the inherited environment.

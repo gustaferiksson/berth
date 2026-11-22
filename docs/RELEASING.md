@@ -112,3 +112,7 @@ Pages and the releases. That is the cost of public OTA hosting.
 - An install in a folder the user can't write to (for example a root-owned `/Applications` copy) reports that it
   can't update itself, and a manual check opens the releases page instead.
 - Local release without CI: see [`SHIPPING.md`](../SHIPPING.md).
+
+## Signing
+
+Signing: package resource bundles need `CODE_SIGN_STYLE=Manual` on the xcodebuild command line, or Developer ID signing fails.

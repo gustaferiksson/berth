@@ -1,0 +1,155 @@
+# Snapshots
+
+Offscreen snapshot and verification flags for Debug builds (`Sources/Snapshot.swift` and its siblings). Moved from CLAUDE.md. Never drive real windows, mouse or focus; these hooks exist so nothing has to.
+
+## Basics, shell and Claude tabs
+
+Snapshot without touching the screen (Debug build only): `.build/Build/Products/Debug/Berth.app/Contents/MacOS/Berth -snapshot /abs/out.png` plus `-AppleInterfaceStyle Dark`, `-snapshotShell YES` (two terminals in the Terminals group, the second showing a fake `npm run dev` title and working dots; add `-snapshotShellCd "<args>"` to type `cd <args>` into the first one), `-snapshotClaudeTab YES` (a shell-backed claude tab with no transcript yet), or `-snapshotClaude /abs/dir` (launches real `claude` without `-w` whatever the setting, shows its trust prompt), or `-snapshotResume <sessionId>` (the sidebar click path, `claude --resume`).
+
+## Sidebar fixtures
+
+Add `-snapshotFakeStatus YES` to fake the top project's first three sessions as "needs you", "working" and "shell", `-snapshotSelectRow <n>` to select the top project's nth session, `-snapshotHover "<header or row title or branch>|..."` to force hover states, `-snapshotExpandedGroups "<group id>|..."` to open their Show More, `-snapshotPinned YES` to pin the first session of the last two groups, `-snapshotFlagged YES` to flag the top project's 1st and 3rd sessions, `-snapshotUnread YES` to mark its 2nd and 4th unread, `-snapshotMultiSelect "2|shift4|5|term1"` (opens shell-backed claude tabs for the named top-project rows, clicks the first, ⌘-clicks `<n>` and `term<n>`, ⇧-clicks `shift<n>`, saves `<out>.selected.png`, then runs the menu's Unload and Pin and the palette's Flag, printing selection, tabs, flags, menu and palette titles each step), `-snapshotLongNames YES` (fixture sessions with long project, branch and title names and every PR state), `-snapshotChecks "<state>|…"` (passed, failed, running or empty for each `-snapshotLongNames` fixture session in order, as its PR's check rollup), `-snapshotPlanUsage YES` (fake 42% Session and 81% Week plan usage; pass `-showsPlanUsage YES` too, since the fetch never runs in snapshot mode), `-snapshotFakeContext YES` (the top group's first four sessions at 34%, 63%, 81% and 94% of a 200k window; claude tabs open for the 81% and 94% ones, the 94% one selected; add `-snapshotFakeStatus YES` so the 63% one is live without a tab), `-snapshotSidebarWidth <pt>` (default 300), and `-snapshotGhosttyTheme "<name>"` to replace the Ghostty config with just that theme, `-groupingMode project|repository|recent`, `-showsCustomGroups NO`, `-sidebarPosition right`, `-snapshotCustomGroups /abs/groups.json` (JSON `[CustomGroup]`; a JSON string can't be passed as an argument, NSArgumentDomain drops it).
+
+## Launcher, palette, search, stats and dialogs
+
+`-snapshotLauncher "<query>"` (opens the ⌘N launcher with that query), `-snapshotPalette "<query>"` (opens the ⌘K palette with that query; add `-snapshotClaude /abs/dir` for an open tab in its Sessions section), `-snapshotSearch "<query>"` (opens search mode with that query and prints index build time, text size, memory footprint and the hits once the whole index, subagents included, is built: add `-snapshotHold 6` or it exits first), `-snapshotStats YES` (captures the Stats view in its own 960×800 window after the index is built and prints build time, footprint, the 30-day token totals and the tile values), `-snapshotEditGroup "<name>"` (captures the group editor for that group, or a new one for an unknown name, in its own window: a real `.sheet` moved the offscreen window onto the screen), `-snapshotRestartBanner "<version>"` (the update restart banner, 18 s deadline), and `-snapshotHold <s>` to keep the window up longer (for CPU checks).
+
+## Review: open, panel and review card
+
+`-snapshotReview /abs/repo` opens a shell-backed claude tab (session `snapshot-review`) in that folder in a 1600×900 window (`-snapshotReviewWidth <pt>` changes the width), registers `reviewEnabled` in memory (`-reviewEnabled NO` tests the gate), shows Changes, opens the first Uncommitted file (else the first Committed one) in a preview tab, waits for its contents and prints, per side, whether the text view is still TextKit 2, its height, reserved comment space and inline views, whether the first unchanged line after each hunk and every unchanged pair sit at the same y on both sides, and whether each line sits at `top(ofRow:)`, and per side how many line views (`_NSTextViewportElementView`) are on screen and how many sit off their layout fragment's rendering frame (0 when lines are where the layout says).
+
+It also prints the mode: side by side, or unified with the right side's width and `minimumWidth`, whether its text equals the file (or the draft), and its height against `top(ofRow: rowCount)` (2 pt short in both modes, the last row's bottom padding; a row more for a file deleted without a trailing newline, whose absent side's one empty line is an added row nothing draws). `-snapshotReviewFile <path>` opens that path instead, Files-tab style (its Uncommitted compare when listed, else the plain file; `committed:<path>` opens its Committed compare), `-snapshotReviewNoFile YES` opens no file, so the diff column shows No File Open, `-snapshotReviewPullRequest "<branch>"` lists the review folder as a session on that branch with a fake PR (the panel's PR card), `-snapshotReviewPullRequestState open|draft|merged|closed|none` sets its state (`none` is a known no-PR, so the branch card shows "No pull request" and, with a commit ahead, Create Pull Request…; without `-snapshotReviewPullRequest` the PR is unknown and there is no pill), `-snapshotReviewChecks "<passed>:<failed>:<running>:<open threads>"` fakes its checks and threads through `PullRequestDetail.parse` (snapshot mode never calls `gh` for them; without it the card has no checks line).
+
+`-snapshotReviewCreatePullRequest "<x>,<y>"` fakes `snapshot-review` as live and idle (with `-snapshotRemoteLog /abs/file` the review tab runs `tee -a` into it), clears the first responder, sends a real click at that point (top-left origin; 135,206 is the button at the default width with one commit), prints the log, first responder and notice, saves `<out>.pr.png`, then presses Enter and prints the log again. SwiftUI buttons expose no accessibility elements in-process in the snapshot window, so hooks click them by point; an unsent paste never reaches `tee` before Enter (canonical mode), so an empty log after the click means nothing was submitted.
+
+`-snapshotReviewRepository <owner/name>` replaces the fixture PRs' repository (default `acme/billing`), so a real `gh` lookup can run; `-snapshotReviewRefresh "<x>,<y>"` clicks that point (401,55 is Refresh at the default width), prints the panel branch's lookup before and 8 s after, and saves `<out>.refreshed.png` (a scratch branch named after a real merged PR's head, with `-snapshotReviewPullRequestState none`, flips from "no PR" to that PR). Every Review run also prints `review card` (base, default branch, ahead, behind, upstream, each commit pushed or not, the branch total, `base <ref> (<reason>)`, `bases [<ref> <distance>, …]`, PR details; `-snapshotReviewBase <ref>` puts a pick into the argument domain after the first load and reloads, `-snapshotReviewPullRequestBase <branch>` sets the fixture PR's `baseRefName`).
+
+It also prints each changed file per section, the file tree's top level and its expanded folders, with `-reviewChangesAsTree YES` each changed section as its compacted tree, and the open tabs (path, compare or `file`, preview or kept, history position; the selected tab in brackets), which `diff` in every state line repeats.
+
+## Review: edit, scroll, minimap, gutter and comments
+
+`-snapshotReviewEdit "<text>"` inserts text at the top of the right side (the draft and recompute path), `-snapshotReviewScroll <y>` scrolls the right side (the left follows), `-snapshotReviewWheel "<target>:<dy>"` sends a pixel scroll-wheel event to the view hit-tested at the centre of `left`, `right`, `gutter-left`, `minimap` or `ruler`, `-snapshotReviewMinimap "<y1>-<y2>"` drags the minimap and `-snapshotReviewRuler <y>` clicks the overview ruler (each prints both clip ys; the minimap also its render count).
+
+`-snapshotReviewGutter "left|right:<a>-<b>"` drags across those gutter lines (rows from `top(ofRow:)`; unified, `left` drags the right gutter at those base lines' rows), prints the draft box and focus, saves `<out>.draft.png`, sends Esc, reopens, types `fix` ⇧↩ `it` ↩, prints the comments and saves `<out>.card.png`; `-snapshotReviewRestyle "<scheme>:<line height>"` then writes those two settings (restored afterwards), reports and saves `<out>.restyled.png`; `-snapshotReviewCommitsExpanded YES` expands the branch card's commit list (every model in a tasks run); `-snapshotReviewDelete YES` then deletes the card with its × and appends and removes a comment through the model (the file column's path).
+
+`-snapshotReviewEditComment YES` clicks the first card, types, Escs, clicks it again, edits and saves, saves an emptied edit, drags the gutter over an open edit, expands the panel's comment list, double-clicks its comment row at 100,90 (bottom-left origin) and deletes the edited comment, printing comments, box, cards, `reserved` and the alignment report each step (`<out>.editing.png`, `.edited.png`, `.card-hover.png`, `.panel-edit.png`). `-snapshotReviewPanelTab changes|files|comments|preview` picks the panel tab (the last two through the one-time move: `preview` opens the diff column's Preview, `comments` expands the comment list).
+
+`-snapshotReviewResize <pt>` then sets the window width, reports and saves `<out>.resized.png` (crossing 760 pt of diff column switches the mode). `-snapshotReviewSplit <ratio>` scrolls the right side to x 40, drags the divider between the sides to that ratio with real mouse events (queued drag and up, then the down), prints both sides' widths, the stored `reviewSplitRatio` and both clip xs and reports, saves `<out>.split.png`, closes and reopens the diff, switches to unified (`<out>.split-unified.png`) and back through the argument domain, double-clicks the divider (`<out>.split-reset.png`) and restores the stored ratio.
+
+## Review: surfaces across tabs, Harbor and sidebar
+
+`-snapshotReviewSurfaces YES` (with `-snapshotShell YES`) then closes and reopens the diff, hides and shows Changes, selects a terminal and the claude tab, enters and leaves Harbor and flips `sidebarPosition` twice (argument domain only), scrolls the right side to x 40 and ends a live resize, then narrows the window to 1200 pt, closes, reopens and closes the diff, printing per step both sides' clip x, the split's frame and panes and whether every tab keeps the same surface view and superview, Berth's descendant pids, ptys and shell starts, and saving `<out>.<step>.png`.
+
+`-snapshotKeys` reaches the focused text view (typing, ⌘Z) and ⌘S (the key monitor runs `AppAction.save`), but not SwiftUI button shortcuts: `NSApp.sendEvent` skips the fake key window's key-equivalent pass (menu items still fire).
+
+## Review: language servers, hover, definitions and references
+
+`-snapshotLanguageServers /abs/servers.json` puts a JSON `[LanguageServerEntry]` into the argument domain (entries with a default's id override it); `-snapshotEditServer "<id>"` captures the server editor for that entry, or a new one for an unknown id, in its own window. The diagnostics print waits until the shown diagnostics are unchanged for 3 s, so every server's are in. With `-languageServersEnabled YES` the Review run waits (up to 120 s, skipped on a Committed compare) for the right side's first diagnostics, prints them with their tags and the gutter's tooltip string and saves `<out>.diagnostic.png`; `-snapshotReviewToggleServers YES` then turns the setting off (argument domain), prints the servers and diagnostics left, turns it on and prints them once diagnostics are back; `-snapshotReviewCrash YES` then SIGKILLs the server, prints that Review still shows the file, opens another Uncommitted file and the first again (through the preview tab) and prints the restarted server's pid; `-snapshotReviewHover "[left:]<line>:<col>"` (1-based; `left:` is the left side's text, sent to the right view at that row when unified, found through `unifiedOriginal`) moves the pointer there until a card shows (60 s), prints each section's text (`———` for the separator) and the layoutManager count, saves `<out>.hover.png` and moves away; `-snapshotReviewDefinition "[left:]<line>:<col>|…"` ⌘-moves (saves `<out>.link-<l>-<c>.png`) and ⌘-clicks each position in the starting file and prints the tabs it landed in (the preview tab's document: the Uncommitted compare or the plain file), the position and selected text, both clip ys and first responder, saving `<out>.definition-<l>-<c>.png`, then runs Refresh and prints whether that document is still shown, or prints that the position is its own definition.
+
+`-snapshotReviewReferences "[left:]<line>:<col>|…"` prints the context menu and Writing Tools state, ⌘-clicks and prints the peek (title, groups, preview selection, owner, reserved) with the alignment report and `<out>.references-<pos>.png`, then, with `-snapshotReviewReferencesResize <pt>`, sets the window width (height 900), prints whether it is the same peek, its orientation, both pane frames, the list column, the peek and the alignment report, and saves `<out>.references-<pos>-resized.png` (later steps run at that width), then, with `-snapshotReviewReferencesSplit <list share>`, fakes the window as key (swizzled `keyWindow` / `isKeyWindow` plus `window.becomeKey()`: rows never emphasize offscreen without it), drags the peek's divider to that share along its axis with queued mouse events, prints side by side or stacked, the panes' sizes along the axis, the preview's clip x, whether a point 2 pt past the divider hits the split, the stored ratio and the row's emphasis, saves `<out>.references-<pos>-split.png`, double-clicks the divider and restores `reviewReferencesSplitRatio`, then ↓ (`-down.png`), a click on the last row (scrolled into view first), Esc in the preview, ⇧F12 (the context menu's Find References on a unified removed row), ×, ↓ ↩ (`-opened.png`) and the list's double-click action, printing where each landed.
+
+The hooks' ⌘-click queues a mouse-up, so a miss no longer hangs in NSTextView's tracking loop.
+
+## Review: language server fixtures
+
+Fixture: `Packages/BerthCore` with a scratch type error, or a copy of the package committed in its own repo under the worktree's `.build/`; a package under `/private/tmp` makes sourcekitd fail ("semantic editor is disabled"). A worktree whose `Packages/BerthCore/.build/index-build` was copied from the main checkout makes sourcekit-lsp answer "Loading the standard library failed" (its module cache records the other path); move it aside.
+
+## Terminals, Harbor, archive, unload, drops and performance
+
+`-snapshotTerminalSearch "<needle>"` (with `-snapshotShell YES`) prints lines into the first terminal, opens Find, types the needle, steps ↩ ↩ ⇧↩, clears and Escs, printing total, selected and first responder; saves `<out>.find.png` and `<out>.cleared.png`. `-snapshotHarbor YES` shows Harbor; with `-snapshotFakeStatus YES` the faked sessions get shell-backed claude tabs so they moor undimmed (`-snapshotHover "<title>"` shows a boat's card). `-snapshotArchiveRow <n>` archives the top project's nth session in memory and scrolls to the Archived section (add `-archivedExpanded YES`; pick a session that isn't live, or new activity unarchives it at once).
+
+`-snapshotCloseTabs YES` closes every tab after the wait and prints which of Berth's child processes are still alive 3 s later. `-snapshotArchiveTab YES` opens two shell surfaces as claude tabs, archives the background then the selected one through `Store.archive` and prints whether each `TerminalView` was freed and Berth's `/dev/ptmx` count. `-snapshotUnloadIdle YES` (with `-unloadIdleSessionsAfter 2`) opens fake idle, touched, selected, pinned, busy, waiting, attach and dead claude tabs plus a terminal, runs `Store.unloadIdleTabs` at once and after 3 s and prints what was unloaded and kept.
+
+`-snapshotDrop YES` opens two claude tabs and two shells running `cat`, drops two files and a group drag on three of them in turn and prints the drop destination and what each received. `-snapshotOrphan <pid>` (with a `CFFIXED_USER_HOME` holding a session file for that pid and its transcript) prints orphaned and locked, clicks the top session and prints whether the pid died, the notice and the probed `openClaude` calls. `-snapshotActivateFocus YES` prints the first responder before and after `Store.activate` for an already open and a new tab.
+
+`-snapshotPerf YES` (`SnapshotPerf.swift`) times, as main-thread ms and process CPU, window resizes (a sweep down to 900 pt and back, and across the 801 pt sidebar yield), the session sidebar toggle and the Review panel toggle; `-snapshotPerfRounds <n>` (toggle pairs, default 1), `-snapshotPerfSteps resize,sidebar,panel` (default all) and `-snapshotPerfSetup closeDiff,hidePanel,hideSessions` (run first). Release timing needs `SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG`.
+
+## Fixture homes, URLs and window state
+
+To test folder following against real transcript records, point a fixture home at `CFFIXED_USER_HOME=/abs/home` (Store reads `~/.claude` through it) holding `projects/<slug>/snapshot-review.jsonl`, and don't pass `-snapshotReviewPullRequest` (fixture sessions replace the scan). With a scratch repo nested in the checkout, export `GIT_CEILING_DIRECTORIES` so a broken scratch repo doesn't resolve to the parent. Snapshot modes swallow `openURL` (PR and issue chips, cards, `Link`s) and print `snapshot openURL <url>`, so nothing reaches the browser.
+
+Snapshot modes ignore saved window state (`ApplePersistenceIgnoreState`); before that, state restoration showed the real `main` window on screen during every snapshot.
+
+## Keys
+
+`-snapshotKeys "cmd+, cmd+shift+f ctrl+tab …"` (with `-snapshotShell YES`) fakes the snapshot window as key, sends each chord through `NSApp.sendEvent` (CGEvent-backed: `NSEvent.keyEvent`'s events never match ⇧⌘Z) with the selected tab's surface focused, types a plain key (`a`, `s`, `1`, …) into the focused view, and prints menu actions fired plus launcher, tabs, selected, focused, terminals, grouping and open windows, and with a `ReviewTextView` focused its text and whether it can undo and redo (⌥⌘W, ⌘Q and ⌘W with Review's panel hidden end the run; with the panel shown ⌘W only closes the diff tab).
+
+`-snapshotKeysGap <ms>` (default 400, plus 100) shortens the wait between keys (50 types and undoes inside Review's 300 ms re-render). Pseudo-keys: `browse<n>` selects the nth sidebar-ordered tab like ↑/↓ (no selection history), `exit` types `exit` into the selected terminal, `terminal` focuses the selected tab's terminal (ctrl chords sent by the harness never reach zsh, so only Review's side of a terminal-focused ⌃- can be shown), and in Review: `file<n>` clicks the nth Changes row (Uncommitted, then Committed), `open:<u|c|f>:<path>` clicks that path's Uncommitted row, Committed row or Files row, `dbl:<u|c|f>:<path>` double-clicks it (open and keep), `keep` double-clicks the current tab, `back`, `forward`, `reveal` (sets `ReviewModel.filesReveal` to the current path, like the tab menu's Reveal in Files), `save` (saves the draft directly; `cmd+s` works too), `refresh` runs `Store.refreshReview` like Refresh.
+
+`layout:<auto|sideBySide|inline>` writes `reviewDiffLayout` (the run restores its starting value, also after a tab strip toggle click (836,68 with Save showing, else 861,68, at the default width)), `width:<pt>` sets the window width, `git:<a>,<b>,…` runs git with those arguments in the review model's folder, `relocate:</abs/dir>` sets the selected tab's folder like a scan after `/cd`, `uncomment` deletes the review model's comments (every Review snapshot starts with a fixture comment, so a move only shows `movedFolder` until it runs); each waits, then prints.
+
+The state line also prints the terminal split's pane widths, the diff layout (stored, shown, which of Show Side by Side / Show Inline is offered), the review model's folder, branch, Uncommitted and Committed paths and `movedFolder`, each Uncommitted path's +/- counts, the model's `loads` count and its `error`, the Files list's expanded folders, the changed trees' collapsed folders (`collapsed change folders`), and the focused text view's character count. A `click:` on a row's Open File button lands, unlike a plain row click.
+
+Each then focuses the diff's right side and prints whether it is editable, unified, the path's shared editor and wired to a language server. `click:<x>,<y>` and `dblclick:<x>,<y>` send real mouse events at a window point (top-left origin; the mouse-up is queued before the mouse-down because a control's tracking loop waits for it): a row or tab double-click lands, and so does a click anywhere on a Files folder row (its label is a `Button`; an `onTapGesture` there never fired from this click); a single file row click or a segmented-control click changes nothing.
+
+`shot:<name>` saves `<out>.<name>.png`. `altclick:<line>:<col>` (1-based, right side) and `altclick:row<n>` (a row from `top(ofRow:)`, for removed or filler rows) send ⌥ mouse down/up straight to the right text view's `mouseDown`/`mouseUp` (posted to the window they never reach it); `altdrag:<l>:<c>-<l>:<c>` sends ⇧⌥ down, drag, up. Extra key names: `d l u i up down left right delete f2`; plain or ⇧/⌥ arrows go to the window as NSEvents (CGEvent chords without ⌘ never move the selection). The state line also prints `review text focused`, and with a `ReviewTextView` focused its `carets` (line:col+length), primary, layoutManager requests and TextKit 2.
+
+The run restores the pasteboard's string afterwards. Consecutive edits in one run merge into one undo step (native typing too), so the harness can't show undo separation. `select:<text>` selects that text's first match on the right side (`\n` and `\s` stand for a newline and a space), waits until its occurrences change (2 s at most) and prints how long that took. The state line also prints each side's `occurrences N on M rows`, and `find field "<text>"` while a find field has focus.
+
+## Launcher keys, waiting and menus
+
+`-snapshotLauncherKeys "hub down enter …"` opens the ⌘N launcher over two fixture folders (`x-hub-ui`, a git repo, then `x-hub`, not one), types each token (letters h u b x i -, `down`, `up`, `enter`, `alt-enter`) and prints the launcher mode and the `openClaude` calls it would make with their start kind (nothing launches); add `-startsInWorktree YES` for the worktree launch. `-snapshotFakeWaiting YES` steps the top project's first session through busy, waiting, waiting, busy, waiting (in a Berth tab from the third step) and prints the Dock badge and each notification it would post (snapshot mode never posts or requests notification authorization).
+
+It prints the window title, toolbar items, the File and View menus (Group By with ⌃⌘ shortcuts and checkmarks) and open tabs (with OSC 7 pwd and title), and hangs up its child processes on exit. -
+
+## Settings snapshot
+
+Settings snapshot (rinse's pattern): `Berth -settingsSnapshot /abs/out.png -settingsTab general|sidebar|terminal|conversation|review|remote|about`, a stored `appearance` opens Sidebar (plus `-AppleInterfaceStyle Dark`). It opens Settings through the app menu's ⌘, item with window ordering swizzled so the window never touches a display and its saved frame isn't overwritten. `-settingsScroll <y>` scrolls the form to y before capture (420 shows General's Language Servers section with Review and language servers on).
+
+## Snapshot window and activation policy
+
+The snapshot window is a hand-built NSHostingController window: no glass sidebar, and it bridges the toolbar and subtitle but not `navigationTitle`, so `Snapshot` sets `window.title` itself ("Untitled" there was never an app bug). Capturing the real scene window off-screen doesn't work: the glass sidebar's contents come out blurred, and the saved `NSWindow Frame main` puts it on screen anyway. Never set `window.toolbar` there. Snapshot mode must use activation policy `.accessory`; `.prohibited` hides the window and `CGWindowListCreateImage` returns nil.
+
+## Flags documented with their feature
+
+Moved out of the feature notes they came from.
+
+### Remote
+
+Phone: `-snapshotRunning YES` / `-snapshotContext YES` open the sheets.
+
+Snapshot hook: `-snapshotRemote YES -remoteEnabled YES -remoteToken <t>`, plus `-snapshotRemotePort <p>` (Debug only) so it doesn't collide with a running Berth on 7878; `-snapshotFakeStatus YES -snapshotHarbor YES` gives the faked sessions tabs, so they aren't read-only; with `-snapshotRemote` it also fakes an idle session in a tab and one locked elsewhere, and `-snapshotRemoteLog /abs/file` makes those tabs `tee -a` into that file instead of running zsh, so sent prompts can be asserted.
+
+Berth Remote's DEBUG `-snapshotExpanded YES` and `-snapshotExpandedCalls YES` open its tool groups and tool calls, `-snapshotAttachments "/abs/a.jpg|/abs/b.txt"` uploads those files into the composer, `-snapshotDraft "<text>"` and `-snapshotSend YES` send them, `-snapshotSettings YES` opens Settings, `-snapshotUpdateAvailable <version>` fakes an available update (the install row atop the session list and on the connect screen), and `-snapshotFocusAndExpand YES` focuses the composer at 4 s and toggles every finished turn's Worked for four times from 6 s (the freeze repro: `axe swipe` the transcript up about 450 pt first).
+
+More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those sheets), `-snapshotQuery "<text>"` (list search), `-snapshotTray YES` (quick reply tray), `-snapshotIntent "<spec>"` with `-snapshotIntentConnect "<url>|<token>"` (runs an intent against a Mac and prints the result).
+
+### Glass (see docs/adr/0005)
+
+`-snapshotSidebarFilter "<q>|…"` prints the visible rows per query; `-snapshotKeys` ⌃⌥+arrow chords take the CGEvent path and its state line prints `right top line`.
+
+### Open Pull Request
+
+`-snapshotPullRequests "<query>"` uses fixture sessions and a fixture inbox (no `gh`) and prints each PR's section, checks, decision, sessions and what ↩ does; `-snapshotLauncherKeys` also knows `tab`, `#`.
+
+### Conversation view
+
+`-snapshotConversation YES` (needs an empty `CFFIXED_USER_HOME`; pass `-reviewEnabled NO`, `-conversationEnabled YES`; `-snapshotConversationStatus busy|waiting|idle`, `-snapshotConversationExpanded YES`, `-snapshotConversationHeight <pt>`) seeds an invented transcript, saves `<out>.conversation.png` and `<out>.terminal.png` and prints the surface identity across toggles.
+
+`-snapshotConversationDrive "<step>|…"` (type:, attach:, send:, decline:, stop, show, allow, deny, choose:<n>, status:<s>[/<waitingFor>], restamp, drop, wait:<ms>, snap:<name>, log), `-snapshotConversationWaitingFor`, `-snapshotConversationPending bash|edit|question|plan` and `-snapshotConversationRawLog /abs/file` (raw-mode pty logger, so Esc and digits reach the file) prove what reaches the pty.
+
+### Session host (see docs/adr/0006)
+
+`-snapshotHost new|reattach|close -snapshotHostID <uuid> -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`; end with `close`).
+
+### Grouping
+
+`-snapshotTriage YES` (with `-showsTriage YES`, `-snapshotAllDone YES`, `-snoozedExpanded YES`).
+
+### Needs Attention
+
+`-snapshotChecks "passed|passed||failed"` fails the draft #12 fixture session's checks so it enters Needs Attention; `-snapshotSidebarStatus` sets the status filter and `-snapshotSidebarFilter` also prints `attention`.
+
+### Tasks
+
+`-snapshotTasksReview YES` builds scratch repos under `.build/tasks-review` (`-snapshotTasksReviewSession`, default `task-usage-api`, the only one that forms the task card; `-snapshotReviewRepoTab <repo name|all>`, `-snapshotTasksReviewDefaults "key=value|…"` flips argument-domain keys mid-run and saves a shot per step, `-snapshotTasksReviewCollapse "billing|web|infra"` collapses those repo sections, `-snapshotTasksReviewTransition YES` drops a repo while its tab is selected, `-snapshotLinkedPullRequests YES` gives fixture sessions linked PRs in two repos).
+
+`-snapshotTasks YES` seeds eight fixture sessions across acme/billing, acme/web and acme/infra and prints the formed tasks, stored state, suggestions and entries.
+
+## Flags described in feature docs
+
+- `-snapshotReviewContext`: design/flows-sidebar.md
+- `-snapshotReviewHidePanel`: design/flows-sidebar.md
+- `-snapshotReviewConversation`: design/flows-sidebar.md
+- `-snapshotPreview`: design/review-implementation.md
+- `-snapshotConversationTasks`: design/conversation.md
