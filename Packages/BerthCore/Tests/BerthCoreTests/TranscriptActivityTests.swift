@@ -114,6 +114,22 @@ struct TranscriptActivityTests {
         #expect(!finished.tasks(of: live, now: now) { _ in false }.map(\.id).contains("agent1"))
     }
 
+    @Test func resumesFromReplScriptsRunAgainUntilTheirNextNotification() {
+        let launched = [
+            #"{"type":"user","timestamp":"2026-11-01T10:00:01.000Z","isVirtual":true,"turnCompanion":true,"message":{"content":[{"tool_use_id":"repl_1","type":"tool_result","content":""}]},"toolUseResult":{"isAsync":true,"status":"async_launched","agentId":"agent1","description":"Review the parser"}}"#,
+            #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:01:00.000Z","content":"<task-notification>\n<task-id>agent1</task-id>\n<tool-use-id>repl_1</tool-use-id>\n<status>completed</status>\n</task-notification>"}"#,
+        ]
+        let resume = #"{"type":"user","timestamp":"2026-11-01T10:02:00.000Z","isVirtual":true,"turnCompanion":true,"message":{"content":[{"tool_use_id":"repl_2","type":"tool_result","content":""}]},"toolUseResult":{"success":true,"message":"Resuming agent agent1","resumedAgentId":"agent1","revivedAgentId":"agent1"}}"#
+        let resumed = activity(launched + [resume])
+        #expect(resumed.tasks(of: live, now: now) { _ in false }.map(\.title) == ["Review the parser"])
+
+        let finished = activity(launched + [
+            resume,
+            #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:30.000Z","content":"<task-notification>\n<task-id>agent1</task-id>\n<tool-use-id>repl_2</tool-use-id>\n<status>completed</status>\n</task-notification>"}"#,
+        ])
+        #expect(finished.tasks(of: live, now: now) { _ in false }.isEmpty)
+    }
+
     @Test func foregroundAgentsRunUntilTheirResultWhileTheSessionWorks() {
         let call = #"{"type":"assistant","timestamp":"2026-11-01T10:02:30.000Z","message":{"model":"claude-test-1","content":[{"type":"tool_use","id":"tu-fg","name":"Agent","input":{"description":"Explore the code"}}],"usage":{"input_tokens":1}}}"#
         let pending = activity([call])
