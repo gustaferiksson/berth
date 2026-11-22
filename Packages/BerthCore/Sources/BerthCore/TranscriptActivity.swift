@@ -21,7 +21,7 @@ public struct TranscriptActivity: Sendable {
     static let agentTools: Set<String> = ["Agent", "Task"]
     static let toolNames = tools.map { Array(#""name":"\#($0)""#.utf8) }
     static let resultKey = Array(#""tool_use_id":""#.utf8)
-    static let virtualLaunchKeys = [#""agentId":""#, #""backgroundTaskId":""#, #""taskId":""#].map { Array($0.utf8) }
+    static let virtualLaunchKeys = [#""agentId":""#, #""resumedAgentId":""#, #""backgroundTaskId":""#, #""taskId":""#].map { Array($0.utf8) }
     static let chunkBytes = 4 << 20
     static let requestPrefix = Array(#"{"type":"api-request","#.utf8)
     static let mainThreadSources = [#""querySource":"repl_main_thread"#, #""querySource":"main_thread"#].map { Array($0.utf8) }
@@ -228,6 +228,9 @@ public struct TranscriptActivity: Sendable {
         let title = result["description"] as? String
         if result["isAsync"] as? Bool == true, result["agentId"] != nil {
             return Launch(tool: "Agent", title: title ?? "Agent", started: date, agentType: result["subagent_type"] as? String)
+        }
+        if result["resumedAgentId"] != nil {
+            return Launch(tool: "SendMessage", title: "Agent", started: date)
         }
         if result["backgroundTaskId"] != nil {
             return Launch(tool: "Bash", title: title ?? "Background shell", started: date)
