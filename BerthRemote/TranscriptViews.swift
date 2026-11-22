@@ -430,7 +430,12 @@ private struct ToolCallRow: View {
         let verb = Text(live == nil ? call.verb.past : isWaiting ? "Waiting for approval:" : call.verb.present)
         let subject = Text(call.subject).font([.command, .read, .edit, .search, .other].contains(call.kind) ? .subheadline.monospaced() : .subheadline)
         let description = [.command, .agent].contains(call.kind) ? call.use.detail.flatMap { $0.isEmpty ? nil : $0 } : nil
-        let title = description.map { isWaiting ? Text("\(verb) \($0)") : Text($0) } ?? Text("\(verb) \(subject)")
+        let fixed: String? = switch call.use.name {
+        case "Poll": "Waiting"
+        case "REPL": call.use.detail.flatMap { $0.isEmpty ? nil : $0 } ?? "Running a script"
+        default: nil
+        }
+        let title = fixed.map { Text(verbatim: $0) } ?? description.map { isWaiting ? Text("\(verb) \($0)") : Text($0) } ?? Text("\(verb) \(subject)")
 
         VStack(alignment: .leading, spacing: 8) {
             DisclosureGroup(isExpanded: $isExpanded) {

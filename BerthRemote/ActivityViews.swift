@@ -6,7 +6,7 @@ private extension RemoteTask {
     }
 
     var kindName: String {
-        kind == Self.agent ? "Subagent" : kind == Self.shell ? "Shell" : kind == Self.monitor ? "Monitor" : "Task"
+        kind == Self.agent ? "Agent" : kind == Self.shell ? "Shell" : kind == Self.monitor ? "Monitor" : "Task"
     }
 
     var stats: Text? {
@@ -31,8 +31,14 @@ struct RunningStrip: View {
                                 .frame(width: 16)
                                 .foregroundStyle(.secondary)
                                 .accessibilityHidden(true)
-                            line(task)
-                                .lineLimit(1)
+                            VStack(alignment: .leading, spacing: 0) {
+                                title(task)
+                                    .lineLimit(1)
+                                Text("\(task.agentType ?? task.kindName) · \(Text(task.started, style: .timer).monospacedDigit())")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
                     }
                     if tasks.count > 3 {
@@ -59,10 +65,8 @@ struct RunningStrip: View {
     }
 
     @ViewBuilder
-    private func line(_ task: RemoteTask) -> some View {
-        if task.kind == RemoteTask.agent {
-            Text("\(Text(task.agentType ?? "Agent").bold()): \(task.call?.phrase ?? task.title)")
-        } else if task.kind == RemoteTask.shell {
+    private func title(_ task: RemoteTask) -> some View {
+        if task.kind == RemoteTask.shell {
             Text(verbatim: task.command ?? task.title)
                 .monospaced()
         } else {
