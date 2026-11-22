@@ -1562,6 +1562,7 @@ private struct CardRow<Detail: View>: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if let issue { IssueTag(issue: issue).fixedSize() }
                 Text(title)
+                    .font(.body)
                     .fontWeight(isUnread ? .semibold : .regular)
                     .foregroundStyle(Color.primary)
                     .lineLimit(1)
