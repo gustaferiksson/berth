@@ -320,7 +320,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
 }
 
 private final class GapSplitView: NSSplitView {
-    override var dividerThickness: CGFloat { TerminalSplit.gap }
+    override var dividerThickness: CGFloat { subviews.contains(where: isSubviewCollapsed) ? 0 : TerminalSplit.gap }
 
     override func drawDivider(in _: NSRect) {}
 }
