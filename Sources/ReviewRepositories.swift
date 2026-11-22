@@ -139,7 +139,6 @@ struct ReviewRepoRows: View {
 
 struct ReviewOtherPullRequests: View {
     let pullRequests: [PullRequest]
-    let insets: EdgeInsets
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -147,7 +146,7 @@ struct ReviewOtherPullRequests: View {
             Text("Other pull requests")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.secondary)
-                .listRowInsets(insets)
+                .reviewEdgeRow()
         }
         ForEach(pullRequests, id: \.number) { pullRequest in
             HStack(spacing: 8) {
@@ -163,7 +162,7 @@ struct ReviewOtherPullRequests: View {
                 PullRequestTag(pullRequest: pullRequest)
                     .fixedSize()
             }
-            .listRowInsets(insets)
+            .reviewEdgeRow()
         }
     }
 }
@@ -199,7 +198,6 @@ struct ReviewRepositoryAccessory: View {
 struct ReviewSubheading: View {
     let title: String
     let files: [ReviewFile]
-    let indent: Double
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -216,6 +214,27 @@ struct ReviewSubheading: View {
         }
         .font(.subheadline)
         .frame(height: 22)
-        .listRowInsets(EdgeInsets(top: 2, leading: -8 - indent, bottom: 0, trailing: 8))
+        .reviewEdgeRow(top: 2, bottom: 0)
+    }
+}
+
+private struct ReviewEdgeRow: ViewModifier {
+    let top: Double
+    let bottom: Double
+    @AppStorage("reviewChangesAsTree") private var changesAsTree = false
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.leading, changesAsTree ? -17.5 : -8)
+            .padding(.trailing, -8.5)
+            .padding(.top, top)
+            .padding(.bottom, bottom)
+            .listRowInsets(.vertical, 0)
+    }
+}
+
+extension View {
+    func reviewEdgeRow(top: Double = 0, bottom: Double = 6) -> some View {
+        modifier(ReviewEdgeRow(top: top, bottom: bottom))
     }
 }
