@@ -226,6 +226,7 @@ struct Record: Decodable {
             let type: String
             let text: String?
             let thinking: String?
+            let signature: String?
         }
 
         struct Usage: Decodable {
@@ -250,7 +251,7 @@ struct Record: Decodable {
             model = try? container.decode(String.self, forKey: .model)
             usage = try? container.decode(Usage.self, forKey: .usage)
             if let text = try? container.decode(String.self, forKey: .content) {
-                content = [Block(type: "text", text: text, thinking: nil)]
+                content = [Block(type: "text", text: text, thinking: nil, signature: nil)]
             } else {
                 content = (try? container.decode([Block].self, forKey: .content)) ?? []
             }

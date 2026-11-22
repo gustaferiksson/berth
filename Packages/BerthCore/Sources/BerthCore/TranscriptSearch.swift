@@ -168,7 +168,7 @@ public struct TranscriptSearchIndex: Sendable {
                 if record.typedPrompt != nil, let date = record.timestamp.flatMap({ try? timestamps.parse($0) }) { activity.prompts.append(date) }
                 guard record.isSidechain != true else { continue }
 
-                let texts = record.typedPrompt.map { [$0] } ?? (record.type == "assistant" ? (record.message?.content ?? []).compactMap { $0.type == "text" ? $0.text : $0.type == "thinking" ? $0.thinking : nil } : [])
+                let texts = record.typedPrompt.map { [$0] } ?? (record.type == "assistant" ? (record.message?.content ?? []).compactMap { $0.type == "text" ? $0.text : $0.type == "thinking" && TranscriptTail.isNarration(signature: $0.signature) ? $0.thinking : nil } : [])
                 for text in texts where !text.allSatisfy(\.isWhitespace) && used < budget {
                     let kept = String(decoding: text.utf8.prefix(budget - used), as: UTF8.self)
                     messages.append(kept)
