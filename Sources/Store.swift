@@ -1363,7 +1363,11 @@ final class Store {
 
         let id = UUID()
         let environment = session.map { [ClaudeLaunch.sessionVariable: attachID ?? $0] } ?? [:]
-        let launch = hostLaunch(harness.command(start), id: id)
+        let options = LaunchOptions(
+            model: UserDefaults.standard.string(forKey: "launchModel.\(agent.rawValue)"),
+            effort: UserDefaults.standard.string(forKey: "launchEffort.\(agent.rawValue)")
+        )
+        let launch = hostLaunch(harness.command(start, options), id: id)
         tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, agent: agent, terminal: terminal(id: id, cwd: cwd, command: launch.command, environment: environment) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
         if isConversationEnabled, harness.supports(.conversation), UserDefaults.standard.string(forKey: GeneralSettings.conversationViewKey) == "conversation" { conversationTabIDs.insert(id) }
         selectedTabID = id

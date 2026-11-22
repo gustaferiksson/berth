@@ -10,6 +10,12 @@ A listener failure shows in Settings. Prompts are `paste` then `sendKey(.enter)`
 
 Transcript tails are read off the main thread, one read per client at a time. Berth Remote keeps the token in the Keychain, accepts only `wss://` (plus `ws://127.0.0.1` in Debug), drops the socket in the background and reconnects on activation and after drops (1, 2, 5, 10 s).
 
+## Codex sessions
+
+`RemoteSession` carries an optional agent descriptor with the harness name, symbol, and per-session settings and attachment flags. The phone assumes Claude when an older Mac omits the descriptor. Codex transcripts come from the rollout index and the read-only context chip uses the session summary.
+
+Prompt submission shares the Mac’s `Store.submit` gate. Codex sessions support text prompts and interruptions. Model and effort changes, attachments, transcript images, background tasks, and approvals are unavailable. If Codex needs an answer, continue on the Mac.
+
 ## Attachments
 
 Attachments (advertised as the `upload` feature): the phone JPEG-compresses photos and sends each file in 512 KB chunks with offsets (so the 1 MB frame cap stays), at most 20 MB, into `~/Library/Caches/<bundle id>/RemoteUploads/<uuid>/<sanitized name>`. A prompt names upload ids only; Berth pastes each image path as its own paste with 0.5 s between (Claude turns a lone pasted image path into `[Image #n]`; inside other text it stays a path), then `@<path>` for other files with the text (a mention needs whitespace before it), re-checking `waiting` before every paste and Enter.

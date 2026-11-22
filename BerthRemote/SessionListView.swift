@@ -227,6 +227,7 @@ private struct SessionSummaryView: View {
         let isProminent = session.status != nil || session.isUnread == true
         let folder = URL(filePath: session.folder).lastPathComponent
         let isAccessibility = dynamicTypeSize.isAccessibilitySize
+        let agent = session.agent ?? .legacyClaude
 
         let title = Text(session.title)
             .font(.body.weight(isProminent ? .semibold : .regular))
@@ -264,7 +265,13 @@ private struct SessionSummaryView: View {
                         time
                     }
                 }
-                location
+                HStack(spacing: 4) {
+                    Image(systemName: agent.glyph)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(Text(agent.name))
+                    location
+                }
                 if let pullRequest = session.pullRequest {
                     PullRequestTag(pullRequest: pullRequest)
                 }

@@ -15,9 +15,11 @@ struct SessionView: View {
 
     var body: some View {
         let session = client.groups.lazy.flatMap(\.sessions).first { $0.id == sessionID }
+        let agent = session?.agent ?? .legacyClaude
         let entries = client.entries[sessionID]
         let turns = Turn.turns(from: entries ?? [])
         let isBusy = session?.status == "busy" || session?.status == "waiting"
+        let isWaitingForApproval = session?.status == "waiting" && session?.waitingFor != "needs input"
         let queued = session?.status == nil ? [] : client.queued[sessionID] ?? []
         let activity = client.activity[sessionID]
         let headerAction = HeaderAction(pullRequest: session?.pullRequest, context: activity?.context)
@@ -33,7 +35,7 @@ struct SessionView: View {
                         isFinished: !isLast || !isBusy,
                         isWorking: isLast && session?.status == "busy",
                         turnStartedAt: session?.turnStartedAt,
-                        liveCall: openCall.flatMap { session?.status == "busy" ? .running($0.id) : session?.status == "waiting" ? .waiting($0.id) : nil },
+                        liveCall: openCall.flatMap { session?.status == "busy" ? .running($0.id) : isWaitingForApproval ? .waiting($0.id) : nil },
                         openChanges: isLast && client.features.contains(RemoteChangesFeature.name) ? { isShowingChanges = true } : nil
                     )
                 }
@@ -72,7 +74,7 @@ struct SessionView: View {
             if entries == nil {
                 ProgressView()
             } else if turns.isEmpty, queued.isEmpty {
-                ContentUnavailableView("No Messages Yet", systemImage: "text.bubble", description: Text("Messages appear here once Claude starts."))
+                ContentUnavailableView("No Messages Yet", systemImage: "text.bubble", description: Text("Messages appear here once \(agent.name) starts."))
             }
         }
         .overlay(alignment: .bottom) {
@@ -102,7 +104,7 @@ struct SessionView: View {
                 SessionControls(
                     session: session,
                     sessionID: sessionID,
-                    pendingCall: session?.status == "waiting" ? turns.last?.openCall : nil,
+                    pendingCall: isWaitingForApproval ? turns.last?.openCall : nil,
                     context: activity?.context,
                     openContext: { isShowingContext = true }
                 )
@@ -113,7 +115,7 @@ struct SessionView: View {
         }
         .sheet(isPresented: $isShowingContext) {
             if let context = activity?.context {
-                ContextSheet(context: context)
+                ContextSheet(context: context, agentName: agent.name)
             }
         }
         .sheet(isPresented: $isShowingPullRequest) {

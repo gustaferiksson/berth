@@ -32,14 +32,16 @@ public enum CodexRollout {
         let cwd = tailRecords.last { $0.type == "turn_context" && $0.payload?.cwd != nil }?.payload?.cwd ?? meta.cwd
         guard let cwd else { return nil }
 
-        let model = (tailRecords + headRecords).last { $0.type == "turn_context" && $0.payload?.model != nil }?.payload?.model
+        let turns = (headRecords + tailRecords).filter { $0.type == "turn_context" }
+        let model = turns.last { $0.payload?.model != nil }?.payload?.model
+        let effort = turns.last?.payload?.effort
         let branch = meta.git?.branch.flatMap { $0.isEmpty || $0 == "HEAD" ? nil : $0 }
         let lastTyped = tailRecords.last { $0.prompt != nil }?.timestamp.flatMap(date)
         let lastConversation = tailRecords.last { $0.isConversation }?.timestamp.flatMap(date)
         let tokens = tailRecords.lastIndex { $0.payload?.info?.lastInput != nil }
         let compaction = tailRecords.lastIndex { $0.type == "compacted" }
         let context: SessionContext? = if let tokens, let model, tokens > compaction ?? -1, let input = tailRecords[tokens].payload?.info?.lastInput {
-            SessionContext(model: model, tokens: input, window: tailRecords[tokens].payload?.info?.window, modelName: model)
+            SessionContext(model: model, tokens: input, window: tailRecords[tokens].payload?.info?.window, modelName: model, effort: effort)
         } else {
             nil
         }
@@ -196,11 +198,12 @@ public enum CodexRollout {
             let git: CodexRollout.Git?
             let message: String?
             let model: String?
+            let effort: String?
             let info: CodexRollout.Info?
             let item: CodexTranscript.Item?
 
             enum CodingKeys: String, CodingKey {
-                case type, id, timestamp, cwd, originator, source, git, message, model, info, item
+                case type, id, timestamp, cwd, originator, source, git, message, model, effort, info, item
                 case threadSource = "thread_source"
             }
 
@@ -216,6 +219,7 @@ public enum CodexRollout {
                 git = try? container.decode(CodexRollout.Git.self, forKey: .git)
                 message = try? container.decode(String.self, forKey: .message)
                 model = try? container.decode(String.self, forKey: .model)
+                effort = try? container.decode(String.self, forKey: .effort)
                 info = try? container.decode(CodexRollout.Info.self, forKey: .info)
                 item = try? container.decode(CodexTranscript.Item.self, forKey: .item)
             }

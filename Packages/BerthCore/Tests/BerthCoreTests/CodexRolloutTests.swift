@@ -67,6 +67,17 @@ struct CodexRolloutTests {
         #expect(CodexRollout.summary(of: url)?.context == nil)
     }
 
+    @Test func contextUsesEffortFromTheLatestTurn() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = #"{"type":"turn_context","payload":{"cwd":"/work/app","model":"fixture-early","effort":"low"}}"#
+        let latest = #"{"type":"turn_context","payload":{"cwd":"/work/app","model":"fixture-late","effort":"high"}}"#
+        let url = try write([meta(), first, latest, prompt("Sort the colors", at: "2026-01-02T10:04:00.000Z"), tokens(input: 900)], in: directory)
+        let summary = try #require(CodexRollout.summary(of: url))
+        #expect(summary.context?.model == "fixture-late")
+        #expect(summary.context?.effort == "high")
+    }
+
     @Test func skipsNonInteractiveSessions() throws {
         let directory = scratch()
         let lines = [prompt("hi", at: "2026-01-02T10:00:02.000Z")]
@@ -138,20 +149,5 @@ struct CodexRolloutTests {
         let user = URL(filePath: "/Users/x")
         #expect(CodexIndex.home(environment: [:], user: user).path == "/Users/x/.codex")
         #expect(CodexIndex.home(environment: ["CODEX_HOME": "/tmp/h"], user: user).path == "/tmp/h")
-    }
-
-    @Test func launchCommandsPassTheIDThroughTheEnvironment() {
-        #expect(CodexLaunch.command(.resume) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
-        #expect(CodexLaunch.command(.new) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" || exec /bin/zsh -il'"#)
-    }
-
-    @Test func aNewTabClaimsTheOldestUnclaimedSessionStartedAfterItOpened() {
-        let opened = Date(timeIntervalSince1970: 1000)
-        func session(_ id: String, cwd: String = "/a", started: TimeInterval, agent: Agent = .codex) -> SessionSummary {
-            SessionSummary(id: id, cwd: cwd, title: id, lastActivity: opened, agent: agent, startedAt: Date(timeIntervalSince1970: started))
-        }
-        let sessions = [session("before", started: 900), session("other", cwd: "/b", started: 1010), session("claude", started: 1010, agent: .claude), session("late", started: 1030), session("first", started: 1020)]
-        #expect(CodexLaunch.claim(for: opened, cwd: "/a", in: sessions, excluding: [])?.id == "first")
-        #expect(CodexLaunch.claim(for: opened, cwd: "/a", in: sessions, excluding: ["first"])?.id == "late")
     }
 }

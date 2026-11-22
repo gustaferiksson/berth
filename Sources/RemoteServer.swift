@@ -108,7 +108,8 @@ final class RemoteServer {
         }
         listener.start(queue: .main)
         self.listener = listener
-        watcher = FileWatcher(paths: [Store.claudeDirectory.appending(path: "projects").path], latency: 0.3) { [weak self] _ in self?.streamTranscripts() }
+        let paths = [Store.claudeDirectory.appending(path: "projects"), Store.codexDirectory.appending(path: "sessions")]
+        watcher = FileWatcher(paths: paths.map(\.path), latency: 0.3) { [weak self] _ in self?.streamTranscripts() }
         observeSessions()
     }
 
@@ -423,11 +424,12 @@ final class RemoteServer {
                 lastPrompt: session.lastPrompt,
                 pullRequest: self.store.pullRequest(for: session).map { RemotePullRequest(number: $0.number, state: $0.state.rawValue, url: $0.url, checks: $0.checks?.rawValue) },
                 isUnread: self.store.isUnread(session),
-                turnStartedAt: self.store.turnStarts[session.id]
+                turnStartedAt: self.store.turnStarts[session.id],
+                agent: RemoteAgent(harness: session.agent.harness)
             )
         }
         let starting = store.tabs.filter { $0.kind == .claude && $0.agent.harness.supports(.remote) && $0.sessionID.map { store.sessionsByID[$0] == nil } ?? false }.compactMap { tab in
-            tab.sessionID.map { RemoteSession(id: $0, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: store.liveBySession[$0]?.status, waitingFor: store.liveBySession[$0]?.waitingFor, waitingSince: store.liveBySession[$0].flatMap { $0.status == "waiting" ? $0.statusUpdatedAt : nil }, isOpen: true, isLocked: false) }
+            tab.sessionID.map { RemoteSession(id: $0, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: store.liveBySession[$0]?.status, waitingFor: store.liveBySession[$0]?.waitingFor, waitingSince: store.liveBySession[$0].flatMap { $0.status == "waiting" ? $0.statusUpdatedAt : nil }, isOpen: true, isLocked: false, agent: RemoteAgent(harness: tab.agent.harness)) }
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.filter { $0.agent.harness.supports(.remote) }.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.filter { $0.agent.harness.supports(.remote) }.map(remote)) }
@@ -459,7 +461,11 @@ final class RemoteServer {
             clients[id]?.needsRead = true
             return
         }
-        guard let readTranscript = store.sessionsByID[sessionID]?.agent.harness.readTranscript ?? Harness.claude.readTranscript, let url = store.index.url(ofSession: sessionID) else {
+
+        let session = store.sessionsByID[sessionID]
+        let agent = session?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude
+        let harness = agent.harness
+        guard let readTranscript = harness.readTranscript, let url = store.sessionIndex(for: agent).url(ofSession: sessionID) else {
             if client.end == nil { send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: [], isContinuation: false, queued: [], activity: nil)), to: client.connection) }
             clients[id]?.end = 0
             return
@@ -475,6 +481,13 @@ final class RemoteServer {
         let previousLogs = url == client.transcript ? client.agentLogs : [:]
         let (chunk, activity, logs, report) = await Task.detached {
             let chunk = readTranscript(url, after, queue)
+            guard harness.supports(.backgroundTasks) else {
+                let context = session.flatMap { session in
+                    session.context.map { RemoteContext(model: CodexModels.displayName(for: $0.model), tokens: $0.tokens, window: $0.window, date: session.lastActivity, compactions: 0, lastCompaction: nil, effort: $0.effort) }
+                }
+                return (chunk, previous, previousLogs, RemoteActivity(tasks: [], context: context))
+            }
+
             let result = TranscriptActivity.report(url, previous: previous, logs: previousLogs, live: live, catalogDirectory: catalogDirectory)
             return (chunk, result.activity, result.logs, result.report)
         }.value
@@ -497,6 +510,9 @@ final class RemoteServer {
     }
 
     private func submit(_ text: String, attachments: [String], in sessionID: String, from connection: NWConnection) async {
+        let harness = (store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude).harness
+        guard attachments.isEmpty || harness.supports(.modelEffortMenu) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Attachments aren’t available for \(harness.name) sessions")), to: connection) }
+
         let files = attachments.compactMap { UUID(uuidString: $0).flatMap { uploads[$0.uuidString] }.flatMap { $0.isComplete ? $0.file : nil } }
         guard files.count == attachments.count else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "An attachment didn’t finish uploading, so the message wasn’t sent")), to: connection) }
         guard case let .refused(message) = await store.submit(text, files: files, to: sessionID) else { return }
@@ -505,12 +521,16 @@ final class RemoteServer {
     }
 
     private func change(_ setting: RemoteSessionSetting, from current: RemoteSessionSetting, in sessionID: String, from connection: NWConnection) async {
+        let harness = (store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude).harness
+        guard harness.supports(.modelEffortMenu) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Model and effort changes aren’t available for \(harness.name) sessions")), to: connection) }
         guard case let .refused(message) = await store.change(setting, from: current, in: sessionID) else { return }
 
         send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection)
     }
 
     private func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, since waitingSince: Double?, from connection: NWConnection) {
+        let harness = (store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude).harness
+        guard harness.supports(.approvals) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Answer \(harness.name) on your Mac")), to: connection) }
         guard case let .refused(message) = store.press(key, in: sessionID, answering: waitingFor, since: waitingSince) else { return }
 
         send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection)
@@ -535,7 +555,10 @@ final class RemoteServer {
             store.markUnread(sessionID)
 
         case .archive:
-            guard store.liveBySession[sessionID] == nil else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Claude is still running in this session, so it can’t be archived from here")), to: connection) }
+            guard store.liveBySession[sessionID] == nil else {
+                let harness = (store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude).harness
+                return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "\(harness.name) is still running in this session, so it can’t be archived from here")), to: connection)
+            }
 
             store.archive(sessionID)
 
@@ -563,5 +586,12 @@ final class RemoteServer {
 
         let context = NWConnection.ContentContext(identifier: "message", metadata: [NWProtocolWebSocket.Metadata(opcode: .text)])
         connection.send(content: data, contentContext: context, isComplete: true, completion: .idempotent)
+    }
+}
+
+private extension RemoteAgent {
+    init(harness: Harness) {
+        let supportsSettings = harness.supports(.modelEffortMenu)
+        self.init(name: harness.name, glyph: harness.glyph, canChangeSettings: supportsSettings, canAttach: supportsSettings)
     }
 }

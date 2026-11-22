@@ -1,5 +1,19 @@
 import Foundation
 
+public struct RemoteAgent: Codable, Sendable, Hashable {
+    public let name: String
+    public let glyph: String
+    public let canChangeSettings: Bool
+    public let canAttach: Bool
+
+    public init(name: String, glyph: String, canChangeSettings: Bool, canAttach: Bool) {
+        self.name = name
+        self.glyph = glyph
+        self.canChangeSettings = canChangeSettings
+        self.canAttach = canAttach
+    }
+}
+
 public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let id: String
     public let title: String
@@ -15,8 +29,9 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let pullRequest: RemotePullRequest?
     public let isUnread: Bool?
     public let turnStartedAt: Date?
+    public let agent: RemoteAgent?
 
-    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil) {
+    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil) {
         self.id = id
         self.title = title
         self.folder = folder
@@ -31,6 +46,7 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
         self.pullRequest = pullRequest
         self.isUnread = isUnread
         self.turnStartedAt = turnStartedAt
+        self.agent = agent
     }
 }
 
