@@ -212,6 +212,7 @@ private struct ConversationTable: View {
 struct ConversationCodeBlock: View {
     let text: String
     var language = ""
+    var syntax: String?
     var tint: Color?
     var maxHeight = CGFloat.infinity
 
@@ -243,7 +244,7 @@ struct ConversationCodeBlock: View {
                 .padding(.top, 8)
             }
             ScrollView(maxHeight.isFinite ? [.horizontal, .vertical] : .horizontal) {
-                Text(verbatim: text)
+                HighlightedConversationText(text: text, language: syntax ?? language)
                     .font(theme.conversationFont(-1))
                     .lineSpacing(2)
                     .textSelection(.enabled)
@@ -315,13 +316,13 @@ struct ConversationToolRow: View {
             .accessibilityHint(hasDetail ? "Shows the output" : "")
             statusLine(summary: summary, isError: isError)
             if !diff.isEmpty {
-                ConversationDiff(rows: diff, isExpanded: isExpanded)
+                ConversationDiff(rows: diff, language: call.use.filePath, isExpanded: isExpanded)
                     .padding(.leading, markerWidth + 8)
                     .padding(.top, 2)
             }
             if isExpanded, hasDetail {
                 VStack(alignment: .leading, spacing: 6) {
-                    if let command = call.use.command, command.contains("\n") { ConversationCodeBlock(text: command, maxHeight: 200) }
+                    if let command = call.use.command, command.contains("\n") { ConversationCodeBlock(text: command, syntax: "bash", maxHeight: 200) }
                     if !output.isEmpty, diff.isEmpty || isError { ConversationCodeBlock(text: output, tint: isError ? theme.closed : nil, maxHeight: 280) }
                 }
                 .padding(.leading, markerWidth + 8)
@@ -399,10 +400,12 @@ struct ConversationToolRow: View {
 
 private struct ConversationDiff: View {
     let rows: [ToolDiffRow]
+    let language: String?
     let isExpanded: Bool
 
     @Environment(\.ghosttyTheme) private var theme
     @State private var showsAll = false
+    @State private var highlighted: [AttributedString] = []
 
     var body: some View {
         let limit = isExpanded || showsAll ? rows.count : collapsedDiffRows
@@ -414,7 +417,7 @@ private struct ConversationDiff: View {
                     Text(verbatim: row.kind == .added ? "+" : row.kind == .removed ? "−" : " ")
                         .foregroundStyle(row.kind == .added ? theme.working : row.kind == .removed ? theme.closed : theme.secondary)
                         .frame(width: 10)
-                    Text(verbatim: row.text.isEmpty ? " " : row.text)
+                    Text(highlighted.indices.contains(row.id) ? highlighted[row.id] : AttributedString(row.text.isEmpty ? " " : row.text))
                         .foregroundStyle(row.kind == .context ? theme.secondary : theme.foreground)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -433,6 +436,10 @@ private struct ConversationDiff: View {
         }
         .font(theme.conversationFont(-1))
         .textSelection(.enabled)
+        .task(id: ["\(rows.count)", language ?? "", "\(theme.foreground)"]) {
+            let input = rows.map { (old: $0.kind != .added, new: $0.kind != .removed, text: $0.text) }
+            highlighted = await ConversationHighlighting.diffLines(input, language: language, theme: theme)
+        }
         .padding(.vertical, 4)
         .background(theme.foreground.opacity(0.04), in: .rect(cornerRadius: 8))
         .clipShape(.rect(cornerRadius: 8))
