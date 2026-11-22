@@ -131,7 +131,7 @@ private struct SidebarFilterField: View {
                 .onKeyPress(.escape) {
                     if store.sidebarFilter.isEmpty, store.sidebarStatus == .all {
                         isFocused = false
-                        store.focusedTerminal?.requestFocus()
+                        store.focusSelected()
                     } else {
                         store.sidebarFilter = ""
                         store.sidebarStatus = .all

@@ -1,26 +1,31 @@
 import Foundation
 
-struct ToolCall: Identifiable {
-    let use: RemoteEntry
-    let result: RemoteEntry?
+public struct ToolCall: Identifiable, Sendable {
+    public let use: RemoteEntry
+    public let result: RemoteEntry?
 
-    var id: String { use.id }
+    public init(use: RemoteEntry, result: RemoteEntry?) {
+        self.use = use
+        self.result = result
+    }
 
-    var kind: ToolKind { ToolKind(name: use.name ?? "") }
+    public var id: String { use.id }
 
-    var isBackgroundShell: Bool { kind == .command && result?.text.contains("running in background with ID") == true }
+    public var kind: ToolKind { ToolKind(name: use.name ?? "") }
 
-    var isCard: Bool { kind == .agent || isBackgroundShell }
+    public var isBackgroundShell: Bool { kind == .command && result?.text.contains("running in background with ID") == true }
 
-    var isAsyncLaunch: Bool { result?.text.hasPrefix("Async agent launched") == true }
+    public var isCard: Bool { kind == .agent || isBackgroundShell }
 
-    var cardTitle: String { use.detail.flatMap { $0.isEmpty ? nil : $0 } ?? use.command.map { String($0.prefix { $0 != "\n" }) } ?? (kind == .agent ? "Agent" : "Background shell") }
+    public var isAsyncLaunch: Bool { result?.text.hasPrefix("Async agent launched") == true }
 
-    var agentType: String? {
+    public var cardTitle: String { use.detail.flatMap { $0.isEmpty ? nil : $0 } ?? use.command.map { String($0.prefix { $0 != "\n" }) } ?? (kind == .agent ? "Agent" : "Background shell") }
+
+    public var agentType: String? {
         (try? JSONSerialization.jsonObject(with: Data(use.text.utf8)) as? [String: Any])?["subagent_type"] as? String
     }
 
-    var verb: (past: String, present: String) {
+    public var verb: (past: String, present: String) {
         switch use.name {
         case "Write": ("Wrote", "Writing")
         case "WebSearch": ("Searched the web for", "Searching the web for")
@@ -29,7 +34,7 @@ struct ToolCall: Identifiable {
         }
     }
 
-    var subject: String {
+    public var subject: String {
         if let command = use.command { return String(command.prefix { $0 != "\n" }) }
         if let path = use.filePath { return URL(filePath: path).lastPathComponent }
         if use.name == "WebFetch", let host = use.detail.flatMap(URL.init(string:))?.host() { return host }
@@ -37,7 +42,7 @@ struct ToolCall: Identifiable {
         return kind == .todo ? "" : use.detail ?? ""
     }
 
-    static func summary(of calls: [Self]) -> String {
+    public static func summary(of calls: [Self]) -> String {
         let grouped = Dictionary(grouping: calls, by: \.kind)
         let order = calls.map(\.kind).reduce(into: [ToolKind]()) { kinds, kind in
             if !kinds.contains(kind) { kinds.append(kind) }
@@ -51,10 +56,10 @@ struct ToolCall: Identifiable {
     }
 }
 
-enum ToolKind {
+public enum ToolKind: Sendable {
     case command, read, edit, search, web, agent, todo, question, other
 
-    init(name: String) {
+    public init(name: String) {
         self = switch name {
         case "Bash", "BashOutput": .command
         case "Read", "NotebookRead": .read
@@ -68,7 +73,7 @@ enum ToolKind {
         }
     }
 
-    var icon: String {
+    public var icon: String {
         switch self {
         case .command: "terminal"
         case .read: "eye"
@@ -82,7 +87,7 @@ enum ToolKind {
         }
     }
 
-    var verb: (past: String, present: String) {
+    public var verb: (past: String, present: String) {
         switch self {
         case .command: ("Ran", "Running")
         case .read: ("Read", "Reading")
@@ -95,7 +100,7 @@ enum ToolKind {
         }
     }
 
-    func phrase(for calls: [ToolCall]) -> String {
+    public func phrase(for calls: [ToolCall]) -> String {
         let count = self == .edit ? Set(calls.map { $0.use.filePath ?? $0.id }).count : calls.count
         return switch self {
         case .command: "ran \(count) \(count == 1 ? "command" : "commands")"
@@ -111,48 +116,56 @@ enum ToolKind {
     }
 }
 
-enum LiveCall: Equatable {
+public enum LiveCall: Equatable, Sendable {
     case running(String)
     case waiting(String)
 
-    var id: String {
+    public var id: String {
         switch self {
         case let .running(id), let .waiting(id): id
         }
     }
 }
 
-enum TurnPart: Identifiable {
+public enum TurnPart: Identifiable, Sendable {
     case reply(RemoteEntry)
     case work([ToolCall])
     case cards([ToolCall])
 
-    var id: String {
+    public var id: String {
         switch self {
         case let .reply(entry): entry.id
         case let .work(calls), let .cards(calls): calls.first?.id ?? ""
         }
     }
 
-    var isCards: Bool {
+    public var isCards: Bool {
         if case .cards = self { true } else { false }
     }
 }
 
-struct FileChanges {
-    let files: Int
-    let added: Int?
-    let removed: Int?
+public struct FileChanges: Sendable {
+    public let files: Int
+    public let added: Int?
+    public let removed: Int?
 }
 
-struct Turn: Identifiable {
-    let id: String
-    let prompt: RemoteEntry?
-    var parts: [TurnPart] = []
-    var end: Date?
-    var isInterrupted = false
+public struct Turn: Identifiable, Sendable {
+    public let id: String
+    public let prompt: RemoteEntry?
+    public var parts: [TurnPart] = []
+    public var end: Date?
+    public var isInterrupted = false
 
-    var openCall: ToolCall? {
+    public init(id: String, prompt: RemoteEntry?, parts: [TurnPart] = [], end: Date? = nil, isInterrupted: Bool = false) {
+        self.id = id
+        self.prompt = prompt
+        self.parts = parts
+        self.end = end
+        self.isInterrupted = isInterrupted
+    }
+
+    public var openCall: ToolCall? {
         let calls: [ToolCall] = switch parts.last {
         case let .work(calls), let .cards(calls): calls
         default: []
@@ -162,7 +175,7 @@ struct Turn: Identifiable {
         return call
     }
 
-    var fileChanges: FileChanges? {
+    public var fileChanges: FileChanges? {
         let edits = parts.flatMap { part -> [ToolCall] in
             guard case let .work(calls) = part else { return [] }
 
@@ -180,13 +193,13 @@ struct Turn: Identifiable {
         )
     }
 
-    var duration: Duration? {
+    public var duration: Duration? {
         guard let start = prompt?.date, let end, end > start else { return nil }
 
         return .seconds(end.timeIntervalSince(start).rounded())
     }
 
-    static func turns(from entries: [RemoteEntry]) -> [Self] {
+    public static func turns(from entries: [RemoteEntry]) -> [Self] {
         let results = Dictionary(entries.filter { $0.kind == .toolResult }.compactMap { entry in entry.toolID.map { ($0, entry) } }) { _, last in last }
         var turns: [Self] = []
         for entry in entries {

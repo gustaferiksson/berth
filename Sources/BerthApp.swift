@@ -13,6 +13,7 @@ private let settingsSnapshot: URL? = nil
 struct BerthApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
+    @AppStorage(GeneralSettings.conversationKey) private var isConversationEnabled = false
 
     init() {
         // Restyling a SwiftUI List's scroll view afterwards re-tiles it inside a SwiftUI update, which crashes outline lists.
@@ -67,6 +68,10 @@ struct BerthApp: App {
             CommandGroup(after: .sidebar) {
                 AppAction.commandPalette.menuButton(appDelegate.store)
                 AppAction.switchTerminal.menuButton(appDelegate.store)
+                if isConversationEnabled {
+                    (AppAction.showTerminal.isAvailable(in: appDelegate.store) ? AppAction.showTerminal : .showConversation).menuButton(appDelegate.store)
+                        .disabled(!(AppAction.showTerminal.isAvailable(in: appDelegate.store) || AppAction.showConversation.isAvailable(in: appDelegate.store)))
+                }
                 AppAction.filterSidebar.menuButton(appDelegate.store)
                 Divider()
                 Menu("Group By") { GroupingMenuItems(store: appDelegate.store) }
@@ -198,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
             let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showChanges, .hideChanges, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showChanges, .hideChanges, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil
             }
@@ -225,6 +230,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        #if DEBUG
+        Snapshot.seedConversationFixture()
+        #endif
         store.persistsTabs = false
         store.start(restoringTabs: false)
         Task { await Snapshot.capture(to: output, store: store) }

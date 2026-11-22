@@ -5,13 +5,13 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, filterSidebar, newSession, pullRequests, searchSessions, newTerminal, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, showClaudeBelow, showClaudeBeside, save, settings, checkForUpdates
+    case newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
     case goBack, goForward, previousChange, nextChange
     case caret(CaretAction)
 
     static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
-        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .showClaudeBelow, .showClaudeBeside, .save, .settings, .checkForUpdates]
+        + [.newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
     static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward, .previousChange, .nextChange]).filter { $0.shortcut != nil }
 
@@ -42,6 +42,8 @@ enum AppAction: Hashable {
         case .showInline: "Show Inline"
         case .showClaudeBelow: "Show Claude Below Diff"
         case .showClaudeBeside: "Show Claude Beside Diff"
+        case .showConversation: "Show Conversation"
+        case .showTerminal: "Show Terminal"
         case .save: "Save"
         case .settings: "Settings…"
         case .checkForUpdates: "Check for Updates…"
@@ -71,6 +73,7 @@ enum AppAction: Hashable {
         case .openPreview: "browser web localhost dev server pick element review"
         case .showSideBySide, .showInline: "review diff layout split unified inline toggle"
         case .showClaudeBelow, .showClaudeBeside: "review terminal claude diff layout below beside under vertical horizontal"
+        case .showConversation, .showTerminal: "conversation chat gui transcript terminal claude view"
         case .save: "review file edits write disk"
         case .settings: "preferences"
         case .checkForUpdates: "update version release"
@@ -104,6 +107,8 @@ enum AppAction: Hashable {
         case .showInline: "rectangle"
         case .showClaudeBelow: "rectangle.bottomhalf.inset.filled"
         case .showClaudeBeside: "rectangle.righthalf.inset.filled"
+        case .showConversation: "text.bubble"
+        case .showTerminal: "apple.terminal"
         case .save: "square.and.arrow.down"
         case .settings: "gear"
         case .checkForUpdates: "arrow.down.circle"
@@ -128,6 +133,7 @@ enum AppAction: Hashable {
         case let .groupBy(mode): KeyboardShortcut(KeyEquivalent(Character("\((GroupingMode.allCases.firstIndex(of: mode) ?? 0) + 1)")), modifiers: [.control, .command])
         case .showStats: KeyboardShortcut("s", modifiers: [.command, .shift])
         case .showChanges, .hideChanges: KeyboardShortcut("r", modifiers: [.command, .shift])
+        case .showConversation, .showTerminal: KeyboardShortcut("j", modifiers: [.command, .option])
         case .save: KeyboardShortcut("s")
         case .settings: KeyboardShortcut(",")
         case .goBack: KeyboardShortcut("-", modifiers: .control)
@@ -141,7 +147,7 @@ enum AppAction: Hashable {
 
     func isAvailable(in store: Store) -> Bool {
         switch self {
-        case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown
+        case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown && !store.selectedShowsConversation
         case .clearTerminal: store.focusedTerminal != nil
         case .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession: !sessionIDs(in: store).isEmpty
         case let .groupBy(mode): store.groupingMode != mode
@@ -152,6 +158,8 @@ enum AppAction: Hashable {
             Self.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocumentHasBothSides == true && store.isReviewDiffUnified == (self == .showSideBySide)
         case .showClaudeBelow, .showClaudeBeside:
             Self.hideChanges.isAvailable(in: store) && UserDefaults.standard.bool(forKey: GeneralSettings.terminalBelowKey) == (self == .showClaudeBeside)
+        case .showConversation: store.canShowConversation && !store.selectedShowsConversation
+        case .showTerminal: store.canShowConversation && store.selectedShowsConversation
         case .save: Self.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { model.drafts[$0.path] } } != nil
         case .goBack, .goForward: store.isReviewTextFocused && store.reviewModel?.selectedTab.map { $0.history.indices.contains($0.index + (self == .goBack ? -1 : 1)) } == true
         case .previousChange, .nextChange: store.isReviewTextFocused && store.reviewModel?.selectedDocument?.compare != nil
@@ -214,6 +222,8 @@ enum AppAction: Hashable {
         case .showInline: UserDefaults.standard.set(ReviewDiffLayout.inline.rawValue, forKey: ReviewDiffLayout.key)
 
         case .showClaudeBelow, .showClaudeBeside: UserDefaults.standard.set(self == .showClaudeBelow, forKey: GeneralSettings.terminalBelowKey)
+
+        case .showConversation, .showTerminal: if isAvailable(in: store) { store.setConversation(self == .showConversation) }
 
         case .save:
             if isAvailable(in: store), let model = store.reviewModel, let path = model.selectedDocument?.path, let text = model.editors[path]?.string { model.save(text, to: path) }
