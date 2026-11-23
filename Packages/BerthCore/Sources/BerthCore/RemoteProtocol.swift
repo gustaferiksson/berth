@@ -149,11 +149,12 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
     public let date: Date?
     public let detail: String?
     public let images: [Data]?
+    public let imageNumbers: [Int]?
     public var imageRefs: [RemoteImageRef]?
     public var shellOutput: String?
     public var shellError: String?
 
-    public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false, date: Date? = nil, detail: String? = nil, images: [Data]? = nil, imageRefs: [RemoteImageRef]? = nil) {
+    public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false, date: Date? = nil, detail: String? = nil, images: [Data]? = nil, imageNumbers: [Int]? = nil, imageRefs: [RemoteImageRef]? = nil) {
         self.id = id
         self.kind = kind
         self.text = text
@@ -167,6 +168,7 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
         self.date = date
         self.detail = detail
         self.images = images
+        self.imageNumbers = imageNumbers
         self.imageRefs = imageRefs
     }
 }
@@ -397,6 +399,10 @@ public nonisolated enum RemoteUsageFeature {
     public static let name = "usage"
 }
 
+public nonisolated enum RemoteCodexUsageFeature {
+    public static let name = "codexUsage"
+}
+
 public nonisolated enum RemoteChangesFeature {
     public static let name = "changes"
     public static let maxFiles = 200
@@ -481,6 +487,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case changes(sessionID: String)
     case changeDiff(sessionID: String, path: String, isCommitted: Bool)
     case usage
+    case codexUsage
     case taskDetail(sessionID: String, taskID: String)
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
@@ -498,6 +505,7 @@ public enum RemoteServerMessage: Codable, Sendable {
     case changes(sessionID: String, changes: RemoteChanges?)
     case changeDiff(sessionID: String, path: String, isCommitted: Bool, diff: RemoteFileDiff?)
     case usage(PlanUsage?)
+    case codexUsage(CodexUsage?)
     case taskDetail(sessionID: String, taskID: String, detail: RemoteTaskDetail?)
     case image(sessionID: String, id: String, variant: RemoteImageVariant, data: Data?)
 }

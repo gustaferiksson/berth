@@ -129,7 +129,9 @@ struct ConversationComposer: View {
 private struct ConversationComposerLayout: Layout {
     static let inset: CGFloat = 10
     static let controlSize: CGFloat = 24
-    private static let fieldTop: CGFloat = 14
+    private static let expandedInset: CGFloat = 14
+    private static let fieldTop: CGFloat = 12
+    private static let fieldGap: CGFloat = 8
 
     let isExpanded: Bool
     let canAttach: Bool
@@ -145,20 +147,21 @@ private struct ConversationComposerLayout: Layout {
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 400
         let field = Self.fieldBounds(in: width, isExpanded: isExpanded, canAttach: canAttach)
         let fieldHeight = subviews[1].sizeThatFits(ProposedViewSize(width: field.width, height: nil)).height
-        let height = isExpanded ? Self.fieldTop + fieldHeight + Self.controlSize : max(fieldHeight, Self.controlSize)
-        return CGSize(width: width, height: height + 2 * Self.inset)
+        let height = isExpanded ? Self.fieldTop + fieldHeight + Self.fieldGap + Self.controlSize + Self.expandedInset : max(fieldHeight, Self.controlSize) + 2 * Self.inset
+        return CGSize(width: width, height: height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
         let field = Self.fieldBounds(in: bounds.width, isExpanded: isExpanded, canAttach: canAttach)
-        let controlsTop = isExpanded ? bounds.maxY - Self.inset - Self.controlSize : bounds.midY - Self.controlSize / 2
-        subviews[0].place(at: CGPoint(x: bounds.minX + Self.inset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
+        let controlsInset = isExpanded ? Self.expandedInset : Self.inset
+        let controlsTop = isExpanded ? bounds.maxY - controlsInset - Self.controlSize : bounds.midY - Self.controlSize / 2
+        subviews[0].place(at: CGPoint(x: bounds.minX + controlsInset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
         subviews[1].place(
             at: CGPoint(x: bounds.minX + field.leading, y: isExpanded ? bounds.minY + Self.fieldTop : bounds.midY),
             anchor: isExpanded ? .topLeading : .leading,
             proposal: ProposedViewSize(width: field.width, height: nil)
         )
-        subviews[2].place(at: CGPoint(x: bounds.maxX - Self.inset, y: controlsTop), anchor: .topTrailing, proposal: .unspecified)
+        subviews[2].place(at: CGPoint(x: bounds.maxX - controlsInset, y: controlsTop), anchor: .topTrailing, proposal: .unspecified)
     }
 }
 

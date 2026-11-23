@@ -39,9 +39,9 @@ struct SessionListView: View {
                         }
                     }
                 }
-                if let usage = client.usage, query.isEmpty {
+                if client.usage != nil || client.codexUsage != nil, query.isEmpty {
                     Section {
-                        UsageSummary(usage: usage) { isShowingUsage = true }
+                        UsageSummary { isShowingUsage = true }
                     }
                 }
                 ForEach(groups) { group in
@@ -289,7 +289,7 @@ private struct PullRequestTag: View {
 
         HStack(spacing: 3) {
             Image(systemName: icon)
-            Text("#\(String(pullRequest.number))")
+            Text(verbatim: "#\(pullRequest.number)")
                 .monospaced()
             if let checks = pullRequest.checks {
                 Image(systemName: ChecksStyle.symbol(checks))
@@ -300,6 +300,7 @@ private struct PullRequestTag: View {
         .font(.caption.weight(.medium))
         .foregroundStyle(color)
         .padding(.horizontal, 8)
+        // swiftlint:disable:next negative_padding - a background shape bleeding past the pill
         .background { RoundedRectangle(cornerRadius: 6).fill(color.opacity(0.15)).padding(.vertical, -2) }
         .fixedSize()
         .accessibilityElement(children: .ignore)

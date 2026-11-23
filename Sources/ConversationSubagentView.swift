@@ -12,7 +12,7 @@ final class ConversationSubagentModel {
     private(set) var ended: Date?
     private let root: URL
     private let session: URL
-    private let harness: Harness
+    let harness: Harness
     @ObservationIgnored private var entries: [RemoteEntry] = []
     @ObservationIgnored private var end: Int?
     @ObservationIgnored private var queue: [String] = []
@@ -105,7 +105,7 @@ struct ConversationSubagentView: View {
                         .textSelection(.enabled)
                     Text(verbatim: model.subagent.agentType)
                         .font(.subheadline)
-                        .foregroundStyle(theme.secondary)
+                        .foregroundStyle(AgentTint.color(for: model.subagent.description))
                 }
                 Spacer(minLength: 0)
                 HStack(spacing: 6) {
@@ -133,6 +133,7 @@ struct ConversationSubagentView: View {
                             turn: turn,
                             isFinished: model.subagent.isFinished || !isCurrent,
                             isWorking: !model.subagent.isFinished && isCurrent,
+                            agent: model.harness.agent,
                             waitingFor: nil,
                             since: turn.prompt?.date,
                             tasks: [],

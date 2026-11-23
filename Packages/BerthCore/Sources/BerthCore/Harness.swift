@@ -14,8 +14,9 @@ public struct LaunchOptions: Sendable {
     public let effort: String?
 
     public init(model: String? = nil, effort: String? = nil) {
-        self.model = model
-        self.effort = effort
+        let validValue = /[A-Za-z0-9._-]+/
+        self.model = model.flatMap { $0.wholeMatch(of: validValue) == nil ? nil : $0 }
+        self.effort = effort.flatMap { $0.wholeMatch(of: validValue) == nil ? nil : $0 }
     }
 }
 
@@ -94,7 +95,7 @@ public struct Harness: Sendable {
             LiveSession.load(from: probe.directory.appending(path: "sessions")) { kill($0, 0) == 0 || errno == EPERM }
         },
         isStatusTitle: { _ in false },
-        command: { start, _ in ClaudeLaunch.command(start) },
+        command: ClaudeLaunch.command,
         claim: nil,
         readTranscript: { TranscriptTail.read($0, after: $1, queue: $2) },
         approvalKeys: RemoteApprovalKeys(approve: .digit1, always: nil, deny: .escape),

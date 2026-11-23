@@ -5,6 +5,7 @@ public enum ControlCommand {
     usage: berth ls [--json]
            berth open-terminal [--cwd <dir>] [--background] [--json] [--] [<command>...]
            berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]
+           berth open <path> [--background] [--json]
            berth send <tab> <text> [--no-enter]
            berth capture <tab>
            berth close <tab>
@@ -25,11 +26,11 @@ public enum ControlCommand {
         guard let socketPath = environment[ControlEnvironment.socket], let token = environment[ControlEnvironment.token], let caller = environment[ControlEnvironment.tab] else {
             throw UsageError(message: "Not inside a Berth tab, or Agent Control is off in Berth's Settings > General")
         }
-        guard let name = arguments.first, let operation = [ControlOp.list, .openSession, .send, .capture, .close, .wait].first(where: { $0.rawValue == name }) ?? (name == "open-terminal" ? .open : nil) else {
+        guard let name = arguments.first, let operation = [ControlOp.list, .openSession, .send, .capture, .close, .wait].first(where: { $0.rawValue == name }) ?? (name == "open-terminal" ? .open : name == "open" ? .openPath : nil) else {
             throw UsageError(message: usage)
         }
 
-        let opensTab = operation == .open || operation == .openSession
+        let opensTab = operation == .open || operation == .openSession || operation == .openPath
         var request = ControlRequest(token: token, caller: caller, operation: operation)
         var json = false
         var positional: [String] = []
@@ -43,7 +44,7 @@ public enum ControlCommand {
 
             case "--background" where opensTab: request.background = true
 
-            case "--cwd" where opensTab:
+            case "--cwd" where operation == .open || operation == .openSession:
                 guard let folder = rest.first, operation == .open || !folder.hasPrefix("--") else { throw UsageError(message: "--cwd needs a folder") }
 
                 rest.removeFirst()
@@ -80,6 +81,11 @@ public enum ControlCommand {
 
             request.tab = positional[0]
             request.text = positional.dropFirst().joined(separator: " ")
+
+        case .openPath:
+            guard positional.count == 1 else { throw UsageError(message: usage) }
+
+            request.path = URL(filePath: positional[0], relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
 
         case .capture, .close, .wait:
             guard positional.count == 1 else { throw UsageError(message: usage) }
