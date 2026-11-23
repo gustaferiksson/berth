@@ -5,14 +5,17 @@ public struct PendingPrompt: Equatable, Sendable {
     public let sentAt: Date
     public let attachmentCount: Int
     public let baseline: Int?
+    public let promptBaseline: Int?
     public var isFailed: Bool
     public var wasQueued = false
+    fileprivate var claimedEntryIDs: Set<String> = []
 
-    public init(text: String, sentAt: Date, attachmentCount: Int = 0, baseline: Int? = nil, isFailed: Bool = false) {
+    public init(text: String, sentAt: Date, attachmentCount: Int = 0, baseline: Int? = nil, promptBaseline: Int? = nil, isFailed: Bool = false) {
         self.text = text
         self.sentAt = sentAt
         self.attachmentCount = attachmentCount
         self.baseline = baseline
+        self.promptBaseline = promptBaseline
         self.isFailed = isFailed
     }
 }
@@ -23,25 +26,60 @@ public enum PendingPrompts {
     public static var imageToken: Regex<Substring> { /\[Image #\d+\]/ }
 
     public static func reconcile(_ pending: [PendingPrompt], entries: [RemoteEntry], queued: [String], now: Date) -> [PendingPrompt] {
-        pending.compactMap { prompt in
-            guard !prompt.isFailed else { return prompt }
+        let sendOrder = pending.indices.filter { !pending[$0].isFailed }.sorted { pending[$0].sentAt < pending[$1].sentAt }
+        guard !sendOrder.isEmpty else { return pending }
 
-            let isRecorded = if let baseline = prompt.baseline {
-                recordedCount(text: prompt.text, attachmentCount: prompt.attachmentCount, entries: entries) > baseline
+        let promptEntries = entries.filter { $0.kind == .prompt }
+        var remaining = pending.map(Optional.some)
+        var claimedEntryIDs = Set(pending.flatMap(\.claimedEntryIDs))
+
+        for index in sendOrder {
+            let prompt = pending[index]
+            let text = normalised(prompt.text)
+            guard !text.isEmpty else { continue }
+
+            let earliest = prompt.sentAt.addingTimeInterval(-1)
+            let match = if let baseline = prompt.baseline {
+                promptEntries.lazy.filter { matches($0.text, text: text, attachmentCount: prompt.attachmentCount) }
+                    .dropFirst(baseline).first { !claimedEntryIDs.contains($0.id) }
             } else {
-                entries.contains { $0.kind == .prompt && normalised($0.text).hasSuffix(normalised(prompt.text)) && ($0.date ?? .distantPast) >= prompt.sentAt.addingTimeInterval(-1) }
+                promptEntries.first { entry in
+                    !claimedEntryIDs.contains(entry.id) && (entry.date ?? .distantPast) >= earliest && normalised(entry.text).contains(text)
+                }
             }
-            if isRecorded { return nil }
+            guard let match else { continue }
 
-            var prompt = prompt
+            claimedEntryIDs.insert(match.id)
+            remaining[index] = nil
+        }
+
+        let humanEntries = promptEntries.filter { $0.name != "bash" }
+        for index in sendOrder {
+            guard var prompt = remaining[index] else { continue }
+
             if isQueued(prompt, queued: queued) {
                 prompt.wasQueued = true
-                return prompt
+                remaining[index] = prompt
+                continue
             }
 
-            let isSuperseded = prompt.baseline == nil && entries.contains { $0.kind == .prompt && ($0.date ?? .distantPast) > prompt.sentAt.addingTimeInterval(1) }
+            let earliest = prompt.sentAt.addingTimeInterval(-1)
+            let match: RemoteEntry? = if let promptBaseline = prompt.promptBaseline {
+                humanEntries.dropFirst(promptBaseline).first { !claimedEntryIDs.contains($0.id) }
+            } else if prompt.baseline == nil {
+                humanEntries.first { !claimedEntryIDs.contains($0.id) && ($0.date ?? .distantPast) >= earliest }
+            } else {
+                nil
+            }
+            if let match { claimedEntryIDs.insert(match.id) }
+            if match != nil || prompt.wasQueued || now.timeIntervalSince(prompt.sentAt) > grace { remaining[index] = nil }
+        }
 
-            return prompt.wasQueued || isSuperseded || now.timeIntervalSince(prompt.sentAt) > grace ? nil : prompt
+        return remaining.compactMap { prompt in
+            guard var prompt else { return nil }
+
+            if !prompt.isFailed { prompt.claimedEntryIDs = claimedEntryIDs }
+            return prompt
         }
     }
 
@@ -60,10 +98,9 @@ public enum PendingPrompts {
 
     private static func isQueued(_ prompt: PendingPrompt, queued: [String]) -> Bool {
         if queued.contains(prompt.text) { return true }
-        guard prompt.baseline != nil else { return false }
 
         let text = normalised(prompt.text)
-        return queued.contains { matches($0, text: text, attachmentCount: prompt.attachmentCount) }
+        return queued.contains { normalised($0) == text }
     }
 
     private static func matches(_ entryText: String, text: String, attachmentCount: Int) -> Bool {
@@ -77,6 +114,7 @@ public enum PendingPrompts {
     }
 
     static func normalised(_ text: String) -> String {
-        text.replacing(uploadPath, with: "").replacing(imageToken, with: "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        text.replacing(uploadPath, with: "").replacing(imageToken, with: "").replacing(/<[^>]*>/, with: " ")
+            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }
