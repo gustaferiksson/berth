@@ -395,6 +395,10 @@ public nonisolated enum RemoteUsageFeature {
     public static let name = "usage"
 }
 
+public nonisolated enum RemoteCodexUsageFeature {
+    public static let name = "codexUsage"
+}
+
 public nonisolated enum RemoteChangesFeature {
     public static let name = "changes"
     public static let maxFiles = 200
@@ -479,6 +483,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case changes(sessionID: String)
     case changeDiff(sessionID: String, path: String, isCommitted: Bool)
     case usage
+    case codexUsage
     case taskDetail(sessionID: String, taskID: String)
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
@@ -496,6 +501,7 @@ public enum RemoteServerMessage: Codable, Sendable {
     case changes(sessionID: String, changes: RemoteChanges?)
     case changeDiff(sessionID: String, path: String, isCommitted: Bool, diff: RemoteFileDiff?)
     case usage(PlanUsage?)
+    case codexUsage(CodexUsage?)
     case taskDetail(sessionID: String, taskID: String, detail: RemoteTaskDetail?)
     case image(sessionID: String, id: String, variant: RemoteImageVariant, data: Data?)
 }

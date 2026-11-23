@@ -59,6 +59,22 @@ public nonisolated struct UsageWindow: Codable, Sendable, Hashable, Identifiable
     }
 }
 
+public nonisolated struct CodexUsage: Codable, Sendable, Hashable {
+    public static let staleAfter: TimeInterval = 3600
+
+    public let usage: PlanUsage
+    public let recordedAt: Date
+
+    public init(usage: PlanUsage, recordedAt: Date) {
+        self.usage = usage
+        self.recordedAt = recordedAt
+    }
+
+    public func isStale(at now: Date) -> Bool {
+        now.timeIntervalSince(recordedAt) > Self.staleAfter
+    }
+}
+
 public nonisolated struct PlanUsage: Codable, Sendable, Hashable {
     public static let windows: [(key: String, title: String, length: TimeInterval)] = [
         ("five_hour", "Session", 5 * 3600),
