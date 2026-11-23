@@ -97,6 +97,8 @@ enum Snapshot {
     private static let pullRequestFixtures = UserDefaults.standard.bool(forKey: "snapshotLongNames") ? longNames : reviewPullRequest
 
     static let launcherKeys = UserDefaults.standard.string(forKey: "snapshotLauncherKeys")
+    static let issueQuery = UserDefaults.standard.string(forKey: "snapshotIssue")
+    static let issueReference = issueQuery.flatMap(IssueReference.parse)
 
     private static let hubFolders: [SessionSummary] = {
         let code = NSTemporaryDirectory() + "berth-launcher-keys"
@@ -105,6 +107,41 @@ enum Snapshot {
             SessionSummary(id: "fixture-hub-ui", cwd: "\(code)/x-hub-ui", title: "Fixture UI", lastActivity: .now - 420),
             SessionSummary(id: "fixture-hub", cwd: "\(code)/x-hub", title: "Fixture API", lastActivity: .now - 72_000),
         ]
+    }()
+
+    private static let issueFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: Result<[LinkedPullRequest], IssuePullRequests.LookupError>)? = {
+        guard let issueReference else { return nil }
+
+        let issue = "\(issueReference.owner)/\(issueReference.name)#\(issueReference.number)"
+        let linked: [(repository: String, number: Int, title: String, draft: Bool)] = switch issue {
+        case "owner/repo#1":
+            [("owner/repo", 2, "Add the export endpoint", false)]
+
+        case "acme/api#10":
+            [
+                ("acme/api", 11, "Add the export endpoint", false),
+                ("acme/web", 11, "Add the export button", false),
+                ("acme/mobile", 12, "Show exports on mobile", true),
+                ("acme/infra", 13, "Schedule the export job", false),
+            ]
+
+        default: []
+        }
+        guard !linked.isEmpty else { return ([], [:], .failure(.issueNotFound)) }
+
+        let code = NSTemporaryDirectory() + "berth-issue"
+        var repositories: [String: String?] = [:]
+        let sessions = linked.filter { $0.repository != "acme/infra" }.map { item in
+            let folder = "\(code)/\((item.repository as NSString).lastPathComponent)"
+            try? FileManager.default.createDirectory(atPath: "\(folder)/.git", withIntermediateDirectories: true)
+            repositories[RepositoryRoot.resolve(folder)] = item.repository
+            return SessionSummary(id: "fixture-issue-\(item.repository)", cwd: folder, title: "Prepare the checkout", lastActivity: .now)
+        }
+        let nodes = linked.map { item in
+            #"{"__typename":"CrossReferencedEvent","source":{"__typename":"PullRequest","number":\#(item.number),"title":"\#(item.title)","url":"https://github.com/\#(item.repository)/pull/\#(item.number)","state":"OPEN","isDraft":\#(item.draft),"headRefName":"feature/exports","repository":{"nameWithOwner":"\#(item.repository)"}}}"#
+        }
+        let json = #"{"data":{"repository":{"issue":{"timelineItems":{"nodes":[\#(nodes.joined(separator: ","))]}}}}}"#
+        return (sessions, repositories, IssuePullRequests.parse(Data(json.utf8)))
     }()
 
     private static let inboxFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: [PullRequestBranch: PullRequest?], inbox: [InboxPullRequest]?)? = {
@@ -220,9 +257,14 @@ enum Snapshot {
         return [SessionSummary(id: "fixture-session-terminals", cwd: folder, title: "Work on session terminals", lastActivity: .now)]
     }()
 
-    static let fixtureSessions = triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
+    static let fixtureSessions: [SessionSummary]? = {
+        if let issueFixtures { return issueFixtures.sessions }
+
+        return triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
+    }()
+
     private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
-    static let fixtureRepositories = inboxFixtures?.repositories ?? taskFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
+    static let fixtureRepositories = issueFixtures?.repositories ?? inboxFixtures?.repositories ?? taskFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
     private static let fixtureChecks = (UserDefaults.standard.string(forKey: "snapshotChecks") ?? "").split(separator: "|", omittingEmptySubsequences: false).map { PullRequestChecks.State(rawValue: String($0)) }
     static let fixturePullRequests = inboxFixtures?.pullRequests ?? taskFixtures?.pullRequests ?? Dictionary(pullRequestFixtures.enumerated().compactMap { index, item in
         item.session.branch.map { branch in
@@ -232,6 +274,7 @@ enum Snapshot {
         }
     }) { first, _ in first }
     static let fixtureInbox = inboxFixtures?.inbox
+    static let fixtureIssuePullRequests = issueFixtures?.pullRequests ?? .failure(.issueNotFound)
     static let fixtureLinkedPullRequests = linkedFixtures
     #else
     static let fixtureSessions: [SessionSummary]? = nil
@@ -256,7 +299,7 @@ enum Snapshot {
     }
 
     #if DEBUG
-    static let launcherQuery = UserDefaults.standard.string(forKey: "snapshotLauncher") ?? UserDefaults.standard.string(forKey: "snapshotSearch") ?? UserDefaults.standard.string(forKey: "snapshotPalette") ?? UserDefaults.standard.string(forKey: "snapshotPullRequests") ?? ""
+    static let launcherQuery = issueQuery ?? UserDefaults.standard.string(forKey: "snapshotLauncher") ?? UserDefaults.standard.string(forKey: "snapshotSearch") ?? UserDefaults.standard.string(forKey: "snapshotPalette") ?? UserDefaults.standard.string(forKey: "snapshotPullRequests") ?? ""
     #else
     static let launcherQuery = ""
     #endif
@@ -523,7 +566,8 @@ enum Snapshot {
             let ranked = PullRequestInbox.rank(query, in: store.inbox ?? [], now: .now)
             print("pull requests for \"\(query)\": \(ranked.pullRequests.count) shown, \(ranked.older) older hidden, toolbar count \(store.inbox?.count { $0.role == .reviewRequested } ?? 0)")
             for pullRequest in ranked.pullRequests {
-                let opening = store.opening(of: pullRequest)
+                let link = PullRequestLink(repository: pullRequest.repository, number: pullRequest.number)
+                let opening = store.opening(of: link)
                 let action = if case let .session(session) = opening {
                     "resume \(session.id)"
                 } else if case let .worktree(folder) = opening {
@@ -531,9 +575,24 @@ enum Snapshot {
                 } else {
                     "notice: No local checkout of \(pullRequest.repository)"
                 }
-                print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: pullRequest).map(\.id)) | enter: \(action)")
+                print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: link).map(\.id)) | enter: \(action)")
             }
             if UserDefaults.standard.string(forKey: "snapshotLauncherRole") == "reviewRequested" { store.launcherRole = .reviewRequested }
+            if launcherKeys == nil { store.launcherMode = .pullRequests }
+        }
+        if let issueQuery {
+            print("linked pull requests for \(issueQuery)")
+            switch fixtureIssuePullRequests {
+            case let .success(pullRequests):
+                for pullRequest in pullRequests {
+                    let link = pullRequest.link
+                    let status = store.issuePullRequestStatus(pullRequest, opening: store.opening(of: link))
+                    print("  \(pullRequest.title) | \(link.repository)#\(link.number)\(pullRequest.isDraft ? " · Draft" : "") | \(status)")
+                }
+
+            case let .failure(error):
+                print("  \(error.message)")
+            }
             if launcherKeys == nil { store.launcherMode = .pullRequests }
         }
         let editedGroup = UserDefaults.standard.string(forKey: "snapshotEditGroup").map { name in
@@ -1654,7 +1713,7 @@ enum Snapshot {
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
             window.identifier = NSUserInterfaceItemIdentifier("main-snapshot")
-            store.launcherMode = .newSession
+            store.launcherMode = issueQuery == nil ? .newSession : .pullRequests
             try? await Task.sleep(for: .seconds(1))
             print("launcher first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "alt-shift-enter": (36, "\r"), "tab": (48, "\t")]

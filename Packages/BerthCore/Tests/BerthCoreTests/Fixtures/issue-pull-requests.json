@@ -1,0 +1,36 @@
+{
+  "data": {
+    "repository": {
+      "issueOrPullRequest": {"__typename": "Issue"},
+      "issue": {
+        "timelineItems": {
+          "nodes": [
+            {
+              "__typename": "CrossReferencedEvent",
+              "source": {"__typename": "PullRequest", "number": 11, "title": "Add the export endpoint", "url": "https://github.com/acme/api/pull/11", "state": "OPEN", "isDraft": false, "headRefName": "feature/exports", "repository": {"nameWithOwner": "acme/api"}}
+            },
+            {
+              "__typename": "ConnectedEvent",
+              "subject": {"__typename": "PullRequest", "number": 11, "title": "Add the export endpoint", "url": "https://github.com/acme/api/pull/11", "state": "OPEN", "isDraft": false, "headRefName": "feature/exports", "repository": {"nameWithOwner": "acme/API"}}
+            },
+            {
+              "__typename": "ConnectedEvent",
+              "subject": {"__typename": "PullRequest", "number": 11, "title": "Add the export button", "url": "https://github.com/acme/web/pull/11", "state": "OPEN", "isDraft": true, "headRefName": "feature/export-button", "repository": {"nameWithOwner": "acme/web"}}
+            },
+            {
+              "__typename": "CrossReferencedEvent",
+              "source": {"__typename": "PullRequest", "number": 12, "title": "Show exports on mobile", "url": "https://github.com/acme/mobile/pull/12", "state": "CLOSED", "isDraft": false, "headRefName": "feature/mobile-exports", "repository": {"nameWithOwner": "acme/mobile"}}
+            },
+            {
+              "__typename": "ConnectedEvent",
+              "subject": {"__typename": "PullRequest", "number": 13, "title": "Schedule the export job", "url": "https://github.com/acme/infra/pull/13", "state": "MERGED", "isDraft": false, "headRefName": "feature/export-job", "repository": {"nameWithOwner": "acme/infra"}}
+            },
+            {"__typename": "CrossReferencedEvent", "source": null},
+            {"__typename": "ConnectedEvent", "subject": {"__typename": "Issue"}},
+            null
+          ]
+        }
+      }
+    }
+  }
+}

@@ -130,6 +130,8 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 
 `-snapshotPullRequests "<query>"` uses fixture sessions and a fixture inbox (no `gh`) and prints each PR's section, checks, decision, sessions and what ↩ does; `-snapshotLauncherKeys` also knows `tab`, `#`.
 
+`-snapshotIssue "owner/repo#1"` opens Pull Requests with one fixture linked PR. `-snapshotIssue "acme/api#10"` shows four PRs across repositories, with three known checkouts and an unavailable row for `acme/infra`. The snapshot prints each row's status. Add `-snapshotLauncherKeys "enter"` to print the recorded `openClaude` calls and whether the launcher stays open. The issue lookup uses fixtures and session opens are recorded as probes.
+
 ### Conversation view
 
 `-snapshotConversation YES` (needs an empty `CFFIXED_USER_HOME`; pass `-reviewEnabled NO`, `-conversationEnabled YES`; `-snapshotConversationStatus busy|waiting|idle`, `-snapshotConversationExpanded YES`, `-snapshotConversationHeight <pt>`) seeds an invented transcript, saves `<out>.conversation.png` and `<out>.terminal.png` and prints the surface identity across toggles.

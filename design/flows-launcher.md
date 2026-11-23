@@ -16,6 +16,12 @@ A PR's sessions are those whose `pr-link`s name it or whose branch lookup gives 
 
 The toolbar's 'N to review' capsule (hidden at 0) opens the scope filtered to Review Requested (`Store.launcherRole`).
 
+### Open from Issue
+
+Paste a GitHub issue URL or type `owner/repo#N` in Pull Requests to see the issue’s open linked PRs across repositories, including drafts. Return opens every available PR and selects the first. Click a row to open just that PR. Both actions switch to or resume an existing session when available, or start a Claude worktree session from a known local checkout.
+
+Lookup errors appear in the issue panel. The launcher stays open when a PR is unavailable or fails to open so its status remains visible. Claude runs the checkout, and any checkout failure appears in its session.
+
 ## Launcher modes
 
 The launcher has modes (`LauncherMode`, `Store.launcherMode`, nil = closed): `.newSession` (⌘N), `.search` (⇧⌘F, File ▸ Search Sessions…) and `.palette` (⌘K, View ▸ Command Palette…) share the glass panel, query field, highlighted row, ↑↓ and footer hints. `Store.launcherQuery` seeds the field when a mode opens (the palette's Search Sessions… carries its typed text). Closing focuses the selected tab's surface, unless Harbor is shown. Search shows one row per matching session (title, project · age, up to 2 snippets with the matched words bold in the foreground colour), newest first, at most 50, active and archived; ↩ runs `Store.activate(.session)` (the sidebar click path, locks respected).
