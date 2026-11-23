@@ -533,6 +533,8 @@ private struct ConversationBottomBar: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
+        let isShell = harness.supports(.bashMode) && model.draft.text.hasPrefix("!")
+
         VStack(spacing: 10) {
             if let approval, approval.isActionable || approval == .loading {
                 ConversationApprovalCard(
@@ -560,8 +562,8 @@ private struct ConversationBottomBar: View {
                 }
             }
             VStack(spacing: 2) {
-                ConversationComposer(model: model, harnessName: harness.name, canAttach: canAttach, isWorking: isWorking, waiting: denial, focusRequest: composerFocus)
-                SessionStatusBar(model: model, tab: tab, harness: harness, isWorking: isWorking, isWaiting: waiting != nil)
+                ConversationComposer(model: model, harnessName: harness.name, canAttach: canAttach, isShell: isShell, isWorking: isWorking, waiting: denial, focusRequest: composerFocus)
+                SessionStatusBar(model: model, tab: tab, harness: harness, isShell: isShell, isWorking: isWorking, isWaiting: waiting != nil)
             }
         }
         .frame(maxWidth: 860)

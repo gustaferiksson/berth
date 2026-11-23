@@ -11,18 +11,20 @@ public struct RemoteAgent: Codable, Sendable, Hashable {
     public let asset: String
     public let canChangeSettings: Bool
     public let canAttach: Bool
+    public let canRunBash: Bool?
     public let approvalKeys: RemoteApprovalKeys?
 
     private enum CodingKeys: String, CodingKey {
-        case name, canChangeSettings, canAttach, approvalKeys
+        case name, canChangeSettings, canAttach, canRunBash, approvalKeys
         case asset = "glyph"
     }
 
-    public init(name: String, asset: String, canChangeSettings: Bool, canAttach: Bool, approvalKeys: RemoteApprovalKeys? = nil) {
+    public init(name: String, asset: String, canChangeSettings: Bool, canAttach: Bool, canRunBash: Bool? = nil, approvalKeys: RemoteApprovalKeys? = nil) {
         self.name = name
         self.asset = asset
         self.canChangeSettings = canChangeSettings
         self.canAttach = canAttach
+        self.canRunBash = canRunBash
         self.approvalKeys = approvalKeys
     }
 }

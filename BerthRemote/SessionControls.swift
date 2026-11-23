@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension RemoteAgent {
-    static let legacyClaude = Self(name: "Claude", asset: "HarnessClaude", canChangeSettings: true, canAttach: true)
+    static let legacyClaude = Self(name: "Claude", asset: "HarnessClaude", canChangeSettings: true, canAttach: true, canRunBash: true)
 }
 
 struct SessionControls: View {
@@ -240,10 +240,12 @@ private struct Composer: View {
 
     var body: some View {
         let isExpanded = isFocused || !draft.isEmpty || !attachments.isEmpty
+        let isShell = agent.canRunBash == true && draft.hasPrefix("!")
+        let shape = RoundedRectangle(cornerRadius: ComposerLayout.cornerRadius)
 
         ComposerLayout(isExpanded: isExpanded, hasAttachmentMenu: agent.canAttach) {
             TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, axis: .vertical)
-                .font(.body)
+                .font(isShell ? .body.monospaced() : .body)
                 .textFieldStyle(.plain)
                 .lineLimit(1...(isExpanded ? 6 : 1))
                 .focused($isFocused)
@@ -253,7 +255,7 @@ private struct Composer: View {
                     attachmentMenu
                 }
             }
-            trailingControls(isExpanded: isExpanded)
+            trailingControls(isExpanded: isExpanded, isShell: isShell)
             if !attachments.isEmpty {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
@@ -271,7 +273,9 @@ private struct Composer: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: ComposerLayout.cornerRadius))
+        .glassEffect(isShell ? .regular.tint(.pink.opacity(0.12)) : .regular, in: shape)
+        .overlay { shape.strokeBorder(.pink, lineWidth: 1.5).opacity(isShell ? 1 : 0) }
+        .animation(.smooth(duration: 0.2), value: isShell)
         .padding(.horizontal, isExpanded ? 12 : 38)
         .padding(.bottom, isExpanded ? 12 : 4)
         .animation(.smooth(duration: 0.3), value: isExpanded)
@@ -348,7 +352,7 @@ private struct Composer: View {
         .buttonStyle(.plain)
     }
 
-    private func trailingControls(isExpanded: Bool) -> some View {
+    private func trailingControls(isExpanded: Bool, isShell: Bool) -> some View {
         let isEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
         let showsStop = isWorking && isEmpty
         let canSend = !isEmpty && attachments.allSatisfy { client.uploads[$0.id] == .done }
@@ -385,7 +389,7 @@ private struct Composer: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(isAvailable ? Color.white : Color.secondary)
                     .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
-                    .background(isAvailable ? Color.accentColor : controlFill, in: .circle)
+                    .background(isAvailable ? (isShell ? Color.pink : Color.accentColor) : controlFill, in: .circle)
                     .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
                     .contentShape(.rect)
             }
