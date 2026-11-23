@@ -225,7 +225,7 @@ private struct PromptBubble: View {
                                 .frame(width: min(200, 120 * image.size.width / image.size.height), height: 120)
                                 .clipShape(.rect(cornerRadius: 14))
                                 .overlay(alignment: .bottomLeading) {
-                                    Text("#\(number)")
+                                    Text(verbatim: "#\(number)")
                                         .font(.caption2.weight(.bold))
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)

@@ -654,7 +654,7 @@ private struct ConversationPromptImage: View {
             .frame(width: image.map { min(240, 120 * $0.size.width / max($0.size.height, 1)) } ?? 160, height: 120)
             .clipShape(.rect(cornerRadius: 10))
             .overlay(alignment: .bottomLeading) {
-                Text("#\(number)")
+                Text(verbatim: "#\(number)")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
