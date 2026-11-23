@@ -757,7 +757,6 @@ private struct ReviewFileList: View {
                 }
                 .monospacedDigit()
                 .foregroundStyle(theme.secondary)
-                .padding(.trailing, ReviewInset.countsTrailing - 14)
             }
             if expansion(of: "uncommitted").wrappedValue {
                 changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: nil)
@@ -771,7 +770,6 @@ private struct ReviewFileList: View {
                 }
                 .monospacedDigit()
                 .foregroundStyle(theme.secondary)
-                .padding(.trailing, ReviewInset.countsTrailing - 14)
             }
             if expansion(of: "committed").wrappedValue {
                 changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: nil)
