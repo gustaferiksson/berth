@@ -28,56 +28,65 @@ struct Attachment: Identifiable, Equatable {
 struct AttachmentTile: View {
     let attachment: Attachment
     let state: RemoteClient.UploadState?
-    let size: Double
-    let radius: Double
     let remove: () -> Void
 
     var body: some View {
+        let status = switch state {
+        case .done: ""
+        case let .failed(message): message
+        case .uploading, nil: String(localized: "Uploading")
+        }
+        let isUploading = state == nil || state == .uploading
+
         Group {
             if let image = attachment.thumbnail.flatMap(UIImage.init(data:)) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
-                    .accessibilityHidden(true)
             } else {
-                Image(systemName: "doc.fill")
-                    .accessibilityHidden(true)
-                    .foregroundStyle(.secondary)
-                    .frame(width: size, height: size)
-                    .background(.fill.quaternary)
+                VStack(spacing: 3) {
+                    Image(systemName: "doc.fill")
+                        .font(.subheadline)
+                        .accessibilityHidden(true)
+                    Text(attachment.name)
+                        .font(.caption2)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 4)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(.secondary)
+                .background(.fill.quaternary)
             }
         }
-        .frame(width: size, height: size)
+        .frame(width: 60, height: 60)
+        .clipShape(.rect(cornerRadius: 12))
+        .opacity(isUploading ? 0.45 : 1)
         .overlay {
-            if case .failed = state {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .accessibilityHidden(true)
-                    .foregroundStyle(.red)
-                    .padding(6)
-                    .background(.background, in: .circle)
-            } else if state != .done {
+            if isUploading {
                 ProgressView()
-                    .padding(6)
-                    .background(.background, in: .circle)
+            } else if case .failed = state {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.red)
             }
         }
-        .clipShape(.rect(cornerRadius: radius))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(attachment.name)
+        .accessibilityValue(status)
         .overlay(alignment: .topTrailing) {
             Button(action: remove) {
-                Image(systemName: "xmark")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.background)
-                    .frame(width: 22, height: 22)
-                    .background(.primary, in: .circle)
-                    .padding(4)
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .black.opacity(0.8))
                     .frame(width: 44, height: 44, alignment: .topTrailing)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Remove \(attachment.name)")
+            .offset(x: 8, y: -8)
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(attachment.name)
-        .accessibilityValue(state == .done ? "" : state.map { if case let .failed(message) = $0 { message } else { "Uploading" } } ?? "Uploading")
     }
 }
