@@ -47,12 +47,17 @@ struct SidebarSettings: View {
             } header: {
                 Text("Usage")
             } footer: {
-                Text("Shows the 5-hour and weekly limits with a pace marker. Berth reads Claude Code’s sign-in from the Keychain (macOS may ask once), asks Anthropic for your usage at most once a minute and never stores the token.")
+                Text("Shows the 5-hour and weekly limits with a pace marker. Berth reads Claude Code’s sign-in from the Keychain (macOS may ask once), asks Anthropic for your usage at most once a minute and never stores the token. With Codex on, it adds Codex’s limits from your latest session, which only update while Codex runs.")
             }
         }
         .formStyle(.grouped)
         .frame(height: 570)
-        .onChange(of: showsPlanUsage) { Task { await store.refreshPlanUsage() } }
+        .onChange(of: showsPlanUsage) {
+            Task {
+                await store.refreshPlanUsage()
+                await store.refreshCodexUsage()
+            }
+        }
     }
 }
 

@@ -57,10 +57,9 @@ struct RunningStrip: View {
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.capsule)
-            .glassEffect(.regular, in: .capsule)
+            .glassEffect(.regular, in: ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)), isUniform: true))
         }
         .buttonStyle(.plain)
-        .padding(.horizontal)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Running, \(summary)")
         .accessibilityHint("Shows what is running")

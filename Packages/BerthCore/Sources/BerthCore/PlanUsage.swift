@@ -9,9 +9,9 @@ public nonisolated struct UsageWindow: Codable, Sendable, Hashable, Identifiable
     public let title: String
     public let length: TimeInterval
     public let used: Double
-    public let resetsAt: Date
+    public let resetsAt: Date?
 
-    public init(id: String, title: String, length: TimeInterval, used: Double, resetsAt: Date) {
+    public init(id: String, title: String, length: TimeInterval, used: Double, resetsAt: Date?) {
         self.id = id
         self.title = title
         self.length = length
@@ -20,18 +20,26 @@ public nonisolated struct UsageWindow: Codable, Sendable, Hashable, Identifiable
     }
 
     public func isCurrent(at now: Date) -> Bool {
-        resetsAt > now
+        (resetsAt ?? .distantPast) > now
+    }
+
+    public func rolledOver(at now: Date) -> Self {
+        isCurrent(at: now) ? self : Self(id: id, title: title, length: length, used: 0, resetsAt: nil)
     }
 
     public func pace(at now: Date) -> Double {
-        min(max(1 - resetsAt.timeIntervalSince(now) / length, 0), 1)
+        guard let resetsAt else { return 0 }
+
+        return min(max(1 - resetsAt.timeIntervalSince(now) / length, 0), 1)
     }
 
     public var usedPercent: Int {
         Int((used * 100).rounded())
     }
 
-    public func summary(at now: Date) -> String {
+    public func summary(at now: Date, harness: String = "Claude") -> String {
+        guard let resetsAt, isCurrent(at: now) else { return "Resets when you next use \(harness) · 0% used" }
+
         let minutes = max(Int(resetsAt.timeIntervalSince(now) / 60), 1)
         let days = minutes / 1440
         let hours = minutes / 60 % 24
@@ -51,6 +59,22 @@ public nonisolated struct UsageWindow: Codable, Sendable, Hashable, Identifiable
     }
 }
 
+public nonisolated struct CodexUsage: Codable, Sendable, Hashable {
+    public static let staleAfter: TimeInterval = 3600
+
+    public let usage: PlanUsage
+    public let recordedAt: Date
+
+    public init(usage: PlanUsage, recordedAt: Date) {
+        self.usage = usage
+        self.recordedAt = recordedAt
+    }
+
+    public func isStale(at now: Date) -> Bool {
+        now.timeIntervalSince(recordedAt) > Self.staleAfter
+    }
+}
+
 public nonisolated struct PlanUsage: Codable, Sendable, Hashable {
     public static let windows: [(key: String, title: String, length: TimeInterval)] = [
         ("five_hour", "Session", 5 * 3600),
@@ -66,15 +90,20 @@ public nonisolated struct PlanUsage: Codable, Sendable, Hashable {
     }
 
     public func current(at now: Date) -> [UsageWindow] {
-        windows.filter { $0.isCurrent(at: now) }
+        windows.map { $0.rolledOver(at: now) }
     }
 
     public static func parse(_ data: Data) -> Self? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
 
         let windows = Self.windows.compactMap { key, title, length -> UsageWindow? in
-            guard let window = root[key] as? [String: Any],
-                  let percent = (window["utilization"] as? NSNumber)?.doubleValue,
+            guard let window = root[key] as? [String: Any] else { return nil }
+
+            if window["resets_at"] is NSNull || window["resets_at"] == nil {
+                return UsageWindow(id: key, title: title, length: length, used: 0, resetsAt: nil)
+            }
+
+            guard let percent = (window["utilization"] as? NSNumber)?.doubleValue,
                   let resetsAt = (window["resets_at"] as? String).flatMap(date)
             else { return nil }
 

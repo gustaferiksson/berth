@@ -27,6 +27,7 @@ struct SlimSessionRow: View {
     let issue: IssueRef?
     let isArchived: Bool
     let isSnoozed: Bool
+    var watch: PullRequestWatch?
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.showsSlimRowActions) private var showsActions
@@ -66,7 +67,9 @@ struct SlimSessionRow: View {
             .accessibilityValue([session.agent.harness.isOptIn ? session.agent.harness.name : nil, isLocked ? "locked, running in another terminal" : nil].compactMap(\.self).joined(separator: ", "))
             .layoutPriority(1)
 
-            if let pullRequest {
+            if let watch {
+                SlimGlyph(symbol: "eye", title: watch.title)
+            } else if let pullRequest {
                 SlimPullRequestGlyph(pullRequest: pullRequest, more: morePullRequests)
                     .fixedSize()
             }
@@ -145,15 +148,15 @@ struct SlimTabRow: View {
     let title: String
     let state: RowState?
     let isTerminal: Bool
-    let close: (() -> Void)?
-    @Environment(\.showsSlimRowActions) private var showsActions
+    var watch: PullRequestWatch?
 
     var body: some View {
         HStack(spacing: 6) {
             StatusSlot(state: state, isUnread: false, isOpen: !isTerminal, isTerminal: isTerminal)
             SlimRowTitle(title: title)
-            if showsActions, let close {
-                SlimRowButton(title: "Close Terminal", symbol: "xmark", action: close)
+            if let watch {
+                Spacer(minLength: 0)
+                SlimGlyph(symbol: "eye", title: watch.title)
             }
         }
         .frame(minHeight: 28)

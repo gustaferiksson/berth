@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension RemoteAgent {
-    static let legacyClaude = Self(name: "Claude", asset: "HarnessClaude", canChangeSettings: true, canAttach: true)
+    static let legacyClaude = Self(name: "Claude", asset: "HarnessClaude", canChangeSettings: true, canAttach: true, canRunBash: true)
 }
 
 struct SessionControls: View {
@@ -27,7 +27,6 @@ struct SessionControls: View {
             VStack(spacing: 0) {
                 if let session, session.status == "waiting" {
                     ApprovalCard(session: session, pendingCall: approvalCall(for: session))
-                        .padding(.horizontal, 12)
                         .padding(.bottom, 8)
                 }
                 Composer(
@@ -173,7 +172,7 @@ private struct ApprovalCard: View {
         .disabled(client.state != .connected)
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(.orange.opacity(0.08)), in: .rect(cornerRadius: 24))
+        .glassEffect(.regular.tint(.orange.opacity(0.08)), in: ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)), isUniform: true))
         .sensoryFeedback(.selection, trigger: answers)
         .sensoryFeedback(.warning, trigger: denials)
     }
@@ -231,6 +230,7 @@ private struct Composer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var sends = 0
     @State private var stops = 0
+    @AppStorage("showsQuickReplies") private var showsReplies = true
     @AppStorage("quickReplies") private var replies = QuickReply.defaults
     @State private var confirmedCommand: SlashCommand?
     @FocusState private var isFocused: Bool
@@ -240,10 +240,12 @@ private struct Composer: View {
 
     var body: some View {
         let isExpanded = isFocused || !draft.isEmpty || !attachments.isEmpty
+        let isShell = agent.canRunBash == true && draft.hasPrefix("!")
+        let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)), isUniform: true)
 
         ComposerLayout(isExpanded: isExpanded, hasAttachmentMenu: agent.canAttach) {
             TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, axis: .vertical)
-                .font(.body)
+                .font(isShell ? .body.monospaced() : .body)
                 .textFieldStyle(.plain)
                 .lineLimit(1...(isExpanded ? 6 : 1))
                 .focused($isFocused)
@@ -263,17 +265,18 @@ private struct Composer: View {
                             }
                         }
                     }
-                    .padding(.horizontal, ComposerLayout.controlInset)
-                    .padding(.top, ComposerLayout.controlInset)
+                    .padding(.horizontal, ComposerLayout.compactInset)
+                    .padding(.top, ComposerLayout.compactInset)
                 }
                 .scrollIndicators(.hidden)
                 .scrollClipDisabled()
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: ComposerLayout.cornerRadius))
-        .padding(.horizontal, isExpanded ? 12 : 38)
-        .padding(.bottom, isExpanded ? 12 : 4)
+        .clipShape(shape)
+        .glassEffect(.regular, in: shape)
+        .overlay { shape.stroke(.pink.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0) }
+        .animation(.smooth(duration: 0.2), value: isShell)
         .animation(.smooth(duration: 0.3), value: isExpanded)
         .disabled(client.state != .connected)
         .onChange(of: context) { old, new in
@@ -320,7 +323,7 @@ private struct Composer: View {
             } else {
                 Button("Attach", systemImage: "paperclip") { client.notice = "Update Berth on your Mac to send attachments" }
             }
-            if !replies.isEmpty {
+            if showsReplies, !replies.isEmpty {
                 Section("Replies") {
                     ForEach(replies) { reply in
                         Button(reply.text) { insert(reply.text) }
@@ -383,6 +386,8 @@ private struct Composer: View {
             } label: {
                 Image(systemName: showsStop ? "stop.fill" : "arrow.up")
                     .font(.body.weight(.semibold))
+                    .contentTransition(.symbolEffect(.replace))
+                    .accessibilityHidden(true)
                     .foregroundStyle(isAvailable ? Color.white : Color.secondary)
                     .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
                     .background(isAvailable ? Color.accentColor : controlFill, in: .circle)
@@ -392,6 +397,8 @@ private struct Composer: View {
             .buttonStyle(.plain)
             .disabled(!isAvailable)
             .accessibilityLabel(showsStop ? "Stop" : "Send")
+            .animation(.snappy(duration: 0.2), value: showsStop)
+            .animation(.snappy(duration: 0.2), value: isAvailable)
         }
     }
 
@@ -579,30 +586,32 @@ struct ComposerLayout: Layout {
 
     static let controlSize: CGFloat = 34
     static let hitSize: CGFloat = 44
-    static let controlInset: CGFloat = 8
-    static let controlsHeight = controlSize + 2 * controlInset
-    static let cornerRadius = controlsHeight / 2
-    static let tileRadius = cornerRadius - controlInset
+    static let compactInset: CGFloat = 8
+    static let cornerRadius = controlSize / 2 + compactInset
+    static let tileRadius = cornerRadius - compactInset
 
     private static let textInset: CGFloat = 14
     private static let hitPadding = (hitSize - controlSize) / 2
-    private static let hitInset = controlInset - hitPadding
+
+    private var controlInset: CGFloat { isExpanded ? 12 : Self.compactInset }
+    private var controlsHeight: CGFloat { Self.controlSize + 2 * controlInset }
+    private var hitInset: CGFloat { controlInset - Self.hitPadding }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
-        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? (isExpanded ? 369 : 317)
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 361
         return CGSize(width: width, height: measure(width: width, subviews: subviews).height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
         let metrics = measure(width: bounds.width, subviews: subviews)
-        let controlsCenter = isExpanded ? bounds.maxY - Self.controlsHeight / 2 : bounds.midY
+        let controlsCenter = bounds.maxY - controlsHeight / 2
         let fieldProposal = ProposedViewSize(width: metrics.field.width, height: metrics.field.height)
         let font = UIFont.preferredFont(forTextStyle: .body)
-        let fieldTop = isExpanded ? bounds.minY + metrics.field.minY : controlsCenter + font.capHeight / 2 - font.ascender
+        let fieldTop = isExpanded ? bounds.minY + metrics.field.minY : bounds.midY + font.capHeight / 2 - font.ascender
 
         subviews[0].place(at: CGPoint(x: bounds.minX + metrics.field.minX, y: fieldTop), anchor: .topLeading, proposal: fieldProposal)
-        subviews[1].place(at: CGPoint(x: bounds.minX + Self.hitInset, y: controlsCenter), anchor: .leading, proposal: .unspecified)
-        subviews[2].place(at: CGPoint(x: bounds.maxX - Self.hitInset, y: controlsCenter), anchor: .trailing, proposal: ProposedViewSize(metrics.trailing))
+        subviews[1].place(at: CGPoint(x: bounds.minX + hitInset, y: controlsCenter), anchor: .leading, proposal: .unspecified)
+        subviews[2].place(at: CGPoint(x: bounds.maxX - hitInset, y: controlsCenter), anchor: .trailing, proposal: ProposedViewSize(metrics.trailing))
         if subviews.count > 3 {
             subviews[3].place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: metrics.tilesHeight))
         }
@@ -610,21 +619,21 @@ struct ComposerLayout: Layout {
 
     private func measure(width: CGFloat, subviews: Subviews) -> (height: CGFloat, field: CGRect, trailing: CGSize, tilesHeight: CGFloat) {
         let leadingWidth = hasAttachmentMenu ? Self.hitSize : 0
-        let trailingWidth = max(Self.hitSize, width - leadingWidth - 2 * Self.hitInset)
-        let trailing = subviews[2].sizeThatFits(ProposedViewSize(width: trailingWidth, height: Self.controlsHeight))
-        let fieldLeading = isExpanded ? 20 : hasAttachmentMenu ? Self.controlSize + 2 * Self.controlInset : 14
-        let fieldTrailing = isExpanded ? 20 : trailing.width + 2 * Self.hitInset
+        let trailingWidth = max(Self.hitSize, width - leadingWidth - 2 * hitInset)
+        let trailing = subviews[2].sizeThatFits(ProposedViewSize(width: trailingWidth, height: controlsHeight))
+        let fieldLeading = isExpanded ? 20 : hasAttachmentMenu ? controlsHeight : 14
+        let fieldTrailing = isExpanded ? 20 : trailing.width + 2 * hitInset
         let fieldWidth = max(0, width - fieldLeading - fieldTrailing)
         let fieldHeight = max(22, subviews[0].sizeThatFits(ProposedViewSize(width: fieldWidth, height: nil)).height)
 
         guard isExpanded else {
-            let height = max(Self.controlsHeight, fieldHeight)
+            let height = max(controlsHeight, fieldHeight)
             let field = CGRect(x: fieldLeading, y: (height - fieldHeight) / 2, width: fieldWidth, height: fieldHeight)
             return (height, field, trailing, 0)
         }
 
         let tilesHeight = subviews.count > 3 ? subviews[3].sizeThatFits(ProposedViewSize(width: width, height: nil)).height : 0
-        let field = CGRect(x: fieldLeading, y: tilesHeight > 0 ? tilesHeight + Self.controlInset : Self.textInset, width: fieldWidth, height: fieldHeight)
-        return (field.maxY + Self.textInset - Self.controlInset + Self.controlsHeight, field, trailing, tilesHeight)
+        let field = CGRect(x: fieldLeading, y: tilesHeight > 0 ? tilesHeight + Self.compactInset : Self.textInset, width: fieldWidth, height: fieldHeight)
+        return (field.maxY + Self.textInset - controlInset + controlsHeight, field, trailing, tilesHeight)
     }
 }

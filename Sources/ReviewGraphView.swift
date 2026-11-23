@@ -1,49 +1,31 @@
 import BerthCore
 import SwiftUI
 
-struct ReviewGraphView: View {
+struct ReviewGraphView<Leading: View>: View {
     let model: ReviewModel
     let changes: ReviewChanges
+    let showsHistory: Bool?
+    @ViewBuilder let leading: Leading
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         Group {
-            if model.graphHasLoaded, model.graphCommits.isEmpty, model.graphError == nil, !model.isLoadingGraph {
+            if showsHistory == nil, isEmpty {
                 ContentUnavailableView("No Commits", systemImage: "point.3.connected.trianglepath.dotted")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     List {
-                        let gutterWidth = CGFloat(min(model.graphRows.map(\.laneCount).max() ?? 1, 8)) * 12
-                        ForEach(Array(zip(model.graphCommits, model.graphRows)), id: \.0.sha) { commit, row in
-                            ReviewGraphCommitRow(commit: commit, row: row, gutterWidth: gutterWidth, model: model, changes: changes)
-                                .id(commit.sha)
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                        }
-                        if let error = model.graphError, !model.isLoadingGraph {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Couldn’t Load Commits").font(.callout.weight(.semibold))
-                                Text(error).font(.caption).foregroundStyle(theme.secondary).lineLimit(3)
-                                Button("Try Again") { Task { await model.loadGraph() } }
+                        leading
+                        if showsHistory != false {
+                            if isEmpty {
+                                Text("No Commits")
+                                    .font(.caption)
+                                    .foregroundStyle(theme.secondary)
+                                    .reviewRow(top: 6, bottom: 6)
+                            } else {
+                                graphRows
                             }
-                            .padding(.vertical, 6)
-                            .listRowSeparator(.hidden)
-                        }
-                        if !model.graphHasLoaded, model.graphError == nil || model.isLoadingGraph {
-                            ProgressView()
-                                .controlSize(.small)
-                                .accessibilityLabel("Loading Commits")
-                                .frame(maxWidth: .infinity, minHeight: 36)
-                                .listRowSeparator(.hidden)
-                        }
-                        if model.graphHasMore {
-                            Button("Load More") { Task { await model.loadGraph(more: true) } }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(theme.secondary)
-                                .frame(minHeight: 32)
-                                .disabled(model.isLoadingGraph)
-                                .listRowSeparator(.hidden)
                         }
                     }
                     .listStyle(.plain)
@@ -51,17 +33,61 @@ struct ReviewGraphView: View {
                     .scrollContentBackground(.hidden)
                     .scrollEdgeEffectStyle(.soft, for: .top)
                     .onChange(of: model.selectedCommit, initial: true) { _, sha in
-                        if let sha { proxy.scrollTo(sha) }
+                        if showsHistory != false, let sha { proxy.scrollTo(sha) }
                     }
                 }
             }
         }
         .foregroundStyle(theme.foreground)
-        .task {
-            guard !model.graphHasLoaded, model.graphError == nil else { return }
+        .task(id: showsHistory) {
+            guard showsHistory != false, !model.graphHasLoaded, model.graphError == nil else { return }
 
             await model.loadGraph()
         }
+    }
+
+    private var isEmpty: Bool {
+        model.graphHasLoaded && model.graphCommits.isEmpty && model.graphError == nil && !model.isLoadingGraph
+    }
+
+    @ViewBuilder private var graphRows: some View {
+        let gutterWidth = CGFloat(min(model.graphRows.map(\.laneCount).max() ?? 1, 8)) * 12
+        ForEach(Array(zip(model.graphCommits, model.graphRows)), id: \.0.sha) { commit, row in
+            ReviewGraphCommitRow(commit: commit, row: row, gutterWidth: gutterWidth, model: model, changes: changes)
+                .id(commit.sha)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+        }
+        if let error = model.graphError, !model.isLoadingGraph {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Couldn’t Load Commits").font(.callout.weight(.semibold))
+                Text(error).font(.caption).foregroundStyle(theme.secondary).lineLimit(3)
+                Button("Try Again") { Task { await model.loadGraph() } }
+            }
+            .padding(.vertical, 6)
+            .listRowSeparator(.hidden)
+        }
+        if !model.graphHasLoaded, model.graphError == nil || model.isLoadingGraph {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Loading Commits")
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .listRowSeparator(.hidden)
+        }
+        if model.graphHasMore {
+            Button("Load More") { Task { await model.loadGraph(more: true) } }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.secondary)
+                .frame(minHeight: 32)
+                .disabled(model.isLoadingGraph)
+                .listRowSeparator(.hidden)
+        }
+    }
+}
+
+extension ReviewGraphView where Leading == EmptyView {
+    init(model: ReviewModel, changes: ReviewChanges) {
+        self.init(model: model, changes: changes, showsHistory: nil) { EmptyView() }
     }
 }
 

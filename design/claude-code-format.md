@@ -24,6 +24,16 @@ Transcripts also carry `gitBranch` on most records. `SessionSummary.branches` is
 
 PRs come from one `gh api graphql` call per repo (branches and linked numbers passed as variables), keyed by repo and branch with "no PR" remembered, merged so a failed call keeps old results, off the main thread, in memory only, at most once a minute (scan when an unknown branch appears, app activation, 5 min poll). Misses: after a relaunch, a branch seen only mid-transcript of a long session. Without `gh`, no tag. The same batch asks each PR's `statusCheckRollup { state }` (`PullRequest.checks`, mapped by `PullRequestChecks.State`); open and draft tags show it after a separator.
 
+## Pull request watches
+
+Claude Code 2.1.330 and later can keep watching a PR after `/ship` commits, pushes, opens it and runs `/code-review`. `/steward [number|URL]` starts at the watch. Claude checks for failing checks, conflicts and comments for up to seven days. `/tasks` shows its scheduled `/steward --tend …` task. `/ship stop`, `/steward stop`, Esc and Ctrl+C can stop it. Merge, close, checkout change, session exit, `/clear` and `/resume` also end it.
+
+The watch records are undocumented. Berth infers a start from a human user record with exact `<command-name>/ship</command-name>` or `/steward` and optional `<command-args>`. It also recognises a successful CronCreate or Monitor launch with an exact `/steward --tend` command prefix, including REPL tool results carrying that command. Scheduled ticks alone don't extend the watch. For a command-started watch, the seven days start at the command timestamp. A positive number or a github.com pull request URL supplies the PR. Berth otherwise uses the linked PR, when available. Steward's schedule stays out of the background task lists.
+
+Berth infers stops from local command records, tagged stop output, interruption records, session end or resume records, relocation and changes in recorded worktree or branch metadata. It also consumes successful task stops or cron deletions, terminal task notifications and task notices that say the watched PR number merged or closed. The existing GitHub lookup can clear the indicator when it knows the PR has merged or closed. A regular compact boundary preserves the watch. Only evidence from the current live process counts when its start time is known. If Claude emits none of these records for an event such as Esc while idle, the transcript may leave the inferred state visible until another end signal arrives. The parser shapes are assumptions covered by invented fixtures.
+
+`TranscriptActivity` prefilters raw bytes before decoding watch records. The Store reads live Claude transcripts off the main thread, keeps an in-memory offset per transcript and scans appended bytes on change. This is separate from the head and tail reads for session summaries.
+
 ## Typed prompts
 
 Typed prompt: `origin` absent or `kind: human`; `task-notification` origins, `isCompactSummary` and `<bash-stdout>` records are not prompts; sidechains are skipped. A prompt sent mid-turn is not a user record but an `attachment` of type `queued_command` (`commandMode: prompt`, human origin or `humanTurn`); it counts for `lastPrompt` and `lastActivity` (other attachment lines are still skipped on raw bytes). Search and Stats don't read them yet; the remote tail does.
