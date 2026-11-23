@@ -340,10 +340,16 @@ struct Record: Decodable {
     }
 
     func promptText(includingSidechain: Bool) -> String? {
-        guard type == "user", isMeta != true, includingSidechain || isSidechain != true,
-              let text = message?.content.first(where: { $0.type == "text" })?.text,
-              !text.contains("<command-name>"), !text.contains("<local-command"), !text.contains("<bash-stdout>"), !text.hasPrefix("Caveat:")
-        else { return nil }
+        guard type == "user", isMeta != true, includingSidechain || isSidechain != true, let blocks = message?.content else { return nil }
+
+        let text = blocks.compactMap { block -> String? in
+            guard block.type == "text", let text = block.text,
+                  text.trimmingCharacters(in: .whitespacesAndNewlines).wholeMatch(of: /(?s)<system-reminder>(?:(?!<\/system-reminder>).)*<\/system-reminder>/) == nil
+            else { return nil }
+
+            return text
+        }.joined(separator: "\n")
+        guard !text.contains("<command-name>"), !text.contains("<local-command"), !text.contains("<bash-stdout>"), !text.hasPrefix("Caveat:") else { return nil }
 
         let stripped = text.replacing(/<[^>]*>/, with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         return stripped.isEmpty ? nil : stripped

@@ -22,6 +22,23 @@ struct TranscriptTailTests {
         #expect(parsed.entries[4].command == "swift test" && parsed.entries[4].toolID == "t2")
     }
 
+    @Test func skipsAStandaloneSystemReminderBeforeThePrompt() {
+        let line = #"{"type":"user","uuid":"u1","message":{"content":[{"type":"text","text":" <system-reminder>\nA lantern is lit.\n</system-reminder>\n"},{"type":"text","text":"Sketch the island"}]}}"#
+        let entries = TranscriptTail.entries(in: Data((line + "\n").utf8), dropFirst: false, queue: []).entries
+
+        #expect(entries.map(\.text) == ["Sketch the island"])
+    }
+
+    @Test func joinsAllPromptTextBlocksInOrder() {
+        let lines = [
+            #"{"type":"user","uuid":"u1","message":{"content":[{"type":"text","text":"Sketch the island"},{"type":"text","text":"<system-reminder>Omit this banner</system-reminder>"},{"type":"text","text":"Add four trees"}]}}"#,
+            #"{"type":"user","uuid":"u2","message":{"content":[{"type":"text","text":"<system-reminder>Omit this too</system-reminder>"}]}}"#,
+        ]
+        let entries = TranscriptTail.entries(in: Data((lines.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: []).entries
+
+        #expect(entries.map(\.text) == ["Sketch the island\nAdd four trees"])
+    }
+
     @Test func foldsBashOutputIntoItsPrompt() throws {
         let records = [
             #"{"type":"user","uuid":"shell","message":{"role":"user","content":"<bash-input>git status</bash-input>"}}"#,
