@@ -30,6 +30,7 @@ struct ReviewDiffPane: View {
     let onSendThread: (ReviewThread) -> Void
     let onSendComment: ((ReviewComment) -> Void)?
     let workingText: () -> String?
+    let markdown: ReviewMarkdownContext?
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
     @AppStorage(ReviewStyle.showsBlameKey) private var showsBlame = true
     @AppStorage(ReviewStyle.wrapsLinesKey) private var wrapsLines = false
@@ -46,6 +47,8 @@ struct ReviewDiffPane: View {
                 if case let .tooLarge(bytes) = unavailable { Text(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let markdown, case let .text(loaded)? = contents.modified {
+            ReviewMarkdownView(text: draft ?? loaded, path: path, context: markdown, style: style)
         } else {
             let original = if case let .text(text)? = contents.original { text } else { "" }
             let loaded = if case let .text(text)? = contents.modified { text } else { "" }

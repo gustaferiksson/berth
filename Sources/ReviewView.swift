@@ -1979,7 +1979,8 @@ struct ReviewDiffColumn: View {
 
                                 Task { await model.sendToPullRequest(comment, repository: target.repository, number: number) }
                             } : nil,
-                            workingText: { model.workingText(path) }
+                            workingText: { model.workingText(path) },
+                            markdown: store.rendersMarkdown && document.isMarkdown ? ReviewMarkdownContext(root: URL(filePath: model.changes?.root ?? model.folder), open: { model.open(model.workingDocument($0)) }) : nil
                         )
                         .id(document)
                         .id(isReadOnly)
@@ -2060,9 +2061,17 @@ struct ReviewDiffColumn: View {
                 HStack(spacing: 6) {
                     if tab != nil {
                         GlassCapsule {
-                            Button("Wrap Lines", systemImage: "arrow.turn.down.left") { wrapsLines.toggle() }
-                                .foregroundStyle(wrapsLines ? Color.accentColor : Color(nsColor: style.secondary))
-                                .help("Wrap Lines")
+                            if tab?.document.isMarkdown == true {
+                                let action = store.rendersMarkdown ? AppAction.showMarkdownSource : .showRenderedMarkdown
+                                Button(action.title, systemImage: action.symbol) { action.perform(on: store) }
+                                    .foregroundStyle(store.rendersMarkdown ? Color.accentColor : Color(nsColor: style.secondary))
+                                    .help("\(action.title) (⇧⌘M)")
+                            }
+                            if tab?.document.isMarkdown != true || !store.rendersMarkdown {
+                                Button("Wrap Lines", systemImage: "arrow.turn.down.left") { wrapsLines.toggle() }
+                                    .foregroundStyle(wrapsLines ? Color.accentColor : Color(nsColor: style.secondary))
+                                    .help("Wrap Lines")
+                            }
                             if model.selectedDocumentHasBothSides {
                                 Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
                                     diffLayout = isUnified ? .sideBySide : .inline

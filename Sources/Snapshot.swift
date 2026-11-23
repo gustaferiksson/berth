@@ -681,6 +681,7 @@ enum Snapshot {
         if let mode = UserDefaults.standard.string(forKey: "snapshotHost") { await captureHost(mode: mode, store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotConversation") { await captureConversation(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { await captureTasksReview(store: store, window: window, output: output) }
+        if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotMarkdownRendered") { store.rendersMarkdown = true }
         if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotReviewCommitsExpanded") { store.reviewModels["snapshot-review"]?.showsCommits = true }
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30

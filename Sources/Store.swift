@@ -135,6 +135,12 @@ final class Store {
         }
     }
 
+    var rendersMarkdown = UserDefaults.standard.bool(forKey: "rendersMarkdown") {
+        didSet {
+            if persistsTabs { UserDefaults.standard.set(rendersMarkdown, forKey: "rendersMarkdown") }
+        }
+    }
+
     var showsReviewPanel = UserDefaults.standard.bool(forKey: "showsReviewPanel") {
         didSet {
             if persistsTabs { UserDefaults.standard.set(showsReviewPanel, forKey: "showsReviewPanel") }

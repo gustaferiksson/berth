@@ -5,13 +5,13 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, filterSidebar, newSession, pullRequests, searchSessions, newTerminal, newTerminalForSession, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, wrapLines, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
+    case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, wrapLines, showRenderedMarkdown, showMarkdownSource, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
     case goBack, goForward, previousChange, nextChange
     case caret(CaretAction)
 
     static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
-        + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .wrapLines, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
+        + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
     static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward, .previousChange, .nextChange]).filter { $0.shortcut != nil }
 
@@ -44,6 +44,8 @@ enum AppAction: Hashable {
         case .showSideBySide: "Show Side by Side"
         case .showInline: "Show Inline"
         case .wrapLines: "Wrap Lines"
+        case .showRenderedMarkdown: "Show Rendered Markdown"
+        case .showMarkdownSource: "Show Markdown Source"
         case .showClaudeBelow: "Show Claude Below Diff"
         case .showClaudeBeside: "Show Claude Beside Diff"
         case .showConversation: "Show Conversation"
@@ -79,6 +81,7 @@ enum AppAction: Hashable {
         case .openPreview: "browser web localhost dev server pick element review"
         case .showSideBySide, .showInline: "review diff layout split unified inline toggle"
         case .wrapLines: "review diff soft wrap long lines word wrap horizontal scroll"
+        case .showRenderedMarkdown, .showMarkdownSource: "review file viewer markdown md render rendered preview source raw toggle"
         case .showClaudeBelow, .showClaudeBeside: "review terminal claude diff layout below beside under vertical horizontal"
         case .showConversation, .showTerminal: "conversation chat gui transcript terminal claude view"
         case .save: "review file edits write disk"
@@ -114,6 +117,8 @@ enum AppAction: Hashable {
         case .showSideBySide: "rectangle.split.2x1"
         case .showInline: "rectangle"
         case .wrapLines: "arrow.turn.down.left"
+        case .showRenderedMarkdown: "doc.richtext"
+        case .showMarkdownSource: "doc.plaintext"
         case .showClaudeBelow: "rectangle.bottomhalf.inset.filled"
         case .showClaudeBeside: "rectangle.righthalf.inset.filled"
         case .showConversation: "text.bubble"
@@ -143,6 +148,7 @@ enum AppAction: Hashable {
         case .showStats: KeyboardShortcut("s", modifiers: [.command, .shift])
         case .showChanges, .hideChanges: KeyboardShortcut("r", modifiers: [.command, .shift])
         case .wrapLines: KeyboardShortcut("z", modifiers: [.command, .option])
+        case .showRenderedMarkdown, .showMarkdownSource: KeyboardShortcut("m", modifiers: [.command, .shift])
         case .showConversation, .showTerminal: KeyboardShortcut("j", modifiers: [.command, .option])
         case .save: KeyboardShortcut("s")
         case .settings: KeyboardShortcut(",")
@@ -170,6 +176,8 @@ enum AppAction: Hashable {
         case .showSideBySide, .showInline:
             Self.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocumentHasBothSides == true && store.isReviewDiffUnified == (self == .showSideBySide)
         case .wrapLines: Self.hideChanges.isAvailable(in: store)
+        case .showRenderedMarkdown, .showMarkdownSource:
+            Self.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocument?.isMarkdown == true && store.rendersMarkdown == (self == .showMarkdownSource)
         case .showClaudeBelow, .showClaudeBeside:
             Self.hideChanges.isAvailable(in: store) && UserDefaults.standard.bool(forKey: GeneralSettings.terminalBelowKey) == (self == .showClaudeBeside)
         case .showConversation: store.canShowConversation && !store.selectedShowsConversation
@@ -241,6 +249,8 @@ enum AppAction: Hashable {
         case .showInline: UserDefaults.standard.set(ReviewDiffLayout.inline.rawValue, forKey: ReviewDiffLayout.key)
 
         case .wrapLines: UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: ReviewStyle.wrapsLinesKey), forKey: ReviewStyle.wrapsLinesKey)
+
+        case .showRenderedMarkdown, .showMarkdownSource: store.rendersMarkdown = self == .showRenderedMarkdown
 
         case .showClaudeBelow, .showClaudeBeside: UserDefaults.standard.set(self == .showClaudeBelow, forKey: GeneralSettings.terminalBelowKey)
 
