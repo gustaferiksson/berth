@@ -45,10 +45,10 @@ struct SessionToolbar: ToolbarContent {
     let isReviewEnabled: Bool
 
     var body: some ToolbarContent {
-        if store.showsSessionToolbar, let sessionID = store.selectedSessionID, !store.selectedShowsConversation {
+        if store.showsSessionToolbar, let sessionID = store.selectedSessionID, !store.selectedStatusBarIsReachable {
             ToolbarItem(placement: .primaryAction) { ContextButton(context: store.sessionsByID[sessionID]?.context) }
         }
-        if store.canShowConversation, !store.selectedShowsConversation {
+        if store.canShowConversation, !store.selectedStatusBarIsReachable {
             ToolbarItem(placement: .primaryAction) { ConversationButton() }
         }
     }

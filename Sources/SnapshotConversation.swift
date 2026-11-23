@@ -280,9 +280,13 @@ extension Snapshot {
                 store.fakeLiveSessions = store.fakeLiveSessions.compactMap { fakeConversationLive(status: $0.status ?? "idle", waitingFor: $0.waitingFor, updatedSecondsAgo: 1) }
                 store.refreshLive()
 
-            case "drop": store.fakeLiveSessions = []
+            case "drop":
+                store.fakeLiveSessions = []
+                store.refreshLive()
 
-            case "snap": save(".\(argument).png")
+            case "snap":
+                print("switch visibility at \(argument): toolbar button \(store.canShowConversation && !store.selectedStatusBarIsReachable), status bar \(store.selectedStatusBarIsReachable), suspended \(store.conversationSuspended.contains(tab.id))")
+                save(".\(argument).png")
 
             case "preview": if let data = store.conversationModels[tab.id]?.turns.lazy.compactMap({ $0.prompt?.images?.first }).first { ConversationImagePreview.shared.show(data) }
 
@@ -330,11 +334,13 @@ extension Snapshot {
         }
         try? await Task.sleep(for: .seconds(1))
         surface("before")
+        print("switch visibility: toolbar button \(store.canShowConversation && !store.selectedStatusBarIsReachable), status bar \(store.selectedStatusBarIsReachable)")
         AppAction.showConversation.perform(on: store)
         let deadline = Date.now + 20
         while Date.now < deadline, store.conversationModels[tab.id]?.turns.isEmpty ?? true { try? await Task.sleep(for: .milliseconds(100)) }
         try? await Task.sleep(for: .seconds(2))
         surface("in conversation")
+        print("switch visibility: toolbar button \(store.canShowConversation && !store.selectedStatusBarIsReachable), status bar \(store.selectedStatusBarIsReachable)")
         if UserDefaults.standard.bool(forKey: "snapshotPerf") {
             await measurePerformance(window: window, store: store)
             ProcessAncestry.hangUpDescendants()
@@ -372,6 +378,7 @@ extension Snapshot {
         AppAction.showTerminal.perform(on: store)
         try? await Task.sleep(for: .seconds(1))
         surface("after Show Terminal")
+        print("switch visibility: toolbar button \(store.canShowConversation && !store.selectedStatusBarIsReachable), status bar \(store.selectedStatusBarIsReachable)")
         save(".terminal.png")
         AppAction.showConversation.perform(on: store)
         try? await Task.sleep(for: .seconds(1))
