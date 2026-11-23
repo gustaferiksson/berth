@@ -33,7 +33,7 @@ extension Tab {
     }
 
     var folder: String {
-        kind == .shell ? terminal.workingDirectory ?? cwd : cwd
+        kind == .shell && !isHosted ? terminal.workingDirectory ?? cwd : cwd
     }
 }
 
@@ -304,6 +304,7 @@ final class Store {
     @ObservationIgnored private var planUsageFetchedAt = Date.distantPast
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var tabSignalPolling: Task<Void, Never>?
+    @ObservationIgnored private var hostedDirectoryPolling: Task<Void, Never>?
     @ObservationIgnored private var waitingSessionIDs: Set<String>?
     @ObservationIgnored private var tabTouches: [Tab.ID: Date] = [:]
     @ObservationIgnored private var restoredTabIDs: Set<Tab.ID> = []
@@ -351,6 +352,12 @@ final class Store {
                 if tabs.contains(where: { $0.agent.harness.liveSource == .tabSignals && $0.sessionID != nil }) {
                     refreshLive()
                 }
+            }
+        }
+        hostedDirectoryPolling?.cancel()
+        hostedDirectoryPolling = Task { [weak self] in
+            while await (try? Task.sleep(for: .seconds(2))) != nil, !Task.isCancelled, let self {
+                await refreshHostedDirectories()
             }
         }
         applyCodexSetting()

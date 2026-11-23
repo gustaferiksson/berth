@@ -33,6 +33,22 @@ extension Store {
         return Self.hostTool.map { SessionHost.attachCommand(tool: $0, directory: Self.hostsDirectory, id: id.uuidString) }
     }
 
+    func refreshHostedDirectories() async {
+        let sockets = tabs.compactMap { tab in tab.kind == .shell && tab.isHosted ? hostSocket(of: tab.id).map { (tab.id, $0) } : nil }
+        guard !sockets.isEmpty else { return }
+
+        let directories = await Task.detached {
+            sockets.compactMap { id, socket in
+                SessionHost.probe(socketPath: socket).flatMap { ProcessAncestry.workingDirectory(of: $0.child) }.map { (id, $0) }
+            }
+        }.value
+        for (id, directory) in directories {
+            guard let index = tabs.firstIndex(where: { $0.id == id }), tabs[index].cwd != directory else { continue }
+
+            tabs[index].cwd = directory
+        }
+    }
+
     func hangUpHost(of id: UUID) {
         guard let socket = hostSocket(of: id) else { return }
 

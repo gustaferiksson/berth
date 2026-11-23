@@ -118,7 +118,7 @@ multi-selection followed by New Task from Selection.
 
 Decided from the mock (`place` groups, `row` nested, `keep` move, `sugg` inline):
 
-- Order: Terminals, Pinned, the groups, Archived. Tasks have no section of their own: a task row
+- Order: Terminals, Pinned, the groups, Done. Tasks have no section of their own: a task row
   sits in the group where its newest member session would sit, at that member's position, so it is
   ordered among the session rows by the member's `lastPrompt`. In Recent grouping that is the day
   bucket of the newest member, in Project and Repository the newest member's project, custom groups
@@ -126,7 +126,7 @@ Decided from the mock (`place` groups, `row` nested, `keep` move, `sugg` inline)
 - Members move: a member appears only under its task, never also as a standalone row in its own
   group. A group left with no rows disappears (custom groups stay). A pinned member stays in
   Pinned; the task row then lists only its unpinned, unarchived members and is hidden with none.
-  Archived members show in Archived. `Store.groups` stays whole (Harbor, remote, palette, search and
+  Done members show in Done. `Store.groups` stays whole (Harbor, remote, palette, search and
   Review see every session); only the sidebar layer folds members into task rows.
 - Task row, nested: a chevron and the task title in semibold, the age of the newest member's last
   prompt, and the roll-up status in the status slot (working dots when any member is busy, else
@@ -230,7 +230,7 @@ Built (slice 1b, review part). Decided from the mock: card `fold`, repos `stack`
 
 ## Edge states
 
-- Archived sessions stay members and count toward forming. Archived rows show in Archived, not in the task;
+- Done sessions stay members and count toward forming. Done rows show in Done, not in the task;
   a task with no unarchived member is hidden (a local one shows "No sessions"). Unarchiving returns it.
 - Archiving a task: not in the first slice; archive its sessions.
 - Folder deleted, session unlistable: as in groups; the id is pruned from the task on the next scan.

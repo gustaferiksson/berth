@@ -10,7 +10,7 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
   automatic group.
 - Sidebar order: each custom group (shown even when empty) keeps a slot, its index among
   all groups, clamped to the end when there are fewer groups; the mode's groups fill the
-  other slots by recency, then Archived. A group saved without a slot sits right after
+  other slots by recency, then Done. A group saved without a slot sits right after
   the custom group before it, so new groups land under the last one.
 - Modes: Project (one group per folder), Repository (one group per git root; worktrees
   and subfolders merge into it), Recent (Today, Yesterday, This Week, Older), Recent (One List) (one newest-first group, 15 rows before Show More).
@@ -65,7 +65,7 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
   menus omit it.
 - Session matching two custom groups: the higher group wins; the sheet preview counts
   only sessions this group would actually get.
-- Archived sessions: archived first, so no custom group or mode shows them; Archived stays
+- Done sessions (archived internally): archived first, so no custom group or mode shows them; Done stays
   at the bottom in every mode.
 - Recent: buckets without sessions are hidden; headers have no +; Older starts collapsed. Recent (One List) has the single group `flat`, titled Recent, also without +.
 - Not a git repo (Repository mode): the folder is its own root.
@@ -75,9 +75,9 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
 
 Moved from CLAUDE.md.
 
-### Archive
+### Archive (shown as Done)
 
-Archive: a session stays archived while its last conversational record is no newer than its archive time; newer activity unarchives it, and ids without a listed transcript are pruned (`SessionArchive.split`, applied after the first scan). Archiving an open session closes its tab and unpins it; the Archived section (bottom, collapsed by default, `archivedExpanded`) resumes and unarchives on click.
+A session stays archived while its last conversational record is no newer than its archive time; newer activity unarchives it, and ids without a listed transcript are pruned (`SessionArchive.split`, applied after the first scan). Marking an open session as done closes its tab and unpins it; the Done section (bottom, collapsed by default, `archivedExpanded`) resumes and unarchives on click.
 
 ### Pins
 
@@ -85,7 +85,7 @@ Pins: `pinnedSessions` (ordered ids) feeds a Pinned section (id `pinned`) above 
 
 ### Grouping
 
-Grouping (`design/flows-groups.md`): sidebar order is Needs Attention, Terminals, Active (Recent modes only), Pinned, the groups, Archived. Custom groups (name + folder rules, path and subfolders; first match wins) sit among the mode's groups (Project by checkout, Repository by git root, Recent by calendar day: Today, Yesterday, This Week, Older; Recent (One List), `GroupingMode.flat`, is one newest-first group `flat`) at `CustomGroup.slot` (`SessionGrouping.place`, top when unset); dragging a header (UTType `dev.gustaf.berth.group`) or Move Up/Down writes every custom group's slot (`SessionGrouping.moving`).
+Grouping (`design/flows-groups.md`): sidebar order is Needs Attention, Terminals, Active (Recent modes only), Pinned, the groups, Done. Custom groups (name + folder rules, path and subfolders; first match wins) sit among the mode's groups (Project by checkout, Repository by git root, Recent by calendar day: Today, Yesterday, This Week, Older; Recent (One List), `GroupingMode.flat`, is one newest-first group `flat`) at `CustomGroup.slot` (`SessionGrouping.place`, top when unset); dragging a header (UTType `dev.gustaf.berth.group`) or Move Up/Down writes every custom group's slot (`SessionGrouping.moving`).
 
 Archive and pins run before grouping. Triage (`showsTriage`, off by default; Group By menu toggle, View ▸ Show Triage, palette; `Store.triageSections`, `SessionTriage.sections`) lifts Working (busy) and Unread (`hasUnseenActivity`, a selected row stays until deselected) above the groups in every mode, titles Needs Attention as Needs You, and replaces Active. Mark as Done is `Store.archive` (row menu, E in the sidebar list, multi-selection, palette). Snooze (`Store.snooze`, `SessionSnooze`, `snoozedSessions` behind `persistsTabs`, pruned after the first scan) hides a session into a collapsed Snoozed section above Archived, keeps its tab, unpins it, and wakes it as unread when its time passes or it enters waiting.
 

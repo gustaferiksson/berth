@@ -574,7 +574,7 @@ final class RemoteServer {
         case .archive:
             guard store.liveBySession[sessionID] == nil else {
                 let harness = (store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude).harness
-                return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "\(harness.name) is still running in this session, so it can’t be archived from here")), to: connection)
+                return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "\(harness.name) is still running in this session, so it can’t be marked as done from here")), to: connection)
             }
 
             store.archive(sessionID)

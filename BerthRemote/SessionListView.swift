@@ -158,7 +158,7 @@ private struct SessionRow: View {
         }
         .swipeActions(edge: .trailing) {
             if session.status == nil {
-                Button("Archive", systemImage: "archivebox", role: .destructive) { perform(.archive) }
+                Button("Mark as Done", systemImage: "archivebox", role: .destructive) { perform(.archive) }
             }
             Button(session.isUnread == true ? "Mark as Read" : "Mark as Unread", systemImage: session.isUnread == true ? "envelope.open" : "envelope.badge") { perform(toggleRead) }
                 .tint(.blue)
@@ -179,7 +179,7 @@ private struct SessionRow: View {
             }
             if session.status == nil {
                 Divider()
-                Button("Archive", systemImage: "archivebox", role: .destructive) { perform(.archive) }
+                Button("Mark as Done", systemImage: "archivebox", role: .destructive) { perform(.archive) }
             }
         } preview: {
             SessionPreview(session: session)

@@ -24,4 +24,4 @@ The launcher has modes (`LauncherMode`, `Store.launcherMode`, nil = closed): `.n
 
 Palette (`CommandPalette.rank`, FuzzyMatch on title then keywords/folder): empty query shows open tabs in sidebar order, terminals included ("Sessions"), then actions ("Actions"); typing mixes open tabs, actions and unopened active sessions by score (ties: tabs, actions, sessions, then recency), at most 12 (the empty query is uncapped), plus a "Search Sessions for “…”" row. Actions are `AppAction`, the one source of titles, shortcuts and behaviour for the menus, the Group By picker, the palette's shortcut column and the key monitor.
 
-Unavailable ones are hidden (Clear Terminal without a terminal, Archive Current Session without a listed selected session, the current Group By). Collapse/Expand All Groups writes `collapsedGroups` (skipped when `persistsTabs` is off, so not visible in snapshots).
+Unavailable ones are hidden (Clear Terminal without a terminal, Mark Current Session as Done without a listed selected session, the current Group By). Collapse/Expand All Groups writes `collapsedGroups` (skipped when `persistsTabs` is off, so not visible in snapshots).
