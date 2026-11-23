@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension RemoteAgent {
-    static let legacyClaude = Self(name: "Claude", asset: "HarnessClaude", canChangeSettings: true, canAttach: true)
+    static let legacyClaude = Self(name: "Claude", asset: "HarnessClaude", canChangeSettings: true, canAttach: true, canRunBash: true)
 }
 
 struct SessionControls: View {
@@ -239,11 +239,13 @@ private struct Composer: View {
 
     var body: some View {
         let isExpanded = isFocused || !draft.isEmpty || !attachments.isEmpty
+        let isShell = agent.canRunBash == true && draft.hasPrefix("!")
         let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)))
+        let glass: Glass = isShell ? .regular.tint(.pink.opacity(0.12)) : .regular
 
         ComposerLayout(isExpanded: isExpanded, hasAttachmentMenu: agent.canAttach) {
             TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, axis: .vertical)
-                .font(.body)
+                .font(isShell ? .body.monospaced() : .body)
                 .textFieldStyle(.plain)
                 .lineLimit(1...(isExpanded ? 6 : 1))
                 .focused($isFocused)
@@ -253,7 +255,7 @@ private struct Composer: View {
                     attachmentMenu
                 }
             }
-            trailingControls(isExpanded: isExpanded)
+            trailingControls(isExpanded: isExpanded, isShell: isShell)
             if !attachments.isEmpty {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
@@ -272,7 +274,9 @@ private struct Composer: View {
             }
         }
         .clipShape(shape)
-        .glassEffect(.regular, in: shape)
+        .glassEffect(glass, in: shape)
+        .overlay { shape.stroke(.pink, lineWidth: 1.5).opacity(isShell ? 1 : 0) }
+        .animation(.smooth(duration: 0.2), value: isShell)
         .animation(.smooth(duration: 0.3), value: isExpanded)
         .disabled(client.state != .connected)
         .onChange(of: context) { old, new in
@@ -347,7 +351,7 @@ private struct Composer: View {
         .buttonStyle(.plain)
     }
 
-    private func trailingControls(isExpanded: Bool) -> some View {
+    private func trailingControls(isExpanded: Bool, isShell: Bool) -> some View {
         let isEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
         let showsStop = isWorking && isEmpty
         let canSend = !isEmpty && attachments.allSatisfy { client.uploads[$0.id] == .done }
@@ -386,7 +390,7 @@ private struct Composer: View {
                     .accessibilityHidden(true)
                     .foregroundStyle(isAvailable ? Color.white : Color.secondary)
                     .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
-                    .background(isAvailable ? Color.accentColor : controlFill, in: .circle)
+                    .background(isAvailable ? (isShell ? Color.pink : Color.accentColor) : controlFill, in: .circle)
                     .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
                     .contentShape(.rect)
             }
