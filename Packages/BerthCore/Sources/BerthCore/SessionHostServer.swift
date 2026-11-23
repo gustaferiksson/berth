@@ -73,7 +73,7 @@ public enum SessionHostServer {
                 }
                 client.isAttached = true
                 client.outbox += HostFrame.hello(host: getpid(), child: child).encoded()
-                let replay = ring.contents
+                let replay = ReplayQueries.removed(from: ring.contents)
                 for start in stride(from: 0, to: replay.count, by: 32_768) {
                     client.outbox += HostFrame.output(Array(replay[start..<min(start + 32_768, replay.count)])).encoded()
                 }

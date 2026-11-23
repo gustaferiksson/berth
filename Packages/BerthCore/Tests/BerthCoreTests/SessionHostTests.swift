@@ -39,6 +39,16 @@ struct SessionHostTests {
         #expect(ring.contents == Self.bytes(90..<100))
     }
 
+    @Test func replayDropsQueriesTheShellWouldReceiveAnswersTo() {
+        let queries = ["\u{1B}[6n", "\u{1B}[?6n", "\u{1B}[c", "\u{1B}[>0q", "\u{1B}[16t", "\u{1B}[18t", "\u{1B}[?2026$p", "\u{1B}[?u", "\u{1B}]11;?\u{07}", "\u{1B}]10;?\u{1B}\\", "\u{1B}]4;1;?\u{07}", "\u{1B}P$qm\u{1B}\\"]
+        for query in queries {
+            #expect(ReplayQueries.removed(from: Array(("a" + query + "b").utf8)) == Array("ab".utf8), "\(query.debugDescription)")
+        }
+
+        let kept = "\u{1B}[31mred\u{1B}[0m\u{1B}[2J\u{1B}[10;5H\u{1B}[?25l\u{1B}[8;24;80t\u{1B}]0;title\u{07}\u{1B}]11;rgb:00/00/00\u{07}\u{1B}]8;;https://x.y\u{1B}\\link\u{1B}[?1049h\u{1B}[>1u"
+        #expect(ReplayQueries.removed(from: Array(kept.utf8)) == Array(kept.utf8))
+    }
+
     @Test func socketPathsUseAShortStableName() throws {
         let id = "8D0F2A52-1C4B-4E0B-9C4A-3B3F0A3A9D11"
         #expect(try SessionHost.socketPath(directory: "/tmp/h", id: id) == "/tmp/h/8d0f2a521c4b.sock")
