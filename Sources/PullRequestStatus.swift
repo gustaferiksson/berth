@@ -187,6 +187,12 @@ nonisolated enum PullRequestStatus {
         projectQuery(ProjectQueries.listArguments, parse: ProjectQueries.parseList)
     }
 
+    static func moveProjectItem(_ arguments: [String]) -> ProjectFailure? {
+        guard case let .failure(failure) = projectQuery(arguments, parse: { _, _ in Result<Void, ProjectQueries.Failure>.success(()) }) else { return nil }
+
+        return failure
+    }
+
     static func projectBoard(_ project: ProjectRef) -> Result<ProjectBoard, ProjectFailure> {
         var pages: [ProjectQueries.BoardPage] = []
         var cursor: String?

@@ -26,8 +26,8 @@ public struct ProjectItem: Sendable, Equatable, Identifiable {
     public let title: String
     public let repository: String?
     public let url: URL?
-    public let statusName: String?
-    public let statusOptionID: String?
+    public internal(set) var statusName: String?
+    public internal(set) var statusOptionID: String?
     public let assignees: [String]
     public let isDraftPullRequest: Bool
     public let updatedAt: Date?
@@ -59,6 +59,18 @@ public struct ProjectBoard: Sendable, Equatable {
     public let isTruncated: Bool
 
     public static let noStatusName = "No Status"
+
+    public func moving(itemID: String, to option: ProjectStatusOption) -> Self {
+        let moved = items.map { item in
+            guard item.id == itemID else { return item }
+
+            var item = item
+            item.statusName = option.name
+            item.statusOptionID = option.id
+            return item
+        }
+        return Self(project: project, statusFieldID: statusFieldID, statusOptions: statusOptions, items: moved, isTruncated: isTruncated)
+    }
 
     public func groups(query: String, mineOnly: Bool, login: String) -> [ProjectGroup] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)

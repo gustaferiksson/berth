@@ -31,6 +31,11 @@ final class ProjectsModel {
         return (try? JSONDecoder().decode(Selection.self, from: Data(stored.utf8)))?.ids ?? []
     }()
 
+    enum MoveFailure {
+        case needsScope, failed
+    }
+
+    private(set) var moveFailure: MoveFailure?
     private var fetchState = State.off
     @ObservationIgnored private var fetchedAt = Date.distantPast
 
@@ -74,6 +79,28 @@ final class ProjectsModel {
             status(forRepository: pullRequest.repository, number: pullRequest.number).map { ("\(pullRequest.repository.lowercased())#\(pullRequest.number)", "\($0.statusName) · \($0.projectTitle)") }
         }
         return Dictionary(labels) { first, _ in first }
+    }
+
+    func move(_ item: ProjectItem, to option: ProjectStatusOption) {
+        guard UserDefaults.standard.bool(forKey: Self.allowsEditingKey), item.statusOptionID != option.id,
+              let board = boards[item.projectID], let fieldID = board.statusFieldID
+        else { return }
+
+        moveFailure = nil
+        boards[item.projectID] = board.moving(itemID: item.id, to: option)
+        guard Snapshot.output == nil else { return }
+
+        let arguments = ProjectQueries.moveArguments(projectID: item.projectID, itemID: item.id, fieldID: fieldID, optionID: option.id)
+        Task {
+            let failure = await Task.detached { PullRequestStatus.moveProjectItem(arguments) }.value
+            guard let failure else {
+                fetchedAt = .distantPast
+                return
+            }
+
+            boards[item.projectID] = board
+            moveFailure = failure == .needsScope ? .needsScope : .failed
+        }
     }
 
     func select(_ id: String, isSelected: Bool, persists: Bool) {

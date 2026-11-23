@@ -78,6 +78,26 @@ struct ProjectItemRow: View {
     }
 }
 
+struct ProjectMoveNotice: View {
+    let failure: ProjectsModel.MoveFailure
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(failure == .needsScope ? "Changing a status needs the project permission" : "Couldn’t change the status")
+            if failure == .needsScope {
+                Text(ProjectQueries.writeScopeCommand)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct ProjectNotice: View {
     let state: ProjectsModel.State
     let hasProjects: Bool

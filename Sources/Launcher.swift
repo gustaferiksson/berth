@@ -57,6 +57,7 @@ struct Launcher: View {
     @State private var isBrowsing = false
     @State private var missingCheckout: InboxPullRequest?
     @AppStorage(ProjectsModel.mineOnlyKey) private var mineOnly = false
+    @AppStorage(ProjectsModel.allowsEditingKey) private var allowsEditing = false
     @State private var missingProjectItem: ProjectItem?
     @State private var selectedIssue: InboxIssue?
     @State private var issueLookup: (reference: IssueReference, result: Result<[LinkedPullRequest], IssuePullRequests.LookupError>)?
@@ -223,19 +224,7 @@ struct Launcher: View {
                     .buttonStyle(.plain)
                     .help("Show all pull requests")
                 }
-                if mode == .projects, issue == nil {
-                    Button { mineOnly.toggle() } label: {
-                        Text("Mine")
-                            .font(.subheadline)
-                            .padding(.horizontal, 8)
-                            .frame(height: 20)
-                            .background(theme.foreground.opacity(mineOnly ? 0.25 : 0.1), in: .capsule)
-                            .contentShape(.capsule)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityValue(mineOnly ? "On" : "Off")
-                    .help("Show only items assigned to you")
-                }
+                if mode == .projects, issue == nil { mineChip }
                 if nextScope != nil {
                     HStack(spacing: 0) {
                         ForEach(scopes, id: \.mode) { scope, title in
@@ -291,10 +280,7 @@ struct Launcher: View {
                 Divider()
                 checkoutNotice(repository: pullRequest.repository, url: pullRequest.url)
             }
-            if mode == .projects, let item = missingProjectItem, item.id == highlightedProject?.id, let repository = item.repository, let url = item.url {
-                Divider()
-                checkoutNotice(repository: repository, url: url)
-            }
+            if mode == .projects { projectNotices }
             Divider()
             HStack(spacing: 16) {
                 if mode == .newSession {
@@ -868,6 +854,31 @@ struct Launcher: View {
         store.launcherMode = scope
     }
 
+    private var mineChip: some View {
+        Button { mineOnly.toggle() } label: {
+            Text("Mine")
+                .font(.subheadline)
+                .padding(.horizontal, 8)
+                .frame(height: 20)
+                .background(theme.foreground.opacity(mineOnly ? 0.25 : 0.1), in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(mineOnly ? "On" : "Off")
+        .help("Show only items assigned to you")
+    }
+
+    @ViewBuilder private var projectNotices: some View {
+        if let failure = store.projects.moveFailure {
+            Divider()
+            ProjectMoveNotice(failure: failure)
+        }
+        if let item = missingProjectItem, item.id == highlightedProject?.id, let repository = item.repository, let url = item.url {
+            Divider()
+            checkoutNotice(repository: repository, url: url)
+        }
+    }
+
     @ViewBuilder private var projectRows: some View {
         let entries = projectEntries
         ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
@@ -896,10 +907,26 @@ struct Launcher: View {
             }
             .buttonStyle(.plain)
             .disabled(entry.item.kind == .draft)
+            .contextMenu { projectMenu(entry.item) }
             .id(index)
         }
         if entries.isEmpty {
             ProjectNotice(state: store.projects.state, hasProjects: !store.projects.selectedBoards.isEmpty, isFiltered: mineOnly || !query.allSatisfy(\.isWhitespace))
+        }
+    }
+
+    @ViewBuilder
+    private func projectMenu(_ item: ProjectItem) -> some View {
+        if let url = item.url {
+            Button("Open on GitHub") { openOnGitHub(url) }
+        }
+        if allowsEditing, let options = store.projects.boards[item.projectID]?.statusOptions, !options.isEmpty {
+            Menu("Move To Status") {
+                ForEach(options, id: \.id) { option in
+                    Button(option.name) { store.projects.move(item, to: option) }
+                        .disabled(option.id == item.statusOptionID)
+                }
+            }
         }
     }
 
