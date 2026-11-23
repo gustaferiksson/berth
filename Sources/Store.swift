@@ -49,8 +49,15 @@ enum NewSessionCheckout {
 
 enum PullRequestOpening {
     case session(SessionSummary)
+    case tab(Tab.ID)
     case worktree(String)
     case noCheckout
+
+    var isOpenable: Bool {
+        if case .noCheckout = self { return false }
+
+        return true
+    }
 }
 
 struct ReviewRepository: Hashable {
@@ -250,6 +257,7 @@ final class Store {
     private(set) var linkedPullRequests = Snapshot.fixtureLinkedPullRequests
     private(set) var inbox = Snapshot.fixtureInbox
     private(set) var isInboxLoading = false
+    private var pullRequestTabs: [PullRequestLink: Tab.ID] = [:]
     private(set) var searchIndexVersion = 0
     private(set) var searchIndexing: (done: Int, total: Int)?
     @ObservationIgnored private(set) var searchIndex = TranscriptSearchIndex()
@@ -577,7 +585,7 @@ final class Store {
         }
     }
 
-    func sessions(for pullRequest: InboxPullRequest) -> [SessionSummary] {
+    func sessions(for pullRequest: PullRequestLink) -> [SessionSummary] {
         let repository = pullRequest.repository.lowercased()
         return (activeSessions + archivedSessions)
             .filter { session in
@@ -587,14 +595,41 @@ final class Store {
             .sorted { $0.lastActivity > $1.lastActivity }
     }
 
-    func opening(of pullRequest: InboxPullRequest) -> PullRequestOpening {
+    func opening(of pullRequest: PullRequestLink) -> PullRequestOpening {
         if let session = sessions(for: pullRequest).first { return .session(session) }
-
         let repository = pullRequest.repository.lowercased()
+        let link = PullRequestLink(repository: repository, number: pullRequest.number)
+        if let id = pullRequestTabs[link], tabs.contains(where: { $0.id == id }) { return .tab(id) }
+
         let root = knownFolders.lazy.compactMap { self.repositoryRoots[$0.path] }.first { root in
             (self.repositories[root] ?? nil)?.lowercased() == repository && FileManager.default.fileExists(atPath: root)
         }
         return root.map(PullRequestOpening.worktree) ?? .noCheckout
+    }
+
+    @discardableResult
+    func openPullRequest(_ link: PullRequestLink, url: URL, opening: PullRequestOpening, selectsTab: Bool = true) -> Bool {
+        switch opening {
+        case let .session(session): return activate(.session(session.id), selectsTab: selectsTab)
+        case let .tab(id): return activate(.tab(id), selectsTab: selectsTab)
+        case .noCheckout: return false
+        case let .worktree(root):
+            let prompt = "Check out PR #\(link.number) (\(url.absoluteString)) with gh pr checkout \(link.number) in this worktree, then summarize it."
+            guard let id = openSession(cwd: root, checkout: .worktree, pasting: prompt, selectsTab: selectsTab) else { return false }
+
+            pullRequestTabs[PullRequestLink(repository: link.repository.lowercased(), number: link.number)] = id
+            if selectsTab { isHarborShown = false }
+            return true
+        }
+    }
+
+    func issuePullRequestStatus(_ pullRequest: LinkedPullRequest, opening: PullRequestOpening) -> String {
+        switch opening {
+        case let .session(session): tab(forSession: session.id) == nil ? "Resume Session" : "Switch To Session"
+        case .tab: "Switch To Session"
+        case .worktree: "New Worktree"
+        case .noCheckout: "No local checkout of \(pullRequest.link.repository)"
+        }
     }
 
     private func resolvePullRequests() {
@@ -857,42 +892,53 @@ final class Store {
         return .tab(tab.id)
     }
 
-    func activate(_ item: SidebarItem?) {
+    @discardableResult
+    func activate(_ item: SidebarItem?, selectsTab: Bool = true) -> Bool {
         if !multiSelection.isEmpty { multiSelection = [] }
 
-        guard let tab = tab(activating: item) else { return }
+        if case let .task(id) = item, let task = sessionTasks.first(where: { $0.id == id }) {
+            return activate(.session(task.sessions[0].id), selectsTab: selectsTab)
+        }
+        let tabID: Tab.ID
+        switch item {
+        case let .tab(id):
+            guard tabs.contains(where: { $0.id == id }) else { return false }
 
-        selectedTabID = tab.id
-        recentTabIDs = [tab.id] + recentTabIDs.filter { $0 != tab.id }
+            tabID = id
+
+        case let .session(id):
+            guard let session = (activeSessions + archivedSessions).first(where: { $0.id == id }) else { return false }
+
+            if archivedAt[id] != nil { unarchive(id) }
+            refreshLive()
+            if let tab = tab(forSession: id), session.agent.harness.liveSource == .sessionFiles, liveBySession[id] == nil, tab.opened.timeIntervalSinceNow < -10 {
+                close(tab.id)
+            }
+            if let tab = tab(forSession: id) {
+                tabID = tab.id
+            } else {
+                if let live = liveBySession[id], orphanedSessionIDs.contains(id) {
+                    resumeOrphan(session, live: live, selectsTab: selectsTab)
+                    return true
+                }
+                guard !isLockedElsewhere(liveBySession[id]) else {
+                    lockedSessionID = id
+                    return false
+                }
+                guard let resumed = resume(session, selectsTab: selectsTab) else { return false }
+
+                tabID = resumed
+            }
+
+        default: return false
+        }
+        guard selectsTab else { return true }
+
+        selectedTabID = tabID
+        recentTabIDs = [tabID] + recentTabIDs.filter { $0 != tabID }
         isHarborShown = false
         focusSelected()
-    }
-
-    private func tab(activating item: SidebarItem?) -> Tab? {
-        if case let .tab(id) = item { return tabs.first { $0.id == id } }
-        if case let .task(id) = item { return sessionTasks.first { $0.id == id }.flatMap { tab(activating: .session($0.sessions[0].id)) } }
-        guard case let .session(id) = item,
-              let session = (activeSessions + archivedSessions).first(where: { $0.id == id })
-        else { return nil }
-
-        if archivedAt[id] != nil { unarchive(id) }
-        refreshLive()
-        if let tab = tab(forSession: session.id) {
-            guard session.agent.harness.liveSource == .sessionFiles, liveBySession[session.id] == nil, tab.opened.timeIntervalSinceNow < -10 else { return tab }
-
-            close(tab.id)
-        }
-        if let live = liveBySession[session.id], orphanedSessionIDs.contains(session.id) {
-            resumeOrphan(session, live: live)
-            return nil
-        }
-        guard !isLockedElsewhere(liveBySession[session.id]) else {
-            lockedSessionID = session.id
-            return nil
-        }
-
-        resume(session)
-        return tabs.first { $0.id == selectedTabID }
+        return true
     }
 
     func isLockedElsewhere(_ live: LiveSession?) -> Bool {
@@ -911,7 +957,7 @@ final class Store {
         return liveBySession[live.sessionId] == nil
     }
 
-    private func resumeOrphan(_ session: SessionSummary, live: LiveSession) {
+    private func resumeOrphan(_ session: SessionSummary, live: LiveSession, selectsTab: Bool) {
         guard resumingOrphans.insert(session.id).inserted else { return }
 
         Task {
@@ -928,8 +974,8 @@ final class Store {
                 lockedSessionID = session.id
                 return
             }
+            guard resume(session, selectsTab: selectsTab) != nil, selectsTab else { return }
 
-            resume(session)
             isHarborShown = false
             focusSelected()
         }
@@ -1001,7 +1047,7 @@ final class Store {
     }
 
     func focusSelected() {
-        guard let tab = tabs.first(where: { $0.id == selectedTabID }) else { return }
+        guard launcherMode == nil, let tab = tabs.first(where: { $0.id == selectedTabID }) else { return }
 
         if showsConversation(tab) { conversationFocusRequests += 1 } else { tab.terminal.requestFocus() }
     }
@@ -1264,7 +1310,10 @@ final class Store {
         launcherMode = nil
         let kind: Tab.Kind = !isHarborShown && tabs.first { $0.id == selectedTabID }?.kind == .shell ? .claude : .shell
         let recent = recentTabIDs.lazy.compactMap { id in self.tabs.first { $0.id == id && $0.kind == kind } }.first
-        if let target = recent ?? tabs.last(where: { $0.kind == kind }) { return activate(.tab(target.id)) }
+        if let target = recent ?? tabs.last(where: { $0.kind == kind }) {
+            activate(.tab(target.id))
+            return
+        }
         if kind == .shell { newTerminal() }
     }
 
@@ -1341,7 +1390,8 @@ final class Store {
         activate(.tab(candidates[(current + offset + candidates.count) % candidates.count].id))
     }
 
-    func openSession(_ agent: Agent = .claude, cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil) {
+    @discardableResult
+    func openSession(_ agent: Agent = .claude, cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil, selectsTab: Bool = true) -> Tab.ID? {
         let harness = agent.harness
         let session = sessionID ?? (harness.claimsNewSession ? nil : UUID().uuidString.lowercased())
         let attachID = session.flatMap { liveBySession[$0]?.attachID }
@@ -1354,15 +1404,18 @@ final class Store {
         } else {
             .new
         }
+        let id = UUID()
         #if DEBUG
-        if Snapshot.launcherKeys != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil { return probeOpened.append((agent, cwd, start)) }
+        if Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil {
+            probeOpened.append((agent, cwd, start))
+            return id
+        }
         #endif
         guard FileManager.default.fileExists(atPath: cwd) else {
             missingFolder = cwd
-            return
+            return nil
         }
 
-        let id = UUID()
         let environment = session.map { [ClaudeLaunch.sessionVariable: attachID ?? $0] } ?? [:]
         let options = LaunchOptions(
             model: UserDefaults.standard.string(forKey: "launchModel.\(agent.rawValue)"),
@@ -1371,16 +1424,18 @@ final class Store {
         let launch = hostLaunch(harness.command(start, options), id: id)
         tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, agent: agent, terminal: terminal(id: id, cwd: cwd, command: launch.command, environment: environment) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
         if isConversationEnabled, harness.supports(.conversation), UserDefaults.standard.string(forKey: GeneralSettings.conversationViewKey) == "conversation" { conversationTabIDs.insert(id) }
-        selectedTabID = id
-        recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
-        guard let prompt, let session else { return }
-
-        Task { await paste(prompt, intoStartingSession: session, tab: id) }
+        if selectsTab {
+            selectedTabID = id
+            recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
+        }
+        if let prompt, let session { Task { await paste(prompt, intoStartingSession: session, tab: id) } }
+        return id
     }
 
-    private func resume(_ session: SessionSummary) {
+    @discardableResult
+    private func resume(_ session: SessionSummary, selectsTab: Bool = true) -> Tab.ID? {
         let folder = resumeFolder(of: session)
-        openSession(session.agent, cwd: folder, resuming: session.id)
+        return openSession(session.agent, cwd: folder, resuming: session.id, selectsTab: selectsTab)
     }
 
     private func claimNewSessions() {
@@ -1414,7 +1469,7 @@ final class Store {
         refreshLive()
         guard let terminal = tabs.first(where: { $0.id == id })?.terminal, liveBySession[sessionID].map({ $0.status != "waiting" }) == true, terminal.paste(text: prompt) else { return }
 
-        if selectedTabID == id { terminal.requestFocus() }
+        if selectedTabID == id, launcherMode == nil { terminal.requestFocus() }
     }
 
     private func terminal(id: UUID, cwd: String, command: String?, environment: [String: String] = [:], onClose: @escaping () -> Void) -> TerminalViewState {
@@ -1577,6 +1632,7 @@ final class Store {
         conversationSuspended.remove(id)
         conversationDrafts[id] = nil
         tabs.removeAll { $0.id == id }
+        pullRequestTabs = pullRequestTabs.filter { $0.value != id }
         recentTabIDs.removeAll { $0 == id }
         if multiSelection.contains(.tab(id)) { multiSelection.removeAll { $0 == .tab(id) } }
         guard selectedTabID == id else { return }

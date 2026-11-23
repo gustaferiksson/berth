@@ -158,6 +158,13 @@ nonisolated enum PullRequestStatus {
         return PullRequestInbox.parse(output)
     }
 
+    static func linkedPullRequests(issue: IssueReference) -> Result<[LinkedPullRequest], IssuePullRequests.LookupError> {
+        guard let gh else { return .failure(.missingCLI) }
+        guard let output = run(gh, arguments: IssuePullRequests.arguments(issue: issue)) else { return .failure(.requestFailed) }
+
+        return IssuePullRequests.parse(output)
+    }
+
     static func detail(repository: String, number: Int) -> PullRequestDetail? {
         guard let gh, let arguments = PullRequestDetail.arguments(repository: repository, number: number), let output = run(gh, arguments: arguments) else { return nil }
 
