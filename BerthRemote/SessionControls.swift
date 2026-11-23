@@ -27,7 +27,6 @@ struct SessionControls: View {
             VStack(spacing: 0) {
                 if let session, session.status == "waiting" {
                     ApprovalCard(session: session, pendingCall: approvalCall(for: session))
-                        .padding(.horizontal, 12)
                         .padding(.bottom, 8)
                 }
                 Composer(
@@ -241,7 +240,8 @@ private struct Composer: View {
     var body: some View {
         let isExpanded = isFocused || !draft.isEmpty || !attachments.isEmpty
         let isShell = agent.canRunBash == true && draft.hasPrefix("!")
-        let shape = RoundedRectangle(cornerRadius: ComposerLayout.cornerRadius)
+        let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)))
+        let glass: Glass = isShell ? .regular.tint(.pink.opacity(0.12)) : .regular
 
         ComposerLayout(isExpanded: isExpanded, hasAttachmentMenu: agent.canAttach) {
             TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, axis: .vertical)
@@ -273,11 +273,10 @@ private struct Composer: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .glassEffect(isShell ? .regular.tint(.pink.opacity(0.12)) : .regular, in: shape)
-        .overlay { shape.strokeBorder(.pink, lineWidth: 1.5).opacity(isShell ? 1 : 0) }
+        .clipShape(shape)
+        .glassEffect(glass, in: shape)
+        .overlay { shape.stroke(.pink, lineWidth: 1.5).opacity(isShell ? 1 : 0) }
         .animation(.smooth(duration: 0.2), value: isShell)
-        .padding(.horizontal, isExpanded ? 12 : 38)
-        .padding(.bottom, isExpanded ? 12 : 4)
         .animation(.smooth(duration: 0.3), value: isExpanded)
         .disabled(client.state != .connected)
         .onChange(of: context) { old, new in
@@ -387,6 +386,8 @@ private struct Composer: View {
             } label: {
                 Image(systemName: showsStop ? "stop.fill" : "arrow.up")
                     .font(.body.weight(.semibold))
+                    .contentTransition(.symbolEffect(.replace))
+                    .accessibilityHidden(true)
                     .foregroundStyle(isAvailable ? Color.white : Color.secondary)
                     .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
                     .background(isAvailable ? (isShell ? Color.pink : Color.accentColor) : controlFill, in: .circle)
@@ -396,6 +397,8 @@ private struct Composer: View {
             .buttonStyle(.plain)
             .disabled(!isAvailable)
             .accessibilityLabel(showsStop ? "Stop" : "Send")
+            .animation(.snappy(duration: 0.2), value: showsStop)
+            .animation(.snappy(duration: 0.2), value: isAvailable)
         }
     }
 
@@ -593,16 +596,16 @@ struct ComposerLayout: Layout {
     private static let hitInset = controlInset - hitPadding
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
-        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? (isExpanded ? 369 : 317)
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 361
         return CGSize(width: width, height: measure(width: width, subviews: subviews).height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
         let metrics = measure(width: bounds.width, subviews: subviews)
-        let controlsCenter = isExpanded ? bounds.maxY - Self.controlsHeight / 2 : bounds.midY
+        let controlsCenter = bounds.maxY - Self.controlsHeight / 2
         let fieldProposal = ProposedViewSize(width: metrics.field.width, height: metrics.field.height)
         let font = UIFont.preferredFont(forTextStyle: .body)
-        let fieldTop = isExpanded ? bounds.minY + metrics.field.minY : controlsCenter + font.capHeight / 2 - font.ascender
+        let fieldTop = isExpanded ? bounds.minY + metrics.field.minY : bounds.midY + font.capHeight / 2 - font.ascender
 
         subviews[0].place(at: CGPoint(x: bounds.minX + metrics.field.minX, y: fieldTop), anchor: .topLeading, proposal: fieldProposal)
         subviews[1].place(at: CGPoint(x: bounds.minX + Self.hitInset, y: controlsCenter), anchor: .leading, proposal: .unspecified)

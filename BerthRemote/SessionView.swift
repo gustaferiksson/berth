@@ -3,6 +3,8 @@ import SwiftUI
 struct SessionView: View {
     let sessionID: String
 
+    private static let controlsInset: CGFloat = 16
+
     @Environment(RemoteClient.self) private var client
     @Environment(\.openURL) private var openURL
     @State private var position = ScrollPosition(edge: .bottom)
@@ -95,25 +97,27 @@ struct SessionView: View {
             }
         }
         .overlay(alignment: .bottom) {
-            if !isAtBottom {
-                Button(action: scrollToEnd) {
-                    if hasNewMessages {
-                        Label("New Messages", systemImage: "arrow.down")
-                    } else {
-                        Image(systemName: "arrow.down")
-                            .frame(width: 24, height: 24)
+            ZStack {
+                if !isAtBottom {
+                    Button(action: scrollToEnd) {
+                        if hasNewMessages {
+                            Label("New Messages", systemImage: "arrow.down")
+                        } else {
+                            Image(systemName: "arrow.down")
+                                .frame(width: 24, height: 24)
+                        }
                     }
+                    .accessibilityLabel(hasNewMessages ? "New messages, scroll to end" : "Scroll to End")
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(hasNewMessages ? .capsule : .circle)
+                    .controlSize(.large)
+                    .padding()
+                    .transition(.scale.combined(with: .opacity))
                 }
-                .accessibilityLabel(hasNewMessages ? "New messages, scroll to end" : "Scroll to End")
-                .buttonStyle(.glass)
-                .buttonBorderShape(hasNewMessages ? .capsule : .circle)
-                .controlSize(.large)
-                .padding()
-                .transition(.scale.combined(with: .opacity))
             }
+            .animation(.smooth, value: hasNewMessages)
+            .animation(.smooth, value: isAtBottom)
         }
-        .animation(.smooth, value: hasNewMessages)
-        .animation(.smooth, value: isAtBottom)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 6) {
                 if let tasks = activity?.tasks, !tasks.isEmpty {
@@ -128,7 +132,10 @@ struct SessionView: View {
                     openContext: { isShowingContext = true }
                 )
             }
+            .padding(.horizontal, Self.controlsInset)
+            .padding(.bottom, 10)
         }
+        .ignoresSafeArea(.container, edges: .bottom)
         .sheet(isPresented: $isShowingRunning) {
             RunningSheet(sessionID: sessionID)
         }

@@ -60,7 +60,6 @@ struct RunningStrip: View {
             .glassEffect(.regular, in: .capsule)
         }
         .buttonStyle(.plain)
-        .padding(.horizontal)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Running, \(summary)")
         .accessibilityHint("Shows what is running")
