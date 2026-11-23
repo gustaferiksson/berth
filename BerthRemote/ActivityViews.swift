@@ -57,7 +57,7 @@ struct RunningStrip: View {
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.capsule)
-            .glassEffect(.regular, in: .capsule)
+            .glassEffect(.regular, in: ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)), isUniform: true))
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
