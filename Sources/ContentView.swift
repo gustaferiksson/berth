@@ -21,6 +21,7 @@ struct ContentView: View {
     @AppStorage(WindowBackdrop.backgroundKey) private var windowBackground = WindowBackground.theme
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
+    @State private var previousLauncherScope: LauncherMode?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -53,11 +54,14 @@ struct ContentView: View {
                             Color.clear
                                 .contentShape(.rect)
                                 .onTapGesture { store.launcherMode = nil }
-                            Launcher(mode: mode, query: store.launcherQuery)
+                            Launcher(mode: mode, query: store.launcherQuery, previousScope: $previousLauncherScope)
                                 .id(mode)
                                 .padding(.top, 120)
                         }
                     }
+                }
+                .onChange(of: store.launcherMode) {
+                    if store.launcherMode == nil { previousLauncherScope = nil }
                 }
                 .overlay(alignment: .top) {
                     if let restart = store.updater.pendingRestart {
@@ -201,6 +205,10 @@ struct ContentView: View {
             Text("Its sessions go back to their automatic groups. No transcripts are deleted.")
         }
         .alert("Couldn’t Open Pull Request", isPresented: Binding(get: { store.pullRequestFailure != nil }, set: { if !$0 { store.pullRequestFailure = nil } }), presenting: store.pullRequestFailure) { _ in
+        } message: { message in
+            Text(message)
+        }
+        .alert("Couldn’t Stop Watching", isPresented: Binding(get: { store.stopWatchingFailure != nil }, set: { if !$0 { store.stopWatchingFailure = nil } }), presenting: store.stopWatchingFailure) { _ in
         } message: { message in
             Text(message)
         }

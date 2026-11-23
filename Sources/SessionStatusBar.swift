@@ -55,6 +55,16 @@ struct SessionStatusBar: View {
             }
             .foregroundStyle(theme.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
+            if let watch = model.pullRequestWatch {
+                Label(watch.title, systemImage: "eye")
+                    .foregroundStyle(theme.secondary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                Button("Stop Watching") { Task { await model.stopWatching() } }
+                    .buttonStyle(.plain)
+                    .disabled(isWaiting || model.isSending || live == nil)
+                    .layoutPriority(1)
+            }
             if let context {
                 SessionModelMenu(model: model, harness: harness, context: context, isWorking: isWorking, isWaiting: isWaiting)
                     .layoutPriority(1)

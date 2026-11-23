@@ -746,13 +746,14 @@ private struct TabItem: View {
 
     var body: some View {
         let tab = store.tabs.first { $0.id == id }
+        let watch = tab?.sessionID.flatMap(store.pullRequestWatch(for:))
         Group {
             HStack(spacing: 0) {
                 if let tab, tab.kind == .shell {
                     TabRow(tab: tab, live: nil, terminal: tab.terminal)
                         .help((tab.folder as NSString).abbreviatingWithTildeInPath)
                 } else if let tab {
-                    TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, terminal: tab.terminal)
+                    TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, watch: watch, terminal: tab.terminal)
                 }
             }
             .modifier(RowChrome(item: .tab(id), hoverID: id.uuidString, isLocked: false, close: tab?.kind == .shell ? { store.close(id) } : nil, select: { select(.tab(id)) }))
@@ -765,7 +766,10 @@ private struct TabItem: View {
                 } else {
                     Button("New Terminal") { store.newTerminal(for: id) }
                     Button("Unload Session") { store.close(id) }
-                    if let sessionID = tab?.sessionID { CopySessionIDButton(sessionID: sessionID) }
+                    if let sessionID = tab?.sessionID {
+                        if watch != nil { SidebarStopWatchingButton(sessionID: sessionID) }
+                        CopySessionIDButton(sessionID: sessionID)
+                    }
                 }
             }
             OwnedTerminalItems(parent: id, indent: 16, select: select)
@@ -798,6 +802,7 @@ private struct SessionItem: View {
         let suggestion = store.taskSuggestions[id]
         let suggestionLabel = suggestion.flatMap(suggestionText)
         let pullRequests = session.map(store.pullRequests(of:)) ?? []
+        let watch = store.pullRequestWatch(for: id)
         Group {
             VStack(alignment: .leading, spacing: 0) {
                 if let session {
@@ -805,6 +810,7 @@ private struct SessionItem: View {
                         session: session,
                         projectName: place == .archived || place == .group(folder: session.checkout) ? nil : URL(filePath: session.checkout).lastPathComponent,
                         live: live,
+                        watch: watch,
                         isOpen: tab != nil,
                         isLocked: isLocked,
                         hasBackgroundShell: store.backgroundShellIDs.contains(id),
@@ -838,6 +844,7 @@ private struct SessionItem: View {
                 if store.multiSelection.contains(.session(id)) {
                     MultiSelectionMenu()
                 } else if place == .archived {
+                    if watch != nil { SidebarStopWatchingButton(sessionID: id) }
                     if let tab { Button("New Terminal") { store.newTerminal(for: tab.id) } }
                     Button("Mark as Not Done") { store.unarchive(id) }
                     if store.task(containing: id) != nil { Button("Mark Task as Not Done") { store.markTaskNotDone(containing: id) } }
@@ -845,6 +852,7 @@ private struct SessionItem: View {
                     Divider()
                     CopySessionIDButton(sessionID: id)
                 } else if let session {
+                    if watch != nil { SidebarStopWatchingButton(sessionID: id) }
                     menu(session, tab: tab)
                 }
             }
@@ -1239,10 +1247,37 @@ private enum RowState: Equatable {
     }
 }
 
+private struct SidebarStopWatchingButton: View {
+    let sessionID: String
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        Button("Stop Watching", systemImage: "eye.slash") {
+            Task {
+                if case let .refused(message) = await store.stopWatching(sessionID) { store.stopWatchingFailure = message }
+            }
+        }
+        .disabled(store.tab(forSession: sessionID) == nil || store.liveBySession[sessionID]?.status == "waiting")
+    }
+}
+
+private struct SidebarWatchLabel: View {
+    let watch: PullRequestWatch
+
+    var body: some View {
+        Label(watch.title, systemImage: "eye")
+            .labelStyle(CompactLabel())
+            .font(.caption)
+            .foregroundStyle(Color.secondary)
+            .fixedSize()
+    }
+}
+
 private struct SessionRow: View {
     let session: SessionSummary
     let projectName: String?
     let live: LiveSession?
+    let watch: PullRequestWatch?
     let isOpen: Bool
     let isLocked: Bool
     let hasBackgroundShell: Bool
@@ -1259,9 +1294,11 @@ private struct SessionRow: View {
     @Environment(\.sidebarDensity) private var density
 
     var body: some View {
+        let activity = RowState(live: live)
+        let visibleWatch = activity == nil ? watch : nil
         CardRow(
             title: session.title,
-            state: RowState(live: live),
+            state: activity,
             isLocked: isLocked,
             modified: session.lastPrompt,
             isOpen: isOpen,
@@ -1280,13 +1317,15 @@ private struct SessionRow: View {
                                 .help(suggestion)
                                 .accessibilityLabel(suggestion)
                         }
-                        if let pullRequest {
+                        if let visibleWatch {
+                            SidebarWatchLabel(watch: visibleWatch)
+                        } else if let pullRequest {
                             PullRequestTag(pullRequest: pullRequest, more: morePullRequests)
                                 .fixedSize()
                                 .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .sidebar, store: store))
                         }
                     }
-                } else if pullRequest != nil || session.branch != nil || projectName != nil {
+                } else if pullRequest != nil || session.branch != nil || projectName != nil || visibleWatch != nil {
                     let branch = session.branch
                     HStack(spacing: 8) {
                         HStack(spacing: 4) {
@@ -1319,7 +1358,9 @@ private struct SessionRow: View {
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        if let pullRequest {
+                        if let visibleWatch {
+                            SidebarWatchLabel(watch: visibleWatch)
+                        } else if let pullRequest {
                             PullRequestTag(pullRequest: pullRequest, more: morePullRequests)
                                 .fixedSize()
                                 .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .sidebar, store: store))
@@ -1553,6 +1594,7 @@ private struct SuggestionLine: View {
 private struct TabRow: View {
     let tab: Tab
     let live: LiveSession?
+    var watch: PullRequestWatch?
     @ObservedObject var terminal: TerminalViewState
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.sidebarDensity) private var density
@@ -1560,8 +1602,13 @@ private struct TabRow: View {
     var body: some View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         if tab.kind == .claude {
-            CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil, isOpen: true) {
-                if !density.isCompact { Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(Color.secondary) }
+            let activity = RowState(live: live)
+            CardRow(title: title, state: activity, isLocked: false, modified: nil, isOpen: true) {
+                if let watch, activity == nil {
+                    SidebarWatchLabel(watch: watch)
+                } else if !density.isCompact {
+                    Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(Color.secondary)
+                }
             }
             .accessibilityValue(tab.agent.harness.isOptIn ? tab.agent.harness.name : "")
         } else {

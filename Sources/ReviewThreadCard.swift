@@ -1,6 +1,7 @@
 import AppKit
 import BerthCore
 import QuartzCore
+import SwiftUI
 
 final class ReviewThreadCard: NSView {
     private struct Message {
@@ -211,5 +212,82 @@ private final class VerticallyCenteredCell: NSTextFieldCell {
         let base = super.drawingRect(forBounds: rect)
         let height = cellSize(forBounds: rect).height
         return NSRect(x: base.minX, y: base.minY + (base.height - height) / 2, width: base.width, height: height)
+    }
+}
+
+struct ReviewThreadRows: View {
+    let threads: [ReviewThread]
+    let open: (ReviewThread) -> Void
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        let groups = Dictionary(grouping: threads, by: \.path)
+        ForEach(groups.keys.sorted(), id: \.self) { path in
+            let file = path as NSString
+            let group = groups[path, default: []]
+            HStack(spacing: 5) {
+                Text(file.lastPathComponent).bold()
+                if !file.deletingLastPathComponent.isEmpty {
+                    Text(file.deletingLastPathComponent)
+                        .foregroundStyle(theme.secondary)
+                        .truncationMode(.middle)
+                }
+            }
+            .font(.caption)
+            .lineLimit(1)
+            .accessibilityAddTraits(.isHeader)
+            .help(path)
+            .reviewRow(top: 5, bottom: 2)
+            ForEach(group.filter { !$0.isResolved } + group.filter(\.isResolved)) { thread in
+                Button { open(thread) } label: {
+                    row(thread)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help(thread.line.map { "Open \(path) at line \($0)" } ?? "Open \(path)")
+                .reviewRow(top: 4, bottom: 4)
+            }
+        }
+    }
+
+    private func row(_ thread: ReviewThread) -> some View {
+        let first = thread.comments.first
+        let author = first?.author ?? "Unknown author"
+        let tint = thread.isResolved ? theme.secondary : theme.branch
+        return HStack(alignment: .top, spacing: 7) {
+            Text(String(author.prefix(1)).uppercased())
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(tint)
+                .frame(width: 22, height: 22)
+                .background(tint.opacity(0.16), in: .circle)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(author).fontWeight(.semibold).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text("^[\(max(0, thread.comments.count - 1)) reply](inflect: true)")
+                        .monospacedDigit()
+                        .foregroundStyle(theme.secondary)
+                    if thread.isResolved {
+                        Image(systemName: "checkmark.circle")
+                            .foregroundStyle(theme.working)
+                            .accessibilityLabel("Resolved")
+                            .help("Resolved")
+                    }
+                    if thread.isOutdated {
+                        Text("Outdated")
+                            .foregroundStyle(theme.needsYou)
+                            .padding(.horizontal, 4)
+                            .background(theme.needsYou.opacity(0.16), in: .rect(cornerRadius: 4))
+                    }
+                }
+                .font(.caption)
+                Text(first?.body.split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: \.isNewline).first.map(String.init) ?? "")
+                    .font(.callout)
+                    .foregroundStyle(theme.secondary)
+                    .lineLimit(2)
+            }
+        }
     }
 }

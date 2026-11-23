@@ -6,6 +6,8 @@ import WebKit
 
 enum Snapshot {
     #if DEBUG
+    static let showsWatching = UserDefaults.standard.bool(forKey: "snapshotWatching")
+    static let showsPullRequestActions = UserDefaults.standard.bool(forKey: "snapshotPullRequestActions")
     static let output = UserDefaults.standard.string(forKey: "snapshot").map { URL(filePath: $0) }
     #else
     static let output: URL? = nil
@@ -99,6 +101,7 @@ enum Snapshot {
     static let launcherKeys = UserDefaults.standard.string(forKey: "snapshotLauncherKeys")
     static let issueQuery = UserDefaults.standard.string(forKey: "snapshotIssue")
     static let issueInboxQuery = UserDefaults.standard.string(forKey: "snapshotIssues")
+    static let launcherLoading = output != nil && UserDefaults.standard.bool(forKey: "snapshotLauncherLoading")
 
     private static let hubFolders: [SessionSummary] = {
         let code = NSTemporaryDirectory() + "berth-launcher-keys"
@@ -138,7 +141,8 @@ enum Snapshot {
         case "acme/web#12":
             [("acme/web", 13, "Fix the flaky login test", false)]
 
-        case "acme/billing#57", "acme/infra#42", "acme/billing#49", "acme/web#1742": []
+        case "acme/billing#57", "acme/infra#42", "acme/billing#49", "acme/web#1742",
+             "acme/web#1204", "acme/billing#68", "acme/api#23", "acme/web#25": []
 
         default: nil
         }
@@ -171,27 +175,46 @@ enum Snapshot {
     }
 
     static let fixtureIssueInbox: [InboxIssue]? = {
-        guard issueInboxQuery != nil else { return nil }
+        guard issueInboxQuery != nil, !launcherLoading else { return nil }
 
-        let entries: [(id: String, title: String, age: TimeInterval)] = [
-            ("acme/web#21", "Let billing administrators download usage reports for any closed billing period from the dashboard", 60),
-            ("acme/billing#57", "Fix invoice rounding", 1200),
-            ("acme/web#12", "Fix the flaky login test", 3600),
-            ("acme/infra#42", "Rotate the export bucket key", 7200),
-            ("acme/web#1742", "Paginate the audit log", 1800),
-            ("acme/billing#49", "Drop the legacy CSV importer", 45 * 86_400),
+        let bug = ("bug", "d73a4a")
+        let enhancement = ("enhancement", "a2eeef")
+        let billing = ("billing", "0e8a16")
+        let goodFirstIssue = ("good first issue", "7057ff")
+        let entries: [InboxIssue.Role: [(id: String, title: String, age: TimeInterval, author: String, labels: [(String, String)])]] = [
+            .assigned: [
+                ("acme/web#21", "Let billing administrators download usage reports for any closed billing period from the dashboard", 60, "lee", [enhancement, billing, ("reports", "1d76db"), ("frontend", "5319e7")]),
+                ("acme/billing#57", "Fix invoice rounding", 1200, "sam", [bug, billing]),
+                ("acme/web#12", "Fix the flaky login test", 3600, "kim", [bug, goodFirstIssue]),
+                ("acme/infra#42", "Rotate the export bucket key", 7200, "lee", []),
+                ("acme/web#1742", "Paginate the audit log", 1800, "kim", [enhancement]),
+                ("acme/billing#49", "Drop the legacy CSV importer", 45 * 86_400, "sam", [enhancement]),
+            ],
+            .mine: [
+                ("acme/web#1204", "Save dashboard filters between visits", 900, "me", [enhancement]),
+                ("acme/billing#68", "Show invoice dates in the account time zone", 28_800, "me", [bug, billing]),
+            ],
+            .mentioned: [
+                ("acme/api#23", "Document usage API pagination", 1800, "lee", [goodFirstIssue]),
+                ("acme/web#25", "Improve keyboard navigation in the account menu", 10_800, "kim", [enhancement]),
+            ],
         ]
-        let nodes = entries.compactMap { entry -> String? in
-            guard let issue = IssueReference.parse(entry.id), let linked = issueFixtureLinks(issue) else { return nil }
+        let now = Date.now
+        let aliases = InboxIssue.Role.allCases.map { role in
+            let nodes = entries[role, default: []].compactMap { entry -> String? in
+                guard let issue = IssueReference.parse(entry.id), let linked = issueFixtureLinks(issue) else { return nil }
 
-            return #"{"number":\#(issue.number),"title":"\#(entry.title)","url":"\#(issue.url)","updatedAt":"\#((Date.now - entry.age).ISO8601Format())","repository":{"nameWithOwner":"\#(issue.repository)"},"timelineItems":{"nodes":[\#(issueFixtureEvents(linked))]}}"#
+                let labels = entry.labels.map { name, color in #"{"name":"\#(name)","color":"\#(color)"}"# }
+                return #"{"number":\#(issue.number),"title":"\#(entry.title)","url":"\#(issue.url)","updatedAt":"\#((now - entry.age).ISO8601Format())","author":{"login":"\#(entry.author)"},"labels":{"nodes":[\#(labels.joined(separator: ","))]},"repository":{"nameWithOwner":"\#(issue.repository)"},"timelineItems":{"nodes":[\#(issueFixtureEvents(linked))]}}"#
+            }
+            return #""\#(role.rawValue)":{"nodes":[\#(nodes.joined(separator: ","))]}"#
         }
-        let json = #"{"data":{"assigned":{"nodes":[\#(nodes.joined(separator: ","))]}}}"#
+        let json = #"{"data":{\#(aliases.joined(separator: ","))}}"#
         return IssueInbox.parse(Data(json.utf8))
     }()
 
     private static let inboxFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: [PullRequestBranch: PullRequest?], inbox: [InboxPullRequest]?)? = {
-        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil else { return nil }
+        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil || showsPullRequestActions else { return nil }
 
         let code = NSTemporaryDirectory() + "berth-pull-requests"
         for name in ["billing/.git", "web/.git"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) }
@@ -306,7 +329,12 @@ enum Snapshot {
     static let fixtureSessions: [SessionSummary]? = {
         if let issueFixtures { return issueFixtures.sessions }
 
-        return triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
+        if let fixtures = triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures { return fixtures }
+        if !pullRequestFixtures.isEmpty { return pullRequestFixtures.map(\.session) }
+        if launcherKeys != nil { return hubFolders }
+        if showsWatching, !UserDefaults.standard.bool(forKey: "snapshotConversation") { return longNames.map(\.session) }
+
+        return nil
     }()
 
     private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
@@ -320,7 +348,7 @@ enum Snapshot {
             return (PullRequestBranch(repository: fixtureRepository, branch: branch), pullRequest)
         }
     }) { first, _ in first }
-    static let fixtureInbox = inboxFixtures?.inbox
+    static let fixtureInbox = launcherLoading ? nil : inboxFixtures?.inbox
     static let fixtureLinkedPullRequests = linkedFixtures
     #else
     static let fixtureSessions: [SessionSummary]? = nil
@@ -330,6 +358,7 @@ enum Snapshot {
     static let fixturePullRequests: [PullRequestBranch: PullRequest?] = [:]
     static let fixtureInbox: [InboxPullRequest]? = nil
     static let fixtureIssueInbox: [InboxIssue]? = nil
+    static let launcherLoading = false
     static let fixtureLinkedPullRequests: [PullRequestLink: PullRequest] = [:]
     static let fixturePullRequestDetail: PullRequestDetail? = nil
     #endif
@@ -445,6 +474,18 @@ enum Snapshot {
             for session in store.groups.compactMap(\.sessions.first).suffix(2).reversed() { store.pin(session.id) }
         }
         let topSessions = store.groups.first { !$0.sessions.isEmpty }?.sessions ?? []
+        if showsWatching, !UserDefaults.standard.bool(forKey: "snapshotConversation"),
+           let session = store.groups.flatMap(\.sessions).first(where: { session in
+               let activity = store.liveBySession[session.id]?.activity
+               return activity == nil || activity == .idle
+           }) ?? topSessions.first {
+            let target = store.pullRequest(for: session)
+            store.fakeWatches[session.id] = PullRequestWatch(number: target?.number ?? 4821, since: .now - 60)
+            if store.liveBySession[session.id] == nil {
+                store.fakeLiveSessions.append(LiveSession(pid: 0, sessionId: session.id, cwd: session.cwd, status: "idle"))
+                store.refreshLive()
+            }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotFlagged") {
             for session in topSessions.enumerated().filter({ [0, 2].contains($0.offset) }).map(\.element) { store.flag(session.id) }
         }
@@ -466,7 +507,7 @@ enum Snapshot {
         captureItemPreview(to: output, theme: store.theme)
         for session in store.sessionsByID.values.filter({ forcedHover.contains($0.title) }) {
             let isOpen = store.tab(forSession: session.id) != nil || store.liveBySession[session.id] != nil
-            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."))
+            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, watch: store.pullRequestWatch(for: session.id), excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."))
                 .environment(\.ghosttyTheme, store.theme)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
@@ -637,7 +678,7 @@ enum Snapshot {
         if UserDefaults.standard.string(forKey: "snapshotLauncher") != nil { store.launcherMode = .newSession }
         if UserDefaults.standard.string(forKey: "snapshotSearch") != nil { store.launcherMode = .search }
         if UserDefaults.standard.string(forKey: "snapshotPalette") != nil { store.launcherMode = .palette }
-        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") {
+        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") ?? (showsPullRequestActions ? "" : nil) {
             let ranked = PullRequestInbox.rank(query, in: store.inbox ?? [], now: .now)
             print("pull requests for \"\(query)\": \(ranked.pullRequests.count) shown, \(ranked.older) older hidden, toolbar count \(store.inbox?.count { $0.role == .reviewRequested } ?? 0)")
             for pullRequest in ranked.pullRequests {
@@ -653,6 +694,7 @@ enum Snapshot {
                 print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: link).map(\.id)) | enter: \(action)")
             }
             if UserDefaults.standard.string(forKey: "snapshotLauncherRole") == "reviewRequested" { store.launcherRole = .reviewRequested }
+            if showsPullRequestActions { print("pull request menu \(StewardPullRequestButton.title)") }
             if launcherKeys == nil { store.launcherMode = .pullRequests }
         }
         if let issueInboxQuery {

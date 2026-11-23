@@ -42,7 +42,11 @@ extension Snapshot {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let effort = UserDefaults.standard.string(forKey: "snapshotConversationEffort").map { [#"{"type":"api-request","querySource":"repl_main_thread","params":{"model":"claude-sonnet-4-5","output_config":{"effort":"\#($0)"}}}"#] } ?? []
         let mode = UserDefaults.standard.string(forKey: "snapshotConversationMode") ?? "auto"
-        let lines = effort + [#"{"type":"permission-mode","permissionMode":"\#(mode)","sessionId":"\#(conversationSession)"}"#] + conversationRecords().map { String(decoding: (try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data(), as: UTF8.self) }
+        var lines = effort + [#"{"type":"permission-mode","permissionMode":"\#(mode)","sessionId":"\#(conversationSession)"}"#] + conversationRecords().map { String(decoding: (try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data(), as: UTF8.self) }
+        if showsWatching {
+            let timestamp = Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+            lines.append(#"{"type":"user","uuid":"steward-fixture","sessionId":"\#(conversationSession)","cwd":"\#(conversationFolder)","timestamp":"\#(timestamp)","message":{"role":"user","content":"<command-name>/steward</command-name>\n<command-args>https://github.com/acme/billing/pull/4821</command-args>"}}"#)
+        }
         try? (lines.joined(separator: "\n") + "\n").write(to: directory.appending(path: "\(conversationSession).jsonl"), atomically: true, encoding: .utf8)
         let subagents = directory.appending(path: "\(conversationSession)/subagents")
         try? FileManager.default.createDirectory(at: subagents, withIntermediateDirectories: true)
@@ -333,7 +337,7 @@ extension Snapshot {
 
             try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
         }
-        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? "busy"
+        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? (showsWatching ? "idle" : "busy")
         let rawLog = UserDefaults.standard.string(forKey: "snapshotConversationRawLog")
         let title = UserDefaults.standard.string(forKey: "snapshotTerminalTitle") ?? (showsCodexApproval ? "[ ! ] Action Required" : showsCodexTasks ? "Ready" : "")
         let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'printf \"\\033]0;\(title)\\007\"; echo the terminal is still running; sleep 600'"
@@ -374,6 +378,7 @@ extension Snapshot {
             exit(0)
         }
         if let model = store.conversationModels[tab.id] {
+            if showsWatching { print("conversation watch \(model.pullRequestWatch?.title ?? "none")") }
             print("conversation shows \(model.entryCount) entries in \(model.turns.count) turns, \(model.tasks.count) running tasks, queued \(model.queued.count), context \(model.context.map { "\($0.model) \($0.tokens ?? 0) tokens" } ?? "none")")
             for turn in model.turns {
                 let parts = turn.parts.map { part -> String in

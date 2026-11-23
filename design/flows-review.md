@@ -47,6 +47,7 @@ This is the slim first version; the rest is listed under Later.
 
 ## Layout
 
+- Settings > Review > New changes panel (preview) is off by default and gives non-stacked sessions full-height Changes, Commits and Files scopes with pull request details in the header.
 - Toolbar: a Show / Hide Changes button, `sidebar.left` next to the traffic lights when the
   panel is on the left, `sidebar.right` at the trailing end when it is on the right.
 - Panel, 272 pt ideal (220–440), on the Ghostty theme like the sessions sidebar. Changes holds the
@@ -272,6 +273,8 @@ This is the slim first version; the rest is listed under Later.
   it. The user submits the pending review on GitHub.
 - Send to Claude pastes the thread into the current session's prompt for the user to read and
   submit, using the same flow as Send N Comments.
+
+The open or draft PR card offers **Steward with Claude** in its title context menu and More menu. It uses the launcher’s PR session and worktree flow to paste `/steward <PR URL>` for the user to submit.
 
 ## Create Pull Request
 

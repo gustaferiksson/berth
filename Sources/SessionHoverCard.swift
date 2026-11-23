@@ -113,7 +113,7 @@ struct SessionHoverTrigger: ViewModifier {
                     let row = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
                     let column = anchor.enclosingScrollView.map { window.convertToScreen($0.convert($0.bounds, to: nil)) } ?? row
                     HoverCardPanel.shared.show(
-                        SessionHoverCard(session: session, pullRequests: pullRequests, context: context, excerpt: excerpt)
+                        SessionHoverCard(session: session, pullRequests: pullRequests, context: context, watch: store.pullRequestWatch(for: session.id), excerpt: excerpt)
                             .environment(\.ghosttyTheme, theme),
                         owner: session.id,
                         isDark: theme.isDark,
@@ -160,6 +160,7 @@ struct SessionHoverCard: View {
     let session: SessionSummary
     let pullRequests: [SessionPullRequest]
     let context: SessionContext?
+    let watch: PullRequestWatch?
     let excerpt: HoverExcerpt?
     @Environment(\.ghosttyTheme) private var theme
 
@@ -176,6 +177,12 @@ struct SessionHoverCard: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(pullRequests, id: \.self) { pullRequestRow(for: $0) }
                 }
+            }
+            if let watch {
+                Label(watch.title, systemImage: "eye")
+                    .font(.caption)
+                    .foregroundStyle(theme.secondary)
+                    .padding(.horizontal, 6)
             }
             folderRow
             if let excerpt { excerptRow(excerpt) }
