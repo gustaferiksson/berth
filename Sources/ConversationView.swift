@@ -12,6 +12,7 @@ struct ConversationView: View {
     @State private var isAtBottom = true
     @State private var isDropTargeted = false
     @State private var composerFocus = 0
+    @State private var barHeight: CGFloat = 0
     @State private var now = Date.now
     @FocusState private var isFocused: Bool
 
@@ -39,7 +40,7 @@ struct ConversationView: View {
                 now = .now
             }
             .onChange(of: live?.status) { model.refresh() }
-            .safeAreaBar(edge: .bottom, spacing: 0) {
+            .overlay(alignment: .bottom) {
                 ConversationBottomBar(
                     model: model,
                     tab: tab,
@@ -57,6 +58,7 @@ struct ConversationView: View {
                     answer: { _ = answer($0, waiting) },
                     deny: { _ = deny(denial) }
                 )
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
             }
             .overlay {
                 ConversationDropTarget(isTargeted: $isDropTargeted) { files in
@@ -123,7 +125,7 @@ struct ConversationView: View {
             .frame(maxWidth: .infinity)
         }
         .contentMargins(.top, 24, for: .scrollContent)
-        .contentMargins(.bottom, model.tasks.isEmpty ? 16 : 58, for: .scrollContent)
+        .contentMargins(.bottom, barHeight + (model.tasks.isEmpty ? 16 : 58), for: .scrollContent)
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
         .scrollEdgeEffectHidden(true, for: .bottom)
