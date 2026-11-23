@@ -324,6 +324,7 @@ final class Store {
     @ObservationIgnored private var inboxFetchedAt = Date.distantPast
     @ObservationIgnored private var issueInboxFetchedAt = Date.distantPast
     @ObservationIgnored private var planUsageFetchedAt = Date.distantPast
+    @ObservationIgnored private var planUsageResetRefetch: Task<Void, Never>?
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var tabSignalPolling: Task<Void, Never>?
     @ObservationIgnored private var hostedDirectoryPolling: Task<Void, Never>?
@@ -600,13 +601,25 @@ final class Store {
     }
 
     func refreshPlanUsage() async {
-        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey), planUsageFetchedAt.timeIntervalSinceNow < -60 else { return }
+        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) else { return }
+
+        let resetSinceFetch = planUsage?.windows.contains { $0.resetsAt.map { $0 > planUsageFetchedAt && $0 <= .now } ?? false } ?? false
+        guard planUsageFetchedAt.timeIntervalSinceNow < -60 || resetSinceFetch else { return }
 
         planUsageFetchedAt = .now
         let usage = await Task.detached { await PlanUsageFetch.fetch() }.value
         guard let usage else { return }
 
         planUsage = usage
+        planUsageResetRefetch?.cancel()
+        guard let nextReset = usage.windows.compactMap(\.resetsAt).filter({ $0 > .now }).min() else { return }
+
+        planUsageResetRefetch = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(nextReset.timeIntervalSinceNow + 5))
+            guard !Task.isCancelled else { return }
+
+            await self?.refreshPlanUsage()
+        }
     }
 
     func refreshInbox() {
@@ -693,7 +706,10 @@ final class Store {
             let key = PullRequestLink(repository: link.repository.lowercased(), number: link.number)
             guard !preparingPullRequests.contains(key) else { return true }
 
-            let prompt = "Summarize PR #\(link.number) (\(url.absoluteString))."
+            let prompt = (UserDefaults.standard.string(forKey: GeneralSettings.pullRequestPromptKey) ?? GeneralSettings.defaultPullRequestPrompt)
+                .replacing("{number}", with: String(link.number))
+                .replacing("{url}", with: url.absoluteString)
+                .replacing("{repo}", with: link.repository)
             if opensAreProbed { return startPullRequestSession(key, in: root, prompt: prompt, selectsTab: selectsTab) }
 
             preparingPullRequests.append(key)
@@ -734,7 +750,7 @@ final class Store {
 
     @discardableResult
     private func startPullRequestSession(_ key: PullRequestLink, in folder: String, prompt: String, selectsTab: Bool) -> Bool {
-        guard let id = openSession(cwd: folder, checkout: .main, pasting: prompt, selectsTab: selectsTab) else { return false }
+        guard let id = openSession(cwd: folder, checkout: .main, pasting: prompt.isEmpty ? nil : prompt, selectsTab: selectsTab) else { return false }
 
         pullRequestTabs[key] = id
         if selectsTab { isHarborShown = false }

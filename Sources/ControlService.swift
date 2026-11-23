@@ -24,6 +24,7 @@ final class ControlService {
         guard UserDefaults.standard.bool(forKey: Self.enabledKey) else { return stop() }
         guard server == nil else { return }
 
+        try? ControlInstall.refreshInstalled(skillFile: ControlInstaller.skillFile, settingsFile: ControlInstaller.settingsFile)
         token = ControlEnvironment.makeToken()
         try? FileManager.default.removeItem(atPath: Self.exitsDirectory)
         let server = ControlServer(path: ControlEnvironment.socketPath(directory: Self.directory), token: token) { [weak self] request in
@@ -59,6 +60,8 @@ final class ControlService {
         if request.operation == .list { return list(for: caller) }
 
         if request.operation == .open || request.operation == .openSession { return open(request, for: caller) }
+
+        if request.operation == .openPath { return openPath(request, for: caller) }
 
         guard let tab = request.tab else { return .failure("Missing tab") }
 
@@ -127,6 +130,27 @@ final class ControlService {
         } else if request.operation == .open {
             store.selectedTabID = previous
         }
+        return ControlResponse(tab: Self.shortID(id))
+    }
+
+    private func openPath(_ request: ControlRequest, for caller: UUID) -> ControlResponse {
+        guard let path = request.path, path.hasPrefix("/") else { return .failure("Missing absolute path") }
+
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return .failure("No such path \(path)") }
+        guard isDirectory.boolValue else { return .failure("\(path) is a file, and Berth opens folders only") }
+
+        let id: UUID
+        if let shown = store.tabs.first(where: { $0.kind == .claude && $0.folder == path }) {
+            id = shown.id
+        } else {
+            guard let opened = store.openSession(cwd: path, checkout: .main, selectsTab: false) else { return .failure("Couldn’t open a Claude session in \(path)") }
+
+            id = opened
+            openedBy = openedBy.filter { opened in store.tabs.contains { $0.id == opened.key } }
+            openedBy[id] = caller
+        }
+        if request.background != true { store.activate(.tab(id)) }
         return ControlResponse(tab: Self.shortID(id))
     }
 
