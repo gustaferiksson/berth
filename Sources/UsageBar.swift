@@ -28,9 +28,9 @@ struct UsageBar: View {
             TimelineView(.everyMinute) { timeline in
                 let groups = groups(at: timeline.date)
                 if !groups.isEmpty {
-                    Button { store.isStatsRequested = true } label: {
-                        VStack(spacing: 8) {
-                            ForEach(groups) { group in
+                    VStack(spacing: 8) {
+                        ForEach(groups) { group in
+                            Button { store.isStatsRequested = true } label: {
                                 HStack(spacing: 8) {
                                     if groups.count > 1 || group.harness.agent == .codex {
                                         Image(group.harness.asset)
@@ -47,14 +47,14 @@ struct UsageBar: View {
                                     }
                                 }
                                 .opacity(group.staleSince == nil ? 1 : 0.5)
+                                .contentShape(.rect)
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Opens Stats")
+                            .padding(10)
+                            .glassEffect(.regular, in: .rect(cornerRadius: 14))
                         }
-                        .contentShape(.rect)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Opens Stats")
-                    .padding(10)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 14))
                 }
             }
         }
