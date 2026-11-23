@@ -1145,8 +1145,8 @@ private struct HeaderButtonStyle: ButtonStyle {
                 .font(.body.weight(.medium))
                 .foregroundStyle(Color.secondary.opacity(isHeaderHovered ? 1 : 0.6))
                 .frame(width: 24, height: 24)
-                .background(Color.primary.opacity(configuration.isPressed ? 0.12 : isHovering ? 0.06 : 0), in: .rect(cornerRadius: 8))
-                .contentShape(.rect)
+                .background(Color.primary.opacity(configuration.isPressed ? 0.12 : isHovering ? 0.06 : 0), in: .circle)
+                .contentShape(.circle)
                 .onHover { isHovering = $0 }
         }
     }

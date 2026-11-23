@@ -101,6 +101,7 @@ struct SessionView: View {
                         Label("New Messages", systemImage: "arrow.down")
                     } else {
                         Image(systemName: "arrow.down")
+                            .frame(width: 24, height: 24)
                     }
                 }
                 .accessibilityLabel(hasNewMessages ? "New messages, scroll to end" : "Scroll to End")
