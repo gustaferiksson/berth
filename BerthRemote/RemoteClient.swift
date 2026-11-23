@@ -86,6 +86,7 @@ final class RemoteClient {
     private(set) var taskDetails: [String: RemoteTaskDetail] = [:]
     private(set) var features: [String] = []
     private(set) var usage: PlanUsage?
+    private(set) var codexUsage: CodexUsage?
     private(set) var images: [ImageKey: ImageLoad] = [:]
     private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
     private(set) var uploads: [String: UploadState] = [:]
@@ -197,6 +198,7 @@ final class RemoteClient {
         guard features.contains(RemoteUsageFeature.name) else { return }
 
         send(.usage)
+        if features.contains(RemoteCodexUsageFeature.name) { send(.codexUsage) }
     }
 
     func loadChanges(of sessionID: String) {
@@ -382,6 +384,7 @@ final class RemoteClient {
             self.folders = folders
             self.features = features ?? []
             if !self.features.contains(RemoteUsageFeature.name) { usage = nil }
+            if !self.features.contains(RemoteCodexUsageFeature.name) { codexUsage = nil }
             guard state != .connected else { return }
 
             state = .connected
@@ -428,6 +431,9 @@ final class RemoteClient {
 
         case let .usage(usage):
             self.usage = usage
+
+        case let .codexUsage(usage):
+            codexUsage = usage
 
         case .challenge:
             return

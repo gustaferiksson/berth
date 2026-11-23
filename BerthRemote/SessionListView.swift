@@ -39,9 +39,9 @@ struct SessionListView: View {
                         }
                     }
                 }
-                if let usage = client.usage, query.isEmpty {
+                if client.usage != nil || client.codexUsage != nil, query.isEmpty {
                     Section {
-                        UsageSummary(usage: usage) { isShowingUsage = true }
+                        UsageSummary { isShowingUsage = true }
                     }
                 }
                 ForEach(groups) { group in
