@@ -167,7 +167,7 @@ It also runs `open-session --cwd <dir> --background -- "hello"` with the system 
 
 ### Needs Attention
 
-`-snapshotChecks "passed|passed||failed"` fails the draft #12 fixture session's checks so it enters Needs Attention; `-snapshotSidebarStatus` sets the status filter and `-snapshotSidebarFilter` also prints `attention`.
+`-snapshotChecks "passed|passed||failed"` fails the draft #12 fixture session's checks (marked as your own PR) so it enters Needs Attention; `-snapshotSidebarStatus` sets the status filter and `-snapshotSidebarFilter` also prints `attention`.
 
 ### Tasks
 

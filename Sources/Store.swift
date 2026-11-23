@@ -300,6 +300,10 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
     }
 
+    private(set) var dismissedFailures = UserDefaults.standard.dictionary(forKey: "dismissedFailures") as? [String: String] ?? [:] {
+        didSet { if persistsTabs { UserDefaults.standard.set(dismissedFailures, forKey: "dismissedFailures") } }
+    }
+
     @ObservationIgnored private var snoozes = (UserDefaults.standard.dictionary(forKey: "snoozedSessions") ?? [:]).compactMapValues(SessionSnooze.init(stored:)) {
         didSet {
             if persistsTabs { UserDefaults.standard.set(snoozes.mapValues(\.stored), forKey: "snoozedSessions") }
@@ -1480,7 +1484,7 @@ final class Store {
             }.filter { !attention.contains($0) }.compactMap { self.tab(forSession: $0) }
         }
         let active = sidebarActive
-        let ordered = attentionIDs.compactMap { tab(forSession: $0) } + terminals + (active?.tabs ?? []) + tabs(active?.entries ?? [])
+        let ordered = terminals + attentionIDs.compactMap { tab(forSession: $0) } + (active?.tabs ?? []) + tabs(active?.entries ?? [])
             + triageIDs.compactMap { tab(forSession: $0) }
             + pinnedSessions.filter { !liveIDs.contains($0.id) && !attention.contains($0.id) }.compactMap { tab(forSession: $0.id) }
             + sidebarGroups.flatMap { $0.tabs + tabs($0.entries) }
@@ -1648,6 +1652,10 @@ final class Store {
         if multiSelection.contains(.session(sessionID)) { multiSelection.removeAll { $0 == .session(sessionID) } }
         applyGroups()
         if let tab = tab(forSession: sessionID) { close(tab.id) }
+    }
+
+    func dismissAttention(_ sessionID: String) {
+        dismissedFailures[sessionID] = sessionsByID[sessionID].flatMap { pullRequest(for: $0)?.headSHA }
     }
 
     func unarchive(_ sessionID: String) {

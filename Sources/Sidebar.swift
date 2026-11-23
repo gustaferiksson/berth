@@ -250,8 +250,8 @@ private struct SidebarList: View, Equatable {
     }
 
     private var items: [SidebarItem] {
-        let owners = (isCollapsed(Sidebar.attentionID) ? [] : layout.attentionIDs).map(SidebarItem.session)
-            + (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
+        let owners = (isCollapsed(Sidebar.terminalsID) ? [] : layout.terminalIDs).map(SidebarItem.tab)
+            + (isCollapsed(Sidebar.attentionID) ? [] : layout.attentionIDs).map(SidebarItem.session)
             + activeItems
             + (isCollapsed(Sidebar.workingID) ? [] : layout.workingIDs).map(SidebarItem.session)
             + (isCollapsed(Sidebar.unreadID) ? [] : layout.unreadIDs).map(SidebarItem.session)
@@ -276,6 +276,9 @@ private struct SidebarList: View, Equatable {
     var body: some View {
         let groups = groups
         List {
+            if !layout.terminalIDs.isEmpty {
+                terminalsSection
+            }
             if !layout.attentionIDs.isEmpty {
                 Section(isExpanded: expansion(of: Sidebar.attentionID)) {
                     ForEach(layout.attentionIDs, id: \.self) { id in
@@ -283,11 +286,8 @@ private struct SidebarList: View, Equatable {
                             .id(SidebarItem.session(id))
                     }
                 } header: {
-                    GroupHeader(title: layout.showsTriage ? "Needs You" : "Needs Attention", help: "Needs you or failing checks", count: layout.attentionIDs.count, tint: theme.needsYou) { EmptyView() } accessory: { _ in EmptyView() }
+                    GroupHeader(title: layout.showsTriage ? "Needs You" : "Needs Attention", help: "Needs you or your PR has failing checks", count: layout.attentionIDs.count, tint: theme.needsYou) { EmptyView() } accessory: { _ in EmptyView() }
                 }
-            }
-            if !layout.terminalIDs.isEmpty {
-                terminalsSection
             }
             if let active {
                 section(active, at: 0, in: [])
@@ -882,6 +882,7 @@ private struct SessionItem: View {
             Button("Mark as Unread") { store.markUnread(id) }
         }
         flagButton
+        if place == .triage, store.canDismissAttention(session) { Button("Dismiss") { store.dismissAttention(id) } }
         Button("Mark as Done") { store.archive(id) }
         Menu("Snooze") {
             Button("1 Hour") { store.snooze(id, .until(.now.addingTimeInterval(3600))) }
