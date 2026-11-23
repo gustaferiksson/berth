@@ -73,7 +73,10 @@ enum CodeHighlighter {
         let parser = Parser()
         guard let grammar = grammar(forExtension: pathExtension), (try? parser.setLanguage(grammar.language)) != nil, let tree = parser.parse(text) else { return [] }
 
-        let spans = grammar.highlights.execute(in: tree).resolve(with: .init(string: text)).highlights().compactMap { $0.range.length > 0 && $0.name != "spell" ? Span(range: $0.range, capture: $0.name) : nil }
+        let matches = grammar.highlights.execute(in: tree).resolve(with: .init(string: text))
+        let groups = Dictionary(grouping: matches) { $0.metadata["priority"] == "declaration" }
+        let highlights = groups[false, default: []].highlights() + groups[true, default: []].highlights()
+        let spans = highlights.compactMap { $0.range.length > 0 && $0.name != "spell" ? Span(range: $0.range, capture: $0.name) : nil }
         guard ["md", "markdown"].contains(pathExtension), let markdownInline, let markdownInlineNodes else { return spans }
 
         let inlineRanges = markdownInlineNodes.execute(in: tree).flatMap { $0.captures.map(\.node.tsRange) }
