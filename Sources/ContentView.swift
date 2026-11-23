@@ -134,7 +134,10 @@ struct ContentView: View {
             store.refreshInbox()
             store.refreshIssueInbox()
             store.refreshLocalClones()
-            Task { await store.refreshPlanUsage() }
+            Task {
+                await store.refreshPlanUsage()
+                await store.refreshCodexUsage()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
         .task(id: "\(selected?.sessionID ?? "")\n\(selected?.cwd ?? "")\(isReviewEnabled)") {

@@ -124,6 +124,7 @@ final class Store {
     var editingGroup: CustomGroup?
     var isStatsRequested = false
     var planUsage: PlanUsage?
+    var codexUsage: CodexUsage?
     var isSettingsRequested = false
     var isHarborShown = false {
         didSet {
@@ -333,6 +334,7 @@ final class Store {
     @ObservationIgnored private var inboxFetchedAt = Date.distantPast
     @ObservationIgnored private var issueInboxFetchedAt = Date.distantPast
     @ObservationIgnored private var planUsageFetchedAt = Date.distantPast
+    @ObservationIgnored private var codexUsageReadAt = Date.distantPast
     @ObservationIgnored private var planUsageResetRefetch: Task<Void, Never>?
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var tabSignalPolling: Task<Void, Never>?
@@ -378,6 +380,7 @@ final class Store {
                 self?.refreshLocalClones()
                 self?.unloadIdleTabs()
                 await self?.refreshPlanUsage()
+                await self?.refreshCodexUsage()
             }
         }
         tabSignalPolling?.cancel()
@@ -397,7 +400,10 @@ final class Store {
         applyCodexSetting()
         refreshInbox()
         refreshIssueInbox()
-        Task { await refreshPlanUsage() }
+        Task {
+            await refreshPlanUsage()
+            await refreshCodexUsage()
+        }
         guard restoringTabs else { return }
 
         Task {
@@ -629,6 +635,20 @@ final class Store {
 
             await self?.refreshPlanUsage()
         }
+    }
+
+    func refreshCodexUsage() async {
+        guard Snapshot.output == nil else { return }
+        guard UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey), isCodexEnabled else {
+            codexUsage = nil
+            codexUsageReadAt = .distantPast
+            return
+        }
+        guard codexUsageReadAt.timeIntervalSinceNow < -20 else { return }
+
+        codexUsageReadAt = .now
+        let usage = await Task.detached { [directory = Self.codexDirectory] in CodexUsage.latest(in: directory) }.value
+        if usage != codexUsage { codexUsage = usage }
     }
 
     func refreshInbox() {
@@ -1615,8 +1635,12 @@ final class Store {
 
     func applyCodexSetting() {
         let paths = ["sessions", "session_index.jsonl"].map { Self.codexDirectory.appending(path: $0).path }
-        codexWatcher = isCodexEnabled ? FileWatcher(paths: paths, latency: 1) { [weak self] _ in self?.refresh() } : nil
+        codexWatcher = isCodexEnabled ? FileWatcher(paths: paths, latency: 1) { [weak self] _ in
+            self?.refresh()
+            Task { await self?.refreshCodexUsage() }
+        } : nil
         refresh()
+        Task { await refreshCodexUsage() }
     }
 
     private func paste(_ prompt: String, intoStartingSession sessionID: String, tab id: Tab.ID) async {
