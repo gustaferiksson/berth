@@ -31,6 +31,7 @@ final class HoverCardPanel {
         pendingHide?.cancel()
         self.owner = owner
         let host = NSHostingView(rootView: card.glassEffect(.regular, in: .rect(cornerRadius: 12)).environment(\.colorScheme, isDark ? .dark : .light))
+        host.sizingOptions = [.intrinsicContentSize]
         let size = host.fittingSize
         let frame = Self.frame(size: size, row: row, column: column, trailing: trailing, screen: window.screen?.visibleFrame ?? .zero)
         panel.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
