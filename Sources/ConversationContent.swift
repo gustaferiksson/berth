@@ -665,7 +665,7 @@ private struct ConversationPromptImage: View {
                 }
             }
             Button("Save Image…") {
-                Task { ConversationImagePreview.save(await loadOriginal(entryID, index) ?? thumbnail) }
+                Task { await ConversationImagePreview.save(loadOriginal(entryID, index) ?? thumbnail) }
             }
         }
         .task(id: "\(entryID)#\(index)@\(displayScale)") {
