@@ -74,6 +74,7 @@ final class ConversationModel {
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var entries: [RemoteEntry] = []
     @ObservationIgnored private var url: URL?
+    @ObservationIgnored private var imageLines: [String: Range<Int>] = [:]
     @ObservationIgnored private var end: Int?
     @ObservationIgnored private var queue: [String] = []
     @ObservationIgnored private var activity = TranscriptActivity()
@@ -260,6 +261,12 @@ final class ConversationModel {
         notice = message
     }
 
+    func promptImage(entryID: String, index: Int) async -> Data? {
+        guard let url, let line = imageLines[TranscriptImages.promptImageID(entryID: entryID, index: index)] else { return nil }
+
+        return await Task.detached { TranscriptImages.promptImage(entryID: entryID, index: index, in: url, line: line) }.value
+    }
+
     func openAgent(agentID: String?, toolUseID: String?) {
         guard let tab = store.tabs.first(where: { $0.id == tabID }), let sessionID = tab.sessionID else { return }
 
@@ -392,6 +399,7 @@ final class ConversationModel {
         guard let chunk else { return }
 
         self.url = url
+        imageLines = (chunk.isContinuation ? imageLines : [:]).merging(chunk.imageLines) { $1 }
         end = chunk.end
         queue = chunk.queue
         if let result {

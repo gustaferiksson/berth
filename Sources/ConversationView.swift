@@ -86,6 +86,7 @@ struct ConversationView: View {
             }
             .environment(\.openAgentConversation, OpenAgentConversation(open: model.openAgent))
             .environment(\.conversationFolder, tab.cwd)
+            .environment(\.promptImageLoader, PromptImageLoader { [model] entryID, index in await model.promptImage(entryID: entryID, index: index) })
             .accessibilityLabel("Conversation")
     }
 

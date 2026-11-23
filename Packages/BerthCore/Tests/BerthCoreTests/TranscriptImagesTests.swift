@@ -49,6 +49,19 @@ struct TranscriptImagesTests {
         #expect(TranscriptImages.image(id: "u1-0-0", variant: .full, in: url, line: 0..<1_000_000_000) != nil)
     }
 
+    @Test func servesPromptImageOriginalBytesFromItsLine() throws {
+        let prompt = #"{"type":"user","uuid":"p1","message":{"role":"user","content":[{"type":"text","text":"look [Image #1]"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"\#(png)"}}]}}"#
+        let url = try transcript([screenshotLines[0], prompt])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let chunk = try #require(TranscriptTail.read(url, after: nil))
+        let line = try #require(chunk.imageLines[TranscriptImages.promptImageID(entryID: "p1", index: 0)])
+        #expect(TranscriptImages.promptImage(entryID: "p1", index: 0, in: url, line: line) == Data(base64Encoded: png))
+        #expect(TranscriptImages.promptImage(entryID: "p1", index: 1, in: url, line: line) == nil)
+        #expect(TranscriptImages.promptImage(entryID: "other", index: 0, in: url, line: line) == nil)
+        #expect(TranscriptImages.promptImage(entryID: "p1", index: 0, in: url, line: 0..<10) == nil)
+    }
+
     @Test func refusesIdsThatPointNowhere() throws {
         let url = try transcript(screenshotLines)
         defer { try? FileManager.default.removeItem(at: url) }

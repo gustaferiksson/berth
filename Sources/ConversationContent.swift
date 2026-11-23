@@ -3,6 +3,7 @@ import BerthCore
 import ImageIO
 import QuickLookUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 let elapsedFormat = Duration.UnitsFormatStyle.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 2)
 
@@ -19,6 +20,7 @@ private let collapsedDiffRows = 14
 
 extension EnvironmentValues {
     @Entry var conversationFolder = ""
+    @Entry var promptImageLoader = PromptImageLoader { _, _ in nil }
 }
 
 extension GhosttyTheme {
@@ -43,6 +45,15 @@ struct ConversationElapsed: View {
     }
 }
 
+struct PromptImageLoader {
+    let load: @MainActor (String, Int) async -> Data?
+
+    @MainActor
+    func callAsFunction(_ entryID: String, _ index: Int) async -> Data? {
+        await load(entryID, index)
+    }
+}
+
 struct ConversationPrompt: View {
     let entry: RemoteEntry
     var isQueued = false
@@ -61,7 +72,7 @@ struct ConversationPrompt: View {
             if let images = entry.images {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
-                        ConversationPromptImage(data: data, index: index)
+                        ConversationPromptImage(entryID: entry.id, thumbnail: data, index: index)
                     }
                 }
             }
@@ -149,14 +160,22 @@ final class ConversationImagePreview: NSObject, QLPreviewPanelDataSource {
         try? png(data).write(to: destination)
     }
 
-    func show(_ data: Data) {
-        let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appending(path: "ConversationImages", directoryHint: .isDirectory)
-        let file = folder.appending(path: "\(UUID().uuidString).png")
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        guard (try? Self.png(data).write(to: file)) != nil else { return }
+    func showOriginal(_ data: Data) {
+        let type = CGImageSourceCreateWithData(data as CFData, nil).flatMap { CGImageSourceGetType($0) as String? }.flatMap { UTType($0) }
+        let file = cacheFolder.appending(path: "\(UUID().uuidString).\(type?.preferredFilenameExtension ?? "png")")
+        try? FileManager.default.createDirectory(at: cacheFolder, withIntermediateDirectories: true)
+        guard (try? data.write(to: file)) != nil else { return }
 
+        present(file, size: data.count)
+    }
+
+    private var cacheFolder: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appending(path: "ConversationImages", directoryHint: .isDirectory)
+    }
+
+    private func present(_ file: URL, size: Int) {
         #if DEBUG
-        if UserDefaults.standard.bool(forKey: "snapshotConversation") { return print("snapshot quickLook \(file.path) \(Self.png(data).count) bytes") }
+        if UserDefaults.standard.bool(forKey: "snapshotConversation") { return print("snapshot quickLook \(file.path) \(size) bytes") }
         #endif
         url = file
         guard let panel = QLPreviewPanel.shared() else { return }
@@ -164,6 +183,15 @@ final class ConversationImagePreview: NSObject, QLPreviewPanelDataSource {
         panel.dataSource = self
         panel.reloadData()
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    func show(_ data: Data) {
+        let file = cacheFolder.appending(path: "\(UUID().uuidString).png")
+        try? FileManager.default.createDirectory(at: cacheFolder, withIntermediateDirectories: true)
+        let png = Self.png(data)
+        guard (try? png.write(to: file)) != nil else { return }
+
+        present(file, size: png.count)
     }
 
     nonisolated func numberOfPreviewItems(in _: QLPreviewPanel?) -> Int { 1 }
@@ -657,14 +685,24 @@ struct ConversationSpinner: View {
 }
 
 private struct ConversationPromptImage: View {
-    let data: Data
+    let entryID: String
+    let thumbnail: Data
     let index: Int
 
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.promptImageLoader) private var loadOriginal
     @State private var image: NSImage?
 
+    private static let cache = NSCache<NSString, NSImage>()
+
     var body: some View {
-        Button { ConversationImagePreview.shared.show(data) } label: {
+        Button {
+            Task {
+                guard let original = await loadOriginal(entryID, index) else { return ConversationImagePreview.shared.show(thumbnail) }
+
+                ConversationImagePreview.shared.showOriginal(original)
+            }
+        } label: {
             Group {
                 if let image {
                     Image(nsImage: image)
@@ -682,16 +720,27 @@ private struct ConversationPromptImage: View {
         .accessibilityHint("Opens a preview")
         .contextMenu {
             Button("Copy Image") {
-                guard let image = NSImage(data: data) else { return }
+                Task {
+                    guard let image = await NSImage(data: loadOriginal(entryID, index) ?? thumbnail) else { return }
 
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([image])
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.writeObjects([image])
+                }
             }
-            Button("Save Image…") { ConversationImagePreview.save(data) }
+            Button("Save Image…") {
+                Task { await ConversationImagePreview.save(loadOriginal(entryID, index) ?? thumbnail) }
+            }
         }
-        .task(id: data) {
+        .task(id: "\(entryID)#\(index)@\(displayScale)") {
+            let key = "\(entryID)#\(index)@\(displayScale)" as NSString
+            if let cached = Self.cache.object(forKey: key) { return image = cached }
+
             let scale = displayScale
-            image = await Task.detached { Self.downsampled(data, scale: scale) }.value
+            let source = await loadOriginal(entryID, index) ?? thumbnail
+            guard let decoded = await Task.detached(operation: { Self.downsampled(source, scale: scale) }).value else { return }
+
+            Self.cache.setObject(decoded, forKey: key)
+            image = decoded
         }
     }
 

@@ -30,6 +30,21 @@ public enum TranscriptImages {
         return output
     }
 
+    public static func promptImageID(entryID: String, index: Int) -> String { "\(entryID)#\(index)" }
+
+    public static func promptImage(entryID: String, index: Int, in transcript: URL, line: Range<Int>) -> Data? {
+        guard line.lowerBound >= 0, line.count > 0, let handle = try? FileHandle(forReadingFrom: transcript), (try? handle.seek(toOffset: UInt64(line.lowerBound))) != nil,
+              let bytes = try? handle.read(upToCount: line.count), bytes.count == line.count,
+              let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any], object["uuid"] as? String == entryID
+        else { return nil }
+
+        let content = (object["message"] as? [String: Any])?["content"] ?? (object["attachment"] as? [String: Any])?["prompt"]
+        let images = (content as? [[String: Any]] ?? []).filter { $0["type"] as? String == "image" }
+        guard images.indices.contains(index), let base64 = (images[index]["source"] as? [String: Any])?["data"] as? String else { return nil }
+
+        return Data(base64Encoded: base64)
+    }
+
     static func isImagePath(_ path: String?) -> Bool {
         path.map { imageExtensions.contains(URL(filePath: $0).pathExtension.lowercased()) } ?? false
     }
