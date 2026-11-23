@@ -75,15 +75,25 @@ extension Store {
         )
     }
 
+    func hasUndismissedFailure(_ session: SessionSummary) -> Bool {
+        guard let pullRequest = pullRequest(for: session), [.open, .draft].contains(pullRequest.state), pullRequest.checks == .failed, pullRequest.viewerDidAuthor else { return false }
+
+        return pullRequest.headSHA.map { dismissedFailures[session.id] != $0 } ?? true
+    }
+
+    func canDismissAttention(_ session: SessionSummary) -> Bool {
+        if case .needsInput = liveBySession[session.id]?.activity { return false }
+
+        return hasUndismissedFailure(session) && pullRequest(for: session)?.headSHA != nil
+    }
+
     var attentionSessions: [SessionSummary] {
         standaloneSessions
             .compactMap { session -> (session: SessionSummary, rank: Int)? in
                 let id = session.id
                 if case .needsInput = liveBySession[id]?.activity { return (session, 0) }
 
-                guard let pullRequest = pullRequest(for: session), [.open, .draft].contains(pullRequest.state), pullRequest.checks == .failed else { return nil }
-
-                return (session, 1)
+                return hasUndismissedFailure(session) ? (session, 1) : nil
             }
             .sorted { ($0.rank, $1.session.lastActivity) < ($1.rank, $0.session.lastActivity) }
             .map(\.session)

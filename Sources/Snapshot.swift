@@ -221,7 +221,7 @@ enum Snapshot {
             ],
             [RepositoryRoot.resolve(billing): "acme/billing", RepositoryRoot.resolve(web): "acme/web"],
             [
-                PullRequestBranch(repository: "acme/billing", branch: "fix/invoice-rounding"): PullRequest(number: 212, url: URL(string: "https://github.com/acme/billing/pull/212")!, title: "Fix rounding in invoice totals", state: .open, checks: .failed),
+                PullRequestBranch(repository: "acme/billing", branch: "fix/invoice-rounding"): PullRequest(number: 212, url: URL(string: "https://github.com/acme/billing/pull/212")!, title: "Fix rounding in invoice totals", state: .open, checks: .failed, viewerDidAuthor: true),
                 PullRequestBranch(repository: "acme/billing", branch: "main"): PullRequest?.none,
                 PullRequestBranch(repository: "acme/web", branch: "main"): PullRequest?.none,
             ],
@@ -315,6 +315,7 @@ enum Snapshot {
         item.session.branch.map { branch in
             var pullRequest = item.pullRequest
             pullRequest?.checks = index < fixtureChecks.count ? fixtureChecks[index] : nil
+            pullRequest?.viewerDidAuthor = true
             return (PullRequestBranch(repository: fixtureRepository, branch: branch), pullRequest)
         }
     }) { first, _ in first }
