@@ -324,6 +324,7 @@ final class Store {
     @ObservationIgnored private var inboxFetchedAt = Date.distantPast
     @ObservationIgnored private var issueInboxFetchedAt = Date.distantPast
     @ObservationIgnored private var planUsageFetchedAt = Date.distantPast
+    @ObservationIgnored private var planUsageResetRefetch: Task<Void, Never>?
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var tabSignalPolling: Task<Void, Never>?
     @ObservationIgnored private var hostedDirectoryPolling: Task<Void, Never>?
@@ -600,13 +601,25 @@ final class Store {
     }
 
     func refreshPlanUsage() async {
-        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey), planUsageFetchedAt.timeIntervalSinceNow < -60 else { return }
+        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) else { return }
+
+        let resetSinceFetch = planUsage?.windows.contains { $0.resetsAt.map { $0 > planUsageFetchedAt && $0 <= .now } ?? false } ?? false
+        guard planUsageFetchedAt.timeIntervalSinceNow < -60 || resetSinceFetch else { return }
 
         planUsageFetchedAt = .now
         let usage = await Task.detached { await PlanUsageFetch.fetch() }.value
         guard let usage else { return }
 
         planUsage = usage
+        planUsageResetRefetch?.cancel()
+        guard let nextReset = usage.windows.compactMap(\.resetsAt).filter({ $0 > .now }).min() else { return }
+
+        planUsageResetRefetch = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(nextReset.timeIntervalSinceNow + 5))
+            guard !Task.isCancelled else { return }
+
+            await self?.refreshPlanUsage()
+        }
     }
 
     func refreshInbox() {
