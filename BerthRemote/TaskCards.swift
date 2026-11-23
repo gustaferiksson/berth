@@ -21,7 +21,7 @@ struct TaskCard: View {
         let card = HStack(alignment: .top, spacing: 12) {
             Image(systemName: live == .waiting(call.id) ? "exclamationmark.circle.fill" : isError ? "xmark.circle" : isAgent ? "person.2" : "terminal")
                 .font(.body)
-                .foregroundStyle(live == .waiting(call.id) ? .orange : isError ? .red : isRunning ? .green : .secondary)
+                .foregroundStyle(live == .waiting(call.id) ? .orange : isError ? .red : isAgent ? AgentTint.color(for: task?.title ?? call.cardTitle) : isRunning ? .green : .secondary)
                 .frame(width: 24)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
