@@ -14,7 +14,7 @@ struct ConversationComposer: View {
     let focusRequest: Int
 
     private static let inset = 8.0
-    private static let controlHeight = 30.0
+    private static let controlHeight = 24.0
     private static let tileSize = 56.0
 
     @Environment(\.ghosttyTheme) private var theme
@@ -58,16 +58,16 @@ struct ConversationComposer: View {
                         submit: send,
                         attach: { canAttach ? model.attach($0) : "" }
                     )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, Self.inset)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
                     HStack(spacing: Self.inset) {
                         if canAttach {
                             Menu {
                                 Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
                             } label: {
                                 Image(systemName: "plus")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.system(size: 12, weight: .medium))
                                     .frame(width: Self.controlHeight, height: Self.controlHeight)
                                     .background(.quaternary, in: .circle)
                             }
@@ -93,8 +93,8 @@ struct ConversationComposer: View {
                                         }
                                     }
                                     .lineLimit(1)
-                                    .font(.subheadline)
-                                    .padding(.horizontal, 12)
+                                    .font(.callout)
+                                    .padding(.horizontal, 10)
                                     .frame(height: Self.controlHeight)
                                     .background(.quaternary, in: .capsule)
                                 }
@@ -111,7 +111,7 @@ struct ConversationComposer: View {
                                 model.interrupt()
                             } label: {
                                 Image(systemName: stops ? "stop.fill" : "arrow.up")
-                                    .font(.system(size: 15, weight: .bold))
+                                    .font(.system(size: 12, weight: .bold))
                                     .foregroundStyle(.white)
                                     .frame(width: Self.controlHeight, height: Self.controlHeight)
                                     .background(Color.accentColor, in: .circle)
@@ -122,7 +122,7 @@ struct ConversationComposer: View {
                             .help(stops ? "Stop \(harnessName)" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
                         } else {
                             Image(systemName: "arrow.up")
-                                .font(.system(size: 15, weight: .bold))
+                                .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(.tertiary)
                                 .frame(width: Self.controlHeight, height: Self.controlHeight)
                                 .background(.quaternary, in: .circle)
@@ -188,8 +188,8 @@ struct ConversationComposer: View {
         } label: {
             Text("\(Text(modelTitle)) \(Text(effortChoice.wrappedValue?.title ?? "").foregroundStyle(.secondary))")
                 .lineLimit(1)
-                .font(.subheadline)
-                .padding(.horizontal, 12)
+                .font(.callout)
+                .padding(.horizontal, 10)
                 .frame(height: Self.controlHeight)
                 .background(.quaternary, in: .capsule)
         }
