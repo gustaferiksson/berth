@@ -101,6 +101,7 @@ struct ConversationView: View {
                         turn: turn,
                         isFinished: !(isCurrent && (isWorking || waitingFor != nil)),
                         isWorking: isCurrent && isWorking,
+                        agent: tab.agent,
                         waitingFor: isCurrent ? waitingFor : nil,
                         since: since,
                         tasks: model.tasks,
@@ -214,6 +215,7 @@ struct ConversationTurnView: View {
     let turn: Turn
     let isFinished: Bool
     let isWorking: Bool
+    let agent: Agent
     let waitingFor: String??
     let since: Date?
     let tasks: [RemoteTask]
@@ -221,7 +223,6 @@ struct ConversationTurnView: View {
     let reviewChanges: (() -> Void)?
 
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let workCount = turn.parts.count { $0.isWork }
@@ -266,22 +267,10 @@ struct ConversationTurnView: View {
     }
 
     private var working: some View {
-        HStack(spacing: 8) {
-            if reduceMotion {
-                Image(systemName: "hourglass")
-                    .accessibilityHidden(true)
-            } else {
-                ConversationSpinner()
-            }
-            Text("Working")
-            if let since {
-                Text(verbatim: "·")
-                ConversationElapsed(since: since)
-            }
-        }
-        .font(.subheadline)
-        .foregroundStyle(theme.secondary)
-        .padding(.leading, 2)
+        ConversationWorking(agent: agent, since: since)
+            .font(.subheadline)
+            .foregroundStyle(theme.secondary)
+            .padding(.leading, 2)
     }
 
     private func changedFiles(_ changes: FileChanges) -> some View {
@@ -404,6 +393,7 @@ private struct ConversationFoldLabel: View {
 }
 
 private struct ConversationStatusBar: View {
+    let agent: Agent
     let since: Date?
     let isWorking: Bool
     let tasks: [RemoteTask]
@@ -411,7 +401,6 @@ private struct ConversationStatusBar: View {
     let jump: () -> Void
 
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsTasks = conversationShowsTasks
     private let pillTransition = AnyTransition.opacity.combined(with: .scale(scale: 0.92))
 
@@ -421,23 +410,11 @@ private struct ConversationStatusBar: View {
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
                 if isWorking, !isAtBottom {
-                    HStack(spacing: 8) {
-                        if reduceMotion {
-                            Image(systemName: "hourglass")
-                                .accessibilityHidden(true)
-                        } else {
-                            ConversationSpinner()
-                        }
-                        Text("Working")
-                        if let since {
-                            Text(verbatim: "·")
-                            ConversationElapsed(since: since)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .glassEffect(in: .capsule)
-                    .transition(pillTransition)
+                    ConversationWorking(agent: agent, since: since)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .glassEffect(in: .capsule)
+                        .transition(pillTransition)
                 }
                 if !tasks.isEmpty {
                     Button { showsTasks.toggle() } label: {
@@ -495,7 +472,7 @@ private struct ConversationTaskList: View {
                 ConversationAgentButton(isAgent: task.kind == RemoteTask.agent, agentID: task.id, toolUseID: task.id, title: task.title, dismissesPopover: true) {
                     HStack(spacing: 10) {
                         Image(systemName: task.symbol)
-                            .foregroundStyle(theme.secondary)
+                            .foregroundStyle(task.kind == RemoteTask.agent ? AgentTint.color(for: task.title) : theme.secondary)
                             .frame(width: 20)
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 1) {
@@ -591,7 +568,7 @@ private struct ConversationBottomBar: View {
         .padding(.horizontal, 18)
         .padding(.bottom, 8)
         .overlay(alignment: .top) {
-            ConversationStatusBar(since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
+            ConversationStatusBar(agent: tab.agent, since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
                 .alignmentGuide(.top) { $0[.bottom] + 10 }
         }
         .frame(maxWidth: .infinity)

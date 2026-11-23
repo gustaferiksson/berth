@@ -529,7 +529,8 @@ struct ConversationTaskRow: View {
         let isAgent = call.kind == .agent
         let isError = call.result?.isError == true
         let isRunning = task != nil
-        let tint = isError ? theme.closed : isRunning ? theme.working : theme.secondary
+        let title = task?.title ?? call.cardTitle
+        let tint = isError ? theme.closed : isAgent ? AgentTint.color(for: title) : isRunning ? theme.working : theme.secondary
         let foreground = call.result?.date.flatMap { end in call.use.date.map { end.timeIntervalSince($0) } }.flatMap { $0 > 0 && !call.isAsyncLaunch && isAgent ? $0 : nil }
 
         ConversationAgentButton(isAgent: isAgent, agentID: call.agentID, toolUseID: call.use.toolID, title: task?.title ?? call.cardTitle) {
