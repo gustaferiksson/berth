@@ -108,6 +108,7 @@ struct BerthApp: App {
 private struct ChangesMenuItem: View {
     let store: Store
     @AppStorage(GeneralSettings.terminalBelowKey) private var isTerminalBelow = false
+    @AppStorage(ReviewStyle.wrapsLinesKey) private var wrapsLines = false
 
     var body: some View {
         (AppAction.hideChanges.isAvailable(in: store) ? AppAction.hideChanges : .showChanges).menuButton(store)
@@ -116,6 +117,9 @@ private struct ChangesMenuItem: View {
         let layout = AppAction.showInline.isAvailable(in: store) ? AppAction.showInline : .showSideBySide
         layout.menuButton(store)
             .disabled(!layout.isAvailable(in: store))
+        Toggle(AppAction.wrapLines.title, isOn: $wrapsLines)
+            .keyboardShortcut(AppAction.wrapLines.shortcut)
+            .disabled(!AppAction.wrapLines.isAvailable(in: store))
         let terminalPlacement = isTerminalBelow ? AppAction.showClaudeBeside : .showClaudeBelow
         terminalPlacement.menuButton(store)
             .disabled(!terminalPlacement.isAvailable(in: store))
@@ -207,7 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
             let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showChanges, .hideChanges, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showChanges, .hideChanges, .wrapLines, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil
             }

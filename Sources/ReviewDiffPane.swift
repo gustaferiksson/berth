@@ -32,6 +32,7 @@ struct ReviewDiffPane: View {
     let workingText: () -> String?
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
     @AppStorage(ReviewStyle.showsBlameKey) private var showsBlame = true
+    @AppStorage(ReviewStyle.wrapsLinesKey) private var wrapsLines = false
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
     @AppStorage("reviewSplitRatio") private var splitRatio = 0.5
     @State private var analysis: ReviewDiffAnalysis?
@@ -62,6 +63,7 @@ struct ReviewDiffPane: View {
                 style: style,
                 blame: showsBlame && blame?.revision == blameRevision && blame?.source == loaded ? blame?.snapshot : nil,
                 showsMinimap: showsMinimap,
+                wrapsLines: wrapsLines,
                 comments: $comments,
                 threads: threads,
                 replyDrafts: $replyDrafts,
@@ -157,6 +159,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let style: ReviewStyle
     let blame: ReviewBlameSnapshot?
     let showsMinimap: Bool
+    let wrapsLines: Bool
     @Binding var comments: [ReviewComment]
     let threads: [ReviewThread]
     @Binding var replyDrafts: [String: String]
@@ -223,6 +226,9 @@ private struct ReviewDiffViews: NSViewRepresentable {
         coordinator.right.unifiedOriginal = nil
         coordinator.right.minimumWidth = 0
         coordinator.right.reserved = [:]
+        coordinator.right.wrapsLines = false
+        coordinator.right.resetWrap()
+        coordinator.right.fitWrapWidth()
         coordinator.right.blame = nil
         coordinator.right.dismissHover()
         coordinator.right.onHover = nil
@@ -321,6 +327,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             let isOriginalChanged = view.original != loadedOriginal
             let isModifiedChanged = view.modified != loadedModified
             let isModeChanged = view.isUnified != (right.unifiedOriginal != nil)
+            let isWrapChanged = view.wrapsLines != right.wrapsLines
             if isOriginalChanged {
                 loadedOriginal = view.original
                 left.string = view.original
@@ -339,8 +346,10 @@ private struct ReviewDiffViews: NSViewRepresentable {
             }
 
             let clip = right.enclosingScrollView?.contentView.bounds.minY ?? 0
-            let anchor = isModeChanged ? right.line(atY: clip).flatMap { line in right.side.flatMap { $0.rows.indices.contains(line) ? (line: line, offset: clip - right.top(ofRow: $0.rows[line])) : nil } } : nil
+            let anchor = isModeChanged || isWrapChanged ? right.line(atY: clip).flatMap { line in right.side.flatMap { $0.rows.indices.contains(line) ? (line: line, offset: clip - right.top(ofRow: $0.rows[line])) : nil } } : nil
             right.unifiedOriginal = view.isUnified ? left : nil
+            left.wrapsLines = view.wrapsLines
+            right.wrapsLines = view.wrapsLines
             let analysis = view.analysis.flatMap { $0.id != applied?.id && $0.original == loadedOriginal && $0.modified == loadedModified ? $0 : nil }
             if let analysis {
                 applied = analysis
@@ -357,8 +366,11 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 for inline in Array(cards.values) + [draft?.view].compactMap(\.self) { inline.apply(view.style) }
                 for card in threadCards.values { card.apply(view.style) }
             }
-            if isStyleChanged || isOriginalChanged || isModifiedChanged || isModeChanged || analysis != nil {
+            if isStyleChanged || isOriginalChanged || isModifiedChanged || isModeChanged || isWrapChanged || analysis != nil {
                 reload()
+            }
+            if isWrapChanged, view.wrapsLines {
+                for clip in [left, right].compactMap({ $0.enclosingScrollView?.contentView }) { clip.scroll(to: NSPoint(x: 0, y: clip.bounds.minY)) }
             }
             layoutInline()
             if let anchor, let rows = right.side?.rows, rows.indices.contains(anchor.line) {
@@ -407,6 +419,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             guard let textView = notification.object as? ReviewTextView, textView === right else { return }
 
             loadedModified = textView.string
+            if textView.wrapsLines, textView.side?.lineCount == textView.lineStarts.count { realign() }
             closePeek()
             parent?.onEdit(textView.string)
         }
@@ -457,18 +470,35 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         @objc private func clipViewDidResize(_: Notification) {
+            if right.wrapsLines, [left, right].map({ $0.fitWrapWidth() }).contains(true) { realign() }
             minimap.needsDisplay = true
             ruler.needsDisplay = true
             layoutInline()
         }
 
+        private func realign() {
+            guard right.wrapsLines else { return }
+
+            let isUnified = right.unifiedOriginal != nil
+            if !isUnified { left.measureWraps() }
+            right.measureWraps()
+            let aligned = isUnified ? right.wrapExtras : left.wrapExtras.merging(right.wrapExtras, uniquingKeysWith: max)
+            if !isUnified { left.align(to: aligned) }
+            right.align(to: aligned)
+            for textView in [left, right] where !isUnified || textView === right { textView.fitHeight() }
+            documentsDidResize()
+        }
+
         private func reload() {
+            left.resetWrap()
+            right.resetWrap()
             left.refresh()
             right.refresh()
-            right.minimumWidth = right.unifiedOriginal == nil ? 0 : (left.textLayoutManager?.usageBoundsForTextContainer.width ?? 0) + 2 * left.textContainerInset.width
+            right.minimumWidth = right.unifiedOriginal == nil || right.wrapsLines ? 0 : (left.textLayoutManager?.usageBoundsForTextContainer.width ?? 0) + 2 * left.textContainerInset.width
             right.setFrameSize(NSSize(width: (right.textLayoutManager?.usageBoundsForTextContainer.width ?? 0) + 2 * right.textContainerInset.width, height: right.frame.height))
             right.needsDisplay = true
             right.gutter?.needsDisplay = true
+            realign()
             documentsDidResize()
         }
 

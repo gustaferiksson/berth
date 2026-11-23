@@ -39,10 +39,10 @@ extension ReviewTextView {
         guard isEditable, flags == .option || flags == [.option, .shift] else { return false }
 
         let point = convert(event.locationInWindow, from: nil)
-        guard let line = line(atY: point.y), let row = segments(of: NSRange(location: lineStarts[line], length: 0)).first?.rect, point.y >= row.minY, point.y < row.minY + rowHeight else { return true }
+        guard let line = line(atY: point.y), let row = segments(of: NSRange(location: lineStarts[line], length: 0)).first?.rect, point.y >= row.minY, point.y < row.minY + rowHeight + (side.flatMap { $0.rows.indices.contains(line) ? alignedExtras[$0.rows[line]] : nil } ?? 0) else { return true }
 
         window?.makeFirstResponder(self)
-        let index = characterIndexForInsertion(at: NSPoint(x: point.x, y: row.midY))
+        let index = characterIndexForInsertion(at: NSPoint(x: point.x, y: wrapsLines ? point.y : row.midY))
         guard flags == .option else {
             columnSelect(anchor: index, focus: index)
             return true

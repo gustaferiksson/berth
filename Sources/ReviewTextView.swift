@@ -15,8 +15,21 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     var side: ReviewDiff.Side?
     var syntaxRuns: [CodeHighlighter.Span] = []
     var reserved: [Int: CGFloat] = [:] {
-        didSet { reloadParagraphs(changedFrom: oldValue) }
+        didSet { reloadParagraphs(changedFrom: oldValue, to: reserved) }
     }
+
+    var wrapsLines = false
+    private(set) var wrapExtras: [Int: CGFloat] = [:]
+    private(set) var alignedExtras: [Int: CGFloat] = [:] {
+        didSet {
+            alignedRows = alignedExtras.keys.sorted()
+            alignedTotals = alignedRows.reduce(into: []) { $0.append(($0.last ?? 0) + alignedExtras[$1, default: 0]) }
+        }
+    }
+
+    private var alignedRows: [Int] = []
+    private var alignedTotals: [CGFloat] = []
+    private var columnWidth: CGFloat = 8
 
     var selectedLines: ClosedRange<Int>?
     weak var unifiedOriginal: ReviewTextView?
@@ -528,6 +541,8 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
         let font = style.font
         let digitWidth = ("0" as NSString).size(withAttributes: [.font: font]).width
+        columnWidth = (" " as NSString).size(withAttributes: [.font: font]).width
+        fitWrapWidth()
         let paragraph = NSMutableParagraphStyle()
         rowHeight = style.lineHeight
         rowPadding = ((rowHeight - (font.ascender - font.descender + font.leading)) / 2).rounded()
@@ -567,6 +582,80 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         placeDiagnostics()
     }
 
+    @discardableResult
+    func fitWrapWidth() -> Bool {
+        guard let container = textContainer else { return false }
+
+        let contentWidth = enclosingScrollView?.contentSize.width ?? 0
+        let width = wrapsLines && contentWidth > 80 ? contentWidth - 2 * textContainerInset.width : maxSize.width
+        guard container.size.width != width else { return false }
+
+        container.size = NSSize(width: width, height: maxSize.height)
+        fitLeadingExclusion()
+        return true
+    }
+
+    func resetWrap() {
+        wrapExtras = [:]
+        alignedExtras = [:]
+    }
+
+    func align(to extras: [Int: CGFloat]) {
+        let old = alignedExtras
+        alignedExtras = extras
+        reloadParagraphs(changedFrom: old, to: extras)
+    }
+
+    func measureWraps() {
+        guard wrapsLines, let side, side.lineCount == lineStarts.count, let storage = textContentStorage, let manager = textLayoutManager else {
+            wrapExtras = [:]
+            return
+        }
+
+        manager.ensureLayout(for: manager.documentRange)
+        let lineHeight = rowHeight - rowPadding
+        var extras: [Int: CGFloat] = [:]
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: [.ensuresLayout]) { fragment in
+            let offset = storage.offset(from: storage.documentRange.location, to: fragment.rangeInElement.location)
+            let line = lineStarts.partitioningIndex { $0 > offset } - 1
+            let fragments = fragment.textLineFragments.count - (fragment.textLineFragments.last?.characterRange.length == 0 ? 1 : 0)
+            if fragments > 1, side.rows.indices.contains(line) { extras[side.rows[line]] = CGFloat(fragments - 1) * lineHeight }
+            return true
+        }
+        if let original = unifiedOriginal, let removed = original.side, let container = textContainer {
+            let text = original.string as NSString
+            for line in removed.changedLines where removed.rows.indices.contains(line) && line < original.lineStarts.count {
+                let start = original.lineStarts[line]
+                let end = line + 1 < original.lineStarts.count ? original.lineStarts[line + 1] - 1 : text.length
+                let content = NSAttributedString(string: text.substring(with: NSRange(location: start, length: end - start)), attributes: [.font: style.font, .paragraphStyle: removedParagraphStyle(line: line, original: original)])
+                let height = content.boundingRect(with: NSSize(width: container.size.width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin]).height
+                let lines = Int((height / lineHeight).rounded())
+                if lines > 1 { extras[removed.rows[line]] = CGFloat(lines - 1) * lineHeight }
+            }
+        }
+        wrapExtras = extras
+    }
+
+    private func space(of rows: Range<Int>) -> CGFloat {
+        CGFloat(rows.count) * rowHeight + reserved.filter { rows.contains($0.key) }.values.reduce(0, +) + extra(before: rows.upperBound) - extra(before: rows.lowerBound)
+    }
+
+    // TextKit 2 ignores paragraphSpacingBefore on the first paragraph, and a taller first line would stretch every wrapped fragment.
+    private func fitLeadingExclusion() {
+        guard let container = textContainer else { return }
+
+        let height = wrapsLines ? side?.rows.first.map { space(of: 0..<$0) } ?? 0 : 0
+        let paths = height > 0 ? [NSBezierPath(rect: NSRect(x: 0, y: 0, width: container.size.width, height: height))] : []
+        guard container.exclusionPaths.first?.bounds != paths.first?.bounds else { return }
+
+        container.exclusionPaths = paths
+    }
+
+    private func extra(before row: Int) -> CGFloat {
+        let count = alignedRows.partitioningIndex { $0 >= row }
+        return count == 0 ? 0 : alignedTotals[count - 1]
+    }
+
     func enumerateRows(in rect: NSRect, _ body: (_ line: Int, _ row: NSRect, _ fillers: [NSRect], _ startsLine: Bool) -> Void) {
         let origin = textContainerOrigin
         guard let storage = textContentStorage, let manager = textLayoutManager, let first = manager.textLayoutFragment(for: CGPoint(x: 0, y: max(rect.minY - origin.y, 0))) else { return }
@@ -579,8 +668,10 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             let line = lineStarts.partitioningIndex { $0 > offset } - 1
             let top = frame.minY + (fragment.textLineFragments.first?.typographicBounds.maxY ?? rowHeight) - rowHeight + rowPadding
             let bottom = frame.minY + (fragment.textLineFragments.last?.typographicBounds.maxY ?? rowHeight) + rowPadding
-            let fillers = [NSRect(x: rect.minX, y: frame.minY, width: rect.width, height: top - frame.minY), NSRect(x: rect.minX, y: bottom, width: rect.width, height: frame.maxY - bottom)]
-            body(line, NSRect(x: rect.minX, y: top, width: rect.width, height: rowHeight), fillers, lineStarts[line] == offset)
+            let aligned = side?.rows.indices.contains(line) == true ? alignedExtras[side?.rows[line] ?? 0, default: 0] : 0
+            let end = max(bottom, top + rowHeight + aligned)
+            let fillers = [NSRect(x: rect.minX, y: frame.minY, width: rect.width, height: top - frame.minY), NSRect(x: rect.minX, y: end, width: rect.width, height: max(frame.maxY - end, 0))]
+            body(line, NSRect(x: rect.minX, y: top, width: rect.width, height: end - top), fillers, lineStarts[line] == offset)
             return true
         }
     }
@@ -592,7 +683,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     }
 
     func top(ofRow row: Int) -> CGFloat {
-        textContainerOrigin.y + CGFloat(row) * rowHeight + reserved.filter { $0.key < row }.values.reduce(0, +)
+        textContainerOrigin.y + CGFloat(row) * rowHeight + reserved.filter { $0.key < row }.values.reduce(0, +) + extra(before: row)
     }
 
     func goToChange(by direction: Int) {
@@ -675,13 +766,14 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         let endsLine = line + 1 == lineStarts.count || NSMaxRange(range) == lineStarts[line + 1]
         let row = side.rows[line]
         let next = line + 1 < side.rows.count ? side.rows[line + 1] : side.rowCount
-        let space = { (rows: Range<Int>) in CGFloat(rows.count) * self.rowHeight + self.reserved.filter { rows.contains($0.key) }.values.reduce(0, +) }
-        let before = range.location == 0 ? space(0..<row) : 0
-        let after = endsLine ? space(row..<next) - rowHeight : 0
-        guard before > 0 || after > 0 else { return nil }
+        let before = range.location == 0 && !wrapsLines ? space(of: 0..<row) : 0
+        let after = endsLine ? max(space(of: row..<next) - rowHeight - min(wrapExtras[row, default: 0], alignedExtras[row, default: 0]), 0) : 0
+        let indent = wrapsLines ? min(CGFloat(indentColumns(ofLine: line) ?? 0) * columnWidth, (textContainer?.size.width ?? 0) / 2) : 0
+        guard before > 0 || after > 0 || indent > 0 else { return nil }
 
         let style = NSMutableParagraphStyle()
         style.setParagraphStyle(paragraphStyle)
+        style.headIndent = indent
         style.minimumLineHeight = rowHeight - rowPadding + before
         style.maximumLineHeight = rowHeight - rowPadding + before
         style.paragraphSpacing = after + rowPadding
@@ -703,10 +795,10 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         guard let entry = blame.entries[line + 1], side.rows.indices.contains(line) else { return nil }
 
         let row = side.rows[line]
-        let top = textContainerInset.height + CGFloat(row) * rowHeight + reserved.filter { $0.key < row }.values.reduce(0, +)
-        guard rect.maxY > top, rect.minY < top + rowHeight, let storage = textContentStorage,
+        let top = textContainerInset.height + CGFloat(row) * rowHeight + reserved.filter { $0.key < row }.values.reduce(0, +) + extra(before: row)
+        guard rect.maxY > top, rect.minY < top + rowHeight + alignedExtras[row, default: 0], let storage = textContentStorage,
               let location = storage.location(storage.documentRange.location, offsetBy: lineStarts[line]),
-              let fragment = textLayoutManager?.textLayoutFragment(for: location), let textLine = fragment.textLineFragments.first
+              let fragment = textLayoutManager?.textLayoutFragment(for: location), let textLine = fragment.textLineFragments.last
         else { return nil }
 
         let x = textContainerInset.width + fragment.layoutFragmentFrame.minX + textLine.typographicBounds.maxX + 12
@@ -718,7 +810,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         let font = NSFont.systemFont(ofSize: style.font.pointSize * 0.85)
         let label = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: style.secondary])
         let size = label.size()
-        let frame = NSRect(x: x, y: top + (rowHeight - size.height) / 2, width: size.width, height: size.height)
+        let frame = NSRect(x: x, y: top + CGFloat(fragment.textLineFragments.count - 1) * (rowHeight - rowPadding) + (rowHeight - size.height) / 2, width: size.width, height: size.height)
         guard frame.intersects(rect) else { return nil }
 
         return (entry, label, frame)
@@ -750,13 +842,13 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         if let original = unifiedOriginal, let side = original.side, self.side?.lineCount == lineStarts.count {
             let text = original.string as NSString
             for line in side.rows.partitioningIndex(where: { top(ofRow: $0 + 1) > rect.minY })..<min(side.rows.count, original.lineStarts.count) {
-                let row = NSRect(x: rect.minX, y: top(ofRow: side.rows[line]), width: rect.width, height: rowHeight)
+                let row = NSRect(x: rect.minX, y: top(ofRow: side.rows[line]), width: rect.width, height: rowHeight + alignedExtras[side.rows[line], default: 0])
                 guard row.minY < rect.maxY else { break }
 
                 if side.changedLines.contains(line) {
                     let start = original.lineStarts[line]
                     let end = line + 1 < original.lineStarts.count ? original.lineStarts[line + 1] - 1 : text.length
-                    let content = NSMutableAttributedString(string: text.substring(with: NSRange(location: start, length: end - start)), attributes: [.font: style.font, .foregroundColor: style.foreground, .paragraphStyle: paragraphStyle])
+                    let content = NSMutableAttributedString(string: text.substring(with: NSRange(location: start, length: end - start)), attributes: [.font: style.font, .foregroundColor: style.foreground, .paragraphStyle: removedParagraphStyle(line: line, original: original)])
                     for run in original.syntaxRuns[original.syntaxRuns.partitioningIndex { NSMaxRange($0.range) > start }...].prefix(while: { $0.range.location < end }) {
                         let lower = max(run.range.location, start)
                         content.addAttributes([.foregroundColor: style.color(forCapture: run.capture), .font: style.font(forCapture: run.capture)], range: NSRange(location: lower - start, length: min(NSMaxRange(run.range), end) - lower))
@@ -769,7 +861,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
                     row.fill()
                     style.removedLine.setFill()
                     row.fill(using: .sourceOver)
-                    content.draw(with: NSRect(x: textContainerOrigin.x, y: row.minY, width: .greatestFiniteMagnitude, height: rowHeight), options: [.usesLineFragmentOrigin])
+                    content.draw(with: NSRect(x: textContainerOrigin.x, y: row.minY, width: wrapsLines ? textContainer?.size.width ?? .greatestFiniteMagnitude : .greatestFiniteMagnitude, height: row.height), options: [.usesLineFragmentOrigin])
                 }
                 if original.selectedLines?.contains(line) == true {
                     style.selection.setFill()
@@ -807,10 +899,19 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         drawCarets(in: rect)
     }
 
-    private func reloadParagraphs(changedFrom old: [Int: CGFloat]) {
-        guard let side, let storage = textContentStorage, let textStorage, let manager = textLayoutManager else { return }
+    private func removedParagraphStyle(line: Int, original: ReviewTextView) -> NSParagraphStyle {
+        guard wrapsLines else { return paragraphStyle }
 
-        let rows = Set(old.keys).union(reserved.keys).filter { old[$0] != reserved[$0] }
+        let style = NSMutableParagraphStyle()
+        style.setParagraphStyle(paragraphStyle)
+        style.headIndent = min(CGFloat(original.indentColumns(ofLine: line) ?? 0) * columnWidth, (textContainer?.size.width ?? 0) / 2)
+        return style
+    }
+
+    private func reloadParagraphs(changedFrom old: [Int: CGFloat], to new: [Int: CGFloat]) {
+        let rows = Set(old.keys).union(new.keys).filter { old[$0] != new[$0] }
+        guard !rows.isEmpty, let side, let storage = textContentStorage, let textStorage else { return }
+
         let lines = Set(rows.map { row in max(side.rows.partitioningIndex { $0 > row } - 1, 0) }).filter { $0 < lineStarts.count }
         storage.performEditingTransaction {
             for line in lines {
@@ -819,12 +920,19 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
                 textStorage.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: lineStarts[line], length: end - lineStarts[line]))
             }
         }
+        fitHeight()
+        layoutSubtreeIfNeeded()
+        placeDiagnostics()
+    }
+
+    func fitHeight() {
+        guard let manager = textLayoutManager else { return }
+
+        fitLeadingExclusion()
         manager.ensureLayout(for: manager.documentRange)
         setFrameSize(NSSize(width: frame.width, height: manager.usageBoundsForTextContainer.height + 2 * textContainerInset.height))
-        layoutSubtreeIfNeeded()
         needsDisplay = true
         gutter?.needsDisplay = true
-        placeDiagnostics()
     }
 
     private func countLines() {
@@ -909,7 +1017,7 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
                 NSRect(x: 0, y: rect.minY, width: bounds.width, height: rect.height).fill(using: .sourceOver)
             }
             if let worst = textView.diagnostics.filter({ $0.range.start.line == line && ($0.tags.isEmpty || [.error, .warning].contains($0.severity)) }).min(by: { ($0.severity?.rawValue ?? 4) < ($1.severity?.rawValue ?? 4) }) {
-                let mark = NSRect(x: 4, y: rect.midY - 3, width: 6, height: 6)
+                let mark = NSRect(x: 4, y: rect.minY + textView.rowHeight / 2 - 3, width: 6, height: 6)
                 style.color(for: worst.severity).setFill()
                 NSBezierPath(ovalIn: mark).fill()
                 addToolTip(mark.insetBy(dx: -3, dy: -3), owner: self, userData: nil)
@@ -917,14 +1025,14 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
             let color = textView.side?.changedLines.contains(line) == true ? changed : isSelected || line == caret ? style.currentLineNumber : style.gutterForeground
             let label = NSAttributedString(string: "\(line + 1)", attributes: [.font: style.font, .foregroundColor: color])
             let size = label.size()
-            label.draw(at: NSPoint(x: bounds.width - size.width - 8, y: rect.minY + (rect.height - size.height) / 2))
+            label.draw(at: NSPoint(x: bounds.width - size.width - 8, y: rect.minY + (textView.rowHeight - size.height) / 2))
         }
 
         guard let original = textView.unifiedOriginal, let side = original.side, textView.side?.lineCount == textView.lineStarts.count else { return }
 
         let removed = style.removedWord.withAlphaComponent(1)
         for line in side.rows.partitioningIndex(where: { textView.top(ofRow: $0 + 1) > textView.visibleRect.minY })..<side.rows.count {
-            let rect = convert(NSRect(x: 0, y: textView.top(ofRow: side.rows[line]), width: 1, height: textView.rowHeight), from: textView)
+            let rect = convert(NSRect(x: 0, y: textView.top(ofRow: side.rows[line]), width: 1, height: textView.rowHeight + textView.alignedExtras[side.rows[line], default: 0]), from: textView)
             guard rect.minY < bounds.maxY else { break }
 
             if original.selectedLines?.contains(line) == true {
@@ -935,7 +1043,7 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
 
             let label = NSAttributedString(string: "\(line + 1)", attributes: [.font: style.font, .foregroundColor: removed])
             let size = label.size()
-            label.draw(at: NSPoint(x: bounds.width - size.width - 8, y: rect.minY + (rect.height - size.height) / 2))
+            label.draw(at: NSPoint(x: bounds.width - size.width - 8, y: rect.minY + (textView.rowHeight - size.height) / 2))
         }
     }
 
