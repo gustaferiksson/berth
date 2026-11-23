@@ -47,6 +47,7 @@ This is the slim first version; the rest is listed under Later.
 
 ## Layout
 
+- Settings > Review > New changes panel (preview) is off by default and gives non-stacked sessions full-height Changes, Commits and Files scopes with pull request details in the header.
 - Toolbar: a Show / Hide Changes button, `sidebar.left` next to the traffic lights when the
   panel is on the left, `sidebar.right` at the trailing end when it is on the right.
 - Panel, 272 pt ideal (220–440), on the Ghostty theme like the sessions sidebar. Changes holds the
