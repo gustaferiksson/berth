@@ -473,7 +473,7 @@ private struct ConversationTaskList: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
             ForEach(tasks) { task in
                 ConversationAgentButton(isAgent: task.kind == RemoteTask.agent, agentID: task.id, toolUseID: task.id, title: task.title, dismissesPopover: true) {
                     HStack(spacing: 10) {
@@ -493,11 +493,13 @@ private struct ConversationTaskList: View {
                             .font(.caption)
                             .foregroundStyle(theme.secondary)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
                     .accessibilityElement(children: .combine)
                 }
             }
         }
-        .padding(16)
+        .padding(8)
         .frame(width: 320, alignment: .leading)
         .transaction { $0.animation = nil }
     }
