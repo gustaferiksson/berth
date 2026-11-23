@@ -10,6 +10,9 @@ final class ConversationSubagentModel {
     private(set) var details: [String: ToolCallDetails] = [:]
     private(set) var started: Date?
     private(set) var ended: Date?
+    private let root: URL
+    private let session: URL
+    private let harness: Harness
     @ObservationIgnored private var entries: [RemoteEntry] = []
     @ObservationIgnored private var end: Int?
     @ObservationIgnored private var queue: [String] = []
@@ -17,8 +20,11 @@ final class ConversationSubagentModel {
     @ObservationIgnored private var read: Task<Void, Never>?
     @ObservationIgnored private var needsRead = false
 
-    init(subagent: Subagent) {
+    init(subagent: Subagent, root: URL, session: URL, harness: Harness) {
         self.subagent = subagent
+        self.root = root
+        self.session = session
+        self.harness = harness
     }
 
     func start() {
@@ -43,11 +49,13 @@ final class ConversationSubagentModel {
         let offset = end
         let queue = queue
         let id = subagent.id
+        let root = root
+        let session = session
+        let harness = harness
         read = Task {
             let (chunk, updated) = await Task.detached {
-                let chunk = TranscriptTail.read(url, after: offset, queue: queue, includeSidechain: true)
-                let session = url.deletingLastPathComponent().deletingLastPathComponent().appendingPathExtension("jsonl")
-                return (chunk, Subagent.locate(session: session, agentID: id, toolUseID: nil))
+                let chunk = harness.readSubagentTranscript(url, offset, queue)
+                return (chunk, harness.locateSubagent(root, session, id, nil))
             }.value
             guard !Task.isCancelled else { return }
 
@@ -78,15 +86,10 @@ final class ConversationSubagentModel {
 }
 
 struct ConversationSubagentView: View {
-    @State private var model: ConversationSubagentModel
+    let model: ConversationSubagentModel
     let back: () -> Void
 
     @Environment(\.ghosttyTheme) private var theme
-
-    init(subagent: Subagent, back: @escaping () -> Void) {
-        _model = State(initialValue: ConversationSubagentModel(subagent: subagent))
-        self.back = back
-    }
 
     var body: some View {
         VStack(spacing: 0) {

@@ -346,9 +346,20 @@ final class RemoteServer {
     private func sendTaskDetail(_ taskID: String, in sessionID: String, to id: ObjectIdentifier) async {
         guard let client = clients[id], client.sessionID == sessionID, let transcript = client.transcript else { return }
 
+        let agent = store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude
+        let harness = agent.harness
+        let root = store.sessionIndex(for: agent).root
         let output = client.activity.outputFile(of: taskID)
         var log = client.agentLogs[taskID]
         let detail = await Task.detached {
+            if harness.readTasks != nil,
+               let agent = harness.locateSubagent(root, transcript, taskID, nil),
+               let chunk = harness.readSubagentTranscript(agent.url, nil, []) {
+                let calls = chunk.entries.filter { $0.kind == .toolUse }.suffix(20).map { entry in
+                    RemoteToolCall(name: entry.name ?? "Tool", summary: ToolCall(use: entry, result: nil).subject, date: entry.date)
+                }
+                return RemoteTaskDetail(calls: calls, reply: chunk.entries.last { $0.kind == .reply }?.text)
+            }
             if let output { return RemoteTaskDetail(output: TaskOutput.tail(output)) }
             guard log != nil else { return RemoteTaskDetail() }
 
@@ -465,12 +476,14 @@ final class RemoteServer {
         let session = store.sessionsByID[sessionID]
         let agent = session?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude
         let harness = agent.harness
-        guard let readTranscript = harness.readTranscript, let url = store.sessionIndex(for: agent).url(ofSession: sessionID) else {
+        let index = store.sessionIndex(for: agent)
+        guard let readTranscript = harness.readTranscript, let url = index.url(ofSession: sessionID) else {
             if client.end == nil { send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: [], isContinuation: false, queued: [], activity: nil)), to: client.connection) }
             clients[id]?.end = 0
             return
         }
 
+        let root = index.root
         let after = url == client.transcript ? client.end : nil
         clients[id]?.isReading = true
         clients[id]?.needsRead = false
@@ -481,11 +494,15 @@ final class RemoteServer {
         let previousLogs = url == client.transcript ? client.agentLogs : [:]
         let (chunk, activity, logs, report) = await Task.detached {
             let chunk = readTranscript(url, after, queue)
-            guard harness.supports(.backgroundTasks) else {
-                let context = session.flatMap { session in
-                    session.context.map { RemoteContext(model: CodexModels.displayName(for: $0.model), tokens: $0.tokens, window: $0.window, date: session.lastActivity, compactions: 0, lastCompaction: nil, effort: $0.effort) }
+            guard harness.usesTranscriptActivity else {
+                let context = session.flatMap { harness.summaryContext?($0) }
+                let tasks = harness.supports(.backgroundTasks) ? harness.readTasks?(root, url) ?? [] : []
+                let approval = live.flatMap { session -> RemoteApproval? in
+                    guard session.status == "waiting", let call = harness.readApproval?(url)?.remoteCall else { return nil }
+
+                    return RemoteApproval(call: call, waitingSince: session.statusUpdatedAt)
                 }
-                return (chunk, previous, previousLogs, RemoteActivity(tasks: [], context: context))
+                return (chunk, previous, previousLogs, RemoteActivity(tasks: tasks, context: context, approval: approval))
             }
 
             let result = TranscriptActivity.report(url, previous: previous, logs: previousLogs, live: live, catalogDirectory: catalogDirectory)
@@ -592,6 +609,6 @@ final class RemoteServer {
 private extension RemoteAgent {
     init(harness: Harness) {
         let supportsSettings = harness.supports(.modelEffortMenu)
-        self.init(name: harness.name, glyph: harness.glyph, canChangeSettings: supportsSettings, canAttach: supportsSettings)
+        self.init(name: harness.name, glyph: harness.glyph, canChangeSettings: supportsSettings, canAttach: supportsSettings, approvalKeys: harness.readApproval == nil ? nil : harness.approvalKeys)
     }
 }

@@ -26,6 +26,11 @@ public struct PullRequestLink: Sendable, Hashable {
     }
 }
 
+public struct SessionModelSettings: Sendable, Hashable {
+    public let model: String
+    public let effort: String?
+}
+
 public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let id: String
     public let cwd: String
@@ -41,10 +46,11 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let originalCwd: String?
     public var checkout: String
     public var context: SessionContext?
+    public let modelSettings: SessionModelSettings?
     public let agent: Agent
     public let startedAt: Date?
 
-    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, lastTypedPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, pullRequests: [PullRequestLink] = [], issueRefs: [IssueRef] = [], continuedIn: String? = nil, originalCwd: String? = nil, context: SessionContext? = nil, agent: Agent = .claude, startedAt: Date? = nil) {
+    public init(id: String, cwd: String, title: String, lastActivity: Date, lastPrompt: Date? = nil, lastTypedPrompt: Date? = nil, branch: String? = nil, branches: [String]? = nil, pullRequests: [PullRequestLink] = [], issueRefs: [IssueRef] = [], continuedIn: String? = nil, originalCwd: String? = nil, context: SessionContext? = nil, modelSettings: SessionModelSettings? = nil, agent: Agent = .claude, startedAt: Date? = nil) {
         self.id = id
         self.cwd = cwd
         checkout = cwd
@@ -59,6 +65,7 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
         self.continuedIn = continuedIn
         self.originalCwd = originalCwd
         self.context = context
+        self.modelSettings = modelSettings
         self.agent = agent
         self.startedAt = startedAt
     }

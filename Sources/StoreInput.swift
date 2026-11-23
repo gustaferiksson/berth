@@ -16,11 +16,12 @@ extension Store {
 
         guard sessionsByID[sessionID] != nil || tab(forSession: sessionID) != nil else { return .refused("Unknown session") }
 
-        if (tab(forSession: sessionID)?.agent ?? sessionsByID[sessionID]?.agent)?.harness.liveSource == .tabSignals {
+        let harness = (tab(forSession: sessionID)?.agent ?? sessionsByID[sessionID]?.agent ?? .claude).harness
+        if harness.liveSource == .tabSignals {
             let openFirst = "Open the session in a tab first, so the message wasn’t sent"
             guard let opened = tab(forSession: sessionID) else { return .refused(openFirst) }
 
-            let name = opened.agent.harness.name
+            let name = harness.name
             let refusal = { () -> InputOutcome? in
                 self.refreshLive()
                 guard let live = self.liveBySession[sessionID] else { return nil }
@@ -48,7 +49,7 @@ extension Store {
         }
 
         refreshLive()
-        guard liveBySession[sessionID]?.status != "waiting" else { return .refused("Claude is waiting for an answer, so the message wasn’t sent") }
+        guard liveBySession[sessionID]?.status != "waiting" else { return .refused("\(harness.name) is waiting for an answer, so the message wasn’t sent") }
 
         if tab(forSession: sessionID) == nil || liveBySession[sessionID] == nil {
             if isLockedElsewhere(liveBySession[sessionID]), tab(forSession: sessionID) == nil {
@@ -64,7 +65,7 @@ extension Store {
         }
 
         refreshLive()
-        guard let terminal = tab(forSession: sessionID)?.terminal, liveBySession[sessionID] != nil else { return .refused("Claude didn’t start for this session") }
+        guard let terminal = tab(forSession: sessionID)?.terminal, liveBySession[sessionID] != nil else { return .refused("\(harness.name) didn’t start for this session") }
 
         let images = files.filter(ConversationDraft.isImage)
         let others = files.filter { !images.contains($0) }.map { "@\($0.path)" }
@@ -109,11 +110,19 @@ extension Store {
 
     func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, since waitingSince: Double?) -> InputOutcome {
         refreshLive()
-        guard let live = liveBySession[sessionID], live.status == "waiting", live.waitingFor == waitingFor, live.statusUpdatedAt == waitingSince else { return .refused("Claude’s question changed, so the key wasn’t sent") }
-        guard let terminal = tab(forSession: sessionID)?.terminal else { return .refused("Claude isn’t running in a Berth tab for this session") }
+        let tab = tab(forSession: sessionID)
+        let harness = (tab?.agent ?? sessionsByID[sessionID]?.agent ?? .claude).harness
+        guard let live = liveBySession[sessionID], live.status == "waiting", live.waitingFor == waitingFor, live.statusUpdatedAt == waitingSince else { return .refused("\(harness.name)’s question changed, so the key wasn’t sent") }
+        guard let tab else { return .refused("\(harness.name) isn’t running in a Berth tab for this session") }
 
+        let mappedKey = key == .escape ? harness.approvalKeys.deny : key
+        if key == .escape, mappedKey != .escape, let readApproval = harness.readApproval {
+            guard let url = sessionIndex(for: tab.agent).url(ofSession: sessionID), case .permission? = readApproval(url) else {
+                return .refused("Answer \(harness.name) in the terminal")
+            }
+        }
         lastKeyInput = .now
-        let press = switch key {
+        let press = switch mappedKey {
         case .enter: TerminalKeyPress(.enter)
         case .escape: TerminalKeyPress(.escape)
         case .shiftTab: TerminalKeyPress(.tab, modifiers: .shift)
@@ -127,7 +136,7 @@ extension Store {
         case .digit8: TerminalKeyPress(.digit8)
         case .digit9: TerminalKeyPress(.digit9)
         }
-        terminal.sendKey(press)
+        tab.terminal.sendKey(press)
         return .sent
     }
 
@@ -233,6 +242,7 @@ extension Store {
         refreshLive()
         guard liveBySession[sessionID]?.status == "waiting" else { return nil }
 
-        return .refused("Claude started waiting for an answer, so the message wasn’t sent")
+        let name = (tab(forSession: sessionID)?.agent ?? sessionsByID[sessionID]?.agent ?? .claude).harness.name
+        return .refused("\(name) started waiting for an answer, so the message wasn’t sent")
     }
 }

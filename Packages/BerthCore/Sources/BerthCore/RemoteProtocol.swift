@@ -1,16 +1,24 @@
 import Foundation
 
+public struct RemoteApprovalKeys: Codable, Sendable, Hashable {
+    public let approve: RemoteKey
+    public let always: RemoteKey?
+    public let deny: RemoteKey
+}
+
 public struct RemoteAgent: Codable, Sendable, Hashable {
     public let name: String
     public let glyph: String
     public let canChangeSettings: Bool
     public let canAttach: Bool
+    public let approvalKeys: RemoteApprovalKeys?
 
-    public init(name: String, glyph: String, canChangeSettings: Bool, canAttach: Bool) {
+    public init(name: String, glyph: String, canChangeSettings: Bool, canAttach: Bool, approvalKeys: RemoteApprovalKeys? = nil) {
         self.name = name
         self.glyph = glyph
         self.canChangeSettings = canChangeSettings
         self.canAttach = canAttach
+        self.approvalKeys = approvalKeys
     }
 }
 
@@ -174,13 +182,25 @@ public nonisolated enum RemoteImagesFeature {
     public static let maxReplyBytes = 700_000
 }
 
+public struct RemoteApproval: Codable, Sendable, Hashable {
+    public let call: RemoteEntry
+    public let waitingSince: Double?
+
+    public init(call: RemoteEntry, waitingSince: Double?) {
+        self.call = call
+        self.waitingSince = waitingSince
+    }
+}
+
 public struct RemoteActivity: Codable, Sendable, Hashable {
     public let tasks: [RemoteTask]
     public let context: RemoteContext?
+    public let approval: RemoteApproval?
 
-    public init(tasks: [RemoteTask], context: RemoteContext?) {
+    public init(tasks: [RemoteTask], context: RemoteContext?, approval: RemoteApproval? = nil) {
         self.tasks = tasks
         self.context = context
+        self.approval = approval
     }
 }
 
@@ -198,8 +218,9 @@ public struct RemoteTask: Codable, Sendable, Hashable, Identifiable {
     public let toolCount: Int?
     public let tokens: Int?
     public let call: RemoteToolCall?
+    public let toolUseID: String?
 
-    public init(id: String, kind: String, title: String, started: Date, command: String? = nil, agentType: String? = nil, toolCount: Int? = nil, tokens: Int? = nil, call: RemoteToolCall? = nil) {
+    public init(id: String, kind: String, title: String, started: Date, command: String? = nil, agentType: String? = nil, toolCount: Int? = nil, tokens: Int? = nil, call: RemoteToolCall? = nil, toolUseID: String? = nil) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -209,6 +230,7 @@ public struct RemoteTask: Codable, Sendable, Hashable, Identifiable {
         self.toolCount = toolCount
         self.tokens = tokens
         self.call = call
+        self.toolUseID = toolUseID
     }
 }
 

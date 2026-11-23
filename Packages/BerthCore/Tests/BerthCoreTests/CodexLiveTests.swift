@@ -7,6 +7,9 @@ struct CodexLiveTests {
         #expect(CodexRunState(title: "⠋ ThInKiNg…") == .working)
         #expect(CodexRunState(title: "Working on it") == .working)
         #expect(CodexRunState(title: "  • NEEDS INPUT") == .needsInput)
+        #expect(CodexRunState(title: "[ . ] Action Required") == .needsInput)
+        #expect(CodexRunState(title: "[ ! ] Action Required") == .needsInput)
+        #expect(CodexRunState(title: "⠦ Working") == .working)
         #expect(CodexRunState(title: "Blocked") == .needsInput)
         #expect(CodexRunState(title: "ready") == .ready)
         for title in ["", "⠋", "Starting", "/work/fixture", "/Ready/project", "~/Thinking"] {
@@ -55,7 +58,7 @@ struct CodexLiveTests {
             ("thinking", "Thinking", closedURL, "busy", true, modified),
             ("working", "Working", nil, "busy", true, opened),
             ("needs-input", "Needs input", openURL, "waiting", true, modified),
-            ("blocked", "Blocked", nil, "waiting", true, opened),
+            ("blocked", "[ ! ] Action Required", nil, "waiting", true, opened),
             ("ready", "Ready", openURL, "idle", true, modified),
             ("recent", "unknown", openURL, "busy", false, modified),
             ("complete", "", closedURL, "idle", false, modified),
@@ -75,7 +78,7 @@ struct CodexLiveTests {
             #expect(record.kind == "tab")
             #expect(record.cwd == "/work")
             #expect(record.status == expected.status)
-            #expect(record.waitingFor == (expected.status == "waiting" ? "needs input" : nil))
+            #expect(record.waitingFor == (expected.status == "waiting" ? "action required" : nil))
             #expect(record.observesWaiting == expected.reportsWaiting)
             #expect(record.reportsWaiting == expected.reportsWaiting)
             #expect(record.startedAt == opened.timeIntervalSince1970 * 1000)

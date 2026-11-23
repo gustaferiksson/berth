@@ -1,17 +1,33 @@
+import AppKit
 import BerthCore
 import SwiftUI
 
 struct ConversationApprovalCard: View {
     let approval: PendingApproval
+    let harness: Harness
     let since: Date?
     let answer: (RemoteKey) -> Void
-    let deny: () -> Void
+    let deny: (() -> Void)?
     let declineWithMessage: () -> Void
     let showTerminal: () -> Void
 
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
+        Group {
+            if harness.readApproval == nil {
+                card.glassEffect(.regular.tint(theme.needsYou.opacity(0.1)), in: .rect(cornerRadius: 26))
+            } else {
+                card
+                    .background(theme.background ?? Color(nsColor: .textBackgroundColor), in: .rect(cornerRadius: 26))
+                    .overlay { RoundedRectangle(cornerRadius: 26).strokeBorder(theme.needsYou.opacity(0.22)) }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(isQuestion ? "Question from \(harness.name)" : "Approval needed")
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Label(isQuestion ? "Question" : "Needs Approval", systemImage: "exclamationmark.circle.fill")
@@ -26,7 +42,7 @@ struct ConversationApprovalCard: View {
                         .foregroundStyle(.secondary)
                 }
                 Menu("More", systemImage: "ellipsis") {
-                    Button("Deny with Message…", systemImage: "text.bubble", action: declineWithMessage)
+                    if deny != nil { Button("Deny with Message…", systemImage: "text.bubble", action: declineWithMessage) }
                     Button("Show Terminal", systemImage: "apple.terminal", action: showTerminal)
                 }
                 .labelStyle(.iconOnly)
@@ -38,9 +54,6 @@ struct ConversationApprovalCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(theme.needsYou.opacity(0.1)), in: .rect(cornerRadius: 26))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(isQuestion ? "Question from Claude" : "Approval needed")
     }
 
     private var isQuestion: Bool {
@@ -71,7 +84,7 @@ struct ConversationApprovalCard: View {
             } else {
                 ConversationCodeBlock(text: target, syntax: tool == "Bash" ? "bash" : nil, maxHeight: 160)
             }
-            buttons(allow: "Allow", deny: "Deny")
+            buttons(allow: "Allow", deny: "Deny", always: harness.approvalKeys.always)
 
         case let .question(question, options):
             Text(verbatim: question)
@@ -108,13 +121,15 @@ struct ConversationApprovalCard: View {
                     }
                 }
             }
-            HStack {
-                Spacer()
-                Button(action: deny) {
-                    keyLabel("Dismiss", "⎋")
+            if let deny {
+                HStack {
+                    Spacer()
+                    Button(action: deny) {
+                        keyLabel("Dismiss", "⎋")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Dismiss (⎋)")
                 }
-                .buttonStyle(.borderless)
-                .help("Dismiss (⎋)")
             }
 
         case let .plan(plan):
@@ -140,16 +155,22 @@ struct ConversationApprovalCard: View {
         }
     }
 
-    private func buttons(allow: String, deny title: String) -> some View {
+    private func buttons(allow: String, deny title: String, always: RemoteKey? = nil) -> some View {
         HStack(spacing: 10) {
             Spacer()
-            Button(action: deny) {
-                keyLabel(title, "⎋")
+            if let deny {
+                Button(action: deny) {
+                    keyLabel(title, "⎋")
+                }
+                .buttonStyle(.bordered)
+                .help("\(title) (⎋)")
             }
-            .buttonStyle(.bordered)
-            .help("\(title) (⎋)")
+            if let always {
+                Button("Always Allow") { answer(always) }
+                    .buttonStyle(.bordered)
+            }
             Button {
-                answer(.digit1)
+                answer(harness.approvalKeys.approve)
             } label: {
                 keyLabel(allow, "↩")
             }

@@ -1,6 +1,9 @@
 import Foundation
 
 public enum CodexTranscript {
+    static let commandField = #"\bcmd\s*:\s*"#
+    static let execNames: Set<String> = ["exec_command", "shell", "shell_command", "container.exec"]
+
     struct Content: Decodable {
         let type: String?
         let text: String?
@@ -11,6 +14,7 @@ public enum CodexTranscript {
     enum Output: Decodable {
         case text(String)
         case blocks([Content])
+        case unrecognized
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.singleValueContainer()
@@ -18,11 +22,12 @@ public enum CodexTranscript {
                 self = .text(text)
                 return
             }
-            self = try .blocks(container.decode([Content].self))
+            self = (try? container.decode([Content].self)).map(Self.blocks) ?? .unrecognized
         }
 
         var text: String {
             switch self {
+            case .unrecognized: ""
             case let .text(text): text
             case let .blocks(blocks): blocks.filter { $0.type == "input_text" }.compactMap(\.text).joined(separator: "\n")
             }
@@ -63,6 +68,9 @@ public enum CodexTranscript {
     struct Item: Decodable {
         let type: String
         let id: String?
+        let kind: String?
+        let agentThreadID: String?
+        let agentPath: String?
         let content: [Content]?
         let command: [String]?
         let aggregatedOutput: String?
@@ -73,7 +81,8 @@ public enum CodexTranscript {
         let stderr: String?
 
         enum CodingKeys: String, CodingKey {
-            case type, id, content, command, status, changes, stdout, stderr
+            case type, id, kind, content, command, status, changes, stdout, stderr
+            case agentThreadID = "agent_thread_id", agentPath = "agent_path"
             case aggregatedOutput = "aggregated_output", exitCode = "exit_code"
         }
     }
@@ -122,11 +131,21 @@ public enum CodexTranscript {
         }
     }
 
+    static func scriptStrings(_ input: String, after prefix: String, decoder: JSONDecoder) -> [String] {
+        let pattern = prefix + #"("(?:\\.|[^"\\])*")"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+
+        return regex.matches(in: input, range: NSRange(input.startIndex..., in: input)).compactMap { match in
+            guard let range = Range(match.range(at: 1), in: input) else { return nil }
+
+            return try? decoder.decode(String.self, from: Data(input[range].utf8))
+        }
+    }
+
     static func entries(in lines: [Data], itemsEra: Bool) -> (entries: [RemoteEntry], isTurnOpen: Bool?) {
         let decoder = JSONDecoder()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let execNames: Set = ["exec_command", "shell", "shell_command", "container.exec"]
         let skippedNames: Set = ["wait", "write_stdin", "sleep", "send_message", "wait_agent", "list_agents", "followup_task"]
         var entries: [RemoteEntry] = []
         var seenPrompts = Set<String>()
@@ -225,17 +244,17 @@ public enum CodexTranscript {
                 }
                 if type == "custom_tool_call", name == "exec" {
                     let input = payload.input ?? ""
-                    let pattern = #"\bcmd\s*:\s*("(?:\\.|[^"\\])*")"#
-                    let regex = try? NSRegularExpression(pattern: pattern)
-                    let commands = (regex?.matches(in: input, range: NSRange(input.startIndex..., in: input)) ?? []).compactMap { match -> String? in
-                        guard let range = Range(match.range(at: 1), in: input) else { return nil }
-
-                        return try? decoder.decode(String.self, from: Data(input[range].utf8))
-                    }
+                    let commands = scriptStrings(input, after: commandField, decoder: decoder)
                     let command = commands.isEmpty ? nil : commands.joined(separator: "\n")
                     let detail = input.contains("apply_patch") ? "apply_patch" : String((input.split(separator: "\n").first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? "").prefix(120))
                     let raw = command.map { String(decoding: (try? encoder.encode(["command": $0])) ?? Data(), as: UTF8.self) } ?? input
                     entries.append(RemoteEntry(id: id, kind: .toolUse, text: String(raw.prefix(TranscriptTail.maxText)), toolID: callID, name: command == nil ? "Script" : "Bash", command: command.map { String($0.prefix(TranscriptTail.maxText)) }, date: date, detail: command == nil ? detail : nil))
+                    continue
+                }
+                if name == "spawn_agent" {
+                    let title = CodexSubagents.spawnMessage(values) ?? values["task_name"]
+                    let raw = String(decoding: (try? encoder.encode(["subagent_type": values["agent_type"] ?? "Agent"])) ?? Data(), as: UTF8.self)
+                    entries.append(RemoteEntry(id: id, kind: .toolUse, text: raw, toolID: callID, name: "Agent", date: date, detail: title.map { String($0.prefix(TranscriptTail.maxDetail)) }))
                     continue
                 }
                 let detail = ["message", "prompt", "task", "query", "url", "path", "cmd"].compactMap { values[$0] }.first
@@ -243,6 +262,8 @@ public enum CodexTranscript {
                 continue
             }
             guard type == "function_call_output" || type == "custom_tool_call_output", previousSkippedCall == nil || previousSkippedCall != callID else { continue }
+
+            if case .unrecognized? = payload.output { continue }
 
             var output = payload.output?.text ?? ""
             let isError = output.range(of: #"Process exited with code (?!0\b)-?\d+"#, options: .regularExpression) != nil

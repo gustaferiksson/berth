@@ -10,7 +10,7 @@ public enum CodexLaunch {
         let launch = start == .newInWorktree ? #"wt switch --create "codex-$(date +%m%d-%H%M%S)" --no-cd -x codex --"# : "codex"
         let resumes = start == .resume || start == .attach
         let resume = resumes ? " resume \"$\(ClaudeLaunch.sessionVariable)\"" : ""
-        return #"/bin/zsh -ilc '\#(launch) -c "tui.terminal_title=[\"run-state\"]"\#(model)\#(effort)\#(resume) || exec /bin/zsh -il'"#
+        return #"/bin/zsh -ilc '\#(launch) -c "tui.terminal_title=[\"spinner\",\"run-state\"]"\#(model)\#(effort)\#(resume) || exec /bin/zsh -il'"#
     }
 
     public static func claim(for opened: Date, cwd: String, in sessions: [SessionSummary], excluding claimed: Set<String>) -> SessionSummary? {

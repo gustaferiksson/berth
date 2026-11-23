@@ -16,14 +16,18 @@ struct ConversationView: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
+        let harness = tab.agent.harness
         let live = tab.sessionID.flatMap { store.liveBySession[$0] }
         let isWorking = live?.activity == .working || model.isTurnOpen && !(live?.reportsWaiting ?? false)
         let waitingFor: String?? = if case let .needsInput(reason)? = live?.activity { .some(reason) } else { nil }
         let since = tab.sessionID.flatMap { store.turnStarts[$0] } ?? model.turns.last?.prompt?.date
-        let openCall = model.turns.last?.openCall
-        let approval = live.flatMap { $0.status == "waiting" ? PendingApproval.resolve(waitingFor: $0.waitingFor, call: openCall) : nil }
+        let resolvedApproval = model.approval(for: live, harness: harness)
+        let approval = resolvedApproval ?? (waitingFor == nil ? nil : .loading)
         let waiting = live.flatMap { $0.status == "waiting" ? (waitingFor: $0.waitingFor, since: $0.statusUpdatedAt) : nil }
-        let needsTerminal = (tab.agent.harness.liveSource == .sessionFiles || live != nil) && model.hasLoaded && ConversationFallback.needsTerminal(live: live, call: openCall, tabAge: now.timeIntervalSince(tab.opened), now: now)
+        let needsTerminal = (harness.liveSource == .sessionFiles || live != nil) && model.hasLoaded && ConversationFallback.needsTerminal(live: live, approval: resolvedApproval, tabAge: now.timeIntervalSince(tab.opened), now: now)
+
+        let canDeny = harness.approvalKeys.deny == .escape || approval?.isPermission == true
+        let denial = canDeny ? waiting : nil
 
         keyboard(transcript(isWorking: isWorking, waitingFor: waitingFor, since: since), approval: approval, waiting: waiting)
             .onChange(of: needsTerminal, initial: true) { if needsTerminal { store.suspendConversation(tab.id) } }
@@ -38,7 +42,7 @@ struct ConversationView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ConversationBottomBar(
                     model: model,
-                    harness: tab.agent.harness,
+                    harness: harness,
                     canAttach: tab.agent.harness.supports(.modelEffortMenu),
                     since: since,
                     isWorking: isWorking,
@@ -46,10 +50,11 @@ struct ConversationView: View {
                     isAtBottom: isAtBottom,
                     approval: approval,
                     waiting: waiting,
+                    denial: denial,
                     composerFocus: $composerFocus,
                     jump: { _ = scrollToLatest() },
                     answer: { _ = answer($0, waiting) },
-                    deny: { _ = deny(waiting) }
+                    deny: { _ = deny(denial) }
                 )
             }
             .overlay {
@@ -72,8 +77,8 @@ struct ConversationView: View {
             .accessibilityHidden(model.openSubagent != nil)
             .overlay {
                 if let subagent = model.openSubagent {
-                    ConversationSubagentView(subagent: subagent) { model.openSubagent = nil }
-                        .id(subagent.id)
+                    ConversationSubagentView(model: subagent) { model.openSubagent = nil }
+                        .id(subagent.subagent.id)
                 }
             }
             .environment(\.openAgentConversation, OpenAgentConversation(open: model.openAgent))
@@ -123,6 +128,8 @@ struct ConversationView: View {
     private func keyboard(_ content: some View, approval: PendingApproval?, waiting: (waitingFor: String?, since: Double?)?) -> some View {
         let isDraftEmpty = model.draft.isEmpty
         let isActionable = approval?.isActionable ?? false
+        let keys = tab.agent.harness.approvalKeys
+        let canDeny = keys.deny == .escape || approval?.isPermission == true
 
         return content
             .focusable()
@@ -134,8 +141,8 @@ struct ConversationView: View {
                 return .handled
             }
             .onKeyPress(.downArrow, phases: .down) { press in press.modifiers == .command ? scrollToLatest() : .ignored }
-            .onKeyPress(.return) { isActionable && isDraftEmpty ? answer(.digit1, waiting) : .ignored }
-            .onKeyPress(.escape) { isActionable ? deny(waiting) : .ignored }
+            .onKeyPress(.return) { isActionable && isDraftEmpty ? answer(keys.approve, waiting) : .ignored }
+            .onKeyPress(.escape) { isActionable && canDeny ? deny(waiting) : .ignored }
             .onKeyPress(characters: .decimalDigits, phases: .down) { press in
                 guard case let .question(_, options)? = approval, isDraftEmpty, let digit = Int(press.characters), (1...options.count).contains(digit) else { return .ignored }
 
@@ -305,7 +312,7 @@ private struct ConversationPartView: View {
         case let .cards(calls):
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(calls) { call in
-                    ConversationTaskRow(call: call, task: tasks.first { $0.id == call.use.toolID || (call.use.date != nil && $0.started == call.use.date && $0.title == call.cardTitle) })
+                    ConversationTaskRow(call: call, task: tasks.first { $0.id == call.use.toolID || ($0.toolUseID != nil && $0.toolUseID == call.use.toolID) || (call.use.date != nil && $0.started == call.use.date && $0.title == call.cardTitle) })
                 }
             }
             .padding(.leading, 24)
@@ -488,6 +495,10 @@ private struct ConversationTaskList: View {
 }
 
 private extension PendingApproval {
+    var isPermission: Bool {
+        if case .permission = self { true } else { false }
+    }
+
     var isActionable: Bool {
         switch self {
         case .permission, .question, .plan: true
@@ -506,6 +517,7 @@ private struct ConversationBottomBar: View {
     let isAtBottom: Bool
     let approval: PendingApproval?
     let waiting: (waitingFor: String?, since: Double?)?
+    let denial: (waitingFor: String?, since: Double?)?
     @Binding var composerFocus: Int
     let jump: () -> Void
     let answer: (RemoteKey) -> Void
@@ -519,15 +531,16 @@ private struct ConversationBottomBar: View {
             if let approval, approval.isActionable || approval == .loading {
                 ConversationApprovalCard(
                     approval: approval,
+                    harness: harness,
                     since: waiting?.since.map { Date(timeIntervalSince1970: $0 / 1000) },
                     answer: answer,
-                    deny: deny,
+                    deny: denial == nil ? nil : deny,
                     declineWithMessage: { composerFocus += 1 },
                     showTerminal: { AppAction.showTerminal.perform(on: store) }
                 )
                 .transition(.blurReplace)
             }
-            if !harness.supports(.approvals), model.isTurnOpen {
+            if waiting == nil, model.isTurnOpen, harness.readApproval != nil || !harness.supports(.approvals) {
                 TimelineView(.periodic(from: .now, by: 5)) { timeline in
                     if timeline.date.timeIntervalSince(model.lastChange) > 20 {
                         HStack {
@@ -540,7 +553,7 @@ private struct ConversationBottomBar: View {
                     }
                 }
             }
-            ConversationComposer(model: model, harnessName: harness.name, capabilities: harness.capabilities, canAttach: canAttach, isWorking: isWorking, waiting: waiting, context: model.context, focusRequest: composerFocus)
+            ConversationComposer(model: model, harnessName: harness.name, capabilities: harness.capabilities, canAttach: canAttach, isWorking: isWorking, waiting: denial, context: model.context, focusRequest: composerFocus)
         }
         .frame(maxWidth: 860)
         .padding(.horizontal, 18)

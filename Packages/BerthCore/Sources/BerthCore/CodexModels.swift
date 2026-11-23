@@ -29,6 +29,12 @@ public enum CodexModels {
         .map(\.model)
     }
 
+    static func context(for summary: SessionSummary) -> RemoteContext? {
+        guard let model = summary.modelSettings?.model ?? summary.context?.model else { return nil }
+
+        return RemoteContext(model: displayName(for: model), tokens: summary.context?.tokens, window: summary.context?.window, date: summary.lastActivity, compactions: 0, lastCompaction: nil, effort: summary.modelSettings?.effort ?? summary.context?.effort)
+    }
+
     public static func displayName(for slug: String) -> String {
         catalog.first { $0.slug == slug }?.displayName ?? slug
     }

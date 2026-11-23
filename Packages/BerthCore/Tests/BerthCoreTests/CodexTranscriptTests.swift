@@ -137,7 +137,7 @@ struct CodexTranscriptTests {
             RemoteEntry(id: "patch-script", kind: .toolUse, text: "tools.apply_patch(\"fixture\")", toolID: "patch-script", name: "Script", date: date, detail: "apply_patch"),
             RemoteEntry(id: "patch-script", kind: .toolResult, text: "applied", toolID: "patch-script", date: date),
             RemoteEntry(id: "script", kind: .toolUse, text: "\nconst sample = 1;\ntext(sample)", toolID: "script", name: "Script", date: date, detail: "const sample = 1;"),
-            RemoteEntry(id: "agent", kind: .toolUse, text: #"{"message":"Inspect fixture","count":2}"#, toolID: "agent", name: "spawn_agent", date: date, detail: "Inspect fixture"),
+            RemoteEntry(id: "agent", kind: .toolUse, text: #"{"subagent_type":"Agent"}"#, toolID: "agent", name: "Agent", date: date, detail: "Inspect fixture"),
         ])
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }

@@ -6,7 +6,7 @@ public enum CodexRollout {
     static let maxTailBytes = 8 * 1024 * 1024
     static let maxTitleLength = 120
     static let excludedOriginators: Set<String> = ["codex_exec", "Claude Code"]
-    static let summaryKeywords = ["session_meta", "turn_context", "user_message", "agent_message", "token_count", "compacted", "UserMessage", "AgentMessage"].map { Data($0.utf8) }
+    static let summaryKeywords = ["session_meta", "turn_context", "thread_settings_applied", "user_message", "agent_message", "token_count", "compacted", "UserMessage", "AgentMessage"].map { Data($0.utf8) }
     static let turnEvents = ["task_started", "task_complete", "turn_aborted"]
     static let turnKeywords = turnEvents.map { Data($0.utf8) }
 
@@ -32,9 +32,9 @@ public enum CodexRollout {
         let cwd = tailRecords.last { $0.type == "turn_context" && $0.payload?.cwd != nil }?.payload?.cwd ?? meta.cwd
         guard let cwd else { return nil }
 
-        let turns = (headRecords + tailRecords).filter { $0.type == "turn_context" }
-        let model = turns.last { $0.payload?.model != nil }?.payload?.model
-        let effort = turns.last?.payload?.effort
+        let settings = tailRecords.lazy.reversed().compactMap(\.modelSettings).first ?? headRecords.lazy.reversed().compactMap(\.modelSettings).first
+        let model = settings?.model
+        let effort = settings?.effort
         let branch = meta.git?.branch.flatMap { $0.isEmpty || $0 == "HEAD" ? nil : $0 }
         let lastTyped = tailRecords.last { $0.prompt != nil }?.timestamp.flatMap(date)
         let lastConversation = tailRecords.last { $0.isConversation }?.timestamp.flatMap(date)
@@ -55,6 +55,7 @@ public enum CodexRollout {
             branch: branch,
             pullRequests: pullRequests ?? Self.pullRequests(in: url, from: 0).links,
             context: context,
+            modelSettings: settings,
             agent: .codex,
             startedAt: started
         )
@@ -186,6 +187,20 @@ public enum CodexRollout {
         }
     }
 
+    struct Settings: Decodable {
+        let model: String?
+        let reasoningEffort: String?
+
+        enum CodingKeys: String, CodingKey {
+            case model
+            case reasoningEffort = "reasoning_effort"
+        }
+    }
+
+    struct CollaborationMode: Decodable {
+        let settings: Settings?
+    }
+
     struct Record: Decodable {
         struct Payload: Decodable {
             let type: String?
@@ -199,12 +214,14 @@ public enum CodexRollout {
             let message: String?
             let model: String?
             let effort: String?
+            let threadSettings: Settings?
+            let collaborationMode: CollaborationMode?
             let info: CodexRollout.Info?
             let item: CodexTranscript.Item?
 
             enum CodingKeys: String, CodingKey {
                 case type, id, timestamp, cwd, originator, source, git, message, model, effort, info, item
-                case threadSource = "thread_source"
+                case threadSource = "thread_source", threadSettings = "thread_settings", collaborationMode = "collaboration_mode"
             }
 
             init(from decoder: any Decoder) throws {
@@ -220,6 +237,8 @@ public enum CodexRollout {
                 message = try? container.decode(String.self, forKey: .message)
                 model = try? container.decode(String.self, forKey: .model)
                 effort = try? container.decode(String.self, forKey: .effort)
+                threadSettings = try? container.decode(Settings.self, forKey: .threadSettings)
+                collaborationMode = try? container.decode(CollaborationMode.self, forKey: .collaborationMode)
                 info = try? container.decode(CodexRollout.Info.self, forKey: .info)
                 item = try? container.decode(CodexTranscript.Item.self, forKey: .item)
             }
@@ -228,6 +247,15 @@ public enum CodexRollout {
         let timestamp: String?
         let type: String?
         let payload: Payload?
+
+        var modelSettings: SessionModelSettings? {
+            if type == "event_msg", payload?.type == "thread_settings_applied", let settings = payload?.threadSettings, let model = settings.model {
+                return SessionModelSettings(model: model, effort: settings.reasoningEffort)
+            }
+            guard type == "turn_context", let payload, let model = payload.model ?? payload.collaborationMode?.settings?.model else { return nil }
+
+            return SessionModelSettings(model: model, effort: payload.effort ?? payload.collaborationMode?.settings?.reasoningEffort)
+        }
 
         var prompt: String? {
             guard type == "event_msg" else { return nil }
