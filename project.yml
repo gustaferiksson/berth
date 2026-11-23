@@ -148,6 +148,7 @@ targets:
       - path: Packages/BerthCore/Sources/BerthCore/RemoteProtocol.swift
       - path: Packages/BerthCore/Sources/BerthCore/PlanUsage.swift
       - path: Packages/BerthCore/Sources/BerthCore/Conversation.swift
+      - path: Packages/BerthCore/Sources/BerthCore/PendingPrompts.swift
       - path: Packages/BerthCore/Sources/BerthCore/MarkdownBlock.swift
       - path: Shared
       - path: Resources/AppIcon.icon

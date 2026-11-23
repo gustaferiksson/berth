@@ -51,7 +51,10 @@ struct ConversationComposerField: NSViewRepresentable {
             textView.placeholder = placeholder
             textView.needsDisplay = true
         }
-        textView.font = font
+        if textView.font != font {
+            textView.font = font
+            textView.needsDisplay = true
+        }
         textView.textColor = color
         textView.insertionPointColor = color
         textView.onSubmit = submit
@@ -103,9 +106,9 @@ final class ComposerTextView: NSTextView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard string.isEmpty, !hasMarkedText() else { return }
+        guard string.isEmpty, !hasMarkedText(), let font else { return }
 
-        let attributes: [NSAttributedString.Key: Any] = [.font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize), .foregroundColor: NSColor.placeholderTextColor]
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.placeholderTextColor]
         placeholder.draw(at: NSPoint(x: textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0), y: textContainerOrigin.y), withAttributes: attributes)
     }
 

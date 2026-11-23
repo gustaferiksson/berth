@@ -77,6 +77,8 @@ final class RemoteClient {
     private(set) var folders: [String] = []
     private(set) var entries: [String: [RemoteEntry]] = [:]
     private(set) var queued: [String: [String]] = [:]
+    private(set) var pending: [String: [PendingPrompt]] = [:]
+    @ObservationIgnored private(set) var pendingAttachments: [String: [Date: [Attachment]]] = [:]
     private(set) var activity: [String: RemoteActivity] = [:]
     private(set) var pullRequests: [String: PullRequestLoad] = [:]
     private(set) var changes: [String: ChangesLoad] = [:]
@@ -99,7 +101,7 @@ final class RemoteClient {
     @ObservationIgnored private var failures = 0
     @ObservationIgnored private var sessionsReceived = 0
     @ObservationIgnored private var subscribedSessionID: String?
-    @ObservationIgnored private var lastSent: (sessionID: String, text: String, attachments: [Attachment], date: Date)?
+    @ObservationIgnored private var lastSent: (sessionID: String, date: Date)?
 
     init() {
         if let legacy = UserDefaults.standard.string(forKey: "remoteToken"), legacy.isEmpty || Self.save(token: legacy) {
@@ -164,10 +166,19 @@ final class RemoteClient {
         retry?.cancel()
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+        lastSent = nil
+        pending = [:]
+        pendingAttachments = [:]
+        entries = [:]
+        queued = [:]
+        subscribedSessionID = nil
         state = .disconnected(nil)
     }
 
     func subscribe(to sessionID: String) {
+        if let subscribedSessionID, subscribedSessionID != sessionID {
+            reconcilePending(in: subscribedSessionID, queued: [])
+        }
         subscribedSessionID = sessionID
         send(.subscribe(sessionID: sessionID))
     }
@@ -215,12 +226,76 @@ final class RemoteClient {
     func sendDraft(to sessionID: String) -> Bool {
         let text = draftTexts[sessionID, default: ""]
         let attachments = draftAttachments[sessionID, default: []]
-        guard send(.prompt(sessionID: sessionID, text: text, attachments: attachments.isEmpty ? nil : attachments.map(\.id))) else { return false }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
 
-        lastSent = (sessionID, text, attachments, .now)
         draftTexts[sessionID] = nil
         draftAttachments[sessionID] = nil
+        return sendPrompt(text, attachments: attachments, to: sessionID)
+    }
+
+    func retryPrompt(_ prompt: PendingPrompt, in sessionID: String) {
+        guard state == .connected, let index = pending[sessionID]?.firstIndex(where: { $0.sentAt == prompt.sentAt && $0.isFailed }) else { return }
+
+        let attachments = pendingAttachments[sessionID]?[prompt.sentAt] ?? []
+        pendingAttachments[sessionID]?[prompt.sentAt] = nil
+        _ = sendPrompt(prompt.text, attachments: attachments, to: sessionID, replacing: index)
+    }
+
+    func dismissPrompt(_ prompt: PendingPrompt, in sessionID: String) {
+        pending[sessionID]?.removeAll { $0.sentAt == prompt.sentAt && $0.isFailed }
+        reconcilePending(in: sessionID)
+    }
+
+    private func sendPrompt(_ text: String, attachments: [Attachment], to sessionID: String, replacing index: Int? = nil) -> Bool {
+        let baseline = PendingPrompts.recordedCount(text: text, attachmentCount: attachments.count, entries: promptEntries(in: sessionID))
+        let date = Date.now
+        let prompt = PendingPrompt(text: text, sentAt: date, attachmentCount: attachments.count, baseline: baseline, isFailed: state != .connected || task == nil)
+        pendingAttachments[sessionID, default: [:]][date] = attachments
+        if let index {
+            pending[sessionID]?[index] = prompt
+        } else {
+            pending[sessionID, default: []].append(prompt)
+        }
+        guard let task, !prompt.isFailed else { return false }
+
+        lastSent = (sessionID, date)
+        let message = RemoteClientMessage.prompt(sessionID: sessionID, text: text, attachments: attachments.isEmpty ? nil : attachments.map(\.id))
+        Task { [weak self] in
+            do {
+                try await task.send(.string(String(decoding: JSONEncoder().encode(message), as: UTF8.self)))
+            } catch {
+                self?.failPrompt(sentAt: date, in: sessionID)
+            }
+        }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(PendingPrompts.grace + 1))
+            self?.reconcilePending(in: sessionID)
+        }
         return true
+    }
+
+    private func failPrompt(sentAt: Date, in sessionID: String) {
+        guard let index = pending[sessionID]?.firstIndex(where: { $0.sentAt == sentAt }) else { return }
+
+        pending[sessionID]?[index].isFailed = true
+    }
+
+    private func reconcilePending(in sessionID: String, queued: [String]? = nil) {
+        guard let prompts = pending[sessionID] else { return }
+
+        let kept = PendingPrompts.reconcile(prompts, entries: promptEntries(in: sessionID), queued: queued ?? self.queued[sessionID] ?? [], now: .now)
+        pendingAttachments[sessionID] = kept.isEmpty ? nil : pendingAttachments[sessionID]?.filter { date, _ in kept.contains { $0.sentAt == date } }
+        if kept.isEmpty || kept != prompts { pending[sessionID] = kept.isEmpty ? nil : kept }
+    }
+
+    private func promptEntries(in sessionID: String) -> [RemoteEntry] {
+        (entries[sessionID] ?? []).compactMap { entry in
+            guard entry.kind == .prompt else { return nil }
+            guard let images = entry.images, !images.isEmpty, entry.text.firstMatch(of: PendingPrompts.imageToken) == nil else { return entry }
+
+            let tokens = images.indices.map { "[Image #\($0 + 1)]" }.joined(separator: " ")
+            return RemoteEntry(id: entry.id, kind: .prompt, text: "\(tokens) \(entry.text)")
+        }
     }
 
     func upload(_ data: Data, id: String, name: String) async {
@@ -316,15 +391,15 @@ final class RemoteClient {
             entries[sessionID] = (isContinuation ? entries[sessionID] ?? [] : []) + chunk
             self.queued[sessionID] = queued ?? []
             self.activity[sessionID] = activity
+            reconcilePending(in: sessionID)
 
         case let .opened(sessionID):
             openedSessionID = sessionID
 
         case let .notice(message):
             notice = message
-            if let lastSent, Date.now.timeIntervalSince(lastSent.date) < 5, draftTexts[lastSent.sessionID, default: ""].isEmpty, draftAttachments[lastSent.sessionID, default: []].isEmpty {
-                draftTexts[lastSent.sessionID] = lastSent.text
-                draftAttachments[lastSent.sessionID] = lastSent.attachments
+            if let lastSent, Date.now.timeIntervalSince(lastSent.date) < 5 {
+                failPrompt(sentAt: lastSent.date, in: lastSent.sessionID)
             }
             lastSent = nil
 

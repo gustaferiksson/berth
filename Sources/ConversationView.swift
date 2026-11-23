@@ -87,9 +87,11 @@ struct ConversationView: View {
     }
 
     private func transcript(isWorking: Bool, waitingFor: String??, since: Date?) -> some View {
-        ScrollView {
+        let pending = PendingPrompts.unqueued(model.pending, queued: model.queued)
+
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
-                if model.turns.isEmpty {
+                if model.turns.isEmpty, model.queued.isEmpty, pending.isEmpty {
                     emptyState
                 }
                 ForEach(model.turns) { turn in
@@ -105,8 +107,12 @@ struct ConversationView: View {
                         reviewChanges: isReviewEnabled ? { AppAction.showChanges.perform(on: store) } : nil
                     )
                 }
-                ForEach(model.queued, id: \.self) { prompt in
+                ForEach(model.queued.enumerated(), id: \.offset) { _, prompt in
                     ConversationPrompt(entry: RemoteEntry(id: prompt, kind: .prompt, text: prompt), isQueued: true)
+                }
+                ForEach(pending, id: \.sentAt) { prompt in
+                    ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text))
+                        .opacity(0.6)
                 }
             }
             .frame(maxWidth: 860, alignment: .leading)

@@ -62,7 +62,7 @@ final class ConversationModel {
     private(set) var isTurnOpen = false
     private(set) var lastChange = Date.now
     private(set) var queued: [String] = []
-    @ObservationIgnored private var pending: [PendingPrompt] = []
+    private(set) var pending: [PendingPrompt] = []
     private(set) var hasLoaded = false
     private(set) var isSending = false
     private(set) var pickedModel: ModelChoice?
@@ -75,7 +75,6 @@ final class ConversationModel {
     @ObservationIgnored private var url: URL?
     @ObservationIgnored private var end: Int?
     @ObservationIgnored private var queue: [String] = []
-    @ObservationIgnored private var queuedByClaude: [String] = []
     @ObservationIgnored private var activity = TranscriptActivity()
     @ObservationIgnored private var agentLogs: [String: AgentLog] = [:]
     @ObservationIgnored private var isReading = false
@@ -182,9 +181,8 @@ final class ConversationModel {
     }
 
     private func reconcilePending() {
-        pending = PendingPrompts.reconcile(pending, entries: entries, queued: queuedByClaude, now: .now)
-        let shown = PendingPrompts.shown(pending, queued: queuedByClaude)
-        if queued != shown { queued = shown }
+        let kept = PendingPrompts.reconcile(pending, entries: entries, queued: queued, now: .now)
+        if pending != kept { pending = kept }
     }
 
     func decline(waitingFor: String?, since: Double?) async {
@@ -410,7 +408,7 @@ final class ConversationModel {
             let newest = chunk.entries.compactMap(\.date).max() ?? .distantPast
             isTurnOpen = open && (chunk.isContinuation || newest > Date.now.addingTimeInterval(-3600))
         }
-        queuedByClaude = chunk.queuedPrompts
+        if queued != chunk.queuedPrompts { queued = chunk.queuedPrompts }
         if !chunk.isContinuation || !chunk.entries.isEmpty {
             entries = (chunk.isContinuation ? entries : []) + chunk.entries
             turns = Turn.turns(from: entries)
