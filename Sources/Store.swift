@@ -152,6 +152,9 @@ final class Store {
     @ObservationIgnored private var editedTask: Task<Void, Never>?
     @ObservationIgnored private var editedTranscripts: [String: (url: URL, edits: TranscriptEdits)] = [:]
     var editedRepositories: [String: [String: String]] = [:]
+    var editedFiles: [String: [String]] = [:]
+    static let sessionFilesRoot = "session-files"
+    static let resolvedHome = URL(filePath: NSHomeDirectory()).resolvingSymlinksInPath().path
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
     var activeReviewRoots: [String: String] = [:]
     var collapsedReviewRepositories: Set<String> = []
@@ -1277,7 +1280,7 @@ final class Store {
     var sessionReviewModels: [ReviewModel] {
         guard let sessionID = selectedSessionID else { return [] }
 
-        return ([reviewModels[sessionID]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
+        return ([reviewModels[sessionID], reviewModels[Self.reviewKey(sessionID, root: Self.sessionFilesRoot)]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
     }
 
     func prepareReviewModel() {
@@ -1315,7 +1318,15 @@ final class Store {
             if activeReviewRoots[sessionID] == repository.root { activeReviewRoots[sessionID] = nil }
         }
         let prefix = sessionID + "\n"
-        for key in reviewModels.keys where key.hasPrefix(prefix) && !shown.contains(where: { Self.reviewKey(sessionID, root: $0.root) == key }) { reviewModels[key] = nil }
+        let filesKey = Self.reviewKey(sessionID, root: Self.sessionFilesRoot)
+        for key in reviewModels.keys where key.hasPrefix(prefix) && key != filesKey && !shown.contains(where: { Self.reviewKey(sessionID, root: $0.root) == key }) { reviewModels[key] = nil }
+        if editedFiles[sessionID]?.isEmpty ?? true {
+            reviewModels[filesKey] = nil
+        } else if reviewModels[filesKey] == nil {
+            let model = ReviewModel()
+            model.onOpen = { [weak self] in self?.activeReviewRoots[sessionID] = Self.sessionFilesRoot }
+            reviewModels[filesKey] = model
+        }
         if reviewRepositories[sessionID] ?? [] != shown { reviewRepositories[sessionID] = shown }
     }
 
@@ -1360,16 +1371,17 @@ final class Store {
         editedTask = Task { [previous = editedTask] in
             await previous?.value
             let cached = editedTranscripts[sessionID].flatMap { $0.url == url ? $0.edits : nil } ?? TranscriptEdits()
-            let edits = await Task.detached {
+            let (edits, files) = await Task.detached {
                 var edits = cached
                 edits.read(url)
-                return edits
+                return (edits, edits.existingFiles)
             }.value
             let open = Set(tabs.compactMap(\.sessionID))
             editedTranscripts = editedTranscripts.filter { open.contains($0.key) }.merging([sessionID: (url, edits)]) { $1 }
-            guard editedRepositories[sessionID] ?? [:] != edits.repositories else { return }
+            guard editedRepositories[sessionID] ?? [:] != edits.repositories || editedFiles[sessionID] ?? [] != files else { return }
 
             editedRepositories[sessionID] = edits.repositories
+            editedFiles[sessionID] = files
             prepareReviewModel()
             resolvePullRequests()
         }
@@ -1781,6 +1793,7 @@ final class Store {
             activeReviewRoots[sessionID] = nil
             reviewRepositories[sessionID] = nil
             editedRepositories[sessionID] = nil
+            editedFiles[sessionID] = nil
         }
         conversationTabIDs.remove(id)
         conversationSuspended.remove(id)

@@ -608,6 +608,15 @@ enum Snapshot {
             if !UserDefaults.standard.bool(forKey: "snapshotReviewNoComment") { store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")] }
         }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { prepareTasksReview(store: store) }
+        if let files = UserDefaults.standard.string(forKey: "snapshotSessionFiles") {
+            store.editedFiles["snapshot-review"] = files.split(separator: ":").map { URL(filePath: String($0)).resolvingSymlinksInPath().path }
+            store.prepareReviewModel()
+            if let path = UserDefaults.standard.string(forKey: "snapshotSessionFileOpen"), let model = store.reviewModels[Store.reviewKey("snapshot-review", root: Store.sessionFilesRoot)] {
+                model.open(ReviewDocument(path: String(URL(filePath: path).resolvingSymlinksInPath().path.dropFirst()), compare: nil))
+                await model.loadSelectedContents()
+                print("session file /\(model.selectedDocument?.path ?? "-"), loaded \(model.selectedDocument.flatMap { model.contents[$0] } != nil), active root \(store.activeReviewRoots["snapshot-review"] ?? "own")")
+            }
+        }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
             store.openSession(cwd: cwd, checkout: .main)
         }
