@@ -140,6 +140,19 @@ extension Snapshot {
             assistant(20, [use("t4", "Bash", ["command": "swift test --filter ExportTests", "description": "Run the export tests"])]),
             result("t4", "Building for debugging...\n[1/3] Compiling Export.swift\nTest Suite 'ExportTests' started\nTest Case 'testRowsGroupByDay' passed (0.004 seconds)\nTest Case 'testRowsCrossMidnight' passed (0.002 seconds)\nExecuted 2 tests, with 0 failures in 0.006 seconds", 38, [:]),
             assistant(40, [text("Fixed. The export grouped rows by the machine's time zone, so I pinned it.\n\n## What changed\n\n- `Export.swift` now sets `formatter.timeZone` to **Europe/Stockholm**\n- Both export tests pass\n- Nothing else reads the formatter\n\n```swift\nformatter.timeZone = TimeZone(identifier: \"Europe/Stockholm\")\n```\n\n| Machine | Zone | Result |\n| --- | --- | --- |\n| Mac | Stockholm | passes |\n| CI | UTC | passes now |")]),
+            prompt("<bash-input>git log --oneline -8</bash-input>", 2),
+            prompt("""
+            <bash-stdout>a10b3f2 Pin export time zone
+            1df038a Cover midnight boundary
+            73c90de Group rows by export day
+            b7f4a09 Document CSV columns
+            04c2f18 Add export fixtures
+            e8a012b Include account name
+            659d3a0 Sort export rows
+            2fd7408 Add usage export</bash-stdout>
+            """, 1),
+            prompt("<bash-input>ls missing-dir</bash-input>", 2),
+            prompt("<bash-stderr>ls: missing-dir: No such file or directory</bash-stderr>", 1),
             base("user", 90, ["role": "user", "content": [["type": "text", "text": "Nice. Now add a plan name column, start the slow migration check in the background and have an agent review the docs."], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]]]),
             assistant(5, [text("I'll add the column, then run both checks in parallel.")]),
             assistant(4, [use("t5", "Read", ["file_path": file])]),

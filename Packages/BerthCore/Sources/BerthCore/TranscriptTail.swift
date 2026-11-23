@@ -90,8 +90,21 @@ public enum TranscriptTail {
 
             let blocks = message["content"] as? [[String: Any]] ?? []
 
-            if type == "user", let text = (try? decoder.decode(Record.self, from: Data(line)))?.typedPrompt(includingSidechain: includeSidechain) {
-                return [prompt(id: uuid, text: String(text.prefix(maxText)), date: date, blocks: blocks)]
+            if type == "user", let record = try? decoder.decode(Record.self, from: Data(line)) {
+                let raw = record.message?.content.first(where: { $0.type == "text" })?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if let input = raw.wholeMatch(of: /(?s)<bash-input>(.*)<\/bash-input>/) {
+                    let command = String(input.1.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxText))
+                    return [RemoteEntry(id: uuid, kind: .prompt, text: command, name: "bash", command: command, date: date)]
+                }
+                if let output = raw.wholeMatch(of: /(?s)(?:<bash-stdout>(?<stdout>.*?)<\/bash-stdout>\s*)?(?:<bash-stderr>(?<stderr>.*)<\/bash-stderr>)?/),
+                   output.stdout != nil || output.stderr != nil {
+                    let stdout = output.stdout?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    let stderr = output.stderr?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    return [RemoteEntry(id: uuid, kind: .toolResult, text: String(stdout.prefix(maxText)), name: "bash-output", date: date, detail: stderr.isEmpty ? nil : String(stderr.prefix(maxDetail)))]
+                }
+                if let text = record.typedPrompt(includingSidechain: includeSidechain) {
+                    return [prompt(id: uuid, text: String(text.prefix(maxText)), date: date, blocks: blocks)]
+                }
             }
 
             return blocks.enumerated().compactMap { index, block in

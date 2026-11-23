@@ -160,7 +160,7 @@ public struct FileChanges: Sendable {
 
 public struct Turn: Identifiable, Sendable {
     public let id: String
-    public let prompt: RemoteEntry?
+    public var prompt: RemoteEntry?
     public var parts: [TurnPart] = []
     public var end: Date?
     public var isInterrupted = false
@@ -230,7 +230,16 @@ public struct Turn: Identifiable, Sendable {
         let results = Dictionary(entries.filter { $0.kind == .toolResult }.compactMap { entry in entry.toolID.map { ($0, entry) } }) { _, last in last }
         var turns: [Self] = []
         for entry in entries {
-            let isInterruption = entry.kind == .prompt && entry.text.hasPrefix("[Request interrupted by user")
+            if entry.kind == .toolResult, entry.name == "bash-output" {
+                guard let last = turns.indices.last, var prompt = turns[last].prompt, prompt.name == "bash" else { continue }
+
+                prompt.shellOutput = entry.text.isEmpty ? nil : entry.text
+                prompt.shellError = entry.detail
+                turns[last].prompt = prompt
+                continue
+            }
+
+            let isInterruption = entry.kind == .prompt && entry.name != "bash" && entry.text.hasPrefix("[Request interrupted by user")
             if entry.kind == .prompt, !isInterruption {
                 turns.append(Self(id: entry.id, prompt: entry, end: entry.date))
                 continue

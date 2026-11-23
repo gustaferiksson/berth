@@ -148,6 +148,8 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
     public let detail: String?
     public let images: [Data]?
     public var imageRefs: [RemoteImageRef]?
+    public var shellOutput: String?
+    public var shellError: String?
 
     public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false, date: Date? = nil, detail: String? = nil, images: [Data]? = nil, imageRefs: [RemoteImageRef]? = nil) {
         self.id = id

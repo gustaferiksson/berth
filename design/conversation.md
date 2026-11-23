@@ -12,4 +12,6 @@ Drops land on an AppKit `ConversationDropTarget` overlay over the card and compo
 
 Agent cards and running-agent popover rows open a conversation-pane overlay with Back/Escape navigation, reading turns incrementally from the subagent JSONL through the harness and watching its directory for live transcript and metadata updates.
 
+Claude bash-mode commands appear as shell rows on Mac and Remote with stdout and stderr folded after four lines.
+
 Codex rollouts supply turn-open state as well as entries. An open turn blocks sending and keeps the draft when the title supplies no usable status. The Action Required title gates approval and question cards, with details read separately from the rollout tail. A quiet Show Terminal hint appears after 20 seconds without new entries or a state change. Codex context is read-only, with no model picker or attachments. Sources, parsing rules and input limitations are in design/codex.md.

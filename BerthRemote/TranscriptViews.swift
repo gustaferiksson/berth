@@ -197,7 +197,14 @@ private struct PromptBubble: View {
     var isQueued = false
     var attachments: [Attachment]?
 
+    @State private var isExpanded = false
+    @ScaledMetric(relativeTo: .subheadline) private var markerWidth = 16
+
     var body: some View {
+        if entry.name == "bash" { shell } else { promptBubble }
+    }
+
+    private var promptBubble: some View {
         let uploads = PendingPrompts.uploadPath
         let files = attachments?.filter { $0.thumbnail == nil }.map(\.name) ?? entry.text.matches(of: uploads).map { String($0.output.1) }
         let images = attachments?.compactMap(\.thumbnail) ?? entry.images ?? []
@@ -205,7 +212,7 @@ private struct PromptBubble: View {
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 5, topTrailingRadius: 20, style: .continuous)
         let dashed = StrokeStyle(lineWidth: 1, dash: [4, 3])
 
-        VStack(alignment: .trailing, spacing: 6) {
+        return VStack(alignment: .trailing, spacing: 6) {
             if !images.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
@@ -251,6 +258,52 @@ private struct PromptBubble: View {
         .foregroundStyle(isQueued ? .secondary : .primary)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.85 }
         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var shell: some View {
+        let output = entry.shellOutput.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
+        let errors = entry.shellError.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
+        let lines = output.map { (text: $0, isError: false) } + errors.map { (text: $0, isError: true) }
+        let moreLines = lines.count - 4
+
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(verbatim: "!")
+                    .foregroundStyle(.secondary)
+                    .frame(width: markerWidth, alignment: .leading)
+                    .accessibilityHidden(true)
+                Text(verbatim: entry.text)
+                    .textSelection(.enabled)
+            }
+            if !lines.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(verbatim: "⎿")
+                        .foregroundStyle(.secondary)
+                        .frame(width: markerWidth, alignment: .leading)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(lines.prefix(isExpanded ? lines.count : 4).enumerated(), id: \.offset) { _, line in
+                            Text(verbatim: line.text.isEmpty ? " " : String(line.text))
+                                .foregroundStyle(line.isError ? Color.red.opacity(0.8) : .secondary)
+                                .textSelection(.enabled)
+                        }
+                        if moreLines > 0 {
+                            Button { isExpanded.toggle() } label: {
+                                Text(isExpanded ? "Show less" : "Show \(moreLines) more lines")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(minHeight: 44)
+                                    .contentShape(.rect)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+                .padding(.leading, markerWidth)
+            }
+        }
+        .font(.subheadline.monospaced())
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
