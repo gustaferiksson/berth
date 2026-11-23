@@ -527,7 +527,7 @@ struct Launcher: View {
                 Text(issue.title)
                     .fontWeight(.medium)
                     .lineLimit(1)
-                Text("\(issue.repository) #\(issue.number)")
+                Text(verbatim: "\(issue.repository) #\(issue.number)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -562,7 +562,7 @@ struct Launcher: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(pullRequest.title)
                     .fontWeight(.medium)
-                Text("\(link.repository)#\(link.number)\(pullRequest.isDraft ? " · Draft" : "")")
+                Text(verbatim: "\(link.repository)#\(link.number)\(pullRequest.isDraft ? " · Draft" : "")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

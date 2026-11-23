@@ -158,7 +158,7 @@ struct SessionView: View {
                         Button { openPullRequest(pullRequest) } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: isFailing ? "xmark.circle.fill" : "arrow.triangle.pull")
-                                Text("#\(String(pullRequest.number))")
+                                Text(verbatim: "#\(pullRequest.number)")
                                     .font(.footnote.weight(.medium).monospacedDigit())
                             }
                             .foregroundStyle(isFailing ? .red : .primary)
