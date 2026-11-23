@@ -10,7 +10,7 @@ public enum ControlInstall {
     public static let skill = """
     ---
     name: berth
-    description: Drive the Berth workspace this session runs in. Use to run a dev server or tests in a background terminal tab, watch its output, send it input, wait for it to finish, or close it. Only applies when BERTH_TAB_ID is set.
+    description: Drive the Berth workspace this session runs in. Open Claude sessions or run a dev server or tests in a background terminal tab, watch its output, send it input, wait for it to finish, or close it. Only applies when BERTH_TAB_ID is set.
     ---
 
     # Berth
@@ -19,12 +19,15 @@ public enum ControlInstall {
 
     - `berth ls [--json]`: every tab (terminals and sessions) with its id, kind, status, title and folder. A leading `*` marks tabs you opened.
     - `berth open-terminal [--cwd <dir>] [--background] -- <command>`: opens a terminal tab in your folder (or `--cwd`), runs the command and prints the new tab's id. Use `--background` so it doesn't take focus. Without a command it opens a plain shell. The tab closes when the command exits.
+    - `berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]` opens a Claude session in your folder or the folder given by `--cwd` and prints its tab id. The folder must already exist. Berth starts Claude directly in that folder using its existing checkout. Use `--background` to keep the current tab selected. Text after `--` is pasted into the session as a prompt.
     - `berth send <tab> <text> [--no-enter]`: types text into a tab you opened and presses Return.
     - `berth capture <tab>`: prints the tab's recent output. Works only for tabs running behind Berth's session host ("Keep sessions running when Berth quits" on); otherwise it reports that capture is unsupported.
     - `berth wait <tab> [--timeout <seconds>]`: blocks until the tab's command exits and exits with its status.
     - `berth close <tab>`: closes a tab you opened.
 
-    Rules: close the tabs you open when you are done with them. You can only send to and close tabs you opened, never the user's own terminals or sessions. Output of a command that has exited is gone, so redirect it to a file if you need it.
+    When you check out PRs or create worktrees, open one Berth session per worktree with `berth open-session --cwd <worktree> --background -- "<prompt>"` so each session shows in the sidebar.
+
+    You can only send to and close terminal and session tabs you opened. Close them when you are done with them. Output of a command that has exited is gone, so redirect it to a file if you need it.
     """
 
     public static func settings(adding existing: Data?) throws -> Data {

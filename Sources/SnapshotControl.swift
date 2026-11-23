@@ -33,6 +33,12 @@ extension Snapshot {
         }
 
         await print("ls: \(berth("ls"))")
+        let folder = FileManager.default.temporaryDirectory
+        let missingFolder = folder.appending(path: UUID().uuidString)
+        await print("open-session in temp folder \(berth("open-session", "--cwd", folder.path, "--background", "--", "hello"))")
+        await print("open-session in missing folder \(berth("open-session", "--cwd", missingFolder.path, "--background", "--", "hello"))")
+        print("probeOpened calls \(store.probeOpened.map { "\($0.agent.rawValue) \($0.cwd) \($0.start)" })")
+
         let finished = await berth("open-terminal", "--background", "--", "sh", "-c", "echo done-marker; exit 7")
         print("open finishing command: \(finished)")
         let finishedID = finished.split(separator: " ").last.map(String.init) ?? ""

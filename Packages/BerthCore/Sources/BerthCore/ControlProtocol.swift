@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ControlOp: String, Codable, Sendable {
-    case list = "ls", open, send, capture, close, wait
+    case list = "ls", open, openSession = "open-session", send, capture, close, wait
 }
 
 public struct ControlRequest: Codable, Equatable, Sendable {
