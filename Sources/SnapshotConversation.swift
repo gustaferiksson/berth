@@ -154,7 +154,7 @@ extension Snapshot {
             """, 1),
             prompt("<bash-input>ls missing-dir</bash-input>", 2),
             prompt("<bash-stderr>ls: missing-dir: No such file or directory</bash-stderr>", 1),
-            base("user", 90, ["role": "user", "content": [["type": "text", "text": "Nice. Now add a plan name column, start the slow migration check in the background and have an agent review the docs."], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]]]),
+            base("user", 90, ["role": "user", "content": [["type": "text", "text": "Nice. Now add a plan name column, start the slow migration check in the background and have an agent review the docs. [Image #12] [Image #13]"], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]]]),
             assistant(5, [text("I'll add the column, then run both checks in parallel.")]),
             assistant(4, [use("t5", "Read", ["file_path": file])]),
             result("t5", (1...60).map { "\($0)\tline \($0)" }.joined(separator: "\n"), 1, [:]),
