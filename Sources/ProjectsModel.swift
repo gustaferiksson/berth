@@ -34,13 +34,13 @@ final class ProjectsModel {
     private var fetchState = State.off
     @ObservationIgnored private var fetchedAt = Date.distantPast
 
-    private var isEnabled: Bool { UserDefaults.standard.bool(forKey: Self.enabledKey) }
+    var isEnabled: Bool { UserDefaults.standard.bool(forKey: Self.enabledKey) }
     var state: State { isEnabled ? fetchState : .off }
 
-    var items: [ProjectItem] {
+    var selectedBoards: [ProjectBoard] {
         guard isEnabled else { return [] }
 
-        return selectedIDs.compactMap { boards[$0] }.flatMap(\.items)
+        return selectedIDs.compactMap { boards[$0] }
     }
 
     init() {
@@ -67,6 +67,13 @@ final class ProjectsModel {
             return (statusName, board.project.title)
         }
         return nil
+    }
+
+    func statusLabels(for pullRequests: [SessionPullRequest]) -> [String: String] {
+        let labels = pullRequests.compactMap { pullRequest in
+            status(forRepository: pullRequest.repository, number: pullRequest.number).map { ("\(pullRequest.repository.lowercased())#\(pullRequest.number)", "\($0.statusName) · \($0.projectTitle)") }
+        }
+        return Dictionary(labels) { first, _ in first }
     }
 
     func select(_ id: String, isSelected: Bool, persists: Bool) {

@@ -57,7 +57,7 @@ extension Snapshot {
                 return """
                 {"id":"\(project.id)-\(index)","isArchived":false,\(status)
                  "content":{"__typename":"\(row.kind)","title":"\(row.title)",\(link)
-                 "updatedAt":"2026-11-20T12:\(10 + index):00Z","assignees":{"nodes":[\(assignees)]}}}
+                 "updatedAt":"\((Date.now - TimeInterval(1800 + index * index * 5400)).ISO8601Format())","assignees":{"nodes":[\(assignees)]}}}
                 """
             }.joined(separator: ",")
             let boardJSON = """

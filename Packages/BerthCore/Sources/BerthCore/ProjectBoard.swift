@@ -58,6 +58,8 @@ public struct ProjectBoard: Sendable, Equatable {
     public let items: [ProjectItem]
     public let isTruncated: Bool
 
+    public static let noStatusName = "No Status"
+
     public func groups(query: String, mineOnly: Bool, login: String) -> [ProjectGroup] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let login = login.lowercased()
@@ -79,7 +81,7 @@ public struct ProjectBoard: Sendable, Equatable {
             itemsByOption[knownOptionID, default: []].append((item, isMine))
         }
 
-        let statuses: [(name: String, id: String?)] = statusOptions.map { ($0.name, $0.id) } + [("No Status", nil)]
+        let statuses: [(name: String, id: String?)] = statusOptions.map { ($0.name, $0.id) } + [(Self.noStatusName, nil)]
         return statuses.compactMap { status in
             guard let items = itemsByOption[status.id] else { return nil }
 

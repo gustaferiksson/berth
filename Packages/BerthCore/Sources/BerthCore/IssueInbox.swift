@@ -8,6 +8,15 @@ public struct InboxIssue: Sendable, Equatable, Identifiable {
     public let updatedAt: Date
     public let openPullRequestCount: Int
 
+    public init(repository: String, number: Int, url: URL, title: String, updatedAt: Date, openPullRequestCount: Int) {
+        self.repository = repository
+        self.number = number
+        self.url = url
+        self.title = title
+        self.updatedAt = updatedAt
+        self.openPullRequestCount = openPullRequestCount
+    }
+
     public var id: String { "\(repository)#\(number)" }
 }
 
