@@ -39,7 +39,7 @@ struct ConversationView: View {
                 now = .now
             }
             .onChange(of: live?.status) { model.refresh() }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .safeAreaBar(edge: .bottom, spacing: 0) {
                 ConversationBottomBar(
                     model: model,
                     tab: tab,
@@ -121,11 +121,10 @@ struct ConversationView: View {
             .frame(maxWidth: .infinity)
         }
         .contentMargins(.top, 24, for: .scrollContent)
-        .contentMargins(.bottom, model.tasks.isEmpty ? ConversationBottomBar.fadeHeight : 66, for: .scrollContent)
+        .contentMargins(.bottom, model.tasks.isEmpty ? 16 : 58, for: .scrollContent)
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
-        .scrollEdgeEffectStyle(.soft, for: .top)
-        .scrollEdgeEffectHidden(for: .bottom)
+        .scrollEdgeEffectStyle(.hard, for: .bottom)
         .onScrollGeometryChange(for: ConversationScrollState.self) { geometry in
             ConversationScrollState(height: geometry.contentSize.height, isAtBottom: geometry.visibleRect.maxY >= geometry.contentSize.height + geometry.contentInsets.bottom - 40)
         } action: { old, new in
@@ -471,7 +470,7 @@ private struct ConversationTaskList: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
             ForEach(tasks) { task in
                 ConversationAgentButton(isAgent: task.kind == RemoteTask.agent, agentID: task.id, toolUseID: task.id, title: task.title, dismissesPopover: true) {
                     HStack(spacing: 10) {
@@ -491,11 +490,13 @@ private struct ConversationTaskList: View {
                             .font(.caption)
                             .foregroundStyle(theme.secondary)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
                     .accessibilityElement(children: .combine)
                 }
             }
         }
-        .padding(16)
+        .padding(8)
         .frame(width: 320, alignment: .leading)
         .transaction { $0.animation = nil }
     }
@@ -515,8 +516,6 @@ private extension PendingApproval {
 }
 
 private struct ConversationBottomBar: View {
-    static let fadeHeight = 28.0
-
     let model: ConversationModel
     let tab: Tab
     let harness: Harness
@@ -537,8 +536,6 @@ private struct ConversationBottomBar: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let surface = theme.background ?? Color(nsColor: .textBackgroundColor)
-
         VStack(spacing: 10) {
             if let approval, approval.isActionable || approval == .loading {
                 ConversationApprovalCard(
@@ -578,16 +575,6 @@ private struct ConversationBottomBar: View {
                 .alignmentGuide(.top) { $0[.bottom] + 10 }
         }
         .frame(maxWidth: .infinity)
-        .background(alignment: .top) {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [surface.opacity(0), surface], startPoint: .top, endPoint: .bottom)
-                    .frame(height: Self.fadeHeight)
-                surface
-            }
-            .padding(.top, -Self.fadeHeight)
-            .ignoresSafeArea(edges: .bottom)
-            .allowsHitTesting(false)
-        }
         .animation(.smooth, value: isActive)
         .animation(.smooth, value: approval)
     }

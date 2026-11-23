@@ -17,12 +17,15 @@ struct GeneralSettings: View {
     static let codexModelKey = "launchModel.codex"
     static let codexEffortKey = "launchEffort.codex"
     static let keepsSessionsRunningKey = "keepsSessionsRunning"
+    static let pullRequestPromptKey = "pullRequestPrompt"
+    static let defaultPullRequestPrompt = "Summarize PR #{number} ({url})."
 
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
     @Environment(Store.self) private var store
     @AppStorage(worktreeKey) private var startsInWorktree = false
     @AppStorage(claudeKey) private var isClaudeEnabled = true
+    @AppStorage(pullRequestPromptKey) private var pullRequestPrompt = defaultPullRequestPrompt
     @AppStorage(codexKey) private var isCodexEnabled = false
     @AppStorage(defaultAgentKey) private var defaultAgent = Agent.claude.rawValue
     @AppStorage(claudeModelKey) private var claudeModel = ""
@@ -43,6 +46,20 @@ struct GeneralSettings: View {
                 Text("New Sessions")
             } footer: {
                 Text("Sessions started in a folder inside a git repository get their own worktree and branch. Hold ⌥ in the launcher to start in the main checkout.")
+            }
+            Section {
+                TextField("Opening prompt", text: $pullRequestPrompt, axis: .vertical)
+                    .labelsHidden()
+                    .lineLimit(2...6)
+                HStack {
+                    Spacer()
+                    Button("Reset to Default") { pullRequestPrompt = Self.defaultPullRequestPrompt }
+                        .disabled(pullRequestPrompt == Self.defaultPullRequestPrompt)
+                }
+            } header: {
+                Text("Pull Requests")
+            } footer: {
+                Text("Sent as the first prompt when you open a pull request or an issue's pull requests in a new session. Use {number}, {url} and {repo} (owner/name) anywhere in it. Leave it empty to open the session without a prompt.")
             }
             Section {
                 if isClaudeEnabled, isCodexEnabled {
@@ -114,7 +131,7 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 800)
+        .frame(height: 1000)
     }
 }
 

@@ -135,6 +135,12 @@ final class Store {
         }
     }
 
+    var rendersMarkdown = UserDefaults.standard.bool(forKey: "rendersMarkdown") {
+        didSet {
+            if persistsTabs { UserDefaults.standard.set(rendersMarkdown, forKey: "rendersMarkdown") }
+        }
+    }
+
     var showsReviewPanel = UserDefaults.standard.bool(forKey: "showsReviewPanel") {
         didSet {
             if persistsTabs { UserDefaults.standard.set(showsReviewPanel, forKey: "showsReviewPanel") }
@@ -152,6 +158,9 @@ final class Store {
     @ObservationIgnored private var editedTask: Task<Void, Never>?
     @ObservationIgnored private var editedTranscripts: [String: (url: URL, edits: TranscriptEdits)] = [:]
     var editedRepositories: [String: [String: String]] = [:]
+    var editedFiles: [String: [String]] = [:]
+    static let sessionFilesRoot = "session-files"
+    static let resolvedHome = URL(filePath: NSHomeDirectory()).resolvingSymlinksInPath().path
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
     var activeReviewRoots: [String: String] = [:]
     var collapsedReviewRepositories: Set<String> = []
@@ -328,6 +337,7 @@ final class Store {
     @ObservationIgnored private var inboxFetchedAt = Date.distantPast
     @ObservationIgnored private var issueInboxFetchedAt = Date.distantPast
     @ObservationIgnored private var planUsageFetchedAt = Date.distantPast
+    @ObservationIgnored private var planUsageResetRefetch: Task<Void, Never>?
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var tabSignalPolling: Task<Void, Never>?
     @ObservationIgnored private var hostedDirectoryPolling: Task<Void, Never>?
@@ -606,13 +616,25 @@ final class Store {
     }
 
     func refreshPlanUsage() async {
-        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey), planUsageFetchedAt.timeIntervalSinceNow < -60 else { return }
+        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) else { return }
+
+        let resetSinceFetch = planUsage?.windows.contains { $0.resetsAt.map { $0 > planUsageFetchedAt && $0 <= .now } ?? false } ?? false
+        guard planUsageFetchedAt.timeIntervalSinceNow < -60 || resetSinceFetch else { return }
 
         planUsageFetchedAt = .now
         let usage = await Task.detached { await PlanUsageFetch.fetch() }.value
         guard let usage else { return }
 
         planUsage = usage
+        planUsageResetRefetch?.cancel()
+        guard let nextReset = usage.windows.compactMap(\.resetsAt).filter({ $0 > .now }).min() else { return }
+
+        planUsageResetRefetch = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(nextReset.timeIntervalSinceNow + 5))
+            guard !Task.isCancelled else { return }
+
+            await self?.refreshPlanUsage()
+        }
     }
 
     func refreshInbox() {
@@ -699,7 +721,10 @@ final class Store {
             let key = PullRequestLink(repository: link.repository.lowercased(), number: link.number)
             guard !preparingPullRequests.contains(key) else { return true }
 
-            let prompt = "Summarize PR #\(link.number) (\(url.absoluteString))."
+            let prompt = (UserDefaults.standard.string(forKey: GeneralSettings.pullRequestPromptKey) ?? GeneralSettings.defaultPullRequestPrompt)
+                .replacing("{number}", with: String(link.number))
+                .replacing("{url}", with: url.absoluteString)
+                .replacing("{repo}", with: link.repository)
             if opensAreProbed { return startPullRequestSession(key, in: root, prompt: prompt, selectsTab: selectsTab) }
 
             preparingPullRequests.append(key)
@@ -740,7 +765,7 @@ final class Store {
 
     @discardableResult
     private func startPullRequestSession(_ key: PullRequestLink, in folder: String, prompt: String, selectsTab: Bool) -> Bool {
-        guard let id = openSession(cwd: folder, checkout: .main, pasting: prompt, selectsTab: selectsTab) else { return false }
+        guard let id = openSession(cwd: folder, checkout: .main, pasting: prompt.isEmpty ? nil : prompt, selectsTab: selectsTab) else { return false }
 
         pullRequestTabs[key] = id
         if selectsTab { isHarborShown = false }
@@ -1268,7 +1293,7 @@ final class Store {
     var sessionReviewModels: [ReviewModel] {
         guard let sessionID = selectedSessionID else { return [] }
 
-        return ([reviewModels[sessionID]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
+        return ([reviewModels[sessionID], reviewModels[Self.reviewKey(sessionID, root: Self.sessionFilesRoot)]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
     }
 
     func prepareReviewModel() {
@@ -1306,7 +1331,15 @@ final class Store {
             if activeReviewRoots[sessionID] == repository.root { activeReviewRoots[sessionID] = nil }
         }
         let prefix = sessionID + "\n"
-        for key in reviewModels.keys where key.hasPrefix(prefix) && !shown.contains(where: { Self.reviewKey(sessionID, root: $0.root) == key }) { reviewModels[key] = nil }
+        let filesKey = Self.reviewKey(sessionID, root: Self.sessionFilesRoot)
+        for key in reviewModels.keys where key.hasPrefix(prefix) && key != filesKey && !shown.contains(where: { Self.reviewKey(sessionID, root: $0.root) == key }) { reviewModels[key] = nil }
+        if editedFiles[sessionID]?.isEmpty ?? true {
+            reviewModels[filesKey] = nil
+        } else if reviewModels[filesKey] == nil {
+            let model = ReviewModel()
+            model.onOpen = { [weak self] in self?.activeReviewRoots[sessionID] = Self.sessionFilesRoot }
+            reviewModels[filesKey] = model
+        }
         if reviewRepositories[sessionID] ?? [] != shown { reviewRepositories[sessionID] = shown }
     }
 
@@ -1351,16 +1384,17 @@ final class Store {
         editedTask = Task { [previous = editedTask] in
             await previous?.value
             let cached = editedTranscripts[sessionID].flatMap { $0.url == url ? $0.edits : nil } ?? TranscriptEdits()
-            let edits = await Task.detached {
+            let (edits, files) = await Task.detached {
                 var edits = cached
                 edits.read(url)
-                return edits
+                return (edits, edits.existingFiles)
             }.value
             let open = Set(tabs.compactMap(\.sessionID))
             editedTranscripts = editedTranscripts.filter { open.contains($0.key) }.merging([sessionID: (url, edits)]) { $1 }
-            guard editedRepositories[sessionID] ?? [:] != edits.repositories else { return }
+            guard editedRepositories[sessionID] ?? [:] != edits.repositories || editedFiles[sessionID] ?? [] != files else { return }
 
             editedRepositories[sessionID] = edits.repositories
+            editedFiles[sessionID] = files
             prepareReviewModel()
             resolvePullRequests()
         }
@@ -1787,6 +1821,7 @@ final class Store {
             activeReviewRoots[sessionID] = nil
             reviewRepositories[sessionID] = nil
             editedRepositories[sessionID] = nil
+            editedFiles[sessionID] = nil
         }
         conversationTabIDs.remove(id)
         conversationSuspended.remove(id)

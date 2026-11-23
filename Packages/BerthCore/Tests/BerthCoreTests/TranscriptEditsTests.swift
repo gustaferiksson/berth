@@ -50,4 +50,28 @@ struct TranscriptEditsTests {
         edits.read(url)
         #expect(Set(edits.repositories.keys) == [billing, web, infra, late])
     }
+
+    @Test func listsEditedFilesOutsideAnyRepository() throws {
+        let notes = home.appending(path: "notes")
+        try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
+        let kept = notes.appending(path: "plan.md").path
+        let gone = notes.appending(path: "gone.md").path
+        try "plan".write(toFile: kept, atomically: true, encoding: .utf8)
+        let lines = [
+            edit("Write", "file_path", kept),
+            edit("Edit", "file_path", gone),
+            edit("Edit", "file_path", kept),
+            edit("Read", "file_path", home.path + "/read-only.md"),
+            edit("Edit", "file_path", "relative.md"),
+            edit("Edit", "file_path", home.path + "/side.md", sidechain: true),
+        ]
+        let url = home.appending(path: "session.jsonl")
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        var edits = TranscriptEdits()
+        edits.read(url)
+
+        #expect(edits.files == [kept, gone])
+        #expect(edits.existingFiles == [kept])
+        #expect(edits.repositories.isEmpty)
+    }
 }

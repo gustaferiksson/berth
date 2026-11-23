@@ -121,6 +121,9 @@ private struct ChangesMenuItem: View {
         Toggle(AppAction.wrapLines.title, isOn: $wrapsLines)
             .keyboardShortcut(AppAction.wrapLines.shortcut)
             .disabled(!AppAction.wrapLines.isAvailable(in: store))
+        let markdown = AppAction.showMarkdownSource.isAvailable(in: store) ? AppAction.showMarkdownSource : .showRenderedMarkdown
+        markdown.menuButton(store)
+            .disabled(!markdown.isAvailable(in: store))
         let terminalPlacement = isTerminalBelow ? AppAction.showClaudeBeside : .showClaudeBelow
         terminalPlacement.menuButton(store)
             .disabled(!terminalPlacement.isAvailable(in: store))
@@ -212,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
             let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showChanges, .hideChanges, .wrapLines, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showChanges, .hideChanges, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil
             }
