@@ -454,7 +454,7 @@ struct ConversationToolRow: View {
             statusLine(summary: summary, isError: isError)
             if !diff.isEmpty {
                 ConversationDiff(rows: diff, language: call.use.filePath, isExpanded: isExpanded)
-                    .padding(.leading, markerWidth + 8)
+                    .padding(.leading, markerWidth)
                     .padding(.top, 2)
             }
             if isExpanded, hasDetail {
@@ -462,7 +462,7 @@ struct ConversationToolRow: View {
                     if let command = call.use.command, command.contains("\n") { ConversationCodeBlock(text: command, syntax: "bash", maxHeight: 200) }
                     if !output.isEmpty, diff.isEmpty || isError { ConversationCodeBlock(text: output, tint: isError ? theme.closed : nil, maxHeight: 280) }
                 }
-                .padding(.leading, markerWidth + 8)
+                .padding(.leading, markerWidth)
                 .padding(.top, 4)
             }
         }
@@ -647,6 +647,7 @@ struct ConversationTaskRow: View {
             .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 16))
             .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(theme.foreground.opacity(0.08)) }
             .accessibilityElement(children: .combine)
+            .padding(.leading, markerWidth)
             .contextMenu { Button("Copy Title") { copyToPasteboard(task?.title ?? call.cardTitle) } }
         }
     }
