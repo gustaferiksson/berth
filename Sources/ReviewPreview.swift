@@ -296,7 +296,7 @@ struct ReviewPreviewView: View {
             if !preview.ports.isEmpty {
                 Menu("Detected Servers", systemImage: "network") {
                     ForEach(preview.ports, id: \.self) { port in
-                        Button("localhost:\(port)") { Task { await preview.load("localhost:\(port)") } }
+                        Button("localhost:\(String(port))") { Task { await preview.load("localhost:\(port)") } }
                     }
                 }
                 .labelStyle(.iconOnly)

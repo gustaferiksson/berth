@@ -60,14 +60,7 @@ disabled_rules:
   - multiline_call_arguments
   - multiline_literal_brackets
   - multiline_function_chains
-  # Size metrics would force splitting the DEBUG snapshot harness and the Review files.
-  - cyclomatic_complexity
-  - function_body_length
-  - type_body_length
-  - file_length
-  - closure_body_length
-  # Labelled tuples are the lightweight multi-value return here.
-  - large_tuple
+  # Labelled tuples are the lightweight multi-value return here (kept up to five members, see large_tuple below).
   # String(decoding:) is deliberately lossy; the failable initializer changes behaviour.
   - optional_data_string_conversion
   # NSString and NSRange bridging is how TextKit 2 and LSP UTF-16 offsets work.
@@ -131,6 +124,31 @@ trailing_closure:
 function_parameter_count:
   warning: 7
 
+# Ceilings, not targets: they sit just above today's largest Review and Store code and catch a runaway generated function or type.
+function_body_length:
+  warning: 300
+  error: 1000
+
+closure_body_length:
+  warning: 200
+  error: 400
+
+cyclomatic_complexity:
+  warning: 50
+  error: 100
+
+type_body_length:
+  warning: 2000
+  error: 4000
+
+file_length:
+  warning: 2500
+  error: 5000
+
+large_tuple:
+  warning: 6
+  error: 8
+
 nesting:
   type_level: 3
 
@@ -147,6 +165,10 @@ custom_rules:
     name: Legacy Observation
     regex: '@Published\b|@StateObject\b|@EnvironmentObject\b|:\s*ObservableObject\b|@ObservedObject(?! var terminal: TerminalViewState)'
     message: 'Use @Observable with @State, @Bindable and @Environment. Only the libghostty TerminalViewState is an ObservableObject.'
+  grouped_identifier_number:
+    name: Grouped Identifier Number
+    regex: '(Text|Label|Button|\.help|\.accessibilityLabel)\("[^"\n]*#\\\((?!String\()'
+    message: 'A localized string literal groups an Int ("#1,742"). Use Text(verbatim:), or interpolate String(number) in Label, Button, .help and .accessibilityLabel.'
   unstable_view_identity:
     name: Unstable View Identity
     regex: '\.id\(UUID\(\)\)'

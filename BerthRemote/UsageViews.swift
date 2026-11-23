@@ -143,9 +143,7 @@ private struct UsageWindowSection: View {
             LabeledContent("Used", value: "\(window.usedPercent)%")
                 .foregroundStyle(UsageTrack.aheadTint(window, now: now) ?? .primary)
             LabeledContent("Pace", value: window.pace(at: now).formatted(.wholePercent))
-            if let resetsAt = window.resetsAt {
-                LabeledContent("Resets", value: resetsAt.formatted(date: .abbreviated, time: .shortened))
-            }
+            LabeledContent("Resets", value: window.resetsAt?.formatted(date: .abbreviated, time: .shortened) ?? "When next used")
         } header: {
             Text(showsHarness ? "\(group.name) \(window.title)" : window.title)
         } footer: {

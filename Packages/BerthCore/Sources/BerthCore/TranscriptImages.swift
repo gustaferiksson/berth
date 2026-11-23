@@ -49,7 +49,7 @@ public enum TranscriptImages {
         let source = last == "file" ? readFile(toolUseID: block["tool_use_id"] as? String, in: data) : embedded(Int(last), in: block)
         guard let source else { return nil }
 
-        if variant == .thumbnail { return jpeg(source, maxPixel: TranscriptTail.thumbnailPixels, quality: 0.7) }
+        if variant == .thumbnail { return jpeg(source, maxPixel: TranscriptTail.thumbnailPixels, quality: 0.85) }
 
         return fullAttempts.lazy.compactMap { jpeg(source, maxPixel: $0.pixels, quality: $0.quality) }.first { $0.count <= RemoteImagesFeature.maxReplyBytes }
     }

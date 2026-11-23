@@ -1,5 +1,6 @@
 import AppKit
 import BerthCore
+import ImageIO
 import QuickLookUI
 import SwiftUI
 
@@ -60,40 +61,24 @@ struct ConversationPrompt: View {
     private var promptBubble: some View {
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 4, topTrailingRadius: 10, style: .continuous)
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .trailing, spacing: 6) {
             if let images = entry.images {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
-                        if let image = NSImage(data: data) {
-                            Button { ConversationImagePreview.shared.show(data) } label: {
-                                Image(nsImage: image)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 120, height: 80)
-                                    .clipShape(.rect(cornerRadius: 10))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Image \(index + 1)")
-                            .accessibilityHint("Opens a preview")
-                            .contextMenu {
-                                Button("Copy Image") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.writeObjects([image])
-                                }
-                                Button("Save Image…") { ConversationImagePreview.save(data) }
-                            }
-                        }
+                        ConversationPromptImage(data: data, index: index)
                     }
                 }
             }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(verbatim: "❯")
-                    .foregroundStyle(theme.secondary)
-                    .accessibilityHidden(true)
+            if !entry.text.isEmpty {
                 Text(verbatim: entry.text)
-                    .foregroundStyle(isQueued ? theme.secondary : theme.foreground)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .font(theme.conversationFont())
+                    .foregroundStyle(theme.foreground)
                     .textSelection(.enabled)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(bubble.fill(theme.foreground.opacity(0.07)))
+                    .opacity(isQueued ? 0.6 : 1)
+                    .contextMenu { Button("Copy") { copyToPasteboard(entry.text) } }
             }
             if isQueued {
                 Label("Queued", systemImage: "clock")
@@ -101,17 +86,8 @@ struct ConversationPrompt: View {
                     .foregroundStyle(theme.secondary)
             }
         }
-        .font(theme.conversationFont())
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background {
-            if isQueued {
-                bubble.strokeBorder(theme.secondary, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-            } else {
-                bubble.fill(theme.foreground.opacity(0.07))
-            }
-        }
-        .contextMenu { Button("Copy") { copyToPasteboard(entry.text) } }
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.75 }
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     private var shell: some View {
@@ -553,7 +529,8 @@ struct ConversationTaskRow: View {
         let isAgent = call.kind == .agent
         let isError = call.result?.isError == true
         let isRunning = task != nil
-        let tint = isError ? theme.closed : isRunning ? theme.working : theme.secondary
+        let title = task?.title ?? call.cardTitle
+        let tint = isError ? theme.closed : isAgent ? AgentTint.color(for: title) : isRunning ? theme.working : theme.secondary
         let foreground = call.result?.date.flatMap { end in call.use.date.map { end.timeIntervalSince($0) } }.flatMap { $0 > 0 && !call.isAsyncLaunch && isAgent ? $0 : nil }
 
         ConversationAgentButton(isAgent: isAgent, agentID: call.agentID, toolUseID: call.use.toolID, title: task?.title ?? call.cardTitle) {
@@ -613,5 +590,57 @@ struct ConversationSpinner: View {
         }
         .frame(width: 14, height: 14)
         .accessibilityLabel("Loading")
+    }
+}
+
+private struct ConversationPromptImage: View {
+    let data: Data
+    let index: Int
+
+    @Environment(\.displayScale) private var displayScale
+    @State private var image: NSImage?
+
+    var body: some View {
+        Button { ConversationImagePreview.shared.show(data) } label: {
+            Group {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: image.map { min(240, 120 * $0.size.width / max($0.size.height, 1)) } ?? 160, height: 120)
+            .clipShape(.rect(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Image \(index + 1)")
+        .accessibilityHint("Opens a preview")
+        .contextMenu {
+            Button("Copy Image") {
+                guard let image = NSImage(data: data) else { return }
+
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([image])
+            }
+            Button("Save Image…") { ConversationImagePreview.save(data) }
+        }
+        .task(id: data) {
+            let scale = displayScale
+            image = await Task.detached { Self.downsampled(data, scale: scale) }.value
+        }
+    }
+
+    private nonisolated static func downsampled(_ data: Data, scale: CGFloat) -> NSImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 240 * scale,
+              ] as CFDictionary)
+        else { return nil }
+
+        return NSImage(cgImage: cgImage, size: NSSize(width: CGFloat(cgImage.width) / scale, height: CGFloat(cgImage.height) / scale))
     }
 }

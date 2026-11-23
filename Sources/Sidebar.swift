@@ -1145,8 +1145,8 @@ private struct HeaderButtonStyle: ButtonStyle {
                 .font(.body.weight(.medium))
                 .foregroundStyle(Color.secondary.opacity(isHeaderHovered ? 1 : 0.6))
                 .frame(width: 24, height: 24)
-                .background(Color.primary.opacity(configuration.isPressed ? 0.12 : isHovering ? 0.06 : 0), in: .rect(cornerRadius: 8))
-                .contentShape(.rect)
+                .background(Color.primary.opacity(configuration.isPressed ? 0.12 : isHovering ? 0.06 : 0), in: .circle)
+                .contentShape(.circle)
                 .onHover { isHovering = $0 }
         }
     }
@@ -1451,7 +1451,7 @@ struct IssueTag: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .pointerStyle(.link)
-        .help("Open issue \(issue.repository)#\(issue.number)")
+        .help("Open issue \(issue.repository)#\(String(issue.number))")
     }
 }
 
@@ -1486,7 +1486,7 @@ struct IssueStatePill: View {
                 .foregroundStyle(Color.secondary)
             Spacer(minLength: 0)
         }
-        .help("Open issue \(issue.repository)#\(issue.number)")
+        .help("Open issue \(issue.repository)#\(String(issue.number))")
     }
 }
 
@@ -1831,7 +1831,7 @@ struct PullRequestTag: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .pointerStyle(.link)
-        .help("Open pull request #\(pullRequest.number)\(checks.map { ", checks \($0.rawValue)" } ?? "")\(more > 0 ? ", \(more) more on this session" : "")")
+        .help("Open pull request #\(String(pullRequest.number))\(checks.map { ", checks \($0.rawValue)" } ?? "")\(more > 0 ? ", \(more) more on this session" : "")")
     }
 }
 

@@ -209,7 +209,7 @@ private struct PromptBubble: View {
         let files = attachments?.filter { $0.thumbnail == nil }.map(\.name) ?? entry.text.matches(of: uploads).map { String($0.output.1) }
         let images = attachments?.compactMap(\.thumbnail) ?? entry.images ?? []
         let text = (attachments == nil ? entry.text.replacing(uploads, with: "") : entry.text).trimmingCharacters(in: .whitespacesAndNewlines)
-        let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 5, topTrailingRadius: 20, style: .continuous)
+        let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 4, topTrailingRadius: 20, style: .continuous)
         let dashed = StrokeStyle(lineWidth: 1, dash: [4, 3])
 
         return VStack(alignment: .trailing, spacing: 6) {

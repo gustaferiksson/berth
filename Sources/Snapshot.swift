@@ -138,7 +138,7 @@ enum Snapshot {
         case "acme/web#12":
             [("acme/web", 13, "Fix the flaky login test", false)]
 
-        case "acme/billing#57", "acme/infra#42", "acme/billing#49": []
+        case "acme/billing#57", "acme/infra#42", "acme/billing#49", "acme/web#1742": []
 
         default: nil
         }
@@ -178,6 +178,7 @@ enum Snapshot {
             ("acme/billing#57", "Fix invoice rounding", 1200),
             ("acme/web#12", "Fix the flaky login test", 3600),
             ("acme/infra#42", "Rotate the export bucket key", 7200),
+            ("acme/web#1742", "Paginate the audit log", 1800),
             ("acme/billing#49", "Drop the legacy CSV importer", 45 * 86_400),
         ]
         let nodes = entries.compactMap { entry -> String? in
@@ -358,6 +359,7 @@ enum Snapshot {
     static let expandedGroups: Set<String> = []
     #endif
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     static func capture(to output: URL, store: Store) async {
         #if DEBUG
         NSApp.setActivationPolicy(.accessory)

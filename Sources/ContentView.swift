@@ -45,7 +45,7 @@ struct ContentView: View {
         } detail: {
             TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel, isTerminalBelow: isTerminalBelow)
                 .background { SplitWidthSettled(isActive: showsPanel, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
-                .padding(EdgeInsets(top: 0, leading: 8, bottom: store.selectedConversationIsVisible ? 0 : 8, trailing: 8))
+                .padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
                 .overlay {
                     if let mode = store.launcherMode {
                         ZStack(alignment: .top) {
@@ -72,7 +72,7 @@ struct ContentView: View {
                 }
                 .animation(.default, value: store.preparingPullRequests)
                 .animation(.default, value: store.updater.pendingRestart?.deadline)
-                .background(windowTransparency > 0 ? .clear : store.theme.chrome ?? .clear)
+                .background { Color.clear.glassEffect(.regular, in: .rect).ignoresSafeArea() }
                 .background {
                     if let selected, !store.isHarborShown {
                         TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
