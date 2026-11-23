@@ -230,6 +230,7 @@ private struct Composer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var sends = 0
     @State private var stops = 0
+    @AppStorage("showsQuickReplies") private var showsReplies = true
     @AppStorage("quickReplies") private var replies = QuickReply.defaults
     @State private var confirmedCommand: SlashCommand?
     @FocusState private var isFocused: Bool
@@ -323,7 +324,7 @@ private struct Composer: View {
             } else {
                 Button("Attach", systemImage: "paperclip") { client.notice = "Update Berth on your Mac to send attachments" }
             }
-            if !replies.isEmpty {
+            if showsReplies, !replies.isEmpty {
                 Section("Replies") {
                     ForEach(replies) { reply in
                         Button(reply.text) { insert(reply.text) }

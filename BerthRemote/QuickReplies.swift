@@ -39,14 +39,22 @@ struct SlashCommand: Identifiable {
 }
 
 struct QuickRepliesEditor: View {
+    @AppStorage("showsQuickReplies") private var showsReplies = true
     @AppStorage("quickReplies") private var replies = QuickReply.defaults
     @State private var newText = ""
 
     var body: some View {
         List {
             Section {
+                Toggle("Show Quick Replies", isOn: $showsReplies)
+            } footer: {
+                Text("Turn off to remove replies from the composer’s + menu. Slash commands stay.")
+            }
+            Section {
                 ForEach($replies) { $reply in
                     TextField("Reply", text: $reply.text)
+                        .deleteDisabled(!showsReplies)
+                        .moveDisabled(!showsReplies)
                 }
                 .onDelete { replies.remove(atOffsets: $0) }
                 .onMove { replies.move(fromOffsets: $0, toOffset: $1) }
@@ -60,10 +68,11 @@ struct QuickRepliesEditor: View {
             } footer: {
                 Text("Tapping a reply in the composer’s + menu puts it in the message box. Slash commands are built in and send at once.")
             }
+            .disabled(!showsReplies)
         }
         .navigationTitle("Quick Replies")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { EditButton() }
+        .toolbar { EditButton().disabled(!showsReplies) }
     }
 
     private func add() {
