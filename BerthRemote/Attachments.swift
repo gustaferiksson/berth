@@ -61,7 +61,7 @@ struct AttachmentTile: View {
             }
         }
         .frame(width: 60, height: 60)
-        .clipShape(.rect(cornerRadius: 12))
+        .clipShape(.rect(cornerRadius: ComposerLayout.tileRadius))
         .opacity(isUploading ? 0.45 : 1)
         .overlay {
             if isUploading {
@@ -78,9 +78,9 @@ struct AttachmentTile: View {
         .overlay(alignment: .topTrailing) {
             Button(action: remove) {
                 Image(systemName: "xmark")
-                    .font(.footnote.weight(.semibold))
+                    .font(.caption2.weight(.bold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 34, height: 34)
+                    .frame(width: 22, height: 22)
                     .background(Color.primary.opacity(0.06), in: .circle)
                     .background(.background, in: .circle)
                     .frame(width: 44, height: 44)
@@ -88,7 +88,7 @@ struct AttachmentTile: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Remove \(attachment.name)")
-            .offset(x: 8, y: -8)
+            .offset(x: 16, y: -16)
         }
     }
 }

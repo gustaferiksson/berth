@@ -263,15 +263,15 @@ private struct Composer: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 12)
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, ComposerLayout.controlInset)
+                    .padding(.top, ComposerLayout.controlInset)
                 }
                 .scrollIndicators(.hidden)
+                .scrollClipDisabled()
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: isExpanded ? 28 : ComposerLayout.controlsHeight / 2))
+        .glassEffect(.regular, in: .rect(cornerRadius: ComposerLayout.cornerRadius))
         .padding(.horizontal, isExpanded ? 12 : 38)
         .padding(.bottom, isExpanded ? 12 : 4)
         .animation(.smooth(duration: 0.3), value: isExpanded)
@@ -573,15 +573,18 @@ private struct Composer: View {
     }
 }
 
-private struct ComposerLayout: Layout {
+struct ComposerLayout: Layout {
     let isExpanded: Bool
     let hasAttachmentMenu: Bool
 
     static let controlSize: CGFloat = 34
     static let hitSize: CGFloat = 44
+    static let controlInset: CGFloat = 8
     static let controlsHeight = controlSize + 2 * controlInset
+    static let cornerRadius = controlsHeight / 2
+    static let tileRadius = cornerRadius - controlInset
 
-    private static let controlInset: CGFloat = 8
+    private static let textInset: CGFloat = 14
     private static let hitPadding = (hitSize - controlSize) / 2
     private static let hitInset = controlInset - hitPadding
 
@@ -593,12 +596,11 @@ private struct ComposerLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
         let metrics = measure(width: bounds.width, subviews: subviews)
         let controlsCenter = isExpanded ? bounds.maxY - Self.controlsHeight / 2 : bounds.midY
+        let fieldProposal = ProposedViewSize(width: metrics.field.width, height: metrics.field.height)
+        let font = UIFont.preferredFont(forTextStyle: .body)
+        let fieldTop = isExpanded ? bounds.minY + metrics.field.minY : controlsCenter + font.capHeight / 2 - font.ascender
 
-        subviews[0].place(
-            at: CGPoint(x: bounds.minX + metrics.field.minX, y: bounds.minY + metrics.field.minY),
-            anchor: .topLeading,
-            proposal: ProposedViewSize(width: metrics.field.width, height: metrics.field.height)
-        )
+        subviews[0].place(at: CGPoint(x: bounds.minX + metrics.field.minX, y: fieldTop), anchor: .topLeading, proposal: fieldProposal)
         subviews[1].place(at: CGPoint(x: bounds.minX + Self.hitInset, y: controlsCenter), anchor: .leading, proposal: .unspecified)
         subviews[2].place(at: CGPoint(x: bounds.maxX - Self.hitInset, y: controlsCenter), anchor: .trailing, proposal: ProposedViewSize(metrics.trailing))
         if subviews.count > 3 {
@@ -622,7 +624,7 @@ private struct ComposerLayout: Layout {
         }
 
         let tilesHeight = subviews.count > 3 ? subviews[3].sizeThatFits(ProposedViewSize(width: width, height: nil)).height : 0
-        let field = CGRect(x: fieldLeading, y: tilesHeight + 15, width: fieldWidth, height: fieldHeight)
-        return (field.maxY + 6 + Self.controlsHeight, field, trailing, tilesHeight)
+        let field = CGRect(x: fieldLeading, y: tilesHeight > 0 ? tilesHeight + Self.controlInset : Self.textInset, width: fieldWidth, height: fieldHeight)
+        return (field.maxY + Self.textInset - Self.controlInset + Self.controlsHeight, field, trailing, tilesHeight)
     }
 }
