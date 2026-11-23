@@ -315,6 +315,12 @@ final class ReviewModel {
         isPreviewSelected = showsPreview
     }
 
+    func changedDocument(at path: String) -> ReviewDocument? {
+        if changes?.uncommitted.contains(where: { $0.path == path }) == true { return ReviewDocument(path: path, compare: .uncommitted) }
+
+        return changes?.committed.contains { $0.path == path } == true ? ReviewDocument(path: path, compare: .committed) : nil
+    }
+
     func workingDocument(_ path: String) -> ReviewDocument {
         ReviewDocument(path: path, compare: changes?.uncommitted.contains { $0.path == path } == true ? .uncommitted : nil)
     }

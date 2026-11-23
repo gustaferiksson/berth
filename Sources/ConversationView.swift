@@ -107,7 +107,7 @@ struct ConversationView: View {
                         since: since,
                         tasks: model.tasks,
                         details: model.details,
-                        reviewChanges: isReviewEnabled ? { AppAction.showChanges.perform(on: store) } : nil
+                        reviewChanges: isReviewEnabled ? { store.showChanges(opening: $0) } : nil
                     )
                 }
                 ForEach(model.queued.enumerated(), id: \.offset) { _, prompt in
@@ -221,7 +221,7 @@ struct ConversationTurnView: View {
     let since: Date?
     let tasks: [RemoteTask]
     let details: [String: ToolCallDetails]
-    let reviewChanges: (() -> Void)?
+    let reviewChanges: (([String]) -> Void)?
 
     @Environment(\.ghosttyTheme) private var theme
 
@@ -287,7 +287,7 @@ struct ConversationTurnView: View {
                     .foregroundStyle(theme.closed)
             }
             if let reviewChanges {
-                Button("Review Changes", action: reviewChanges)
+                Button("Review Changes") { reviewChanges(changes.paths) }
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)

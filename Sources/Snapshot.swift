@@ -715,8 +715,10 @@ enum Snapshot {
                     await model.openCommit(model.graphCommits[index].sha)
                 }
             }
+            let changedFiles = UserDefaults.standard.string(forKey: "snapshotReviewChangedFiles")
+            if let changedFiles { store.showChanges(opening: changedFiles.split(separator: ",").map(String.init)) }
             while Date.now < deadline, model.error == nil, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
-                if let changes = model.changes, model.selectedTab == nil {
+                if let changes = model.changes, model.selectedTab == nil, changedFiles == nil {
                     if graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
                     let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
                     if requested == nil, showsReviewThreads, let thread = fixturePullRequestDetail?.threads.first(where: { $0.path == "README.md" && $0.line != nil }) {

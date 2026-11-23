@@ -1316,6 +1316,24 @@ final class Store {
         return ([reviewModels[sessionID], reviewModels[Self.reviewKey(sessionID, root: Self.sessionFilesRoot)]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
     }
 
+    func showChanges(opening paths: [String]) {
+        showsReviewPanel = true
+        isHarborShown = false
+        prepareReviewModel()
+        Task {
+            for model in sessionReviewModels { await model.load() }
+
+            for path in paths.map({ URL(filePath: $0).resolvingSymlinksInPath().path }) {
+                for model in sessionReviewModels {
+                    guard let root = model.changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path }), path.hasPrefix(root + "/"), let document = model.changedDocument(at: String(path.dropFirst(root.count + 1))) else { continue }
+
+                    model.open(document)
+                    return
+                }
+            }
+        }
+    }
+
     func prepareReviewModel() {
         guard showsReviewPanel, UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey),
               let tab = tabs.first(where: { $0.id == selectedTabID }), tab.kind == .claude,
