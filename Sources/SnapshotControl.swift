@@ -10,7 +10,13 @@ extension Snapshot {
             exit(1)
         }
 
+        let staleHook = #"[ -z "$BERTH_TAB_ID" ] || printf 'stale hint'"#
+        let staleSettings = try? JSONSerialization.data(withJSONObject: ["hooks": ["SessionStart": [["hooks": [["type": "command", "command": staleHook]]]]]])
+        try? FileManager.default.createDirectory(at: ControlInstaller.skillFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data("---\nname: berth\n---\nBERTH_TAB_ID, stale".utf8).write(to: ControlInstaller.skillFile)
+        try? staleSettings?.write(to: ControlInstaller.settingsFile)
         store.control.update()
+        print("skill refreshed \((try? String(contentsOf: ControlInstaller.skillFile, encoding: .utf8)) == ControlInstall.skill), hook refreshed \(ControlInstall.hasHook(in: try? Data(contentsOf: ControlInstaller.settingsFile)))")
         let caller = UUID()
         store.openShell(cwd: NSHomeDirectory(), command: "exec cat", id: caller)
         let environment = store.control.environment(for: caller)
@@ -37,6 +43,14 @@ extension Snapshot {
         let missingFolder = folder.appending(path: UUID().uuidString)
         await print("open-session in temp folder \(berth("open-session", "--cwd", folder.path, "--background", "--", "hello"))")
         await print("open-session in missing folder \(berth("open-session", "--cwd", missingFolder.path, "--background", "--", "hello"))")
+        let scratch = folder.appending(path: UUID().uuidString)
+        try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let note = scratch.appending(path: "team-plan.md")
+        try? Data("plan".utf8).write(to: note)
+        await print("open folder \(berth("open", scratch.path, "--background"))")
+        await print("open file \(berth("open", note.path))")
+        await print("open missing path \(berth("open", missingFolder.path))")
+        await print("open without path \(berth("open"))")
         print("probeOpened calls \(store.probeOpened.map { "\($0.agent.rawValue) \($0.cwd) \($0.start)" })")
 
         let finished = await berth("open-terminal", "--background", "--", "sh", "-c", "echo done-marker; exit 7")
