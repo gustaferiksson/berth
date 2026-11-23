@@ -321,7 +321,6 @@ private struct ConversationPartView: View {
                     ConversationTaskRow(call: call, task: tasks.first { $0.id == call.use.toolID || ($0.toolUseID != nil && $0.toolUseID == call.use.toolID) || (call.use.date != nil && $0.started == call.use.date && $0.title == call.cardTitle) })
                 }
             }
-            .padding(.leading, 24)
         }
     }
 }
