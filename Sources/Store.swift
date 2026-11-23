@@ -248,8 +248,12 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(seenAt, forKey: "seenSessions") } }
     }
 
-    @ObservationIgnored private var codexIDs = Set(UserDefaults.standard.stringArray(forKey: "codexSessionIDs") ?? []) {
-        didSet { if persistsTabs { UserDefaults.standard.set(codexIDs.sorted(), forKey: "codexSessionIDs") } }
+    @ObservationIgnored private var listedIDs = Dictionary(uniqueKeysWithValues: Agent.allCases.map { ($0, Set(UserDefaults.standard.stringArray(forKey: "\($0.rawValue)SessionIDs") ?? [])) }) {
+        didSet {
+            guard persistsTabs else { return }
+
+            for (agent, ids) in listedIDs where ids != oldValue[agent] { UserDefaults.standard.set(ids.sorted(), forKey: "\(agent.rawValue)SessionIDs") }
+        }
     }
 
     private(set) var flaggedIDs = Set(UserDefaults.standard.stringArray(forKey: "flaggedSessions") ?? []) {
@@ -413,11 +417,13 @@ final class Store {
     }
 
     private func applyGroups() {
-        if hasScanned, isCodexEnabled {
-            let listed = Set(summaries.filter(\.agent.harness.isOptIn).map(\.id))
-            if listed != codexIDs { codexIDs = listed }
+        let enabled = Agent.allCases.filter(Self.isEnabled)
+        if hasScanned {
+            let listed = Dictionary(uniqueKeysWithValues: enabled.map { agent in (agent, Set(summaries.filter { $0.agent == agent }.map(\.id))) })
+            let merged = listedIDs.merging(listed) { _, new in new }
+            if merged != listedIDs { listedIDs = merged }
         }
-        let retained = hasScanned && !isCodexEnabled ? codexIDs : []
+        let retained = hasScanned ? Set(Agent.allCases.filter { !enabled.contains($0) }.flatMap { listedIDs[$0] ?? [] }) : []
         if hasScanned {
             let seen = Dictionary(summaries.map { ($0.id, seenAt[$0.id] ?? .now) }) { first, _ in first }
                 .merging(seenAt.filter { retained.contains($0.key) }) { first, _ in first }
@@ -868,13 +874,14 @@ final class Store {
         #else
         let fakeContexts: [String: SessionContext] = [:]
         #endif
+        let claudeEnabled = Self.isEnabled(.claude)
         let codexEnabled = isCodexEnabled
         refreshTask = Task { [previous = refreshTask, index, startingCodex = codexIndex] in
             await previous?.value
             let (updated, updatedCodex, summaries, roots, checkouts, catalog) = await Task.detached { [roots = repositoryRoots, checkouts = checkouts, known = catalogModels, fixtures = Snapshot.fixtureSessions, catalogDirectory = Self.claudeDirectory.appending(path: "cache/model-catalog")] () -> (TranscriptIndex, CodexIndex, [SessionSummary], [String: String], [String: String], [String: (window: Int?, name: String?)]) in
                 var index = index
                 var codex = startingCodex
-                let refreshed = index.refresh() + (codexEnabled ? codex.refresh() : [])
+                let refreshed = (claudeEnabled ? index.refresh() : []) + (codexEnabled ? codex.refresh() : [])
                 let unchecked = Set((fixtures ?? refreshed).map(\.cwd)).filter { checkouts[$0] == nil && FileManager.default.fileExists(atPath: $0) }
                 let checkouts = checkouts.merging(unchecked.map { ($0, RepositoryRoot.checkout($0)) }) { $1 }
                 let missing = Set(refreshed.filter { $0.agent.harness.supports(.contextSize) && $0.context?.window == nil }.compactMap(\.context?.model)).subtracting(known.keys)
@@ -958,7 +965,7 @@ final class Store {
 
     func refreshLive() {
         let live = fakeLive + Harness.all.flatMap { harness -> [LiveSession] in
-            guard !harness.isOptIn || isCodexEnabled else { return [] }
+            guard Self.isEnabled(harness.agent) else { return [] }
 
             let openTabs: [LiveProbe.Tab] = harness.liveSource == .tabSignals ? tabs.compactMap { tab in
                 guard tab.agent == harness.agent, let sessionID = tab.sessionID else { return nil }
@@ -1572,7 +1579,7 @@ final class Store {
     }
 
     @discardableResult
-    func openSession(_ agent: Agent = .claude, cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil, selectsTab: Bool = true) -> Tab.ID? {
+    func openSession(_ agent: Agent = Store.defaultAgent, cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil, selectsTab: Bool = true) -> Tab.ID? {
         let harness = agent.harness
         let session = sessionID ?? (harness.claimsNewSession ? nil : UUID().uuidString.lowercased())
         let attachID = session.flatMap { liveBySession[$0]?.attachID }
@@ -1630,7 +1637,22 @@ final class Store {
     }
 
     var isCodexEnabled: Bool {
-        UserDefaults.standard.bool(forKey: GeneralSettings.codexKey)
+        Self.isEnabled(.codex)
+    }
+
+    static func isEnabled(_ agent: Agent) -> Bool {
+        let key = "\(agent.rawValue)Enabled"
+        return UserDefaults.standard.object(forKey: key) == nil ? !agent.harness.isOptIn : UserDefaults.standard.bool(forKey: key)
+    }
+
+    static var defaultAgent: Agent {
+        let enabled = Agent.allCases.filter(isEnabled)
+        let chosen = UserDefaults.standard.string(forKey: GeneralSettings.defaultAgentKey).flatMap(Agent.init(rawValue:))
+        return chosen.flatMap { enabled.contains($0) ? $0 : nil } ?? enabled.first ?? .claude
+    }
+
+    static var otherAgent: Agent? {
+        Agent.allCases.first { $0 != defaultAgent && isEnabled($0) }
     }
 
     func applyCodexSetting() {
