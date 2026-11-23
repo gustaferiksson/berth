@@ -18,6 +18,7 @@ struct ContentView: View {
     @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
     @AppStorage(GeneralSettings.terminalBelowKey) private var isTerminalBelow = false
     @AppStorage(WindowBackdrop.transparencyKey) private var windowTransparency = 0.0
+    @AppStorage(WindowBackdrop.backgroundKey) private var windowBackground = WindowBackground.theme
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
     @Environment(\.openWindow) private var openWindow
@@ -72,7 +73,20 @@ struct ContentView: View {
                 }
                 .animation(.default, value: store.preparingPullRequests)
                 .animation(.default, value: store.updater.pendingRestart?.deadline)
-                .background { Color.clear.glassEffect(.regular, in: .rect).ignoresSafeArea() }
+                .background {
+                    if windowBackground == .theme, windowTransparency == 0 {
+                        (store.theme.chrome ?? .clear).ignoresSafeArea()
+                    } else if windowBackground == .glass {
+                        // The oversized glass rim is clipped offscreen.
+                        Color.clear.glassEffect(.regular, in: .rect)
+                            .scaleEffect(x: 4, y: 1.2)
+                            .ignoresSafeArea()
+                    } else if windowBackground == .darker {
+                        (store.theme.background ?? .clear)
+                            .opacity(windowTransparency > 0 ? 1 - windowTransparency : 1)
+                            .ignoresSafeArea()
+                    }
+                }
                 .background {
                     if let selected, !store.isHarborShown {
                         TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
@@ -486,8 +500,13 @@ private struct ScrollPocketSeparatorRemover: NSViewRepresentable {
     }
 }
 
+enum WindowBackground: String, CaseIterable {
+    case theme, glass, darker
+}
+
 struct WindowBackdrop: View {
     static let transparencyKey = "windowTransparency"
+    static let backgroundKey = "windowBackground"
     static let maxTransparency = 0.8
 
     let chrome: Color?
