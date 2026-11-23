@@ -108,7 +108,7 @@ struct SessionHoverTrigger: ViewModifier {
                     guard !Task.isCancelled, !HoverCardPanel.shared.keepsShowing(owner: session.id) else { return }
 
                     let excerpt = await HoverExcerpt.load(sessionID: session.id, index: store.index)
-                    guard !Task.isCancelled, let anchor, let window = anchor.window else { return }
+                    guard !Task.isCancelled, let anchor, let window = anchor.window, !ItemPreviewPanel.shared.claimsHover else { return }
 
                     let row = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
                     let column = anchor.enclosingScrollView.map { window.convertToScreen($0.convert($0.bounds, to: nil)) } ?? row
@@ -127,7 +127,7 @@ struct SessionHoverTrigger: ViewModifier {
     }
 }
 
-private struct ViewAnchor: NSViewRepresentable {
+struct ViewAnchor: NSViewRepresentable {
     let resolve: (NSView) -> Void
 
     func makeNSView(context _: Context) -> NSView {

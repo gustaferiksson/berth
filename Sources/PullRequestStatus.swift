@@ -241,6 +241,14 @@ nonisolated enum PullRequestStatus {
         return PullRequestDetail.parse(output)
     }
 
+    static func preview(repository: String, number: Int) -> ItemPreview? {
+        guard let gh, let arguments = ItemPreviewQuery.arguments(repository: repository, number: number),
+              let output = run(gh, arguments: arguments, requireSuccess: true)
+        else { return nil }
+
+        return ItemPreviewQuery.parse(output)
+    }
+
     static func reply(repository: String, threadID: String, body: String) -> Bool {
         guard let gh, let target = reviewTarget(gh, nodeID: threadID, repository: repository) else { return false }
 
