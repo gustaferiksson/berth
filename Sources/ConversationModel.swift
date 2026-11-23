@@ -60,6 +60,7 @@ final class ConversationModel {
     private var rolloutApproval: (live: LiveSession, approval: PendingApproval)?
     private var reportedContext: RemoteContext?
     private(set) var isTurnOpen = false
+    private(set) var permissionMode: String?
     private(set) var lastChange = Date.now
     private(set) var queued: [String] = []
     private(set) var pending: [PendingPrompt] = []
@@ -395,6 +396,7 @@ final class ConversationModel {
         queue = chunk.queue
         if let result {
             activity = result.activity
+            if permissionMode != result.activity.permissionMode { permissionMode = result.activity.permissionMode }
             agentLogs = result.logs
             if transcriptTasks != result.report.tasks { transcriptTasks = result.report.tasks }
             if reportedContext != result.report.context {

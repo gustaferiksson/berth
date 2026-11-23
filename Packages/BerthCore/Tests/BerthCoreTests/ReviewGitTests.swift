@@ -229,6 +229,12 @@ final class ReviewGitTests {
         #expect(try await status.commits.map(\.date) == git(repo, "log", "-2", "--format=%at").split(separator: "\n").map { Date(timeIntervalSince1970: TimeInterval($0)!) })
     }
 
+    @Test func branchSummaryCountsAgainstTheUpstream() async throws {
+        let repo = try await pushedFeatureRepo()
+        #expect(await ReviewGit.branchSummary(in: repo.path) == ReviewBranchSummary(branch: "feature", ahead: 1, behind: 0))
+        #expect(await ReviewGit.branchSummary(in: root.path) == nil)
+    }
+
     @Test func theDefaultBranchHasNoCommittedCompare() async throws {
         let repo = try await pushedFeatureRepo()
         try await git(repo, "checkout", "--quiet", "-f", "main")

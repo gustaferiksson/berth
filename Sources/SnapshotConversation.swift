@@ -41,7 +41,8 @@ extension Snapshot {
         let directory = Store.claudeDirectory.appending(path: "projects/\(slug)")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let effort = UserDefaults.standard.string(forKey: "snapshotConversationEffort").map { [#"{"type":"api-request","querySource":"repl_main_thread","params":{"model":"claude-sonnet-4-5","output_config":{"effort":"\#($0)"}}}"#] } ?? []
-        let lines = effort + conversationRecords().map { String(decoding: (try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data(), as: UTF8.self) }
+        let mode = UserDefaults.standard.string(forKey: "snapshotConversationMode") ?? "auto"
+        let lines = effort + [#"{"type":"permission-mode","permissionMode":"\#(mode)","sessionId":"\#(conversationSession)"}"#] + conversationRecords().map { String(decoding: (try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data(), as: UTF8.self) }
         try? (lines.joined(separator: "\n") + "\n").write(to: directory.appending(path: "\(conversationSession).jsonl"), atomically: true, encoding: .utf8)
         let subagents = directory.appending(path: "\(conversationSession)/subagents")
         try? FileManager.default.createDirectory(at: subagents, withIntermediateDirectories: true)

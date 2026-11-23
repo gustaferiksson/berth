@@ -88,6 +88,12 @@ public struct ReviewBranchStatus: Sendable, Hashable {
     public static let unknown = Self(ahead: 0, behind: 0, upstream: nil, commits: [])
 }
 
+public struct ReviewBranchSummary: Sendable, Equatable {
+    public let branch: String
+    public let ahead: Int
+    public let behind: Int
+}
+
 public enum ReviewText: Sendable, Equatable {
     case text(String)
     case binary
@@ -211,6 +217,22 @@ public enum ReviewGit {
             upstream: ownUpstream.map { ReviewUpstream(name: $0, ahead: unpushed.count, behind: upstreamSides.count - unpushed.count) },
             commits: commits
         )
+    }
+
+    public static func branchSummary(in folder: String) async -> ReviewBranchSummary? {
+        guard let root = try? await line(["rev-parse", "--show-toplevel"], in: folder) else { return nil }
+
+        let named = try? await line(["symbolic-ref", "--short", "HEAD"], in: root)
+        let detached = try? await line(["rev-parse", "--short", "HEAD"], in: root)
+        guard let branch = named ?? detached else { return nil }
+
+        let upstream = try? await line(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: root)
+        let fallback = await base(in: root)
+        guard let target = upstream ?? fallback, let counts = try? await line(["rev-list", "--left-right", "--count", "\(target)...HEAD"], in: root).split(separator: "\t").compactMap({ Int($0) }) else {
+            return ReviewBranchSummary(branch: branch, ahead: 0, behind: 0)
+        }
+
+        return ReviewBranchSummary(branch: branch, ahead: counts.last ?? 0, behind: counts.first ?? 0)
     }
 
     public static func gitDirectories(in root: String) async throws -> (directory: String, common: String) {

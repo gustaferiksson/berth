@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 public enum Capability: String, CaseIterable, Sendable {
-    case needsYou, approvals, modelEffortMenu, contextSize, pullRequestLinks, backgroundTasks, idleUnload, worktrees, remote, conversation
+    case needsYou, approvals, permissionModes, modelEffortMenu, contextSize, pullRequestLinks, backgroundTasks, idleUnload, worktrees, remote, conversation
 }
 
 public enum LaunchStart: Sendable {

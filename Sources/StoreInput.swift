@@ -238,6 +238,16 @@ extension Store {
         return .sent
     }
 
+    func cycleMode(_ sessionID: String) -> InputOutcome {
+        refreshLive()
+        guard let tab = tab(forSession: sessionID), tab.agent.harness.supports(.permissionModes) else { return .refused("Open the session in a tab first, so the key wasn’t sent") }
+        guard liveBySession[sessionID]?.status != "waiting" else { return .refused("\(tab.agent.harness.name) is waiting for an answer, so the key wasn’t sent") }
+
+        lastKeyInput = .now
+        tab.terminal.sendKey(TerminalKeyPress(.tab, modifiers: .shift))
+        return .sent
+    }
+
     private func refusalWhileWaiting(_ sessionID: String) -> InputOutcome? {
         refreshLive()
         guard liveBySession[sessionID]?.status == "waiting" else { return nil }
