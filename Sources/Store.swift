@@ -514,6 +514,18 @@ final class Store {
         formTasks()
     }
 
+    func openSessionIDs(inTask id: String) -> [String] {
+        (tasks.tasks.first { $0.id == id }?.sessionIDs ?? []).filter { sessionID in activeSessions.contains { $0.id == sessionID } }
+    }
+
+    func markTaskDone(_ id: String) {
+        for sessionID in openSessionIDs(inTask: id) { archive(sessionID) }
+    }
+
+    func markTaskNotDone(containing sessionID: String) {
+        for id in task(containing: sessionID)?.sessionIDs ?? [] where archivedSessions.contains(where: { $0.id == id }) { unarchive(id) }
+    }
+
     func deleteTask(_ id: String) {
         guard let task = tasks.tasks.first(where: { $0.id == id }) else { return }
 

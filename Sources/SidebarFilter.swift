@@ -116,6 +116,8 @@ extension Store {
                     let task = sessionTasks.first { $0.id == id }
                     let isTaskMatch = words.isEmpty || task.map { matches([$0.title] + ($0.issue.map { ["#\($0.number)"] } ?? [])) } == true
                     let members = task?.sessions.filter { matchesStatus(sidebarStatus, $0) && (isTaskMatch || matchesSession($0)) }.map(\.id) ?? []
+                    guard task?.sessions.count != 1 else { return members.first.map { .session($0) } }
+
                     return members.isEmpty ? nil : .task(id: id, memberIDs: members)
                 }
             }

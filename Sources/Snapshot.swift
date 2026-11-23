@@ -397,6 +397,10 @@ enum Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotTasks") {
             try? await Task.sleep(for: .milliseconds(500))
+            if UserDefaults.standard.bool(forKey: "snapshotSoleTask") {
+                store.archive("task-rounding-web")
+                try? await Task.sleep(for: .milliseconds(300))
+            }
             for task in store.sessionTasks {
                 print("task \(task.title) | issue \(task.issue.map { "#\($0.number)" } ?? "none") | members \(task.sessions.map(\.id))")
             }
