@@ -42,6 +42,7 @@ struct ConversationView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ConversationBottomBar(
                     model: model,
+                    tab: tab,
                     harness: harness,
                     canAttach: tab.agent.harness.supports(.modelEffortMenu),
                     since: since,
@@ -514,6 +515,7 @@ private extension PendingApproval {
 
 private struct ConversationBottomBar: View {
     let model: ConversationModel
+    let tab: Tab
     let harness: Harness
     let canAttach: Bool
     let since: Date?
@@ -558,11 +560,14 @@ private struct ConversationBottomBar: View {
                     }
                 }
             }
-            ConversationComposer(model: model, harnessName: harness.name, capabilities: harness.capabilities, canAttach: canAttach, isWorking: isWorking, waiting: denial, context: model.context, focusRequest: composerFocus)
+            VStack(spacing: 2) {
+                ConversationComposer(model: model, harnessName: harness.name, capabilities: harness.capabilities, canAttach: canAttach, isWorking: isWorking, waiting: denial, context: model.context, focusRequest: composerFocus)
+                SessionStatusBar(model: model, tab: tab, harness: harness, isWorking: isWorking)
+            }
         }
         .frame(maxWidth: 860)
         .padding(.horizontal, 18)
-        .padding(.bottom, 16)
+        .padding(.bottom, 8)
         .overlay(alignment: .top) {
             ConversationStatusBar(since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
                 .alignmentGuide(.top) { $0[.bottom] + 10 }

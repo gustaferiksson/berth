@@ -45,11 +45,11 @@ struct SessionToolbar: ToolbarContent {
     let isReviewEnabled: Bool
 
     var body: some ToolbarContent {
-        if store.canShowConversation {
-            ToolbarItem(placement: .principal) { ConversationSwitch(store: store) }
-        }
-        if store.showsSessionToolbar, let sessionID = store.selectedSessionID {
+        if store.showsSessionToolbar, let sessionID = store.selectedSessionID, !store.selectedShowsConversation {
             ToolbarItem(placement: .primaryAction) { ContextButton(context: store.sessionsByID[sessionID]?.context) }
+        }
+        if store.canShowConversation, !store.selectedShowsConversation {
+            ToolbarItem(placement: .primaryAction) { ConversationButton() }
         }
     }
 }
@@ -72,17 +72,15 @@ struct ChangesToolbar: ToolbarContent {
     }
 }
 
-private struct ConversationSwitch: View {
-    let store: Store
+private struct ConversationButton: View {
+    @Environment(Store.self) private var store
 
     var body: some View {
-        Picker("View", selection: Binding(get: { store.selectedShowsConversation }, set: store.setConversation)) {
-            Label(AppAction.showTerminal.title, systemImage: AppAction.showTerminal.symbol).tag(false)
-            Label(AppAction.showConversation.title, systemImage: AppAction.showConversation.symbol).tag(true)
+        Button { AppAction.showConversation.perform(on: store) } label: {
+            Image(systemName: AppAction.showConversation.symbol)
         }
-        .pickerStyle(.segmented)
-        .labelStyle(.iconOnly)
-        .help("Show Terminal or Conversation (⌥⌘J)")
+        .accessibilityLabel(AppAction.showConversation.title)
+        .help("\(AppAction.showConversation.title) (⌥⌘J)")
     }
 }
 
@@ -124,8 +122,9 @@ private struct ChangesToggle: View {
     }
 }
 
-private struct ContextButton: View {
+struct ContextButton: View {
     let context: SessionContext?
+    var arrowEdge = Edge.bottom
     @Environment(\.ghosttyTheme) private var theme
     @State private var isShown = false
 
@@ -146,7 +145,7 @@ private struct ContextButton: View {
             }
         }
         .help("Context")
-        .popover(isPresented: $isShown, arrowEdge: .bottom) {
+        .popover(isPresented: $isShown, arrowEdge: arrowEdge) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(context.map { $0.modelName ?? $0.model } ?? "Context")
                     .font(.headline)

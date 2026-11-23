@@ -250,4 +250,14 @@ struct TranscriptActivityTests {
 
         #expect(decoded == activity)
     }
+
+    @Test func theLatestPermissionModeWins() {
+        var activity = TranscriptActivity()
+        activity.apply(Data(#"""
+        {"type":"permission-mode","permissionMode":"plan","sessionId":"s"}
+        {"type":"permission-mode","permissionMode":"acceptEdits","sessionId":"s"}
+
+        """#.utf8))
+        #expect(activity.permissionMode == "acceptEdits")
+    }
 }

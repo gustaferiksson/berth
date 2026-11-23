@@ -138,7 +138,7 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 
 ### Conversation view
 
-`-snapshotConversation YES` (needs an empty `CFFIXED_USER_HOME`; pass `-reviewEnabled NO`, `-conversationEnabled YES`; `-snapshotConversationStatus busy|waiting|idle`, `-snapshotConversationExpanded YES`, `-snapshotConversationHeight <pt>`) seeds an invented transcript, saves `<out>.conversation.png` and `<out>.terminal.png` and prints the surface identity across toggles.
+`-snapshotConversation YES` (needs an empty `CFFIXED_USER_HOME`; pass `-reviewEnabled NO`, `-conversationEnabled YES`; `-snapshotConversationStatus busy|waiting|idle`, `-snapshotConversationMode auto|plan|acceptEdits|default` (the permission mode the status bar shows; for the branch counts make `/private/tmp/berth-conversation-fixture` a git repo with an upstream), `-snapshotConversationExpanded YES`, `-snapshotConversationHeight <pt>`) seeds an invented transcript, saves `<out>.conversation.png` and `<out>.terminal.png` and prints the surface identity across toggles.
 
 The Claude fixture includes bash-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
 

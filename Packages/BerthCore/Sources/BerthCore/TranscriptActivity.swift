@@ -26,6 +26,8 @@ public struct TranscriptActivity: Sendable {
     static let requestPrefix = Array(#"{"type":"api-request","#.utf8)
     static let mainThreadSources = [#""querySource":"repl_main_thread"#, #""querySource":"main_thread"#].map { Array($0.utf8) }
     static let requestEffort = Array(#""output_config":{"effort":""#.utf8)
+    static let permissionModePrefix = Array(#"{"type":"permission-mode","#.utf8)
+    static let permissionModeKey = Array(#""permissionMode":""#.utf8)
 
     public private(set) var end = 0
     var pending: [String: Launch] = [:]
@@ -37,6 +39,7 @@ public struct TranscriptActivity: Sendable {
     var compactions = 0
     var lastCompaction: Date?
     var effort: String?
+    public private(set) var permissionMode: String?
 
     public init() {}
 
@@ -116,6 +119,13 @@ public struct TranscriptActivity: Sendable {
                 let line = UnsafeRawBufferPointer(rebasing: buffer[start..<base.distance(to: newline)])
                 start = base.distance(to: newline) + 1
                 let find = { (pattern: [UInt8]) in memmem(line.baseAddress, line.count, pattern, pattern.count) }
+                if line.starts(with: Self.permissionModePrefix) {
+                    if let found = find(Self.permissionModeKey) {
+                        let value = UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + Self.permissionModeKey.count)...])
+                        permissionMode = String(decoding: value.prefix { $0 != UInt8(ascii: "\"") }, as: UTF8.self)
+                    }
+                    continue
+                }
                 if line.starts(with: Self.requestPrefix) {
                     if Self.mainThreadSources.contains(where: { find($0) != nil }), let found = find(Self.requestEffort) {
                         effort = Self.level(at: UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + Self.requestEffort.count)...]))
