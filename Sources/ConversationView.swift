@@ -407,7 +407,7 @@ private struct ConversationStatusBar: View {
     var body: some View {
         let kinds = [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor].filter { kind in tasks.contains { $0.kind == kind } }
 
-        GlassEffectContainer(spacing: 10) {
+        GlassEffectContainer(spacing: 0) {
             HStack(spacing: 10) {
                 if isWorking, !isAtBottom {
                     ConversationWorking(agent: agent, since: since)
@@ -441,8 +441,7 @@ private struct ConversationStatusBar: View {
                 if !isAtBottom {
                     Button(action: jump) {
                         Image(systemName: "arrow.down")
-                            .frame(width: 15, height: 15)
-                            .padding(8)
+                            .frame(width: 31, height: 31)
                             .contentShape(.circle)
                     }
                     .buttonStyle(.plain)
