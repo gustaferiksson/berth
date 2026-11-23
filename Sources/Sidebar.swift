@@ -112,7 +112,7 @@ struct Sidebar: View, Equatable {
                 }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            GlassEffectContainer(spacing: 8) {
+            GlassEffectContainer(spacing: 4) {
                 VStack(spacing: 8) {
                     UsageBar()
                     SidebarFilterField()
