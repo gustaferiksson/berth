@@ -1,4 +1,5 @@
 import BerthCore
+import Foundation
 import GhosttyTerminal
 import SwiftUI
 import UniformTypeIdentifiers
@@ -22,7 +23,7 @@ struct Launcher: View {
     private struct PaletteRow {
         let item: PaletteItem
         let target: PaletteTarget
-        let icon: Image
+        let symbol: String
         let trailing: String
     }
 
@@ -45,9 +46,11 @@ struct Launcher: View {
     @State private var issueLookup: (reference: IssueReference, result: Result<[LinkedPullRequest], IssuePullRequests.LookupError>)?
     @State private var issueOpenFailures: Set<PullRequestLink> = []
     @FocusState private var isQueryFocused: Bool
+    @Binding private var previousScope: LauncherMode?
 
-    init(mode: LauncherMode, query: String) {
+    init(mode: LauncherMode, query: String, previousScope: Binding<LauncherMode?>) {
         self.mode = mode
+        _previousScope = previousScope
         _query = State(initialValue: query)
     }
 
@@ -109,14 +112,15 @@ struct Launcher: View {
         case .search: hits.count
         }
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: [LauncherMode.newSession: "chevron.right", .palette: "command", .pullRequests: "arrow.triangle.pull", .issues: "exclamationmark.circle"][mode] ?? "magnifyingglass")
-                    .font(.title3)
+            HStack(spacing: 12) {
+                Image(systemName: [LauncherMode.newSession: "folder", .palette: "command", .pullRequests: "arrow.triangle.pull", .issues: "exclamationmark.circle"][mode] ?? "magnifyingglass")
+                    .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(width: 20)
+                    .frame(width: 24)
+                    .accessibilityHidden(true)
                 TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests or paste an issue", .issues: "Search or paste an issue"][mode] ?? "Search all sessions"))
                     .textFieldStyle(.plain)
-                    .font(.title3)
+                    .font(.system(size: 22))
                     .focused($isQueryFocused)
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
@@ -156,75 +160,68 @@ struct Launcher: View {
                         selectedIssue = nil
                         guard mode == .newSession, query.hasPrefix("#") else { return }
 
+                        previousScope = mode
                         store.launcherQuery = String(query.dropFirst())
                         store.launcherMode = .pullRequests
                     }
-                if let role = store.launcherRole, mode == .pullRequests, issue == nil {
-                    Button { store.launcherRole = nil } label: {
-                        Label(role.title, systemImage: "xmark")
-                            .font(.subheadline)
-                            .imageScale(.small)
-                            .padding(.horizontal, 8)
-                            .frame(height: 20)
-                            .background(theme.foreground.opacity(0.1), in: .capsule)
-                            .contentShape(.capsule)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Show all pull requests")
-                }
-                if nextScope != nil {
-                    HStack(spacing: 0) {
-                        ForEach(Self.scopes, id: \.mode) { scope, title in
-                            Button { switchScope(to: scope) } label: {
-                                Text(title)
-                                    .font(.subheadline)
-                                    .padding(.horizontal, 8)
-                                    .frame(height: 20)
-                                    .background(theme.foreground.opacity(scope == mode ? 0.15 : 0), in: .capsule)
-                                    .contentShape(.capsule)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .background(theme.foreground.opacity(0.1), in: .capsule)
-                    .help("Switch launcher scope (⇥)")
-                }
-                if mode == .newSession {
-                    Button { isBrowsing = true } label: {
-                        Text("Browse…")
-                            .font(.subheadline)
-                            .padding(.horizontal, 8)
-                            .frame(height: 20)
-                            .background(theme.foreground.opacity(0.1), in: .capsule)
-                            .contentShape(.capsule)
-                    }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut("o")
-                    .help("Choose a folder (⌘O)")
-                }
             }
-            .padding(16)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            if nextScope != nil {
+                HStack(spacing: 8) {
+                    LauncherScopePicker(scopes: Self.scopes, selection: mode, previousSelection: previousScope, select: switchScope)
+                    Spacer()
+                    if let role = store.launcherRole, mode == .pullRequests, issue == nil {
+                        Button { store.launcherRole = nil } label: {
+                            Label(role.title, systemImage: "xmark")
+                                .font(.caption.weight(.medium))
+                                .imageScale(.small)
+                                .padding(.horizontal, 10)
+                                .frame(height: 24)
+                                .background(theme.foreground.opacity(0.09), in: .capsule)
+                                .contentShape(.capsule)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Show all pull requests")
+                    }
+                    if mode == .newSession {
+                        Button { isBrowsing = true } label: {
+                            Label("Browse…", systemImage: "folder")
+                                .font(.caption.weight(.medium))
+                                .padding(.horizontal, 10)
+                                .frame(height: 24)
+                                .background(theme.foreground.opacity(0.09), in: .capsule)
+                                .contentShape(.capsule)
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut("o")
+                        .help("Choose a folder (⌘O)")
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+            }
             Divider()
             if mode == .newSession {
                 folderList(matches)
             } else {
-                results(rows, pullRequests: ranked.pullRequests, issues: issues.issues, issue: issue, linked: linked)
+                results(rows, pullRequests: ranked, issues: issues, issue: issue, linked: linked)
             }
             if let pullRequest, missingCheckout == pullRequest {
                 Divider()
                 checkoutNotice(repository: pullRequest.repository, url: pullRequest.url)
             }
             Divider()
-            HStack(spacing: 16) {
+            HStack(spacing: 8) {
                 if mode == .newSession {
-                    hint("↩", target.map { "Start in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start")
-                    if startsInWorktree { hint("⌥↩", "Main Checkout") }
-                    if isCodexEnabled { hint("⌥⇧↩", "Codex") }
-                    hint("↑↓", "Folder")
+                    LauncherKeyHint("↩", target.map { "Start in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start")
+                    if startsInWorktree { LauncherKeyHint("⌥↩", "Main Checkout") }
+                    if isCodexEnabled { LauncherKeyHint("⌥⇧↩", "Codex") }
+                    LauncherKeyHint("↑↓", "Folder")
                 } else if issue != nil {
                     let openable = linked.count { $0.opening.isOpenable }
-                    if openable > 0 { hint("↩", "Open \(openable) Pull Request\(openable == 1 ? "" : "s")") }
-                    hint("⌥↩", "Open on GitHub")
+                    if openable > 0 { LauncherKeyHint("↩", "Open \(openable) Pull Request\(openable == 1 ? "" : "s")") }
+                    LauncherKeyHint("⌥↩", "Open on GitHub")
                 } else if mode == .pullRequests {
                     let opening = pullRequest.map { store.opening(of: PullRequestLink(repository: $0.repository, number: $0.number)) }
                     let label = if case let .session(session)? = opening {
@@ -238,46 +235,37 @@ struct Launcher: View {
                     } else {
                         "Open"
                     }
-                    hint("↩", label)
-                    hint("⌥↩", "Open on GitHub")
+                    LauncherKeyHint("↩", label)
+                    LauncherKeyHint("⌥↩", "Open on GitHub")
                 } else if mode == .issues {
                     if let issueRow {
-                        hint("↩", issueRow.openPullRequestCount == 0 ? "Start" : "Open PRs")
-                        hint("⌥↩", "GitHub")
+                        LauncherKeyHint("↩", issueRow.openPullRequestCount == 0 ? "Start" : "Open PRs")
+                        LauncherKeyHint("⌥↩", "GitHub")
                     }
-                    hint("↑↓", "Issue")
+                    LauncherKeyHint("↑↓", "Issue")
                 } else if mode == .palette {
-                    hint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
-                    hint("↑↓", "Select")
+                    LauncherKeyHint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
+                    LauncherKeyHint("↑↓", "Select")
                 } else {
-                    hint("↩", "Open")
-                    hint("↑↓", "Session")
+                    LauncherKeyHint("↩", "Open")
+                    LauncherKeyHint("↑↓", "Session")
                 }
-                if let nextScope { hint("⇥", nextScope.title) }
-                Spacer()
-                if ranked.older > 0 {
-                    Text("^[\(ranked.older) older pull request](inflect: true) · Type to search")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if issues.older > 0 {
-                    Text("^[\(issues.older) older issue](inflect: true) · Type to search")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                if let nextScope { LauncherKeyHint("⇥", nextScope.title) }
+                Spacer(minLength: 0)
                 if mode == .search, let indexing = store.searchIndexing {
                     Text("Indexing \(indexing.done)/\(indexing.total)")
                         .font(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-                hint("esc", mode == .newSession ? "Cancel" : "Close")
+                LauncherKeyHint("esc", mode == .newSession ? "Cancel" : "Close")
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
         }
-        .frame(maxWidth: mode == .newSession ? 560 : 640)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .frame(maxWidth: 680)
+        .glassEffect(.regular, in: .rect(cornerRadius: 24))
         .padding(.horizontal, 24)
         .onExitCommand { store.launcherMode = nil }
         .onAppear {
@@ -330,21 +318,31 @@ struct Launcher: View {
 
     private func folderList(_ matches: [Folder]) -> some View {
         VStack(spacing: 0) {
-            ForEach(Array(matches.enumerated()), id: \.element) { index, folder in
-                folderRow(folder, isHighlighted: index == highlighted)
-                    .onTapGesture { start(in: folder.path) }
-            }
             if matches.isEmpty {
-                Text(folders.isEmpty ? "No session folders yet. Type a path or browse." : "No matching folders")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 48)
+                LauncherMessage(
+                    symbol: "folder",
+                    title: folders.isEmpty ? "No session folders yet" : "No matching folders",
+                    detail: folders.isEmpty ? "Type a path or browse." : nil
+                )
+            } else {
+                LauncherSectionHeader(query.allSatisfy(\.isWhitespace) ? "Recent Folders" : "Folders")
+                ForEach(Array(matches.enumerated()), id: \.element) { index, folder in
+                    folderRow(folder, isHighlighted: index == highlighted)
+                        .onTapGesture { start(in: folder.path) }
+                }
             }
         }
         .padding(8)
     }
 
-    private func results(_ rows: [PaletteRow], pullRequests: [InboxPullRequest], issues: [InboxIssue], issue: IssueReference?, linked: [(pullRequest: LinkedPullRequest, opening: PullRequestOpening)]) -> some View {
-        ScrollViewReader { proxy in
+    private func results(_ rows: [PaletteRow], pullRequests ranked: (pullRequests: [InboxPullRequest], older: Int), issues rankedIssues: (issues: [InboxIssue], older: Int), issue: IssueReference?, linked: [(pullRequest: LinkedPullRequest, opening: PullRequestOpening)]) -> some View {
+        let isBlank = query.allSatisfy(\.isWhitespace)
+        let pullRequests = ranked.pullRequests
+        let issues = rankedIssues.issues
+        let pullRequestGroups = Dictionary(grouping: pullRequests, by: \.role)
+        let issueGroups = Dictionary(grouping: issues, by: \.role)
+
+        return ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
                     if issue != nil {
@@ -352,25 +350,33 @@ struct Launcher: View {
                     } else if mode == .pullRequests {
                         ForEach(Array(pullRequests.enumerated()), id: \.element.id) { index, pullRequest in
                             if index == 0 || pullRequests[index - 1].role != pullRequest.role {
-                                Text(pullRequest.role.title)
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 8)
-                                    .padding(.top, index == 0 ? 4 : 12)
-                                    .padding(.bottom, 4)
+                                LauncherSectionHeader(pullRequest.role.title, count: pullRequestGroups[pullRequest.role]?.count)
+                                    .padding(.top, index == 0 ? 0 : 6)
                             }
                             pullRequestRow(pullRequest, isHighlighted: index == highlighted)
                                 .id(index)
                                 .onTapGesture { open(pullRequest) }
                         }
                         if pullRequests.isEmpty {
-                            Text(store.inbox == nil ? store.isInboxLoading ? "Loading pull requests…" : "Couldn’t list pull requests with the GitHub CLI (gh)" : query.allSatisfy(\.isWhitespace) ? "No open pull requests need you" : "No matching pull requests")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, minHeight: 48)
+                            if store.inbox == nil {
+                                LauncherMessage(
+                                    symbol: "exclamationmark.circle",
+                                    title: store.isInboxLoading ? "Loading pull requests…" : "Couldn’t list pull requests with the GitHub CLI (gh)",
+                                    isLoading: store.isInboxLoading
+                                )
+                            } else {
+                                LauncherMessage(symbol: "arrow.triangle.pull", title: isBlank ? "No open pull requests need you" : "No matching pull requests")
+                            }
                         }
                     } else if mode == .issues {
+                        if !isBlank, !issues.isEmpty {
+                            LauncherSectionHeader("Matches", count: issues.count)
+                        }
                         ForEach(Array(issues.enumerated()), id: \.element.id) { index, issue in
+                            if isBlank, index == 0 || issues[index - 1].role != issue.role {
+                                LauncherSectionHeader(issue.role.title, count: issueGroups[issue.role]?.count)
+                                    .padding(.top, index == 0 ? 0 : 6)
+                            }
                             Button { selectedIssue = issue } label: {
                                 issueRow(issue, isHighlighted: index == highlighted)
                             }
@@ -378,42 +384,60 @@ struct Launcher: View {
                             .id(index)
                         }
                         if issues.isEmpty {
-                            Text(store.issueInbox == nil ? store.isIssueInboxLoading ? "Loading issues…" : "Couldn’t list issues with the GitHub CLI (gh)" : query.allSatisfy(\.isWhitespace) ? "No recent open issues" : "No matching issues")
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, minHeight: 48)
+                            if store.issueInbox == nil {
+                                LauncherMessage(
+                                    symbol: "exclamationmark.circle",
+                                    title: store.isIssueInboxLoading ? "Loading issues…" : "Couldn’t list issues with the GitHub CLI (gh)",
+                                    isLoading: store.isIssueInboxLoading
+                                )
+                            } else {
+                                LauncherMessage(symbol: "smallcircle.filled.circle", title: isBlank ? "No recent open issues" : "No matching issues")
+                            }
                         }
                     } else if mode == .palette {
                         ForEach(Array(rows.enumerated()), id: \.element.item) { index, row in
-                            if query.allSatisfy(\.isWhitespace), index == 0 || rows[index - 1].item.section != row.item.section {
-                                Text(row.item.section == .openTab ? "Sessions" : "Actions")
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 8)
-                                    .padding(.top, index == 0 ? 4 : 12)
-                                    .padding(.bottom, 4)
+                            if isBlank, index == 0 || rows[index - 1].item.section != row.item.section {
+                                LauncherSectionHeader(row.item.section == .openTab ? "Sessions" : "Actions")
+                                    .padding(.top, index == 0 ? 0 : 6)
                             }
                             paletteRow(row, isHighlighted: index == highlighted)
                                 .id(index)
                                 .onTapGesture { run(row.target) }
                         }
                     } else {
+                        if !hits.isEmpty {
+                            LauncherSectionHeader("Sessions", count: hits.count)
+                        }
                         ForEach(Array(hits.enumerated()), id: \.element.id) { index, hit in
                             hitRow(hit, isHighlighted: index == highlighted)
                                 .id(index)
                                 .onTapGesture { open(hit) }
                         }
+                        if hits.isEmpty {
+                            let isSearching = !isBlank && (store.searchIndexing != nil || searchedQuery != query)
+                            LauncherMessage(
+                                symbol: "magnifyingglass",
+                                title: isBlank ? "Type to search every session’s prompts and replies" : isSearching ? "Searching…" : "No matching sessions",
+                                isLoading: isSearching
+                            )
+                        }
                     }
-                    if mode == .search, hits.isEmpty {
-                        Text(query.allSatisfy(\.isWhitespace) ? "Type to search every session’s prompts and replies" : store.searchIndexing == nil && searchedQuery == query ? "No matching sessions" : "Searching…")
+                    if ranked.older > 0 || rankedIssues.older > 0 {
+                        let note: LocalizedStringKey = ranked.older > 0
+                            ? "^[\(ranked.older) older pull request](inflect: true) · Type to search"
+                            : "^[\(rankedIssues.older) older issue](inflect: true) · Type to search"
+                        Text(note)
+                            .font(.caption)
                             .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
                     }
                 }
                 .padding(8)
                 .onGeometryChange(for: Double.self) { $0.size.height } action: { resultsHeight = $0 }
             }
-            .frame(height: min(max(resultsHeight, 64), 480))
+            .frame(height: min(max(resultsHeight, 64), 420))
             .scrollBounceBehavior(.basedOnSize)
             .onChange(of: highlighted) { proxy.scrollTo(highlighted) }
         }
@@ -436,9 +460,8 @@ struct Launcher: View {
             case let .failure(error): error.message
             case .success: selectedIssue == nil ? "No open linked pull requests" : "Couldn’t start session"
             }
-            Text(message)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, minHeight: 48)
+            let symbol = if case .failure? = issueResult { "exclamationmark.circle" } else { "arrow.triangle.pull" }
+            LauncherMessage(symbol: symbol, title: message, isLoading: issueResult == nil)
         }
     }
 
@@ -456,142 +479,141 @@ struct Launcher: View {
     }
 
     private func folderRow(_ folder: Folder, isHighlighted: Bool) -> some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(URL(filePath: folder.path).lastPathComponent)
-                    .fontWeight(.medium)
-                Text((folder.path as NSString).abbreviatingWithTildeInPath)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .truncationMode(.middle)
+        LauncherRowFrame(
+            symbol: "folder.fill",
+            tint: .accentColor,
+            title: URL(filePath: folder.path).lastPathComponent,
+            secondary: [(folder.path as NSString).abbreviatingWithTildeInPath],
+            isHighlighted: isHighlighted,
+            monospacedSecondary: true
+        ) {
+            if let activity = folder.lastActivity {
+                LauncherBadge("\(folder.sessions) \(folder.sessions == 1 ? "session" : "sessions") · \(age(since: activity))")
+            } else {
+                LauncherBadge("New folder")
             }
-            .lineLimit(1)
-            Spacer(minLength: 8)
-            (folder.lastActivity.map { Text("^[\(folder.sessions) session](inflect: true) · \(age(since: $0))") } ?? Text("New folder"))
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .frame(minHeight: 44)
-        .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
-        .contentShape(.rect)
     }
 
     private func pullRequestRow(_ pullRequest: InboxPullRequest, isHighlighted: Bool) -> some View {
         let sessions = store.sessions(for: PullRequestLink(repository: pullRequest.repository, number: pullRequest.number))
-        return Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
-            GridRow(alignment: .firstTextBaseline) {
-                Text(pullRequest.title)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                Color.clear.gridCellUnsizedAxes(.vertical)
-                (sessions.first.map { Text("^[\(sessions.count) session](inflect: true) · \(age(since: $0.lastActivity))") } ?? Text("No session"))
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(sessions.isEmpty ? theme.secondary : theme.foreground)
-                    .gridColumnAlignment(.trailing)
-            }
-            GridRow(alignment: .firstTextBaseline) {
-                HStack(spacing: 6) {
-                    Text((pullRequest.repository as NSString).lastPathComponent)
-                    PullRequestTag(pullRequest: PullRequest(number: pullRequest.number, url: pullRequest.url, title: pullRequest.title, state: pullRequest.isDraft ? .draft : .open, checks: pullRequest.checks))
-                    if pullRequest.isDraft { Text("Draft") }
-                    if pullRequest.reviewDecision == .approved { Text("Approved") }
-                    if pullRequest.reviewDecision == .changesRequested { Text("Changes requested") }
-                    if let author = pullRequest.author, pullRequest.role != .mine { Text(verbatim: "@\(author)") }
+        let state: PullRequestState = pullRequest.isDraft ? .draft : .open
+        let tint = !pullRequest.isDraft && pullRequest.reviewDecision == .changesRequested ? theme.closed : state.color(in: theme)
+        let author = pullRequest.role == .mine ? nil : pullRequest.author.map { "@\($0)" }
+        let secondary = [
+            pullRequest.repository,
+            "#\(pullRequest.number)",
+            author,
+            "Updated \(age(since: pullRequest.updatedAt))",
+        ].compactMap(\.self)
+
+        return LauncherRowFrame(symbol: "arrow.triangle.pull", tint: tint, title: pullRequest.title, secondary: secondary, isHighlighted: isHighlighted) {
+            HStack(spacing: 5) {
+                switch pullRequest.checks {
+                case .passed:
+                    LauncherBadge("Passed", symbol: "checkmark", tint: theme.working)
+                        .accessibilityLabel("Checks passed")
+
+                case .failed:
+                    LauncherBadge("Failed", symbol: "xmark", tint: theme.closed)
+                        .accessibilityLabel("Checks failed")
+
+                case .running:
+                    LauncherBadge("Running", symbol: "circle.fill", tint: theme.needsYou)
+                        .accessibilityLabel("Checks running")
+
+                case nil: EmptyView()
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize()
-                Color.clear.gridCellUnsizedAxes(.vertical)
-                Text("Updated \(age(since: pullRequest.updatedAt))")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                if pullRequest.reviewDecision == .approved {
+                    LauncherBadge("Approved", tint: theme.working)
+                } else if pullRequest.reviewDecision == .changesRequested {
+                    LauncherBadge("Changes requested", tint: theme.closed)
+                }
+                if pullRequest.isDraft {
+                    LauncherBadge("Draft")
+                }
+                if !sessions.isEmpty {
+                    LauncherBadge("\(sessions.count) \(sessions.count == 1 ? "session" : "sessions")")
+                }
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
-        .contentShape(.rect)
     }
 
     private func issueRow(_ issue: InboxIssue, isHighlighted: Bool) -> some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(issue.title)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                Text("\(issue.repository) #\(issue.number)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        let secondary = [
+            issue.repository,
+            "#\(issue.number)",
+            issue.author.map { "@\($0)" },
+            age(since: issue.updatedAt),
+        ].compactMap(\.self)
+
+        return LauncherRowFrame(symbol: "smallcircle.filled.circle", tint: theme.working, title: issue.title, secondary: secondary, isHighlighted: isHighlighted) {
+            HStack(spacing: 5) {
+                ForEach(Array(issue.labels.prefix(2).enumerated()), id: \.offset) { _, label in
+                    LauncherLabelCapsule(name: label.name, hex: label.color)
+                }
+                if issue.labels.count > 2 {
+                    LauncherBadge("+\(issue.labels.count - 2)")
+                }
+                if issue.openPullRequestCount > 0 {
+                    LauncherBadge(String(issue.openPullRequestCount), symbol: "arrow.triangle.pull")
+                        .accessibilityLabel(Text(verbatim: "\(issue.openPullRequestCount) linked pull request\(issue.openPullRequestCount == 1 ? "" : "s")"))
+                }
             }
-            Spacer(minLength: 8)
-            Text(issue.openPullRequestCount == 0 ? "Start Issue Session" : issue.openPullRequestCount == 1 ? "1 PR" : "\(issue.openPullRequestCount) PRs")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
-        .contentShape(.rect)
     }
 
     private func checkoutNotice(repository: String, url: URL) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "folder.badge.questionmark")
-                .foregroundStyle(.secondary)
-            Text("No local checkout of \(repository)")
+                .font(.headline)
+                .foregroundStyle(theme.needsYou)
+                .accessibilityHidden(true)
+            Text(verbatim: "No local checkout of \(repository)")
+                .fontWeight(.medium)
             Spacer(minLength: 8)
-            Button("Open on GitHub") { openOnGitHub(url) }
+            Button { openOnGitHub(url) } label: {
+                LauncherBadge("Open on GitHub", symbol: "arrow.up.right", tint: theme.needsYou)
+                    .contentShape(.capsule)
+            }
+            .buttonStyle(.plain)
         }
         .font(.callout)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 10)
         .padding(.vertical, 8)
+        .background(theme.needsYou.opacity(0.12), in: .rect(cornerRadius: 12))
+        .padding(8)
     }
 
     private func linkedPullRequestRow(_ pullRequest: LinkedPullRequest, opening: PullRequestOpening) -> some View {
         let link = pullRequest.link
-        return HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(pullRequest.title)
-                    .fontWeight(.medium)
-                Text("\(link.repository)#\(link.number)\(pullRequest.isDraft ? " · Draft" : "")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            Text(opening.isOpenable && issueOpenFailures.contains(link) ? "Couldn’t open session" : store.issuePullRequestStatus(pullRequest, opening: opening))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
+        let state: PullRequestState = pullRequest.isDraft ? .draft : .open
+        let failed = opening.isOpenable && issueOpenFailures.contains(link)
+        let status = failed ? "Couldn’t open session" : store.issuePullRequestStatus(pullRequest, opening: opening)
+        let secondary = [link.repository, "#\(link.number)"] + (pullRequest.isDraft ? ["Draft"] : [])
+
+        return LauncherRowFrame(symbol: "arrow.triangle.pull", tint: state.color(in: theme), title: pullRequest.title, secondary: secondary) {
+            LauncherBadge(status, tint: failed ? theme.closed : nil)
         }
-        .lineLimit(1)
-        .padding(.horizontal, 8)
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .contentShape(.rect)
+        .opacity(opening.isOpenable ? 1 : 0.6)
     }
 
     private var paletteRows: [PaletteRow] {
         let openTabs = store.sidebarOrderedTabs.map { tab in
-            let icon = if tab.id == store.selectedTabID {
-                Image(systemName: "checkmark")
+            let symbol = if tab.id == store.selectedTabID {
+                "checkmark"
             } else if tab.kind == .shell {
-                Image(systemName: "terminal")
+                "terminal"
             } else {
-                Image(systemName: "bubble.left")
+                "bubble.left"
             }
 
             return PaletteRow(
                 item: PaletteItem(id: tab.id.uuidString, section: .openTab, title: tab.title(terminalTitle: tab.terminal.title, sessionTitle: store.sessionTitle(of: tab)), detail: tab.folder),
                 target: .item(.tab(tab.id)),
-                icon: icon,
+                symbol: symbol,
                 trailing: URL(filePath: tab.sessionID.flatMap { store.sessionsByID[$0]?.checkout } ?? tab.folder).lastPathComponent
             )
         }
@@ -599,7 +621,7 @@ struct Launcher: View {
             PaletteRow(
                 item: PaletteItem(id: action.title, section: .action, title: action.title(in: store), detail: action.keywords),
                 target: .action(action),
-                icon: Image(systemName: action.symbol),
+                symbol: action.symbol,
                 trailing: action.shortcut.map { shortcut in
                     [(EventModifiers.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")].filter { shortcut.modifiers.contains($0.0) }.map(\.1).joined() + String(shortcut.key.character).uppercased()
                 } ?? ""
@@ -610,7 +632,7 @@ struct Launcher: View {
             PaletteRow(
                 item: PaletteItem(id: session.id, section: .recentSession, title: session.title, detail: session.cwd),
                 target: .item(.session(session.id)),
-                icon: Image(systemName: "clock.arrow.circlepath"),
+                symbol: "clock.arrow.circlepath",
                 trailing: "\(URL(filePath: session.checkout).lastPathComponent) · \(age(since: session.lastActivity))"
             )
         }
@@ -620,74 +642,41 @@ struct Launcher: View {
         let typed = query.trimmingCharacters(in: .whitespaces)
         guard !typed.isEmpty, let search = actions.first(where: { $0.item.id == AppAction.searchSessions.title }) else { return ranked }
 
-        let searchRow = PaletteRow(item: PaletteItem(id: search.item.id, section: .action, title: "Search Sessions for “\(typed)”", detail: ""), target: search.target, icon: search.icon, trailing: search.trailing)
+        let searchRow = PaletteRow(item: PaletteItem(id: search.item.id, section: .action, title: "Search Sessions for “\(typed)”", detail: ""), target: search.target, symbol: search.symbol, trailing: search.trailing)
         return ranked.map { $0.item.id == searchRow.item.id ? searchRow : $0 } + (ranked.contains { $0.item.id == searchRow.item.id } ? [] : [searchRow])
     }
 
     private func paletteRow(_ row: PaletteRow, isHighlighted: Bool) -> some View {
-        HStack(spacing: 8) {
-            row.icon
-                .scaledToFit()
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 13)
-            Text(row.item.title)
-            Spacer(minLength: 8)
-            Text(row.trailing)
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .truncationMode(.middle)
-        }
-        .lineLimit(1)
-        .padding(.horizontal, 8)
-        .frame(minHeight: 32)
-        .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
-        .contentShape(.rect)
-    }
-
-    private func hitRow(_ hit: SearchHit, isHighlighted: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text(hit.session.title)
-                    .fontWeight(.medium)
-                Spacer(minLength: 8)
-                Text("\(URL(filePath: hit.session.checkout).lastPathComponent) · \(age(since: hit.session.lastActivity))")
+        LauncherRowFrame(symbol: row.symbol, tint: row.item.section == .action ? .accentColor : .secondary, title: row.item.title, isHighlighted: isHighlighted) {
+            if !row.trailing.isEmpty {
+                Text(verbatim: row.trailing)
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                     .truncationMode(.middle)
             }
-            ForEach(hit.snippets, id: \.self) { snippet in
-                Text(snippet.highlights.reduce(into: AttributedString(snippet.text)) { text, range in
-                    guard let range = Range(range, in: text) else { return }
-
-                    text[range].foregroundColor = theme.foreground
-                    text[range].font = .caption.weight(.semibold)
-                })
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
         }
-        .lineLimit(1)
-        .padding(8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
-        .contentShape(.rect)
     }
 
-    private func hint(_ key: String, _ label: String) -> some View {
-        HStack(spacing: 4) {
-            Text(key)
-                .font(.caption.monospaced())
-                .padding(.horizontal, 4)
-                .frame(minWidth: 20, minHeight: 16)
-                .background(theme.foreground.opacity(0.1), in: .rect(cornerRadius: 4))
-            Text(label)
+    private func hitRow(_ hit: SearchHit, isHighlighted: Bool) -> some View {
+        let snippets = hit.snippets.map { snippet in
+            snippet.highlights.reduce(into: AttributedString(snippet.text)) { text, range in
+                guard let range = Range(range, in: text) else { return }
+
+                text[range].foregroundColor = theme.foreground
+                text[range].font = .caption.weight(.semibold)
+            }
+        }
+
+        return LauncherRowFrame(symbol: "text.bubble", tint: .accentColor, title: hit.session.title, isHighlighted: isHighlighted, snippets: snippets) {
+            Text(verbatim: "\(URL(filePath: hit.session.checkout).lastPathComponent) · \(age(since: hit.session.lastActivity))")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
 
     private func move(by offset: Int, in count: Int) -> KeyPress.Result {
@@ -761,6 +750,7 @@ struct Launcher: View {
     }
 
     private func switchScope(to scope: LauncherMode) {
+        if scope != mode { previousScope = mode }
         store.launcherQuery = query
         store.launcherMode = scope
     }

@@ -99,6 +99,7 @@ enum Snapshot {
     static let launcherKeys = UserDefaults.standard.string(forKey: "snapshotLauncherKeys")
     static let issueQuery = UserDefaults.standard.string(forKey: "snapshotIssue")
     static let issueInboxQuery = UserDefaults.standard.string(forKey: "snapshotIssues")
+    static let launcherLoading = output != nil && UserDefaults.standard.bool(forKey: "snapshotLauncherLoading")
 
     private static let hubFolders: [SessionSummary] = {
         let code = NSTemporaryDirectory() + "berth-launcher-keys"
@@ -138,7 +139,8 @@ enum Snapshot {
         case "acme/web#12":
             [("acme/web", 13, "Fix the flaky login test", false)]
 
-        case "acme/billing#57", "acme/infra#42", "acme/billing#49": []
+        case "acme/billing#57", "acme/infra#42", "acme/billing#49",
+             "acme/web#1204", "acme/billing#68", "acme/api#23", "acme/web#25": []
 
         default: nil
         }
@@ -171,21 +173,40 @@ enum Snapshot {
     }
 
     static let fixtureIssueInbox: [InboxIssue]? = {
-        guard issueInboxQuery != nil else { return nil }
+        guard issueInboxQuery != nil, !launcherLoading else { return nil }
 
-        let entries: [(id: String, title: String, age: TimeInterval)] = [
-            ("acme/web#21", "Let billing administrators download usage reports for any closed billing period from the dashboard", 60),
-            ("acme/billing#57", "Fix invoice rounding", 1200),
-            ("acme/web#12", "Fix the flaky login test", 3600),
-            ("acme/infra#42", "Rotate the export bucket key", 7200),
-            ("acme/billing#49", "Drop the legacy CSV importer", 45 * 86_400),
+        let bug = ("bug", "d73a4a")
+        let enhancement = ("enhancement", "a2eeef")
+        let billing = ("billing", "0e8a16")
+        let goodFirstIssue = ("good first issue", "7057ff")
+        let entries: [InboxIssue.Role: [(id: String, title: String, age: TimeInterval, author: String, labels: [(String, String)])]] = [
+            .assigned: [
+                ("acme/web#21", "Let billing administrators download usage reports for any closed billing period from the dashboard", 60, "lee", [enhancement, billing, ("reports", "1d76db"), ("frontend", "5319e7")]),
+                ("acme/billing#57", "Fix invoice rounding", 1200, "sam", [bug, billing]),
+                ("acme/web#12", "Fix the flaky login test", 3600, "kim", [bug, goodFirstIssue]),
+                ("acme/infra#42", "Rotate the export bucket key", 7200, "lee", []),
+                ("acme/billing#49", "Drop the legacy CSV importer", 45 * 86_400, "sam", [enhancement]),
+            ],
+            .mine: [
+                ("acme/web#1204", "Save dashboard filters between visits", 900, "me", [enhancement]),
+                ("acme/billing#68", "Show invoice dates in the account time zone", 28_800, "me", [bug, billing]),
+            ],
+            .mentioned: [
+                ("acme/api#23", "Document usage API pagination", 1800, "lee", [goodFirstIssue]),
+                ("acme/web#25", "Improve keyboard navigation in the account menu", 10_800, "kim", [enhancement]),
+            ],
         ]
-        let nodes = entries.compactMap { entry -> String? in
-            guard let issue = IssueReference.parse(entry.id), let linked = issueFixtureLinks(issue) else { return nil }
+        let now = Date.now
+        let aliases = InboxIssue.Role.allCases.map { role in
+            let nodes = entries[role, default: []].compactMap { entry -> String? in
+                guard let issue = IssueReference.parse(entry.id), let linked = issueFixtureLinks(issue) else { return nil }
 
-            return #"{"number":\#(issue.number),"title":"\#(entry.title)","url":"\#(issue.url)","updatedAt":"\#((Date.now - entry.age).ISO8601Format())","repository":{"nameWithOwner":"\#(issue.repository)"},"timelineItems":{"nodes":[\#(issueFixtureEvents(linked))]}}"#
+                let labels = entry.labels.map { name, color in #"{"name":"\#(name)","color":"\#(color)"}"# }
+                return #"{"number":\#(issue.number),"title":"\#(entry.title)","url":"\#(issue.url)","updatedAt":"\#((now - entry.age).ISO8601Format())","author":{"login":"\#(entry.author)"},"labels":{"nodes":[\#(labels.joined(separator: ","))]},"repository":{"nameWithOwner":"\#(issue.repository)"},"timelineItems":{"nodes":[\#(issueFixtureEvents(linked))]}}"#
+            }
+            return #""\#(role.rawValue)":{"nodes":[\#(nodes.joined(separator: ","))]}"#
         }
-        let json = #"{"data":{"assigned":{"nodes":[\#(nodes.joined(separator: ","))]}}}"#
+        let json = #"{"data":{\#(aliases.joined(separator: ","))}}"#
         return IssueInbox.parse(Data(json.utf8))
     }()
 
@@ -319,7 +340,7 @@ enum Snapshot {
             return (PullRequestBranch(repository: fixtureRepository, branch: branch), pullRequest)
         }
     }) { first, _ in first }
-    static let fixtureInbox = inboxFixtures?.inbox
+    static let fixtureInbox = launcherLoading ? nil : inboxFixtures?.inbox
     static let fixtureLinkedPullRequests = linkedFixtures
     #else
     static let fixtureSessions: [SessionSummary]? = nil
@@ -329,6 +350,7 @@ enum Snapshot {
     static let fixturePullRequests: [PullRequestBranch: PullRequest?] = [:]
     static let fixtureInbox: [InboxPullRequest]? = nil
     static let fixtureIssueInbox: [InboxIssue]? = nil
+    static let launcherLoading = false
     static let fixtureLinkedPullRequests: [PullRequestLink: PullRequest] = [:]
     static let fixturePullRequestDetail: PullRequestDetail? = nil
     #endif
