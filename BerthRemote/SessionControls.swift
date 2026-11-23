@@ -17,37 +17,36 @@ struct SessionControls: View {
     @Environment(RemoteClient.self) private var client
 
     var body: some View {
-        Group {
-            if let session, session.isLocked {
-                Label("Running in another terminal, so read-only here.", systemImage: "lock")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
-            } else {
-                VStack(spacing: 8) {
-                    if let session, session.status == "waiting" {
-                        ApprovalCard(session: session, pendingCall: approvalCall(for: session))
-                    }
-                    Composer(
-                        sessionID: sessionID,
-                        agent: session?.agent ?? .legacyClaude,
-                        isWorking: session?.status == "busy",
-                        declining: session.flatMap { waiting in
-                            guard waiting.status == "waiting", waiting.waitingFor != "needs input" else { return nil }
-                            guard waiting.agent?.approvalKeys != nil else { return waiting }
-
-                            return approvalCall(for: waiting).flatMap { $0.use.name == "AskUserQuestion" ? nil : waiting }
-                        },
-                        context: context,
-                        openContext: openContext,
-                        draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
-                        attachments: Binding { client.draftAttachments[sessionID, default: []] } set: { client.draftAttachments[sessionID] = $0 }
-                    )
+        if let session, session.isLocked {
+            Label("Running in another terminal, so read-only here.", systemImage: "lock")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+        } else {
+            VStack(spacing: 0) {
+                if let session, session.status == "waiting" {
+                    ApprovalCard(session: session, pendingCall: approvalCall(for: session))
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
                 }
+                Composer(
+                    sessionID: sessionID,
+                    agent: session?.agent ?? .legacyClaude,
+                    isWorking: session?.status == "busy",
+                    declining: session.flatMap { waiting in
+                        guard waiting.status == "waiting", waiting.waitingFor != "needs input" else { return nil }
+                        guard waiting.agent?.approvalKeys != nil else { return waiting }
+
+                        return approvalCall(for: waiting).flatMap { $0.use.name == "AskUserQuestion" ? nil : waiting }
+                    },
+                    context: context,
+                    openContext: openContext,
+                    draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
+                    attachments: Binding { client.draftAttachments[sessionID, default: []] } set: { client.draftAttachments[sessionID] = $0 }
+                )
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
     }
 
     private func approvalCall(for session: RemoteSession) -> ToolCall? {
@@ -224,12 +223,6 @@ private struct Composer: View {
     @Binding var draft: String
     @Binding var attachments: [Attachment]
 
-    private static let inset = 7.5
-    private static let controlHeight = 34.0
-    private static let tileSize = 56.0
-    private static let textInset = 14.0
-    private static let hitSlop = 4.0
-
     @Environment(RemoteClient.self) private var client
     @State private var pickedModel: ModelChoice?
     @State private var pickedEffort: EffortLevel?
@@ -241,104 +234,47 @@ private struct Composer: View {
     @AppStorage("quickReplies") private var replies = QuickReply.defaults
     @State private var confirmedCommand: SlashCommand?
     @FocusState private var isFocused: Bool
+    @ScaledMetric(relativeTo: .body) private var plusGlyphSize = 18.0
+
+    private let controlFill = Color.primary.opacity(0.06)
 
     var body: some View {
-        let isEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
-        let isUploaded = attachments.allSatisfy { client.uploads[$0.id] == .done }
-        let stops = isWorking && isEmpty
+        let isExpanded = isFocused || !draft.isEmpty || !attachments.isEmpty
 
-        GlassEffectContainer(spacing: 8) {
-            VStack(alignment: .leading, spacing: 0) {
-                if !attachments.isEmpty {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileSize, maximum: Self.tileSize), spacing: Self.inset)], alignment: .leading, spacing: Self.inset) {
+        ComposerLayout(isExpanded: isExpanded, hasAttachmentMenu: agent.canAttach) {
+            TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, axis: .vertical)
+                .font(.body)
+                .textFieldStyle(.plain)
+                .lineLimit(1...(isExpanded ? 6 : 1))
+                .focused($isFocused)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ZStack {
+                if agent.canAttach {
+                    attachmentMenu
+                }
+            }
+            trailingControls(isExpanded: isExpanded)
+            if !attachments.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
                         ForEach(attachments) { attachment in
-                            AttachmentTile(attachment: attachment, state: client.uploads[attachment.id], size: Self.tileSize, radius: Self.controlHeight / 2) {
+                            AttachmentTile(attachment: attachment, state: client.uploads[attachment.id]) {
                                 attachments.removeAll { $0.id == attachment.id }
                             }
                         }
                     }
-                    .padding(.top, Self.inset)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
                 }
-                TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, axis: .vertical)
-                    .lineLimit(1...6)
-                    .focused($isFocused)
-                    .padding(.horizontal, Self.textInset - Self.inset)
-                    .padding(.top, Self.textInset - 3)
-                    .padding(.bottom, Self.textInset - Self.inset)
-                HStack(spacing: 8) {
-                    if agent.canAttach {
-                        Menu {
-                            if client.features.contains(RemoteUpload.feature) {
-                                Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
-                                Button("Files", systemImage: "folder") { isImportingFiles = true }
-                            } else {
-                                Button("Attach", systemImage: "paperclip") { client.notice = "Update Berth on your Mac to send attachments" }
-                            }
-                            if !replies.isEmpty {
-                                Section("Replies") {
-                                    ForEach(replies) { reply in
-                                        Button(reply.text) { insert(reply.text) }
-                                    }
-                                }
-                            }
-                            Section("Commands") {
-                                ForEach(SlashCommand.all) { command in
-                                    Button(command.name, systemImage: command.symbol, role: command.isDestructive ? .destructive : nil) { run(command) }
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "plus")
-                                .accessibilityHidden(true)
-                                .frame(width: Self.controlHeight, height: Self.controlHeight)
-                                .background(.quaternary, in: .circle)
-                                .padding(Self.hitSlop)
-                                .contentShape(.circle)
-                                .padding(-Self.hitSlop)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Attach")
-                    }
-                    if let context, let openContext {
-                        if agent.canChangeSettings {
-                            modelMenu(context, openContext: openContext)
-                        } else {
-                            Button(context.model, action: openContext)
-                                .buttonStyle(.bordered)
-                                .buttonBorderShape(.capsule)
-                                .accessibilityHint("Shows context usage")
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    if stops || !(isEmpty || !isUploaded) {
-                        Button {
-                            if stops { stop() } else { send() }
-                        } label: {
-                            Image(systemName: stops ? "stop.fill" : "arrow.up")
-                                .accessibilityHidden(true)
-                                .font(.body.weight(.semibold))
-                                // swiftlint:disable:next fixed_black_white_in_remote
-                                .foregroundStyle(.white)
-                                .frame(width: Self.controlHeight, height: Self.controlHeight)
-                                .background(Color.accentColor, in: .circle)
-                                .padding(Self.hitSlop)
-                                .contentShape(.circle)
-                                .padding(-Self.hitSlop)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(stops ? "Stop" : "Send")
-                    } else {
-                        Image(systemName: "arrow.up")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(width: Self.controlHeight, height: Self.controlHeight)
-                            .background(.quaternary, in: .circle)
-                            .accessibilityLabel("Send, unavailable")
-                    }
-                }
+                .scrollIndicators(.hidden)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .padding([.horizontal, .bottom], Self.inset)
-            .glassEffect(.regular, in: .rect(cornerRadius: Self.controlHeight / 2 + Self.inset))
         }
+        .glassEffect(.regular, in: .rect(cornerRadius: isExpanded ? 28 : ComposerLayout.controlsHeight / 2))
+        .padding(.horizontal, isExpanded ? 12 : 38)
+        .padding(.bottom, isExpanded ? 12 : 4)
+        .animation(.smooth(duration: 0.3), value: isExpanded)
         .disabled(client.state != .connected)
         .onChange(of: context) { old, new in
             if old?.model != new?.model || old?.date != new?.date { pickedModel = nil }
@@ -374,6 +310,89 @@ private struct Composer: View {
             isFocused = true
         }
         #endif
+    }
+
+    private var attachmentMenu: some View {
+        Menu {
+            if client.features.contains(RemoteUpload.feature) {
+                Button("Photo Library", systemImage: "photo.on.rectangle") { isPickingPhotos = true }
+                Button("Files", systemImage: "folder") { isImportingFiles = true }
+            } else {
+                Button("Attach", systemImage: "paperclip") { client.notice = "Update Berth on your Mac to send attachments" }
+            }
+            if !replies.isEmpty {
+                Section("Replies") {
+                    ForEach(replies) { reply in
+                        Button(reply.text) { insert(reply.text) }
+                    }
+                }
+            }
+            Section("Commands") {
+                ForEach(SlashCommand.all) { command in
+                    Button(command.name, systemImage: command.symbol, role: command.isDestructive ? .destructive : nil) { run(command) }
+                }
+            }
+        } label: {
+            Label("Attach", systemImage: "plus")
+                .labelStyle(.iconOnly)
+                .font(.system(
+                    size: plusGlyphSize,
+                    weight: .medium
+                ))
+                .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
+                .background(controlFill, in: .circle)
+                .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
+                .contentShape(.rect)
+        }
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+    }
+
+    private func trailingControls(isExpanded: Bool) -> some View {
+        let isEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
+        let showsStop = isWorking && isEmpty
+        let canSend = !isEmpty && attachments.allSatisfy { client.uploads[$0.id] == .done }
+        let isAvailable = client.state == .connected && (showsStop || canSend)
+
+        return HStack(spacing: 3) {
+            if let context, let openContext {
+                if !agent.canChangeSettings {
+                    Button(action: openContext) {
+                        Image(systemName: "chart.pie")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
+                            .background(controlFill, in: .circle)
+                            .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(context.model)
+                    .accessibilityHint("Shows context usage")
+                } else if isExpanded {
+                    modelMenu(context, openContext: openContext)
+                }
+            }
+            Button {
+                if showsStop {
+                    stop()
+                    return
+                }
+
+                send()
+            } label: {
+                Image(systemName: showsStop ? "stop.fill" : "arrow.up")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(isAvailable ? Color.white : Color.secondary)
+                    .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
+                    .background(isAvailable ? Color.accentColor : controlFill, in: .circle)
+                    .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .disabled(!isAvailable)
+            .accessibilityLabel(showsStop ? "Stop" : "Send")
+        }
     }
 
     private func modelMenu(_ context: RemoteContext, openContext: @escaping () -> Void) -> some View {
@@ -416,19 +435,19 @@ private struct Composer: View {
             }
             Button("Context", systemImage: "chart.pie", action: openContext)
         } label: {
-            Text("\(Text(modelTitle)) \(Text(currentEffort?.title ?? "").foregroundStyle(.secondary))")
-                .lineLimit(1)
+            Text([modelTitle, currentEffort?.title].compactMap(\.self).joined(separator: " "))
                 .font(.subheadline)
-                .padding(.horizontal, 12)
-                .frame(height: Self.controlHeight)
-                .background(.quaternary, in: .capsule)
-                .padding(.vertical, Self.hitSlop)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 14)
+                .frame(height: ComposerLayout.controlSize)
+                .background(controlFill, in: .capsule)
+                .frame(minWidth: ComposerLayout.hitSize)
+                .frame(height: ComposerLayout.hitSize)
                 .contentShape(.rect)
-                .padding(.vertical, -Self.hitSlop)
         }
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
-        .fixedSize()
         .accessibilityLabel("Model, effort and context")
     }
 
@@ -551,5 +570,59 @@ private struct Composer: View {
 
     private func failures(in uploads: [String: RemoteClient.UploadState]) -> Int {
         uploads.values.count { if case .failed = $0 { true } else { false } }
+    }
+}
+
+private struct ComposerLayout: Layout {
+    let isExpanded: Bool
+    let hasAttachmentMenu: Bool
+
+    static let controlSize: CGFloat = 34
+    static let hitSize: CGFloat = 44
+    static let controlsHeight = controlSize + 2 * controlInset
+
+    private static let controlInset: CGFloat = 8
+    private static let hitPadding = (hitSize - controlSize) / 2
+    private static let hitInset = controlInset - hitPadding
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? (isExpanded ? 369 : 317)
+        return CGSize(width: width, height: measure(width: width, subviews: subviews).height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
+        let metrics = measure(width: bounds.width, subviews: subviews)
+        let controlsCenter = isExpanded ? bounds.maxY - Self.controlsHeight / 2 : bounds.midY
+
+        subviews[0].place(
+            at: CGPoint(x: bounds.minX + metrics.field.minX, y: bounds.minY + metrics.field.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: metrics.field.width, height: metrics.field.height)
+        )
+        subviews[1].place(at: CGPoint(x: bounds.minX + Self.hitInset, y: controlsCenter), anchor: .leading, proposal: .unspecified)
+        subviews[2].place(at: CGPoint(x: bounds.maxX - Self.hitInset, y: controlsCenter), anchor: .trailing, proposal: ProposedViewSize(metrics.trailing))
+        if subviews.count > 3 {
+            subviews[3].place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: metrics.tilesHeight))
+        }
+    }
+
+    private func measure(width: CGFloat, subviews: Subviews) -> (height: CGFloat, field: CGRect, trailing: CGSize, tilesHeight: CGFloat) {
+        let leadingWidth = hasAttachmentMenu ? Self.hitSize : 0
+        let trailingWidth = max(Self.hitSize, width - leadingWidth - 2 * Self.hitInset)
+        let trailing = subviews[2].sizeThatFits(ProposedViewSize(width: trailingWidth, height: Self.controlsHeight))
+        let fieldLeading = isExpanded ? 20 : hasAttachmentMenu ? Self.controlSize + 2 * Self.controlInset : 14
+        let fieldTrailing = isExpanded ? 20 : trailing.width + 2 * Self.hitInset
+        let fieldWidth = max(0, width - fieldLeading - fieldTrailing)
+        let fieldHeight = max(22, subviews[0].sizeThatFits(ProposedViewSize(width: fieldWidth, height: nil)).height)
+
+        guard isExpanded else {
+            let height = max(Self.controlsHeight, fieldHeight)
+            let field = CGRect(x: fieldLeading, y: (height - fieldHeight) / 2, width: fieldWidth, height: fieldHeight)
+            return (height, field, trailing, 0)
+        }
+
+        let tilesHeight = subviews.count > 3 ? subviews[3].sizeThatFits(ProposedViewSize(width: width, height: nil)).height : 0
+        let field = CGRect(x: fieldLeading, y: tilesHeight + 15, width: fieldWidth, height: fieldHeight)
+        return (field.maxY + 6 + Self.controlsHeight, field, trailing, tilesHeight)
     }
 }

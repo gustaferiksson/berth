@@ -49,7 +49,9 @@ struct ConversationPrompt: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 4, topTrailingRadius: 10, style: .continuous)
+
+        return VStack(alignment: .leading, spacing: 8) {
             if let images = entry.images {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
@@ -80,7 +82,7 @@ struct ConversationPrompt: View {
                     .foregroundStyle(theme.secondary)
                     .accessibilityHidden(true)
                 Text(verbatim: entry.text)
-                    .foregroundStyle(theme.foreground)
+                    .foregroundStyle(isQueued ? theme.secondary : theme.foreground)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
@@ -94,8 +96,13 @@ struct ConversationPrompt: View {
         .lineSpacing(2)
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(theme.foreground.opacity(0.07), in: .rect(cornerRadius: 10))
-        .opacity(isQueued ? 0.6 : 1)
+        .background {
+            if isQueued {
+                bubble.strokeBorder(theme.secondary, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            } else {
+                bubble.fill(theme.foreground.opacity(0.07))
+            }
+        }
         .contextMenu { Button("Copy") { copyToPasteboard(entry.text) } }
     }
 }

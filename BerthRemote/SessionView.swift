@@ -21,6 +21,7 @@ struct SessionView: View {
         let isBusy = session?.status == "busy" || session?.status == "waiting"
         let isWaitingForApproval = session?.status == "waiting" && session?.waitingFor != "needs input"
         let queued = session?.status == nil ? [] : client.queued[sessionID] ?? []
+        let pending = PendingPrompts.unqueued(client.pending[sessionID] ?? [], queued: queued)
         let activity = client.activity[sessionID]
         let headerAction = HeaderAction(pullRequest: session?.pullRequest, context: activity?.context)
 
@@ -39,10 +40,19 @@ struct SessionView: View {
                         openChanges: isLast && client.features.contains(RemoteChangesFeature.name) ? { isShowingChanges = true } : nil
                     )
                 }
-                if !queued.isEmpty {
+                if !queued.isEmpty || !pending.isEmpty {
                     VStack(alignment: .trailing, spacing: 12) {
                         ForEach(queued.enumerated(), id: \.offset) { _, text in
                             QueuedPrompt(text: text)
+                        }
+                        ForEach(pending, id: \.sentAt) { prompt in
+                            PendingPromptBubble(
+                                prompt: prompt,
+                                attachments: client.pendingAttachments[sessionID]?[prompt.sentAt] ?? [],
+                                canRetry: client.state == .connected,
+                                retry: { client.retryPrompt(prompt, in: sessionID) },
+                                dismiss: { client.dismissPrompt(prompt, in: sessionID) }
+                            )
                         }
                     }
                 }
@@ -70,11 +80,18 @@ struct SessionView: View {
 
             position.scrollTo(edge: .bottom)
         }
+        .onChange(of: pending) {
+            guard isAtBottom else { return }
+
+            position.scrollTo(edge: .bottom)
+        }
         .overlay {
-            if entries == nil {
-                ProgressView()
-            } else if turns.isEmpty, queued.isEmpty {
-                ContentUnavailableView("No Messages Yet", systemImage: "text.bubble", description: Text("Messages appear here once \(agent.name) starts."))
+            if turns.isEmpty, queued.isEmpty, pending.isEmpty {
+                if entries == nil {
+                    ProgressView()
+                } else {
+                    ContentUnavailableView("No Messages Yet", systemImage: "text.bubble", description: Text("Messages appear here once \(agent.name) starts."))
+                }
             }
         }
         .overlay(alignment: .bottom) {

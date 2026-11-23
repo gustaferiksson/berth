@@ -132,11 +132,45 @@ struct QueuedPrompt: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            PromptBubble(entry: RemoteEntry(id: text, kind: .prompt, text: text))
-                .opacity(0.6)
+            PromptBubble(entry: RemoteEntry(id: text, kind: .prompt, text: text), isQueued: true)
             Label("Queued", systemImage: "clock")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct PendingPromptBubble: View {
+    let prompt: PendingPrompt
+    let attachments: [Attachment]
+    let canRetry: Bool
+    let retry: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            PromptBubble(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text), attachments: attachments)
+                .opacity(0.6)
+            if prompt.isFailed {
+                HStack(spacing: 4) {
+                    Text("Not sent")
+                        .foregroundStyle(.secondary)
+                    Button(action: retry) {
+                        Text("Retry")
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(.rect)
+                    }
+                    .disabled(!canRetry)
+                    Button(action: dismiss) {
+                        Image(systemName: "xmark")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(.rect)
+                    }
+                    .accessibilityLabel("Dismiss")
+                }
+                .font(.footnote)
+            }
         }
     }
 }
@@ -160,14 +194,19 @@ private struct TurnPartView: View {
 
 private struct PromptBubble: View {
     let entry: RemoteEntry
+    var isQueued = false
+    var attachments: [Attachment]?
 
     var body: some View {
-        let uploads = /@\S*\/RemoteUploads\/[0-9A-Fa-f-]{36}\/(\S+)/
-        let files = entry.text.matches(of: uploads).map { String($0.output.1) }
-        let text = entry.text.replacing(uploads, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let uploads = PendingPrompts.uploadPath
+        let files = attachments?.filter { $0.thumbnail == nil }.map(\.name) ?? entry.text.matches(of: uploads).map { String($0.output.1) }
+        let images = attachments?.compactMap(\.thumbnail) ?? entry.images ?? []
+        let text = (attachments == nil ? entry.text.replacing(uploads, with: "") : entry.text).trimmingCharacters(in: .whitespacesAndNewlines)
+        let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 5, topTrailingRadius: 20, style: .continuous)
+        let dashed = StrokeStyle(lineWidth: 1, dash: [4, 3])
 
         VStack(alignment: .trailing, spacing: 6) {
-            if let images = entry.images {
+            if !images.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
                         if let image = UIImage(data: data), image.size.height > 0 {
@@ -187,16 +226,29 @@ private struct PromptBubble: View {
                     .lineLimit(1)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(.fill.tertiary, in: .rect(cornerRadius: 14))
+                    .background {
+                        if isQueued {
+                            bubble.strokeBorder(.secondary, style: dashed)
+                        } else {
+                            RoundedRectangle(cornerRadius: 14).fill(.fill.tertiary)
+                        }
+                    }
             }
             if !text.isEmpty {
                 Text(verbatim: text)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(.fill.tertiary, in: .rect(cornerRadius: 20))
+                    .background {
+                        if isQueued {
+                            bubble.strokeBorder(.secondary, style: dashed)
+                        } else {
+                            bubble.fill(.fill.tertiary)
+                        }
+                    }
                     .textSelection(.enabled)
             }
         }
+        .foregroundStyle(isQueued ? .secondary : .primary)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.85 }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }

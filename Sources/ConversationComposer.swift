@@ -13,8 +13,8 @@ struct ConversationComposer: View {
     let context: RemoteContext?
     let focusRequest: Int
 
-    private static let inset = 6.0
-    private static let controlHeight = 28.0
+    private static let inset = 8.0
+    private static let controlHeight = 30.0
     private static let tileSize = 56.0
 
     @Environment(\.ghosttyTheme) private var theme
@@ -47,24 +47,27 @@ struct ConversationComposer: View {
                                 ConversationAttachmentTile(file: file, number: draft.numbers[file], size: Self.tileSize, radius: Self.controlHeight / 2) { model.remove(file) }
                             }
                         }
-                        .padding(.top, Self.inset)
+                        .padding([.horizontal, .top], Self.inset)
                     }
                     ConversationComposerField(
                         text: Binding { model.draft.text } set: { model.setText($0) },
                         placeholder: placeholder,
-                        font: theme.font,
+                        font: .systemFont(ofSize: theme.font.pointSize),
                         color: NSColor(theme.foreground),
                         focusRequest: focusRequest,
                         submit: send,
                         attach: { canAttach ? model.attach($0) : "" }
                     )
-                    .padding(.vertical, Self.inset)
-                    HStack(spacing: 8) {
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
+                    HStack(spacing: Self.inset) {
                         if canAttach {
                             Menu {
                                 Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
                             } label: {
                                 Image(systemName: "plus")
+                                    .font(.system(size: 14, weight: .medium))
                                     .frame(width: Self.controlHeight, height: Self.controlHeight)
                                     .background(.quaternary, in: .circle)
                             }
@@ -96,7 +99,6 @@ struct ConversationComposer: View {
                                     .background(.quaternary, in: .capsule)
                                 }
                                 .buttonStyle(.plain)
-                                .fixedSize()
                                 .help("Context")
                                 .popover(isPresented: $showsContext, arrowEdge: .top) { contextPopover(context) }
                             }
@@ -104,7 +106,9 @@ struct ConversationComposer: View {
                         Spacer(minLength: 0)
                         if stops || !(draft.isEmpty || model.isSending) {
                             Button {
-                                if stops { model.interrupt() } else { send() }
+                                guard stops else { return send() }
+
+                                model.interrupt()
                             } label: {
                                 Image(systemName: stops ? "stop.fill" : "arrow.up")
                                     .font(.system(size: 15, weight: .bold))
@@ -125,8 +129,8 @@ struct ConversationComposer: View {
                                 .accessibilityLabel("Send, unavailable")
                         }
                     }
+                    .padding([.horizontal, .bottom], Self.inset)
                 }
-                .padding([.horizontal, .bottom], Self.inset)
                 .glassEffect(.regular, in: .rect(cornerRadius: Self.controlHeight / 2 + Self.inset))
             }
         }
@@ -191,7 +195,6 @@ struct ConversationComposer: View {
         }
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
-        .fixedSize()
         .accessibilityLabel("Model and effort")
         .help("Model, effort and context")
         .popover(isPresented: $showsContext, arrowEdge: .top) { contextPopover(context) }
