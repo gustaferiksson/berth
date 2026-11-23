@@ -5,6 +5,7 @@ struct SessionStatusBar: View {
     let model: ConversationModel
     let tab: Tab
     let harness: Harness
+    let isShell: Bool
     let isWorking: Bool
     let isWaiting: Bool
 
@@ -18,6 +19,12 @@ struct SessionStatusBar: View {
 
         HStack(spacing: 14) {
             HStack(spacing: 14) {
+                if isShell {
+                    Label("bash mode", systemImage: "terminal")
+                        .foregroundStyle(theme.shellAttached)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                }
                 Label(URL(filePath: tab.folder).lastPathComponent, systemImage: "folder")
                     .lineLimit(1)
                     .help(tab.folder)

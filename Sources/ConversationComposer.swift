@@ -6,6 +6,7 @@ struct ConversationComposer: View {
     let model: ConversationModel
     let harnessName: String
     let canAttach: Bool
+    let isShell: Bool
     let isWorking: Bool
     let waiting: (waitingFor: String?, since: Double?)?
     let focusRequest: Int
@@ -19,11 +20,13 @@ struct ConversationComposer: View {
     var body: some View {
         let draft = model.draft
         let stops = isWorking && draft.isEmpty
-        let font = NSFont.systemFont(ofSize: theme.font.pointSize)
+        let font = isShell ? theme.font : NSFont.systemFont(ofSize: theme.font.pointSize)
         let singleRowWidth = ConversationComposerLayout.fieldBounds(in: width, isExpanded: false, canAttach: canAttach).width
         let isExpanded = !draft.files.isEmpty || draft.text.contains(where: \.isNewline) || width > 0 && (draft.text as NSString).size(withAttributes: [.font: font]).width > singleRowWidth
         let inset = ConversationComposerLayout.inset
         let controlSize = ConversationComposerLayout.controlSize
+        let tint = isShell ? theme.shellAttached : Color.accentColor
+        let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
         let placeholder = model.blocksSending ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
 
         GlassEffectContainer(spacing: 8) {
@@ -72,6 +75,7 @@ struct ConversationComposer: View {
                             placeholder: placeholder,
                             font: font,
                             color: NSColor(theme.foreground),
+                            promptColor: isShell ? NSColor(theme.shellAttached) : nil,
                             focusRequest: focusRequest,
                             submit: send,
                             attach: { canAttach ? model.attach($0) : "" }
@@ -86,7 +90,7 @@ struct ConversationComposer: View {
                                     .font(.system(size: 12, weight: .bold))
                                     .foregroundStyle(.white)
                                     .frame(width: controlSize, height: controlSize)
-                                    .background(Color.accentColor, in: .circle)
+                                    .background(tint, in: .circle)
                                     .contentShape(.circle)
                             }
                             .buttonStyle(.plain)
@@ -102,9 +106,11 @@ struct ConversationComposer: View {
                         }
                     }
                 }
-                .glassEffect(.regular, in: .rect(cornerRadius: controlSize / 2 + inset))
+                .overlay { shape.strokeBorder(theme.shellAttached, lineWidth: 1.5).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
+                .glassEffect(isShell ? .regular.tint(theme.shellAttached.opacity(0.12)) : .regular, in: shape)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                 .animation(.smooth(duration: 0.2), value: isExpanded)
+                .animation(.smooth(duration: 0.2), value: isShell)
             }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in

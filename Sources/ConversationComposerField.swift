@@ -6,6 +6,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let placeholder: String
     let font: NSFont
     let color: NSColor
+    let promptColor: NSColor?
     let focusRequest: Int
     let submit: () -> Void
     let attach: ([URL]) -> String
@@ -63,6 +64,9 @@ struct ConversationComposerField: NSViewRepresentable {
             textView.string = text
             textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
             textView.needsDisplay = true
+        }
+        if let promptColor, text.hasPrefix("!") {
+            textView.textStorage?.addAttribute(.foregroundColor, value: promptColor, range: NSRange(location: 0, length: 1))
         }
         guard focusRequest != context.coordinator.focusRequest else { return }
 
