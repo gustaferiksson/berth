@@ -1,5 +1,6 @@
 import AppKit
 import BerthCore
+import ImageIO
 import QuickLookUI
 import SwiftUI
 
@@ -21,8 +22,12 @@ extension EnvironmentValues {
 }
 
 extension GhosttyTheme {
+    func conversationNSFont(_ delta: Double = 0) -> NSFont {
+        NSFont(descriptor: font.fontDescriptor, size: font.pointSize + delta) ?? font
+    }
+
     func conversationFont(_ delta: Double = 0) -> Font {
-        Font(NSFont(descriptor: font.fontDescriptor, size: font.pointSize + delta) ?? font)
+        Font(conversationNSFont(delta))
     }
 }
 
@@ -56,40 +61,24 @@ struct ConversationPrompt: View {
     private var promptBubble: some View {
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 4, topTrailingRadius: 10, style: .continuous)
 
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .trailing, spacing: 6) {
             if let images = entry.images {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
-                        if let image = NSImage(data: data) {
-                            Button { ConversationImagePreview.shared.show(data) } label: {
-                                Image(nsImage: image)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 120, height: 80)
-                                    .clipShape(.rect(cornerRadius: 10))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Image \(index + 1)")
-                            .accessibilityHint("Opens a preview")
-                            .contextMenu {
-                                Button("Copy Image") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.writeObjects([image])
-                                }
-                                Button("Save Image…") { ConversationImagePreview.save(data) }
-                            }
-                        }
+                        ConversationPromptImage(data: data, index: index)
                     }
                 }
             }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(verbatim: "❯")
-                    .foregroundStyle(theme.secondary)
-                    .accessibilityHidden(true)
+            if !entry.text.isEmpty {
                 Text(verbatim: entry.text)
-                    .foregroundStyle(isQueued ? theme.secondary : theme.foreground)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .font(theme.conversationFont())
+                    .foregroundStyle(theme.foreground)
                     .textSelection(.enabled)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(bubble.fill(theme.foreground.opacity(0.07)))
+                    .opacity(isQueued ? 0.6 : 1)
+                    .contextMenu { Button("Copy") { copyToPasteboard(entry.text) } }
             }
             if isQueued {
                 Label("Queued", systemImage: "clock")
@@ -97,17 +86,8 @@ struct ConversationPrompt: View {
                     .foregroundStyle(theme.secondary)
             }
         }
-        .font(theme.conversationFont())
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background {
-            if isQueued {
-                bubble.strokeBorder(theme.secondary, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-            } else {
-                bubble.fill(theme.foreground.opacity(0.07))
-            }
-        }
-        .contextMenu { Button("Copy") { copyToPasteboard(entry.text) } }
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.75 }
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     private var shell: some View {
@@ -203,10 +183,11 @@ struct ConversationReply: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Text(verbatim: "●")
                 .font(theme.conversationFont(-3))
                 .foregroundStyle(theme.foreground)
+                .padding(.top, theme.conversationNSFont().ascender - theme.conversationNSFont(-3).ascender)
                 .frame(width: markerWidth - 8, alignment: .leading)
                 .accessibilityHidden(true)
             ConversationMarkdown(text: text)
@@ -225,34 +206,50 @@ struct ConversationMarkdown: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(ConversationMarkdownCache.segments(text: text, theme: theme).enumerated(), id: \.offset) { _, segment in
-                switch segment {
-                case let .code(text, language):
-                    ConversationCodeBlock(text: text, language: language)
+        ConversationProse(run: ConversationMarkdownCache.run(text: text, theme: theme))
+    }
+}
 
-                case let .table(rows):
-                    ConversationTable(rows: rows)
-                        .font(theme.conversationFont())
+private struct ConversationProse: View {
+    let run: ConversationMarkdownCache.Run
 
-                case let .prose(attributed):
-                    Text(attributed)
-                        .font(theme.conversationFont())
-                        .foregroundStyle(theme.foreground)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        ConversationTextView(text: run.rendered)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .task(id: ObjectIdentifier(run)) {
+                let pending = run.codeBlocks.filter { !$0.language.isEmpty && run.highlighted[MarkdownAttributedString.highlightKey(language: $0.language, code: $0.code)] == nil }
+                guard !pending.isEmpty else { return }
+
+                for block in pending {
+                    guard let colored = await ConversationHighlighting.highlighted(block.code, language: block.language, theme: theme) else { continue }
+
+                    run.highlighted[MarkdownAttributedString.highlightKey(language: block.language, code: block.code)] = colored
                 }
+                run.rerender(theme: theme)
             }
-        }
     }
 }
 
 @MainActor
 private enum ConversationMarkdownCache {
-    enum Segment {
-        case prose(AttributedString)
-        case code(text: String, language: String)
-        case table(rows: [[AttributedString]])
+    @Observable
+    final class Run {
+        let blocks: [MarkdownBlock]
+        let codeBlocks: [(language: String, code: String)]
+        var highlighted: [String: NSAttributedString] = [:]
+        private(set) var rendered: NSAttributedString
+
+        init(blocks: [MarkdownBlock], theme: GhosttyTheme) {
+            self.blocks = blocks
+            codeBlocks = MarkdownAttributedString.codeBlocks(in: blocks)
+            rendered = MarkdownAttributedString.render(blocks, theme: theme)
+        }
+
+        func rerender(theme: GhosttyTheme) {
+            rendered = MarkdownAttributedString.render(blocks, theme: theme, highlighted: highlighted)
+        }
     }
 
     private struct Key: Hashable {
@@ -264,101 +261,16 @@ private enum ConversationMarkdownCache {
         let font: NSFont
     }
 
-    private static var cached: [Key: [Segment]] = [:]
+    private static var cached: [Key: Run] = [:]
 
-    static func segments(text: String, theme: GhosttyTheme) -> [Segment] {
+    static func run(text: String, theme: GhosttyTheme) -> Run {
         let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font)
-        if let segments = cached[key] { return segments }
+        if let run = cached[key] { return run }
 
-        var blocks: [[MarkdownBlock]] = []
-        for block in MarkdownBlock.blocks(in: text) {
-            if block.isProse, blocks.last?.last?.isProse == true {
-                blocks[blocks.count - 1].append(block)
-            } else {
-                blocks.append([block])
-            }
-        }
-        let segments: [Segment] = blocks.map { blocks in
-            if case let .code(language) = blocks[0].kind {
-                return .code(text: blocks[0].lines.joined(separator: "\n"), language: language)
-            }
-            if blocks[0].kind == .table {
-                let rows = blocks[0].lines
-                    .map { $0.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "|")).components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) } }
-                    .filter { row in !row.allSatisfy { $0.allSatisfy { "-: ".contains($0) } } }
-                    .map { $0.map { MarkdownBlock.inline($0) } }
-                return .table(rows: rows)
-            }
-            return .prose(prose(blocks, theme: theme))
-        }
+        let run = Run(blocks: MarkdownBlock.blocks(in: text), theme: theme)
         if cached.count >= 256 { cached.removeAll(keepingCapacity: true) }
-        cached[key] = segments
-        return segments
-    }
-
-    private static func prose(_ blocks: [MarkdownBlock], theme: GhosttyTheme) -> AttributedString {
-        var result = AttributedString()
-        for (index, block) in blocks.enumerated() {
-            if index > 0 {
-                var gap = AttributedString("\n")
-                gap.font = .system(size: 4)
-                result += AttributedString("\n")
-                if case .item = block.kind, case .item = blocks[index - 1].kind {} else { result += gap }
-            }
-            result += styled(block, theme: theme)
-        }
-        return result
-    }
-
-    private static func styled(_ block: MarkdownBlock, theme: GhosttyTheme) -> AttributedString {
-        var attributed = (try? AttributedString(markdown: block.lines.joined(separator: "\n"), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(block.lines.joined(separator: "\n"))
-        for run in attributed.runs {
-            if run.inlinePresentationIntent?.contains(.code) == true {
-                attributed[run.range].foregroundColor = theme.inlineCode
-            } else if run.link != nil {
-                attributed[run.range].foregroundColor = theme.unread
-            }
-        }
-        if case let .heading(level) = block.kind {
-            attributed.font = theme.conversationFont(level == 1 ? 4 : level == 2 ? 2 : 1).bold()
-        }
-        guard case let .item(marker, depth) = block.kind else { return attributed }
-
-        var prefix = AttributedString(String(repeating: " ", count: depth * 2) + marker + " ")
-        prefix.foregroundColor = theme.secondary
-        return prefix + attributed
-    }
-}
-
-private extension MarkdownBlock {
-    var isProse: Bool {
-        if case .code = kind { return false }
-        return kind != .table
-    }
-}
-
-private struct ConversationTable: View {
-    let rows: [[AttributedString]]
-
-    @Environment(\.ghosttyTheme) private var theme
-
-    var body: some View {
-        ScrollView(.horizontal) {
-            Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 6) {
-                ForEach(rows.enumerated(), id: \.offset) { index, row in
-                    GridRow {
-                        ForEach(row.enumerated(), id: \.offset) { _, cell in
-                            Text(cell)
-                                .bold(index == 0)
-                        }
-                    }
-                    if index < rows.count - 1 { Divider() }
-                }
-            }
-            .padding(12)
-        }
-        .scrollIndicators(.hidden)
-        .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 10))
+        cached[key] = run
+        return run
     }
 }
 
@@ -617,7 +529,8 @@ struct ConversationTaskRow: View {
         let isAgent = call.kind == .agent
         let isError = call.result?.isError == true
         let isRunning = task != nil
-        let tint = isError ? theme.closed : isRunning ? theme.working : theme.secondary
+        let title = task?.title ?? call.cardTitle
+        let tint = isError ? theme.closed : isAgent ? AgentTint.color(for: title) : isRunning ? theme.working : theme.secondary
         let foreground = call.result?.date.flatMap { end in call.use.date.map { end.timeIntervalSince($0) } }.flatMap { $0 > 0 && !call.isAsyncLaunch && isAgent ? $0 : nil }
 
         ConversationAgentButton(isAgent: isAgent, agentID: call.agentID, toolUseID: call.use.toolID, title: task?.title ?? call.cardTitle) {
@@ -677,5 +590,57 @@ struct ConversationSpinner: View {
         }
         .frame(width: 14, height: 14)
         .accessibilityLabel("Loading")
+    }
+}
+
+private struct ConversationPromptImage: View {
+    let data: Data
+    let index: Int
+
+    @Environment(\.displayScale) private var displayScale
+    @State private var image: NSImage?
+
+    var body: some View {
+        Button { ConversationImagePreview.shared.show(data) } label: {
+            Group {
+                if let image {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(width: image.map { min(240, 120 * $0.size.width / max($0.size.height, 1)) } ?? 160, height: 120)
+            .clipShape(.rect(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Image \(index + 1)")
+        .accessibilityHint("Opens a preview")
+        .contextMenu {
+            Button("Copy Image") {
+                guard let image = NSImage(data: data) else { return }
+
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([image])
+            }
+            Button("Save Image…") { ConversationImagePreview.save(data) }
+        }
+        .task(id: data) {
+            let scale = displayScale
+            image = await Task.detached { Self.downsampled(data, scale: scale) }.value
+        }
+    }
+
+    private nonisolated static func downsampled(_ data: Data, scale: CGFloat) -> NSImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 240 * scale,
+              ] as CFDictionary)
+        else { return nil }
+
+        return NSImage(cgImage: cgImage, size: NSSize(width: CGFloat(cgImage.width) / scale, height: CGFloat(cgImage.height) / scale))
     }
 }
