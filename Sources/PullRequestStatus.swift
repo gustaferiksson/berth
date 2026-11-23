@@ -1,5 +1,6 @@
 import BerthCore
 import Foundation
+import Synchronization
 
 nonisolated struct PullRequest: Sendable, Hashable {
     let number: Int
@@ -44,6 +45,10 @@ nonisolated struct PullRequestBranch: Sendable, Hashable {
 
 nonisolated enum PullRequestStatus {
     private static let gh = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"].first { FileManager.default.isExecutableFile(atPath: $0) }
+
+    enum ProjectFailure: Error {
+        case noCLI, needsScope, failed
+    }
 
     static let worktrunk = ["/opt/homebrew/bin/wt", "/usr/local/bin/wt", NSHomeDirectory() + "/.cargo/bin/wt", NSHomeDirectory() + "/.local/bin/wt"].first { FileManager.default.isExecutableFile(atPath: $0) }
 
@@ -178,6 +183,51 @@ nonisolated enum PullRequestStatus {
         return IssueInbox.parse(output)
     }
 
+    static func projectList() -> Result<ProjectList, ProjectFailure> {
+        projectQuery(ProjectQueries.listArguments, parse: ProjectQueries.parseList)
+    }
+
+    static func moveProjectItem(_ arguments: [String]) -> ProjectFailure? {
+        guard case let .failure(failure) = projectQuery(arguments, parse: { _, _ in Result<Void, ProjectQueries.Failure>.success(()) }) else { return nil }
+
+        return failure
+    }
+
+    static func projectBoard(_ project: ProjectRef) -> Result<ProjectBoard, ProjectFailure> {
+        var pages: [ProjectQueries.BoardPage] = []
+        var cursor: String?
+        var seenCursors: Set<String> = []
+        var itemCount = 0
+        while !Task.isCancelled {
+            let arguments = ProjectQueries.boardArguments(projectID: project.id, cursor: cursor)
+            switch projectQuery(arguments, parse: { ProjectQueries.parseBoardPage($0, projectID: project.id, stderr: $1) }) {
+            case let .failure(error): return .failure(error)
+            case let .success(page):
+                pages.append(page)
+                itemCount += page.items.count
+                if !page.hasNextPage || itemCount >= ProjectQueries.itemLimit {
+                    return .success(ProjectQueries.mergePages(project: project, pages: pages))
+                }
+                guard let endCursor = page.endCursor, seenCursors.insert(endCursor).inserted else { return .failure(.failed) }
+
+                cursor = endCursor
+            }
+        }
+        return .failure(.failed)
+    }
+
+    private static func projectQuery<Payload>(_ arguments: [String], parse: (Data, String) -> Result<Payload, ProjectQueries.Failure>) -> Result<Payload, ProjectFailure> {
+        guard let gh else { return .failure(.noCLI) }
+        guard let result = runProcess(gh, arguments: arguments, capturesStderr: true) else { return .failure(.failed) }
+
+        let stderr = String(decoding: result.stderr, as: UTF8.self)
+        guard result.succeeded else {
+            return .failure(ProjectQueries.failure(result.stdout, stderr: stderr) == .missingScope ? .needsScope : .failed)
+        }
+
+        return parse(result.stdout, stderr).mapError { $0 == .missingScope ? .needsScope : .failed }
+    }
+
     static func linkedPullRequests(issue: IssueReference) -> Result<[LinkedPullRequest], IssuePullRequests.LookupError> {
         guard let gh else { return .failure(.missingCLI) }
         guard let output = run(gh, arguments: IssuePullRequests.arguments(issue: issue)) else { return .failure(.requestFailed) }
@@ -189,6 +239,14 @@ nonisolated enum PullRequestStatus {
         guard let gh, let arguments = PullRequestDetail.arguments(repository: repository, number: number), let output = run(gh, arguments: arguments) else { return nil }
 
         return PullRequestDetail.parse(output)
+    }
+
+    static func preview(repository: String, number: Int) -> ItemPreview? {
+        guard let gh, let arguments = ItemPreviewQuery.arguments(repository: repository, number: number),
+              let output = run(gh, arguments: arguments, requireSuccess: true)
+        else { return nil }
+
+        return ItemPreviewQuery.parse(output)
     }
 
     static func reply(repository: String, threadID: String, body: String) -> Bool {
@@ -245,17 +303,35 @@ nonisolated enum PullRequestStatus {
     }
 
     private static func run(_ executable: String, arguments: [String], requireSuccess: Bool = false) -> Data? {
+        guard let result = runProcess(executable, arguments: arguments, capturesStderr: false), !requireSuccess || result.succeeded else { return nil }
+
+        return result.stdout
+    }
+
+    private static func runProcess(_ executable: String, arguments: [String], capturesStderr: Bool) -> (stdout: Data, stderr: Data, succeeded: Bool)? {
         let process = Process()
         let pipe = Pipe()
+        let stderr = capturesStderr ? Pipe() : nil
         process.executableURL = URL(filePath: executable)
         process.arguments = arguments
         process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        process.standardError = stderr ?? FileHandle.nullDevice
         guard (try? process.run()) != nil else { return nil }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output: (stdout: Data, stderr: Data)
+        if let stderr {
+            let streams = [pipe.fileHandleForReading, stderr.fileHandleForReading]
+            let captured = Mutex([Data(), Data()])
+            DispatchQueue.concurrentPerform(iterations: streams.count) { index in
+                let data = streams[index].readDataToEndOfFile()
+                captured.withLock { $0[index] = data }
+            }
+            output = captured.withLock { ($0[0], $0[1]) }
+        } else {
+            output = (pipe.fileHandleForReading.readDataToEndOfFile(), Data())
+        }
         process.waitUntilExit()
-        return !requireSuccess || process.terminationStatus == 0 ? data : nil
+        return (output.stdout, output.stderr, process.terminationStatus == 0)
     }
 }
 

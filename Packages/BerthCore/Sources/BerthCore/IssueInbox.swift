@@ -28,6 +28,18 @@ public struct InboxIssue: Sendable, Equatable, Identifiable {
     public let author: String?
     public let labels: [Label]
 
+    public init(role: Role = .assigned, repository: String, number: Int, url: URL, title: String, updatedAt: Date, openPullRequestCount: Int, author: String? = nil, labels: [Label] = []) {
+        self.role = role
+        self.author = author
+        self.labels = labels
+        self.repository = repository
+        self.number = number
+        self.url = url
+        self.title = title
+        self.updatedAt = updatedAt
+        self.openPullRequestCount = openPullRequestCount
+    }
+
     public var id: String { "\(repository)#\(number)" }
 }
 

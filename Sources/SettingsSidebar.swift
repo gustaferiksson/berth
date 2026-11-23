@@ -8,6 +8,7 @@ struct SidebarSettings: View {
     @AppStorage("showsWeeklyUsageDivisions") private var showsWeeklyUsageDivisions = false
     @AppStorage(SidebarStyle.key) private var style = SidebarStyle.classic
     @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
+    @AppStorage(ItemPreviewSetting.key) private var richPreviews = false
 
     var body: some View {
         Form {
@@ -49,9 +50,16 @@ struct SidebarSettings: View {
             } footer: {
                 Text("Shows the 5-hour and weekly limits with a pace marker. Berth reads Claude Code’s sign-in from the Keychain (macOS may ask once), asks Anthropic for your usage at most once a minute and never stores the token. With Codex on, it adds Codex’s limits from your latest session, which only update while Codex runs.")
             }
+            Section {
+                Toggle("Rich previews", isOn: $richPreviews)
+            } header: {
+                Text("Previews")
+            } footer: {
+                Text("Hover a pull request in the sidebar or a row in the launcher, or press Space on a launcher row, for a preview with checks, reviews and the description. Berth asks GitHub through the gh CLI.")
+            }
         }
         .formStyle(.grouped)
-        .frame(height: 570)
+        .frame(height: 740)
         .onChange(of: showsPlanUsage) {
             Task {
                 await store.refreshPlanUsage()

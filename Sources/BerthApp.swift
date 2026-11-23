@@ -177,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         #if DEBUG
         if let output = SettingsSnapshot.output {
+            store.persistsTabs = false
             Task { await SettingsSnapshot.capture(to: output) }
             return
         }

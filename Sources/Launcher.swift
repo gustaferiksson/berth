@@ -21,7 +21,7 @@ struct StewardPullRequestButton: View {
 }
 
 enum LauncherMode {
-    case newSession, search, palette, pullRequests, issues
+    case newSession, search, palette, pullRequests, issues, projects
 }
 
 struct Launcher: View {
@@ -49,6 +49,7 @@ struct Launcher: View {
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
+    @AppStorage(ItemPreviewSetting.key) private var richPreviews = false
     @State private var query: String
     @State private var highlighted = 0
     @State private var folders: [Folder] = []
@@ -57,6 +58,9 @@ struct Launcher: View {
     @State private var resultsHeight = 0.0
     @State private var isBrowsing = false
     @State private var missingCheckout: InboxPullRequest?
+    @AppStorage(ProjectsModel.mineOnlyKey) private var mineOnly = false
+    @AppStorage(ProjectsModel.allowsEditingKey) private var allowsEditing = false
+    @State private var missingProjectItem: ProjectItem?
     @State private var selectedIssue: InboxIssue?
     @State private var issueLookup: (reference: IssueReference, result: Result<[LinkedPullRequest], IssuePullRequests.LookupError>)?
     @State private var issueOpenFailures: Set<PullRequestLink> = []
@@ -71,16 +75,19 @@ struct Launcher: View {
 
     private static let visibleMatches = 6
 
-    private static let scopes: [(mode: LauncherMode, title: String)] = [(.newSession, "Folders"), (.pullRequests, "Pull Requests"), (.issues, "Issues")]
+    private var scopes: [(mode: LauncherMode, title: String)] {
+        let base: [(mode: LauncherMode, title: String)] = [(.newSession, "Folders"), (.pullRequests, "Pull Requests"), (.issues, "Issues")]
+        return store.projects.isEnabled ? base + [(.projects, "Project")] : base
+    }
 
     private var nextScope: (mode: LauncherMode, title: String)? {
-        guard let index = Self.scopes.firstIndex(where: { $0.mode == mode }) else { return nil }
+        guard let index = scopes.firstIndex(where: { $0.mode == mode }) else { return nil }
 
-        return Self.scopes[(index + 1) % Self.scopes.count]
+        return scopes[(index + 1) % scopes.count]
     }
 
     private var issueReference: IssueReference? {
-        guard mode == .pullRequests || mode == .issues else { return nil }
+        guard mode == .pullRequests || mode == .issues || (mode == .projects && selectedIssue != nil) else { return nil }
 
         return IssueReference.parse(selectedIssue?.id ?? query)
     }
@@ -101,6 +108,36 @@ struct Launcher: View {
         guard mode == .pullRequests, issueReference == nil else { return ([], 0) }
 
         return PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now)
+    }
+
+    private var projectEntries: [ProjectEntry] {
+        guard mode == .projects, issueReference == nil else { return [] }
+
+        let boards = store.projects.selectedBoards
+        let login = store.projects.viewerLogin
+        let titles = Dictionary(boards.map { ($0.project.id, $0.project.title) }) { first, _ in first }
+        let groups = boards.flatMap { $0.groups(query: query, mineOnly: mineOnly, login: login) }
+        let names = groups.map(\.statusName).reduce(into: [String]()) { names, name in
+            if !names.contains(name) { names.append(name) }
+        }
+        return (names.filter { $0 != ProjectBoard.noStatusName } + names.filter { $0 == ProjectBoard.noStatusName }).flatMap { name in
+            let matching = groups.filter { $0.statusName == name }
+            let items = matching.flatMap(\.items).sorted { left, right in
+                let leftMine = left.assignees.contains { $0.caseInsensitiveCompare(login) == .orderedSame }
+                let rightMine = right.assignees.contains { $0.caseInsensitiveCompare(login) == .orderedSame }
+                return leftMine != rightMine ? leftMine : (left.updatedAt ?? .distantPast) > (right.updatedAt ?? .distantPast)
+            }
+            let total = items.count + matching.reduce(0) { $0 + $1.hiddenCount }
+            let title = total > items.count ? "\(name) · latest \(items.count)" : name
+            return items.enumerated().map { index, item in
+                ProjectEntry(header: index == 0 ? title : nil, count: total, project: boards.count > 1 ? titles[item.projectID] : nil, item: item)
+            }
+        }
+    }
+
+    private var highlightedProject: ProjectItem? {
+        let entries = projectEntries
+        return entries.indices.contains(highlighted) ? entries[highlighted].item : nil
     }
 
     private var highlightedIssue: InboxIssue? {
@@ -125,20 +162,22 @@ struct Launcher: View {
         case .pullRequests: ranked.pullRequests.count
         case .issues: issues.issues.count
         case .search: hits.count
+        case .projects: projectEntries.count
         }
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: [LauncherMode.newSession: "folder", .palette: "command", .pullRequests: "arrow.triangle.pull", .issues: "exclamationmark.circle"][mode] ?? "magnifyingglass")
+                Image(systemName: [LauncherMode.newSession: "folder", .palette: "command", .pullRequests: "arrow.triangle.pull", .issues: "exclamationmark.circle", .projects: "checklist"][mode] ?? "magnifyingglass")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 24)
                     .accessibilityHidden(true)
-                TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests or paste an issue", .issues: "Search or paste an issue"][mode] ?? "Search all sessions"))
+                TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests or paste an issue", .issues: "Search or paste an issue", .projects: "Search project items"][mode] ?? "Search all sessions"))
                     .textFieldStyle(.plain)
                     .font(.system(size: 22))
                     .focused($isQueryFocused)
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
+                    .modifier(LauncherItemPreview(url: pullRequest?.url ?? issueRow?.url, highlighted: highlighted, query: query, store: store))
                     .onKeyPress(.tab) {
                         guard let nextScope else { return .ignored }
 
@@ -148,7 +187,7 @@ struct Launcher: View {
                     .onKeyPress(.return, phases: .down) { press in
                         guard press.modifiers.contains(.option) else { return .ignored }
 
-                        if let url = selectedIssue?.url ?? issueReference?.url ?? highlightedIssue?.url {
+                        if let url = selectedIssue?.url ?? issueReference?.url ?? highlightedIssue?.url ?? highlightedProject?.url {
                             openOnGitHub(url)
                             return .handled
                         }
@@ -184,7 +223,7 @@ struct Launcher: View {
             .padding(.vertical, 16)
             if nextScope != nil {
                 HStack(spacing: 8) {
-                    LauncherScopePicker(scopes: Self.scopes, selection: mode, previousSelection: previousScope, select: switchScope)
+                    LauncherScopePicker(scopes: scopes, selection: mode, previousSelection: previousScope, select: switchScope)
                     Spacer()
                     if let role = store.launcherRole, mode == .pullRequests, issue == nil {
                         Button { store.launcherRole = nil } label: {
@@ -199,6 +238,7 @@ struct Launcher: View {
                         .buttonStyle(.plain)
                         .help("Show all pull requests")
                     }
+                    if mode == .projects, issue == nil { mineChip }
                     if mode == .newSession {
                         Button { isBrowsing = true } label: {
                             Label("Browse…", systemImage: "folder")
@@ -237,6 +277,7 @@ struct Launcher: View {
                 Divider()
                 checkoutNotice(repository: pullRequest.repository, url: pullRequest.url)
             }
+            if mode == .projects { projectNotices }
             Divider()
             HStack(spacing: 8) {
                 if mode == .newSession {
@@ -271,6 +312,12 @@ struct Launcher: View {
                         LauncherKeyHint("⌥↩", "GitHub")
                     }
                     LauncherKeyHint("↑↓", "Issue")
+                } else if mode == .projects {
+                    if let item = highlightedProject {
+                        LauncherKeyHint("↩", item.kind == .draft ? "Draft Item" : item.kind == .issue ? "Open" : "Open Pull Request")
+                        if item.url != nil { LauncherKeyHint("⌥↩", "GitHub") }
+                    }
+                    LauncherKeyHint("↑↓", "Item")
                 } else if mode == .palette {
                     LauncherKeyHint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
                     LauncherKeyHint("↑↓", "Select")
@@ -278,6 +325,7 @@ struct Launcher: View {
                     LauncherKeyHint("↩", "Open")
                     LauncherKeyHint("↑↓", "Session")
                 }
+                if richPreviews, mode == .pullRequests || mode == .issues { LauncherKeyHint("␣", "Preview") }
                 if let nextScope { LauncherKeyHint("⇥", nextScope.title) }
                 Spacer(minLength: 0)
                 if mode == .search, let indexing = store.searchIndexing {
@@ -302,7 +350,8 @@ struct Launcher: View {
             if mode == .search { store.updateSearchIndex() }
             if mode == .pullRequests { store.refreshInbox() }
             if mode == .issues { store.refreshIssueInbox() }
-            if mode == .pullRequests || mode == .issues { store.refreshLocalClones() }
+            if mode == .projects { store.projects.refresh() }
+            if mode == .pullRequests || mode == .issues || mode == .projects { store.refreshLocalClones() }
             guard mode == .newSession else { return }
 
             let known = store.knownFolders
@@ -337,6 +386,7 @@ struct Launcher: View {
         }
         .onChange(of: store.searchIndexVersion) { Task { await search() } }
         .onChange(of: store.launcherRole) { highlighted = 0 }
+        .onChange(of: mineOnly) { highlighted = 0 }
         .fileImporter(isPresented: $isBrowsing, allowedContentTypes: [.folder]) { result in
             guard case let .success(url) = result else { return }
 
@@ -382,6 +432,7 @@ struct Launcher: View {
                                     .padding(.top, index == 0 ? 0 : 6)
                             }
                             pullRequestRow(pullRequest, isHighlighted: index == highlighted)
+                                .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .launcher, store: store))
                                 .id(index)
                                 .onTapGesture { open(pullRequest) }
                                 .contextMenu {
@@ -412,6 +463,7 @@ struct Launcher: View {
                                 issueRow(issue, isHighlighted: index == highlighted)
                             }
                             .buttonStyle(.plain)
+                            .modifier(ItemPreviewTrigger(reference: ItemReference(url: issue.url), placement: .launcher, store: store))
                             .id(index)
                         }
                         if issues.isEmpty {
@@ -425,6 +477,8 @@ struct Launcher: View {
                                 LauncherMessage(symbol: "smallcircle.filled.circle", title: isBlank ? "No recent open issues" : "No matching issues")
                             }
                         }
+                    } else if mode == .projects {
+                        projectRows
                     } else if mode == .palette {
                         ForEach(Array(rows.enumerated()), id: \.element.item) { index, row in
                             if isBlank, index == 0 || rows[index - 1].item.section != row.item.section {
@@ -725,6 +779,10 @@ struct Launcher: View {
             if let linked = try? issueResult?.get() { openIssueResult(linked) }
             return
         }
+        if mode == .projects {
+            if let item = highlightedProject { open(item) }
+            return
+        }
         if mode == .issues {
             selectedIssue = highlightedIssue
             return
@@ -789,6 +847,87 @@ struct Launcher: View {
         store.launcherMode = scope
     }
 
+    private var mineChip: some View {
+        Button { mineOnly.toggle() } label: {
+            Label("Mine", systemImage: mineOnly ? "checkmark" : "person")
+                .font(.caption.weight(.medium))
+                .imageScale(.small)
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+                .background(mineOnly ? Color.accentColor.opacity(0.25) : theme.foreground.opacity(0.09), in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(mineOnly ? "On" : "Off")
+        .help("Show only items assigned to you")
+    }
+
+    @ViewBuilder private var projectNotices: some View {
+        if let failure = store.projects.moveFailure {
+            Divider()
+            ProjectMoveNotice(failure: failure)
+        }
+        if let item = missingProjectItem, item.id == highlightedProject?.id, let repository = item.repository, let url = item.url {
+            Divider()
+            checkoutNotice(repository: repository, url: url)
+        }
+    }
+
+    @ViewBuilder private var projectRows: some View {
+        let entries = projectEntries
+        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+            if let header = entry.header {
+                LauncherSectionHeader(header, count: entry.count)
+                    .padding(.top, index == 0 ? 0 : 6)
+            }
+            Button { open(entry.item) } label: {
+                ProjectItemRow(
+                    item: entry.item,
+                    project: entry.project,
+                    sessions: entry.item.kind == .pullRequest ? entry.item.repository.flatMap { repository in entry.item.number.map { store.sessions(for: PullRequestLink(repository: repository, number: $0)).count } } ?? 0 : 0,
+                    isHighlighted: index == highlighted
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(entry.item.kind == .draft)
+            .contextMenu { projectMenu(entry.item) }
+            .id(index)
+        }
+        if entries.isEmpty {
+            ProjectNotice(state: store.projects.state, hasProjects: !store.projects.selectedBoards.isEmpty, isFiltered: mineOnly || !query.allSatisfy(\.isWhitespace))
+        }
+    }
+
+    @ViewBuilder
+    private func projectMenu(_ item: ProjectItem) -> some View {
+        if let url = item.url {
+            Button("Open on GitHub") { openOnGitHub(url) }
+        }
+        if allowsEditing, let options = store.projects.boards[item.projectID]?.statusOptions, !options.isEmpty {
+            Menu("Move To Status") {
+                ForEach(options, id: \.id) { option in
+                    Button(option.name) { store.projects.move(item, to: option) }
+                        .disabled(option.id == item.statusOptionID)
+                }
+            }
+        }
+    }
+
+    private func open(_ item: ProjectItem) {
+        guard let repository = item.repository, let number = item.number, let url = item.url else { return }
+        guard item.kind == .pullRequest else {
+            selectedIssue = InboxIssue(repository: repository, number: number, url: url, title: item.title, updatedAt: item.updatedAt ?? .now, openPullRequestCount: 0)
+            return
+        }
+
+        let link = PullRequestLink(repository: repository, number: number)
+        let opening = store.opening(of: link)
+        if case .noCheckout = opening { return missingProjectItem = item }
+
+        store.openPullRequest(link, url: url, opening: opening)
+        store.launcherMode = nil
+    }
+
     private func open(_ pullRequest: InboxPullRequest) {
         let link = PullRequestLink(repository: pullRequest.repository, number: pullRequest.number)
         let opening = store.opening(of: link)
@@ -832,19 +971,10 @@ struct Launcher: View {
 
     private func openIssueResult(_ linked: [LinkedPullRequest]) {
         if linked.isEmpty, let selectedIssue {
-            startIssueSession(selectedIssue)
+            store.startIssueSession(repository: selectedIssue.repository, number: selectedIssue.number, url: selectedIssue.url)
         } else {
             openLinkedPullRequests(linked)
         }
-    }
-
-    private func startIssueSession(_ issue: InboxIssue) {
-        guard let folder = store.localCheckout(of: issue.repository),
-              store.openSession(cwd: folder, checkout: .worktree, pasting: "Work on issue #\(issue.number) (\(issue.url.absoluteString)).") != nil
-        else { return }
-
-        store.isHarborShown = false
-        store.launcherMode = nil
     }
 
     private func openOnGitHub(_ url: URL) {

@@ -1349,6 +1349,7 @@ private struct SessionRow: View {
     let isArchived: Bool
     let isSnoozed: Bool
     @Binding var showsLockedNotice: Bool
+    @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.sidebarDensity) private var density
     @Environment(\.sidebarStyle) private var style
@@ -1416,6 +1417,7 @@ private struct SessionRow: View {
                         } else if let pullRequest {
                             PullRequestTag(pullRequest: pullRequest, more: morePullRequests)
                                 .fixedSize()
+                                .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .sidebar, store: store))
                         }
                     }
                 } else if pullRequest != nil || session.branch != nil || projectName != nil || visibleWatch != nil {
@@ -1456,6 +1458,7 @@ private struct SessionRow: View {
                         } else if let pullRequest {
                             PullRequestTag(pullRequest: pullRequest, more: morePullRequests)
                                 .fixedSize()
+                                .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .sidebar, store: store))
                         }
                     }
                 } else {

@@ -72,6 +72,7 @@ struct SlimSessionRow: View {
             } else if let pullRequest {
                 SlimPullRequestGlyph(pullRequest: pullRequest, more: morePullRequests)
                     .fixedSize()
+                    .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .sidebar, store: store))
             }
 
             ZStack(alignment: .trailing) {
