@@ -395,7 +395,7 @@ private struct NewSessionView: View {
                         .disabled(folder.isEmpty)
                 }
             }
-            .onAppear { folder = client.folders.first ?? "" }
+            .onAppear { if folder.isEmpty { folder = client.folders.first ?? "" } }
         }
     }
 
