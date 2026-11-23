@@ -4,6 +4,8 @@ Offscreen snapshot and verification flags for Debug builds (`Sources/Snapshot.sw
 
 ## Basics, shell and Claude tabs
 
+Use `-snapshotGhosttyTheme "Atom One Light"` for light snapshots because the app derives its colours from the Ghostty theme.
+
 Snapshot without touching the screen (Debug build only): `.build/Build/Products/Debug/Berth.app/Contents/MacOS/Berth -snapshot /abs/out.png` plus `-AppleInterfaceStyle Dark`, `-snapshotShell YES` (two terminals in the Terminals group, the second showing a fake `npm run dev` title and working dots; add `-snapshotShellCd "<args>"` to type `cd <args>` into the first one), `-snapshotClaudeTab YES` (a shell-backed claude tab with no transcript yet), or `-snapshotClaude /abs/dir` (launches real `claude` without `-w` whatever the setting, shows its trust prompt), or `-snapshotResume <sessionId>` (the sidebar click path, `claude --resume`).
 
 Use `-windowBackground theme|glass|darker` to select the detail background through the argument domain. For example, pass `-windowBackground darker` to show the cards' theme background colour in the gaps. System glass requires an on-screen window to render.
@@ -137,6 +139,8 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 `-snapshotPullRequests "<query>"` uses fixture sessions and a fixture inbox (no `gh`) and prints each PR's section, checks, decision, sessions and what ↩ does; `-snapshotLauncherKeys` also knows `tab`, `#`.
 
 `-snapshotIssues "<query>"` opens Issues with fixture rows across several repos, including 0, 1 and 3 linked PRs, one long title and one older issue. Use an empty query for the full recent list. Add `-snapshotLauncherKeys "enter"` to probe opening the three linked PRs, or use the query `"rounding"` with Enter to probe a new Claude worktree session and its unsent prompt. Use `"bucket"` to see the missing checkout notice, or `"alt-enter"` as a key to probe opening the issue URL.
+
+Add `-snapshotLauncherLoading YES` to `-snapshotIssues ""` or `-snapshotPullRequests ""` to show the loading state for that scope.
 
 `-snapshotIssue "owner/repo#1"` opens Pull Requests with one fixture linked PR. `-snapshotIssue "acme/api#10"` shows four PRs across repositories, with three known checkouts and an unavailable row for `acme/infra`. The snapshot prints each row's status. Add `-snapshotLauncherKeys "enter"` to print the recorded `openClaude` calls and whether the launcher stays open. The issue lookup uses fixtures and session opens are recorded as probes.
 

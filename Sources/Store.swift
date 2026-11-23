@@ -290,9 +290,9 @@ final class Store {
     private(set) var pullRequests = Snapshot.fixturePullRequests
     private(set) var linkedPullRequests = Snapshot.fixtureLinkedPullRequests
     private(set) var inbox = Snapshot.fixtureInbox
-    private(set) var isInboxLoading = false
+    private(set) var isInboxLoading = Snapshot.launcherLoading
     private(set) var issueInbox = Snapshot.fixtureIssueInbox
-    private(set) var isIssueInboxLoading = false
+    private(set) var isIssueInboxLoading = Snapshot.launcherLoading
     private var pullRequestTabs: [PullRequestLink: Tab.ID] = [:]
     private(set) var searchIndexVersion = 0
     private(set) var searchIndexing: (done: Int, total: Int)?
