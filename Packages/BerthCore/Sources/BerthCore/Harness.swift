@@ -57,7 +57,7 @@ public struct Harness: Sendable {
 
     public let agent: Agent
     public let name: String
-    public let glyph: String
+    public let asset: String
     public let isOptIn: Bool
     public let capabilities: Set<Capability>
     public let liveSource: LiveSource
@@ -86,7 +86,7 @@ public struct Harness: Sendable {
     public static let claude = Self(
         agent: .claude,
         name: "Claude",
-        glyph: "sparkle",
+        asset: "HarnessClaude",
         isOptIn: false,
         capabilities: Set(Capability.allCases),
         liveSource: .sessionFiles,
@@ -109,7 +109,7 @@ public struct Harness: Sendable {
     public static let codex = Self(
         agent: .codex,
         name: "Codex",
-        glyph: "terminal",
+        asset: "HarnessCodex",
         isOptIn: true,
         capabilities: [.conversation, .contextSize, .pullRequestLinks, .needsYou, .approvals, .backgroundTasks, .idleUnload, .worktrees, .remote],
         liveSource: .tabSignals,

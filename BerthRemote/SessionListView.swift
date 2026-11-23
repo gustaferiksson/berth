@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SessionListView: View {
     @Environment(RemoteClient.self) private var client
@@ -222,6 +223,7 @@ private struct SessionSummaryView: View {
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric private var gutterWidth = 14
+    @ScaledMetric(relativeTo: .caption2) private var agentIconSize = 11.0
 
     var body: some View {
         let isProminent = session.status != nil || session.isUnread == true
@@ -266,10 +268,20 @@ private struct SessionSummaryView: View {
                     }
                 }
                 HStack(spacing: 4) {
-                    Image(systemName: agent.glyph)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .accessibilityLabel(Text(agent.name))
+                    Group {
+                        if UIImage(named: agent.asset) != nil {
+                            Image(agent.asset)
+                                .renderingMode(.template)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: agentIconSize, height: agentIconSize)
+                        } else {
+                            Image(systemName: agent.asset)
+                                .font(.caption2)
+                        }
+                    }
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(Text(agent.name))
                     location
                 }
                 if let pullRequest = session.pullRequest {

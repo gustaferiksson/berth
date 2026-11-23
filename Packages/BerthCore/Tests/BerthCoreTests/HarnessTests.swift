@@ -21,6 +21,7 @@ struct HarnessTests {
         #expect(Harness.all.map(\.agent) == [.claude, .codex])
         #expect(Harness.all.allSatisfy { $0.agent.harness.agent == $0.agent })
         #expect(Agent.codex.name == "Codex" && Agent.claude.name == "Claude")
+        #expect(Harness.all.map(\.asset) == ["HarnessClaude", "HarnessCodex"])
         #expect(Harness.all.map(\.isOptIn) == [false, true])
         #expect(Harness.all.map(\.liveSource) == [.sessionFiles, .tabSignals])
     }

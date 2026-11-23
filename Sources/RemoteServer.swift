@@ -609,6 +609,6 @@ final class RemoteServer {
 private extension RemoteAgent {
     init(harness: Harness) {
         let supportsSettings = harness.supports(.modelEffortMenu)
-        self.init(name: harness.name, glyph: harness.glyph, canChangeSettings: supportsSettings, canAttach: supportsSettings, approvalKeys: harness.readApproval == nil ? nil : harness.approvalKeys)
+        self.init(name: harness.name, asset: harness.asset, canChangeSettings: supportsSettings, canAttach: supportsSettings, approvalKeys: harness.readApproval == nil ? nil : harness.approvalKeys)
     }
 }

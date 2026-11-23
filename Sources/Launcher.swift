@@ -22,7 +22,7 @@ struct Launcher: View {
     private struct PaletteRow {
         let item: PaletteItem
         let target: PaletteTarget
-        let symbol: String
+        let icon: Image
         let trailing: String
     }
 
@@ -399,10 +399,18 @@ struct Launcher: View {
 
     private var paletteRows: [PaletteRow] {
         let openTabs = store.sidebarOrderedTabs.map { tab in
-            PaletteRow(
+            let icon = if tab.id == store.selectedTabID {
+                Image(systemName: "checkmark")
+            } else if tab.kind == .shell {
+                Image(systemName: "terminal")
+            } else {
+                Image(tab.agent.harness.asset).renderingMode(.template).resizable()
+            }
+
+            return PaletteRow(
                 item: PaletteItem(id: tab.id.uuidString, section: .openTab, title: tab.title(terminalTitle: tab.terminal.title, sessionTitle: store.sessionTitle(of: tab)), detail: tab.folder),
                 target: .item(.tab(tab.id)),
-                symbol: tab.id == store.selectedTabID ? "checkmark" : "terminal",
+                icon: icon,
                 trailing: URL(filePath: tab.sessionID.flatMap { store.sessionsByID[$0]?.checkout } ?? tab.folder).lastPathComponent
             )
         }
@@ -410,7 +418,7 @@ struct Launcher: View {
             PaletteRow(
                 item: PaletteItem(id: action.title, section: .action, title: action.title(in: store), detail: action.keywords),
                 target: .action(action),
-                symbol: action.symbol,
+                icon: Image(systemName: action.symbol),
                 trailing: action.shortcut.map { shortcut in
                     [(EventModifiers.control, "⌃"), (.option, "⌥"), (.shift, "⇧"), (.command, "⌘")].filter { shortcut.modifiers.contains($0.0) }.map(\.1).joined() + String(shortcut.key.character).uppercased()
                 } ?? ""
@@ -421,7 +429,7 @@ struct Launcher: View {
             PaletteRow(
                 item: PaletteItem(id: session.id, section: .recentSession, title: session.title, detail: session.cwd),
                 target: .item(.session(session.id)),
-                symbol: "clock.arrow.circlepath",
+                icon: Image(systemName: "clock.arrow.circlepath"),
                 trailing: "\(URL(filePath: session.checkout).lastPathComponent) · \(age(since: session.lastActivity))"
             )
         }
@@ -431,15 +439,16 @@ struct Launcher: View {
         let typed = query.trimmingCharacters(in: .whitespaces)
         guard !typed.isEmpty, let search = actions.first(where: { $0.item.id == AppAction.searchSessions.title }) else { return ranked }
 
-        let searchRow = PaletteRow(item: PaletteItem(id: search.item.id, section: .action, title: "Search Sessions for “\(typed)”", detail: ""), target: search.target, symbol: search.symbol, trailing: search.trailing)
+        let searchRow = PaletteRow(item: PaletteItem(id: search.item.id, section: .action, title: "Search Sessions for “\(typed)”", detail: ""), target: search.target, icon: search.icon, trailing: search.trailing)
         return ranked.map { $0.item.id == searchRow.item.id ? searchRow : $0 } + (ranked.contains { $0.item.id == searchRow.item.id } ? [] : [searchRow])
     }
 
     private func paletteRow(_ row: PaletteRow, isHighlighted: Bool) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: row.symbol)
+            row.icon
+                .scaledToFit()
                 .foregroundStyle(.secondary)
-                .frame(width: 20)
+                .frame(width: 20, height: 13)
             Text(row.item.title)
             Spacer(minLength: 8)
             Text(row.trailing)
