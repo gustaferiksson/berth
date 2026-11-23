@@ -1590,8 +1590,11 @@ private struct CardRow<Detail: View>: View {
                         .accessibilityHidden(true)
                 }
                 if agent.harness.isOptIn {
-                    Image(systemName: agent.harness.glyph)
-                        .font(.system(size: 9))
+                    Image(agent.harness.asset)
+                        .renderingMode(.template)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 9, height: 9)
                         .foregroundStyle(Color.secondary)
                         .help(agent.harness.name)
                         .accessibilityLabel(agent.harness.name)

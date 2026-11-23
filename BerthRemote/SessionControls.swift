@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension RemoteAgent {
-    static let legacyClaude = Self(name: "Claude", glyph: "sparkle", canChangeSettings: true, canAttach: true)
+    static let legacyClaude = Self(name: "Claude", asset: "HarnessClaude", canChangeSettings: true, canAttach: true)
 }
 
 struct SessionControls: View {

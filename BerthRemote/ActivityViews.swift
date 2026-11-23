@@ -22,14 +22,13 @@ struct RunningStrip: View {
 
         Button(action: action) {
             HStack(spacing: 10) {
-                HStack(spacing: -8) {
+                HStack(spacing: 4) {
                     ForEach(kinds.enumerated(), id: \.offset) { _, kind in
                         Image(systemName: RemoteTask(id: "", kind: kind, title: "", started: .now).symbol)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.tint)
                             .frame(width: 26, height: 26)
                             .background(.fill.tertiary, in: .circle)
-                            .overlay(Circle().stroke(.background, lineWidth: 2))
                     }
                 }
                 .accessibilityHidden(true)

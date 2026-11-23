@@ -8,14 +8,19 @@ public struct RemoteApprovalKeys: Codable, Sendable, Hashable {
 
 public struct RemoteAgent: Codable, Sendable, Hashable {
     public let name: String
-    public let glyph: String
+    public let asset: String
     public let canChangeSettings: Bool
     public let canAttach: Bool
     public let approvalKeys: RemoteApprovalKeys?
 
-    public init(name: String, glyph: String, canChangeSettings: Bool, canAttach: Bool, approvalKeys: RemoteApprovalKeys? = nil) {
+    private enum CodingKeys: String, CodingKey {
+        case name, canChangeSettings, canAttach, approvalKeys
+        case asset = "glyph"
+    }
+
+    public init(name: String, asset: String, canChangeSettings: Bool, canAttach: Bool, approvalKeys: RemoteApprovalKeys? = nil) {
         self.name = name
-        self.glyph = glyph
+        self.asset = asset
         self.canChangeSettings = canChangeSettings
         self.canAttach = canAttach
         self.approvalKeys = approvalKeys
