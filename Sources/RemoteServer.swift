@@ -447,11 +447,12 @@ final class RemoteServer {
                 pullRequest: self.store.pullRequest(for: session).map { RemotePullRequest(number: $0.number, state: $0.state.rawValue, url: $0.url, checks: $0.checks?.rawValue) },
                 isUnread: self.store.isUnread(session),
                 turnStartedAt: self.store.turnStarts[session.id],
-                agent: RemoteAgent(harness: session.agent.harness)
+                agent: RemoteAgent(harness: session.agent.harness),
+                pullRequestWatch: self.store.pullRequestWatch(for: session.id)
             )
         }
         let starting = store.tabs.filter { $0.kind == .claude && $0.agent.harness.supports(.remote) && $0.sessionID.map { store.sessionsByID[$0] == nil } ?? false }.compactMap { tab in
-            tab.sessionID.map { RemoteSession(id: $0, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: store.liveBySession[$0]?.status, waitingFor: store.liveBySession[$0]?.waitingFor, waitingSince: store.liveBySession[$0].flatMap { $0.status == "waiting" ? $0.statusUpdatedAt : nil }, isOpen: true, isLocked: false, agent: RemoteAgent(harness: tab.agent.harness)) }
+            tab.sessionID.map { RemoteSession(id: $0, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: store.liveBySession[$0]?.status, waitingFor: store.liveBySession[$0]?.waitingFor, waitingSince: store.liveBySession[$0].flatMap { $0.status == "waiting" ? $0.statusUpdatedAt : nil }, isOpen: true, isLocked: false, agent: RemoteAgent(harness: tab.agent.harness), pullRequestWatch: store.pullRequestWatch(for: $0)) }
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.filter { $0.agent.harness.supports(.remote) }.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.filter { $0.agent.harness.supports(.remote) }.map(remote)) }

@@ -6,6 +6,8 @@ import WebKit
 
 enum Snapshot {
     #if DEBUG
+    static let showsWatching = UserDefaults.standard.bool(forKey: "snapshotWatching")
+    static let showsPullRequestActions = UserDefaults.standard.bool(forKey: "snapshotPullRequestActions")
     static let output = UserDefaults.standard.string(forKey: "snapshot").map { URL(filePath: $0) }
     #else
     static let output: URL? = nil
@@ -191,7 +193,7 @@ enum Snapshot {
     }()
 
     private static let inboxFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: [PullRequestBranch: PullRequest?], inbox: [InboxPullRequest]?)? = {
-        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil else { return nil }
+        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil || showsPullRequestActions else { return nil }
 
         let code = NSTemporaryDirectory() + "berth-pull-requests"
         for name in ["billing/.git", "web/.git"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) }
@@ -306,7 +308,12 @@ enum Snapshot {
     static let fixtureSessions: [SessionSummary]? = {
         if let issueFixtures { return issueFixtures.sessions }
 
-        return triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
+        if let fixtures = triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures { return fixtures }
+        if !pullRequestFixtures.isEmpty { return pullRequestFixtures.map(\.session) }
+        if launcherKeys != nil { return hubFolders }
+        if showsWatching, !UserDefaults.standard.bool(forKey: "snapshotConversation") { return longNames.map(\.session) }
+
+        return nil
     }()
 
     private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
@@ -445,6 +452,18 @@ enum Snapshot {
             for session in store.groups.compactMap(\.sessions.first).suffix(2).reversed() { store.pin(session.id) }
         }
         let topSessions = store.groups.first { !$0.sessions.isEmpty }?.sessions ?? []
+        if showsWatching, !UserDefaults.standard.bool(forKey: "snapshotConversation"),
+           let session = store.groups.flatMap(\.sessions).first(where: { session in
+               let activity = store.liveBySession[session.id]?.activity
+               return activity == nil || activity == .idle
+           }) ?? topSessions.first {
+            let target = store.pullRequest(for: session)
+            store.fakeWatches[session.id] = PullRequestWatch(number: target?.number ?? 4821, since: .now - 60)
+            if store.liveBySession[session.id] == nil {
+                store.fakeLiveSessions.append(LiveSession(pid: 0, sessionId: session.id, cwd: session.cwd, status: "idle"))
+                store.refreshLive()
+            }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotFlagged") {
             for session in topSessions.enumerated().filter({ [0, 2].contains($0.offset) }).map(\.element) { store.flag(session.id) }
         }
@@ -465,7 +484,7 @@ enum Snapshot {
         if let status = UserDefaults.standard.string(forKey: "snapshotSidebarStatus").flatMap(SidebarStatus.init(rawValue:)) { store.sidebarStatus = status }
         for session in store.sessionsByID.values.filter({ forcedHover.contains($0.title) }) {
             let isOpen = store.tab(forSession: session.id) != nil || store.liveBySession[session.id] != nil
-            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."))
+            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, watch: store.pullRequestWatch(for: session.id), excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."))
                 .environment(\.ghosttyTheme, store.theme)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
@@ -636,7 +655,7 @@ enum Snapshot {
         if UserDefaults.standard.string(forKey: "snapshotLauncher") != nil { store.launcherMode = .newSession }
         if UserDefaults.standard.string(forKey: "snapshotSearch") != nil { store.launcherMode = .search }
         if UserDefaults.standard.string(forKey: "snapshotPalette") != nil { store.launcherMode = .palette }
-        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") {
+        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") ?? (showsPullRequestActions ? "" : nil) {
             let ranked = PullRequestInbox.rank(query, in: store.inbox ?? [], now: .now)
             print("pull requests for \"\(query)\": \(ranked.pullRequests.count) shown, \(ranked.older) older hidden, toolbar count \(store.inbox?.count { $0.role == .reviewRequested } ?? 0)")
             for pullRequest in ranked.pullRequests {
@@ -652,6 +671,7 @@ enum Snapshot {
                 print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: link).map(\.id)) | enter: \(action)")
             }
             if UserDefaults.standard.string(forKey: "snapshotLauncherRole") == "reviewRequested" { store.launcherRole = .reviewRequested }
+            if showsPullRequestActions { print("pull request menu \(StewardPullRequestButton.title)") }
             if launcherKeys == nil { store.launcherMode = .pullRequests }
         }
         if let issueInboxQuery {
