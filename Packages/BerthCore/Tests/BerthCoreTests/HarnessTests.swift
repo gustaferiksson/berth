@@ -5,7 +5,16 @@ import Testing
 struct HarnessTests {
     @Test func capabilitiesMatchTheAdapters() {
         #expect(Capability.allCases.allSatisfy { Harness.claude.supports($0) })
-        #expect(Harness.codex.capabilities == [.conversation, .contextSize, .pullRequestLinks, .needsYou, .idleUnload, .worktrees, .remote])
+        #expect(Harness.codex.capabilities == [.conversation, .contextSize, .pullRequestLinks, .needsYou, .approvals, .backgroundTasks, .idleUnload, .worktrees, .remote])
+    }
+
+    @Test func approvalKeysMatchEachHarness() {
+        #expect(Harness.claude.approvalKeys == RemoteApprovalKeys(approve: .digit1, always: nil, deny: .escape))
+        #expect(Harness.codex.approvalKeys == RemoteApprovalKeys(approve: .digit1, always: .digit2, deny: .digit3))
+        #expect(Harness.claude.readApproval == nil)
+        #expect(Harness.codex.readApproval != nil)
+        #expect(Harness.claude.usesTranscriptActivity)
+        #expect(!Harness.codex.usesTranscriptActivity)
     }
 
     @Test func everyAgentHasItsHarness() {

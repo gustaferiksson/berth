@@ -1,5 +1,6 @@
 import BerthCore
 import Foundation
+import GhosttyTerminal
 import Observation
 
 struct ConversationDraft {
@@ -54,7 +55,9 @@ final class ConversationModel {
     private(set) var turns: [Turn] = []
     @ObservationIgnored private(set) var details: [String: ToolCallDetails] = [:]
     @ObservationIgnored private var completedCalls: Set<String> = []
-    private(set) var tasks: [RemoteTask] = []
+    private var transcriptTasks: [RemoteTask] = []
+    private var shellTasks: [RemoteTask] = []
+    private var rolloutApproval: (live: LiveSession, approval: PendingApproval)?
     private var reportedContext: RemoteContext?
     private(set) var isTurnOpen = false
     private(set) var lastChange = Date.now
@@ -64,7 +67,7 @@ final class ConversationModel {
     private(set) var isSending = false
     private(set) var pickedModel: ModelChoice?
     private(set) var pickedEffort: EffortLevel?
-    var openSubagent: Subagent?
+    var openSubagent: ConversationSubagentModel?
     var notice: String?
 
     @ObservationIgnored private unowned let store: Store
@@ -78,6 +81,7 @@ final class ConversationModel {
     @ObservationIgnored private var isReading = false
     @ObservationIgnored private var needsRead = false
     @ObservationIgnored private var watcher: FileWatcher?
+    @ObservationIgnored private var shellPolling: Task<Void, Never>?
 
     init(tabID: Tab.ID, store: Store) {
         self.tabID = tabID
@@ -86,10 +90,23 @@ final class ConversationModel {
 
     var context: RemoteContext? {
         guard let tab = store.tabs.first(where: { $0.id == tabID }) else { return nil }
-        guard !tab.agent.harness.supports(.backgroundTasks) else { return reportedContext }
-        guard let sessionID = tab.sessionID, let summary = store.sessionsByID[sessionID], let context = summary.context else { return nil }
+        guard !tab.agent.harness.usesTranscriptActivity else { return reportedContext }
+        guard let sessionID = tab.sessionID, let summary = store.sessionsByID[sessionID] else { return nil }
 
-        return RemoteContext(model: CodexModels.displayName(for: context.model), tokens: context.tokens, window: context.window, date: summary.lastActivity, compactions: 0, lastCompaction: nil, effort: context.effort)
+        return tab.agent.harness.summaryContext?(summary)
+    }
+
+    var tasks: [RemoteTask] {
+        guard !shellTasks.isEmpty, let sessionID, let live = store.liveBySession[sessionID], live.status == "idle", live.reportsWaiting else { return transcriptTasks }
+
+        return transcriptTasks + shellTasks
+    }
+
+    func approval(for live: LiveSession?, harness: Harness) -> PendingApproval? {
+        guard let live, live.status == "waiting" else { return nil }
+        guard harness.readApproval != nil else { return PendingApproval.resolve(waitingFor: live.waitingFor, call: turns.last?.openCall) }
+
+        return rolloutApproval?.live == live ? rolloutApproval?.approval : nil
     }
 
     var entryCount: Int { entries.count }
@@ -195,7 +212,8 @@ final class ConversationModel {
             }
             return
         }
-        notice = "Claude is still waiting, so your message wasn’t sent"
+        let name = store.tab(forSession: sessionID)?.agent.harness.name ?? "Agent"
+        notice = "\(name) is still waiting, so your message wasn’t sent"
     }
 
     func choose(_ setting: RemoteSessionSetting) async {
@@ -243,26 +261,77 @@ final class ConversationModel {
     }
 
     func openAgent(agentID: String?, toolUseID: String?) {
-        guard let sessionID, let session = store.index.url(ofSession: sessionID) else { return }
+        guard let tab = store.tabs.first(where: { $0.id == tabID }), let sessionID = tab.sessionID else { return }
 
-        openSubagent = Subagent.locate(session: session, agentID: agentID, toolUseID: toolUseID)
+        let index = store.sessionIndex(for: tab.agent)
+        guard let session = index.url(ofSession: sessionID),
+              let subagent = tab.agent.harness.locateSubagent(index.root, session, agentID, toolUseID)
+        else { return }
+
+        openSubagent = ConversationSubagentModel(subagent: subagent, root: index.root, session: session, harness: tab.agent.harness)
     }
 
     func start() {
         guard let tab = store.tabs.first(where: { $0.id == tabID }) else { return }
 
+        let harness = tab.agent.harness
         watcher = FileWatcher(paths: [store.sessionIndex(for: tab.agent).root.path], latency: 0.3) { [weak self] paths in
             guard let self else { return }
 
-            if let sessionID, !paths.contains(where: { $0.contains(sessionID) }) { return }
+            if harness.readTasks == nil, let sessionID, !paths.contains(where: { $0.contains(sessionID) }) { return }
 
             refresh()
+        }
+        if harness.supports(.backgroundTasks), harness.readyTerminalProcess != nil {
+            shellPolling = Task { [weak self] in
+                while !Task.isCancelled, let self {
+                    await refreshShellTasks()
+                    try? await Task.sleep(for: .seconds(2))
+                }
+            }
         }
         refresh()
     }
 
     func stop() {
         watcher = nil
+        shellPolling?.cancel()
+        shellPolling = nil
+    }
+
+    private func refreshShellTasks() async {
+        guard let tab = store.tabs.first(where: { $0.id == tabID }), let sessionID = tab.sessionID,
+              let process = tab.agent.harness.readyTerminalProcess?(tab.terminal.title),
+              let rollout = store.sessionIndex(for: tab.agent).url(ofSession: sessionID)
+        else {
+            if !shellTasks.isEmpty { shellTasks = [] }
+            return
+        }
+
+        #if DEBUG
+        if let tasks = store.fakeTerminalTasks[sessionID] {
+            if tasks != shellTasks { shellTasks = tasks }
+            return
+        }
+        #endif
+
+        let socket = store.hostSocket(of: tabID)
+        let isHosted = tab.isHosted
+        let found = await Task.detached {
+            let root: Int32
+            if isHosted {
+                guard let socket, let host = SessionHost.probe(socketPath: socket) else { return [RemoteTask]() }
+
+                root = host.child
+            } else {
+                root = ProcessInfo.processInfo.processIdentifier
+            }
+            return ProcessAncestry.terminalTasks(for: rollout, under: root, named: process.name, excluding: process.excludedChildren)
+        }.value
+        guard !Task.isCancelled, let current = store.tab(forSession: sessionID), current.id == tabID else { return }
+
+        let tasks = current.agent.harness.readyTerminalProcess?(current.terminal.title) == nil ? [] : found
+        if tasks != shellTasks { shellTasks = tasks }
     }
 
     func refresh() {
@@ -270,7 +339,16 @@ final class ConversationModel {
             needsRead = true
             return
         }
-        guard let tab = store.tabs.first(where: { $0.id == tabID }), let sessionID = tab.sessionID, let readTranscript = tab.agent.harness.readTranscript, let url = store.sessionIndex(for: tab.agent).url(ofSession: sessionID) else {
+        guard let tab = store.tabs.first(where: { $0.id == tabID }), let sessionID = tab.sessionID else {
+            hasLoaded = true
+            return
+        }
+
+        let harness = tab.agent.harness
+        let live = store.liveBySession[sessionID]
+        let index = store.sessionIndex(for: tab.agent)
+        guard let readTranscript = harness.readTranscript, let url = index.url(ofSession: sessionID) else {
+            if harness.readApproval != nil, let live, live.status == "waiting" { rolloutApproval = (live, .loading) }
             hasLoaded = true
             return
         }
@@ -282,16 +360,29 @@ final class ConversationModel {
         let queue = queue
         let previous = isSameFile ? activity : TranscriptActivity()
         let previousLogs = isSameFile ? agentLogs : [:]
-        let live = store.liveBySession[sessionID]
-        let reportsActivity = tab.agent.harness.supports(.backgroundTasks)
+        let root = index.root
         let catalogDirectory = Store.claudeDirectory.appending(path: "cache/model-catalog")
         Task {
-            let (chunk, result) = await Task.detached {
+            let (chunk, result, tasks, approval) = await Task.detached {
                 let chunk = readTranscript(url, after, queue)
-                return (chunk, reportsActivity ? TranscriptActivity.report(url, previous: previous, logs: previousLogs, live: live, catalogDirectory: catalogDirectory) : nil)
+                let result = harness.usesTranscriptActivity ? TranscriptActivity.report(url, previous: previous, logs: previousLogs, live: live, catalogDirectory: catalogDirectory) : nil
+                let tasks = harness.supports(.backgroundTasks) ? harness.readTasks?(root, url) : nil
+                let approval = live?.status == "waiting" ? harness.readApproval?(url) : nil
+                return (chunk, result, tasks, approval)
             }.value
             isReading = false
-            apply(chunk, result, url: url)
+            if self.sessionID == sessionID {
+                if harness.readApproval != nil, live == store.liveBySession[sessionID] {
+                    let updated: PendingApproval = approval ?? .loading
+                    if let live, live.status == "waiting" {
+                        if rolloutApproval?.live != live || rolloutApproval?.approval != updated { rolloutApproval = (live, updated) }
+                    } else if rolloutApproval != nil {
+                        rolloutApproval = nil
+                    }
+                }
+                if let tasks, transcriptTasks != tasks { transcriptTasks = tasks }
+                apply(chunk, result, url: url)
+            }
             if needsRead { refresh() }
         }
     }
@@ -306,7 +397,7 @@ final class ConversationModel {
         if let result {
             activity = result.activity
             agentLogs = result.logs
-            if tasks != result.report.tasks { tasks = result.report.tasks }
+            if transcriptTasks != result.report.tasks { transcriptTasks = result.report.tasks }
             if reportedContext != result.report.context {
                 if reportedContext?.model != result.report.context?.model || reportedContext?.date != result.report.context?.date { pickedModel = nil }
                 if reportedContext?.effort != result.report.context?.effort { pickedEffort = nil }

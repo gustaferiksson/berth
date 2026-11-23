@@ -17,6 +17,31 @@ public enum PendingApproval: Equatable, Sendable {
     case loading
     case unrepresentable
 
+    public var remoteCall: RemoteEntry? {
+        if case let .permission(tool, target, detail, _) = self {
+            return RemoteEntry(id: "pending-approval", kind: .toolUse, text: target, name: tool, command: target, detail: detail)
+        }
+        if case let .question(question, options) = self {
+            struct Question: Encodable {
+                struct Choice: Encodable {
+                    let label: String
+                    let description: String?
+                }
+
+                let question: String
+                let options: [Choice]
+            }
+
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            let choices = options.map { Question.Choice(label: $0.label, description: $0.detail) }
+            guard let data = try? encoder.encode(["questions": [Question(question: question, options: choices)]]) else { return nil }
+
+            return RemoteEntry(id: "pending-approval", kind: .toolUse, text: String(decoding: data, as: UTF8.self), name: "AskUserQuestion")
+        }
+        return nil
+    }
+
     public static let permissionPrompt = "permission prompt"
 
     public static func resolve(waitingFor: String?, call: ToolCall?) -> Self {
@@ -48,11 +73,12 @@ public enum ConversationFallback {
     public static let startGrace: TimeInterval = 10
     public static let detailGrace: TimeInterval = 4
 
-    public static func needsTerminal(live: LiveSession?, call: ToolCall?, tabAge: TimeInterval, now: Date) -> Bool {
+    public static func needsTerminal(live: LiveSession?, approval: PendingApproval?, tabAge: TimeInterval, now: Date) -> Bool {
         guard let live else { return tabAge > startGrace }
         guard live.status == "waiting" else { return false }
 
-        switch PendingApproval.resolve(waitingFor: live.waitingFor, call: call) {
+        switch approval {
+        case nil: return false
         case .unrepresentable: return true
         case .loading: return live.statusUpdatedAt.map { now.timeIntervalSince1970 - $0 / 1000 > detailGrace } ?? false
         case .permission, .question, .plan: return false

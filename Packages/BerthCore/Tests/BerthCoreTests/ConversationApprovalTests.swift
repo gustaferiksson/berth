@@ -45,12 +45,12 @@ struct ConversationApprovalTests {
     @Test func fallbackRules() throws {
         let now = Date(timeIntervalSince1970: 1_000_000)
         let waiting = { (waitingFor: String, ago: Double) in try live("{\"pid\":1,\"sessionId\":\"s\",\"cwd\":\"/\",\"status\":\"waiting\",\"waitingFor\":\"\(waitingFor)\",\"statusUpdatedAt\":\(Int((now.timeIntervalSince1970 - ago) * 1000))}") }
-        #expect(ConversationFallback.needsTerminal(live: nil, call: nil, tabAge: 3, now: now) == false)
-        #expect(ConversationFallback.needsTerminal(live: nil, call: nil, tabAge: 11, now: now))
-        #expect(try ConversationFallback.needsTerminal(live: waiting("something else", 0), call: nil, tabAge: 99, now: now))
-        #expect(try ConversationFallback.needsTerminal(live: waiting("permission prompt", 1), call: nil, tabAge: 99, now: now) == false)
-        #expect(try ConversationFallback.needsTerminal(live: waiting("permission prompt", 6), call: nil, tabAge: 99, now: now))
-        #expect(try ConversationFallback.needsTerminal(live: waiting("permission prompt", 6), call: call("Bash", input: "{}", command: "ls"), tabAge: 99, now: now) == false)
+        #expect(ConversationFallback.needsTerminal(live: nil, approval: nil, tabAge: 3, now: now) == false)
+        #expect(ConversationFallback.needsTerminal(live: nil, approval: nil, tabAge: 11, now: now))
+        #expect(try ConversationFallback.needsTerminal(live: waiting("something else", 0), approval: .unrepresentable, tabAge: 99, now: now))
+        #expect(try ConversationFallback.needsTerminal(live: waiting("permission prompt", 1), approval: .loading, tabAge: 99, now: now) == false)
+        #expect(try ConversationFallback.needsTerminal(live: waiting("permission prompt", 6), approval: .loading, tabAge: 99, now: now))
+        #expect(try ConversationFallback.needsTerminal(live: waiting("permission prompt", 6), approval: .permission(tool: "Bash", target: "ls", detail: nil, edit: nil), tabAge: 99, now: now) == false)
         #expect(try ConversationFallback.canLeaveTerminal(live: waiting("x", 0)) == false)
         #expect(try ConversationFallback.canLeaveTerminal(live: live(#"{"pid":1,"sessionId":"s","cwd":"/","status":"idle"}"#)))
         #expect(ConversationFallback.canLeaveTerminal(live: nil) == false)

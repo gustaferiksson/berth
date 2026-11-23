@@ -78,6 +78,28 @@ struct CodexRolloutTests {
         #expect(summary.context?.effort == "high")
     }
 
+    @Test func latestSettingsWinInRolloutOrder() throws {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = #"{"type":"turn_context","payload":{"model":"fixture-first","effort":"low"}}"#
+        let changed = #"{"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"model":"fixture-changed","reasoning_effort":"high","collaboration_mode":{"mode":"plan"}}}}"#
+        let nextTurn = #"{"type":"turn_context","payload":{"model":"fixture-changed","collaboration_mode":{"mode":"default","settings":{"reasoning_effort":"medium"}}}}"#
+        let base = [meta(), first, prompt("Sort the colors", at: "2026-01-02T10:04:00.000Z"), tokens(input: 900)]
+        let url = try write(base + [changed], in: directory)
+        var summary = try #require(CodexRollout.summary(of: url))
+        #expect(summary.context?.model == "fixture-changed")
+        #expect(summary.context?.effort == "high")
+
+        let continued = try write(base + [changed, nextTurn], in: directory)
+        summary = try #require(CodexRollout.summary(of: continued))
+        #expect(summary.context?.effort == "medium")
+
+        let withoutTokens = try write(Array(base.dropLast()) + [changed], in: directory)
+        summary = try #require(CodexRollout.summary(of: withoutTokens))
+        #expect(summary.context == nil)
+        #expect(Harness.codex.summaryContext?(summary)?.effort == "high")
+    }
+
     @Test func skipsNonInteractiveSessions() throws {
         let directory = scratch()
         let lines = [prompt("hi", at: "2026-01-02T10:00:02.000Z")]

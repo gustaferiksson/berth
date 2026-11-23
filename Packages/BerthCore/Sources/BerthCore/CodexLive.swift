@@ -8,10 +8,10 @@ public enum CodexRunState: Sendable {
         guard !trimmed.hasPrefix("/"), !trimmed.hasPrefix("~/") else { return nil }
 
         let label = trimmed.drop(while: { !$0.isLetter }).lowercased()
-        if label.hasPrefix("thinking") || label.hasPrefix("working") {
-            self = .working
-        } else if label.hasPrefix("needs input") || label.hasPrefix("blocked") {
+        if label.hasSuffix("action required") || label.hasPrefix("needs input") || label.hasPrefix("blocked") {
             self = .needsInput
+        } else if label.hasPrefix("thinking") || label.hasPrefix("working") {
+            self = .working
         } else if label.hasPrefix("ready") {
             self = .ready
         } else {
@@ -40,7 +40,7 @@ public enum CodexLive {
                 cwd: tab.cwd,
                 kind: "tab",
                 status: status,
-                waitingFor: state == .needsInput ? "needs input" : nil,
+                waitingFor: state == .needsInput ? "action required" : nil,
                 statusUpdatedAt: (rollout?.modified ?? tab.opened).timeIntervalSince1970 * 1000,
                 startedAt: tab.opened.timeIntervalSince1970 * 1000,
                 observesWaiting: state != nil

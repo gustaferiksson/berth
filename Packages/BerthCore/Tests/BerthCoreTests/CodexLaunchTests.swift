@@ -4,13 +4,13 @@ import Testing
 
 struct CodexLaunchTests {
     @Test func launchesWithCodexDefaults() {
-        #expect(CodexLaunch.command(.new, LaunchOptions()) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" || exec /bin/zsh -il'"#)
+        #expect(CodexLaunch.command(.new, LaunchOptions()) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"spinner\",\"run-state\"]" || exec /bin/zsh -il'"#)
     }
 
     @Test func addsOptionsBeforeTheResumeSubcommand() {
         let options = LaunchOptions(model: "fixture_v1.2", effort: "high")
-        #expect(CodexLaunch.command(.new, options) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" -m fixture_v1.2 -c model_reasoning_effort=high || exec /bin/zsh -il'"#)
-        #expect(CodexLaunch.command(.resume, options) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"run-state\"]" -m fixture_v1.2 -c model_reasoning_effort=high resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
+        #expect(CodexLaunch.command(.new, options) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"spinner\",\"run-state\"]" -m fixture_v1.2 -c model_reasoning_effort=high || exec /bin/zsh -il'"#)
+        #expect(CodexLaunch.command(.resume, options) == #"/bin/zsh -ilc 'codex -c "tui.terminal_title=[\"spinner\",\"run-state\"]" -m fixture_v1.2 -c model_reasoning_effort=high resume "$BERTH_SESSION_ID" || exec /bin/zsh -il'"#)
     }
 
     @Test func dropsInvalidOptionValuesIndependently() {
@@ -22,7 +22,7 @@ struct CodexLaunchTests {
 
     @Test func runsCodexWithItsOptionsInsideAWorktree() {
         let options = LaunchOptions(model: "fixture-model", effort: "low")
-        #expect(CodexLaunch.command(.newInWorktree, options) == #"/bin/zsh -ilc 'wt switch --create "codex-$(date +%m%d-%H%M%S)" --no-cd -x codex -- -c "tui.terminal_title=[\"run-state\"]" -m fixture-model -c model_reasoning_effort=low || exec /bin/zsh -il'"#)
+        #expect(CodexLaunch.command(.newInWorktree, options) == #"/bin/zsh -ilc 'wt switch --create "codex-$(date +%m%d-%H%M%S)" --no-cd -x codex -- -c "tui.terminal_title=[\"spinner\",\"run-state\"]" -m fixture-model -c model_reasoning_effort=low || exec /bin/zsh -il'"#)
     }
 
     @Test func claimsTheEarliestEligibleExactMatch() {

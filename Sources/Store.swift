@@ -313,6 +313,7 @@ final class Store {
     #if DEBUG
     @ObservationIgnored var fakeWaiting: Bool?
     @ObservationIgnored var fakeLiveSessions: [LiveSession] = []
+    @ObservationIgnored var fakeTerminalTasks: [String: [RemoteTask]] = [:]
     @ObservationIgnored var fakeContexts: [String: SessionContext] = [:]
     #endif
 

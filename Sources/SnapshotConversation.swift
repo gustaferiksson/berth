@@ -9,21 +9,28 @@ extension Snapshot {
     static let conversationSession = "conversation-fixture"
 
     private static let codexConversationSession = "5b34c260-0c36-4721-bcfa-d56c78a9ce31"
-    private static var usesCodexConversation: Bool { UserDefaults.standard.string(forKey: "snapshotConversationAgent") == "codex" }
+    private static let codexConversationChild = "e6883ec6-0344-4bec-8511-cf586a4e2efc"
+    private static var showsCodexApproval: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexApproval") }
+    private static var showsCodexTasks: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexTasks") }
+    private static var usesCodexConversation: Bool {
+        showsCodexApproval || showsCodexTasks || UserDefaults.standard.string(forKey: "snapshotConversationAgent") == "codex"
+    }
 
     private static var conversationStart: Date { Date.now.addingTimeInterval(-420) }
 
     static func seedConversationFixture() {
         guard UserDefaults.standard.bool(forKey: "snapshotConversation") else { return }
-        guard ProcessInfo.processInfo.environment["CFFIXED_USER_HOME"] != nil else {
+        guard let fixtureHome = ProcessInfo.processInfo.environment["CFFIXED_USER_HOME"], !fixtureHome.isEmpty else {
             FileHandle.standardError.write(Data("snapshot: -snapshotConversation needs CFFIXED_USER_HOME pointing at an empty fixture home\n".utf8))
             exit(1)
         }
 
         try? FileManager.default.createDirectory(atPath: conversationFolder, withIntermediateDirectories: true)
         if usesCodexConversation {
-            guard UserDefaults.standard.bool(forKey: "codexEnabled") else {
-                FileHandle.standardError.write(Data("snapshot: -snapshotConversationAgent codex requires -codexEnabled YES\n".utf8))
+            guard UserDefaults.standard.bool(forKey: "codexEnabled"),
+                  Store.codexDirectory.resolvingSymlinksInPath().path == URL(filePath: fixtureHome).appending(path: ".codex").resolvingSymlinksInPath().path
+            else {
+                FileHandle.standardError.write(Data("snapshot: Codex conversation fixtures require -codexEnabled YES and the fixture home’s CODEX_HOME\n".utf8))
                 exit(1)
             }
 
@@ -67,9 +74,31 @@ extension Snapshot {
             ("event_msg", #"{"type":"agent_message","phase":"final","message":"Fixed the export time zone and added the plan name column. Both export tests pass.\n\nThe column list is in `docs/columns.md`."}"#),
             ("event_msg", #"{"type":"token_count","info":{"last_token_usage":{"input_tokens":61000},"model_context_window":258400}}"#),
         ]
-        let completion = (UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? "busy") == "busy" ? [] : [("event_msg", #"{"type":"task_complete"}"#)]
+        let tail: [(String, String)]
+        if showsCodexApproval {
+            tail = [
+                ("event_msg", #"{"type":"item_completed","item":{"type":"AgentMessage","id":"fixture-note","content":[{"type":"text","text":"I’ll run the export verification script next."}]}}"#),
+                ("response_item", #"{"type":"custom_tool_call","call_id":"fixture-approval","name":"exec","input":"await tools.exec_command({cmd:\"./scripts/check-export.sh\", sandbox_permissions:\"require_escalated\", justification:\"Run the export verification script against the generated fixture.\"})"}"#),
+            ]
+        } else if showsCodexTasks {
+            tail = [
+                ("response_item", #"{"type":"function_call","name":"spawn_agent","call_id":"fixture-agent","arguments":"{\"task_name\":\"docs\",\"message\":\"Check the export documentation\"}"}"#),
+                ("event_msg", #"{"type":"item_completed","item":{"type":"SubAgentActivity","kind":"started","id":"fixture-agent","agent_thread_id":"\#(codexConversationChild)","agent_path":"/root/docs"}}"#),
+                ("response_item", #"{"type":"function_call_output","call_id":"fixture-agent","output":"Started docs agent"}"#),
+                ("event_msg", #"{"type":"task_complete"}"#),
+            ]
+            let child = [
+                #"{"timestamp":"\#(timestamp)","type":"session_meta","payload":{"id":"\#(codexConversationChild)","thread_source":"subagent","source":{"subagent":{"thread_spawn":{"parent_thread_id":"\#(codexConversationSession)","agent_path":"/root/docs","agent_role":"Reviewer"}}}}}"#,
+                #"{"timestamp":"\#(timestamp)","type":"event_msg","payload":{"type":"task_started"}}"#,
+                #"{"timestamp":"\#(timestamp)","type":"event_msg","payload":{"type":"user_message","message":"Check the export documentation."}}"#,
+                #"{"timestamp":"\#(timestamp)","type":"event_msg","payload":{"type":"agent_message","message":"I’m reviewing the CSV examples."}}"#,
+            ]
+            try? (child.joined(separator: "\n") + "\n").write(to: directory.appending(path: "rollout-2026-01-02T10-01-00-\(codexConversationChild).jsonl"), atomically: true, encoding: .utf8)
+        } else {
+            tail = (UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? "busy") == "busy" ? [] : [("event_msg", #"{"type":"task_complete"}"#)]
+        }
         let now = Date.now
-        let lines = (payloads + completion).enumerated().map { index, record in
+        let lines = (payloads + tail).enumerated().map { index, record in
             let date = now.addingTimeInterval(Double(min(index - payloads.count + 2, 0))).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
             return #"{"timestamp":"\#(date)","type":"\#(record.0)","payload":\#(record.1)}"#
         }
@@ -260,12 +289,18 @@ extension Snapshot {
         }
         let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? "busy"
         let rawLog = UserDefaults.standard.string(forKey: "snapshotConversationRawLog")
-        let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'printf \"\\033]0;\(UserDefaults.standard.string(forKey: "snapshotTerminalTitle") ?? "")\\007\"; echo the terminal is still running; sleep 600'"
+        let title = UserDefaults.standard.string(forKey: "snapshotTerminalTitle") ?? (showsCodexApproval ? "[ ! ] Action Required" : showsCodexTasks ? "Ready" : "")
+        let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'printf \"\\033]0;\(title)\\007\"; echo the terminal is still running; sleep 600'"
         store.openShell(cwd: conversationFolder, command: command)
         store.tabs = store.tabs.map { $0.id == store.selectedTabID ? Tab(id: $0.id, kind: .claude, cwd: conversationFolder, sessionID: usesCodexConversation ? codexConversationSession : conversationSession, agent: usesCodexConversation ? .codex : .claude, terminal: $0.terminal) : $0 }
         let waitingFor = UserDefaults.standard.string(forKey: "snapshotConversationWaitingFor") ?? "permission prompt"
         if usesCodexConversation {
             seedCodexConversationFixture()
+            if showsCodexTasks {
+                store.fakeTerminalTasks[codexConversationSession] = [
+                    RemoteTask(id: "fixture-shell", kind: RemoteTask.shell, title: "swift test --filter ExportTests", started: .now - 50, command: "swift test --filter ExportTests"),
+                ]
+            }
             store.refresh()
         } else {
             store.fakeLiveSessions = fakeConversationLive(status: status, waitingFor: status == "waiting" ? waitingFor : nil, updatedSecondsAgo: 20).map { [$0] } ?? []
@@ -305,7 +340,11 @@ extension Snapshot {
             for task in model.tasks { print("  running \(task.kind) \(task.title) \(task.agentType ?? "")") }
         }
         if UserDefaults.standard.bool(forKey: "snapshotConversationSubagent") {
-            store.conversationModels[tab.id]?.openAgent(agentID: "agent-docs", toolUseID: "t8")
+            if showsCodexTasks {
+                store.conversationModels[tab.id]?.openAgent(agentID: codexConversationChild, toolUseID: "fixture-agent")
+            } else {
+                store.conversationModels[tab.id]?.openAgent(agentID: "agent-docs", toolUseID: "t8")
+            }
             try? await Task.sleep(for: .seconds(1))
         }
         save(".conversation.png")

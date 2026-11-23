@@ -53,6 +53,8 @@ public struct Harness: Sendable {
     public typealias Claim = @Sendable (_ opened: Date, _ cwd: String, _ sessions: [SessionSummary], _ claimed: Set<String>) -> SessionSummary?
     public typealias ReadTranscript = @Sendable (_ url: URL, _ offset: Int?, _ queue: [String]) -> TranscriptTail.Chunk?
 
+    public typealias LocateSubagent = @Sendable (_ root: URL, _ session: URL, _ agentID: String?, _ toolUseID: String?) -> Subagent?
+
     public let agent: Agent
     public let name: String
     public let glyph: String
@@ -64,6 +66,16 @@ public struct Harness: Sendable {
     public let command: @Sendable (LaunchStart, LaunchOptions) -> String
     public let claim: Claim?
     public let readTranscript: ReadTranscript?
+
+    public let approvalKeys: RemoteApprovalKeys
+    public let readApproval: (@Sendable (URL) -> PendingApproval?)?
+    public let readTasks: (@Sendable (_ root: URL, _ session: URL) -> [RemoteTask])?
+    public let locateSubagent: LocateSubagent
+    public let readSubagentTranscript: ReadTranscript
+    public let summaryContext: (@Sendable (SessionSummary) -> RemoteContext?)?
+    public let readyTerminalProcess: (@Sendable (String) -> (name: String, excludedChildren: Set<String>)?)?
+
+    public var usesTranscriptActivity: Bool { supports(.backgroundTasks) && readTasks == nil }
 
     public var claimsNewSession: Bool { claim != nil }
 
@@ -84,7 +96,14 @@ public struct Harness: Sendable {
         isStatusTitle: { _ in false },
         command: { start, _ in ClaudeLaunch.command(start) },
         claim: nil,
-        readTranscript: { TranscriptTail.read($0, after: $1, queue: $2) }
+        readTranscript: { TranscriptTail.read($0, after: $1, queue: $2) },
+        approvalKeys: RemoteApprovalKeys(approve: .digit1, always: nil, deny: .escape),
+        readApproval: nil,
+        readTasks: nil,
+        locateSubagent: { _, session, agentID, toolUseID in Subagent.locate(session: session, agentID: agentID, toolUseID: toolUseID) },
+        readSubagentTranscript: { TranscriptTail.read($0, after: $1, queue: $2, includeSidechain: true) },
+        summaryContext: nil,
+        readyTerminalProcess: nil
     )
 
     public static let codex = Self(
@@ -92,13 +111,20 @@ public struct Harness: Sendable {
         name: "Codex",
         glyph: "terminal",
         isOptIn: true,
-        capabilities: [.conversation, .contextSize, .pullRequestLinks, .needsYou, .idleUnload, .worktrees, .remote],
+        capabilities: [.conversation, .contextSize, .pullRequestLinks, .needsYou, .approvals, .backgroundTasks, .idleUnload, .worktrees, .remote],
         liveSource: .tabSignals,
         readLive: CodexLive.sessions,
         isStatusTitle: { CodexRunState(title: $0) != nil },
         command: CodexLaunch.command,
         claim: { CodexLaunch.claim(for: $0, cwd: $1, in: $2, excluding: $3) },
-        readTranscript: { CodexTranscript.read($0, after: $1, queue: $2) }
+        readTranscript: CodexTranscript.read,
+        approvalKeys: RemoteApprovalKeys(approve: .digit1, always: .digit2, deny: .digit3),
+        readApproval: CodexTranscript.pendingApproval,
+        readTasks: CodexSubagents.tasks,
+        locateSubagent: CodexSubagents.locate,
+        readSubagentTranscript: CodexTranscript.read,
+        summaryContext: CodexModels.context,
+        readyTerminalProcess: { CodexRunState(title: $0) == .ready ? ("codex", ["codex-code-mode-host"]) : nil }
     )
 
     public static let all = [claude, codex]

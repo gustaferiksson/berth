@@ -105,6 +105,7 @@ struct SessionView: View {
                     session: session,
                     sessionID: sessionID,
                     pendingCall: isWaitingForApproval ? turns.last?.openCall : nil,
+                    approval: activity?.approval,
                     context: activity?.context,
                     openContext: { isShowingContext = true }
                 )

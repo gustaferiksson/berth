@@ -10,6 +10,7 @@ struct SessionControls: View {
     let session: RemoteSession?
     let sessionID: String
     let pendingCall: ToolCall?
+    let approval: RemoteApproval?
     let context: RemoteContext?
     let openContext: (() -> Void)?
 
@@ -25,13 +26,18 @@ struct SessionControls: View {
             } else {
                 VStack(spacing: 8) {
                     if let session, session.status == "waiting" {
-                        ApprovalCard(session: session, pendingCall: session.waitingFor == "permission prompt" ? pendingCall : nil)
+                        ApprovalCard(session: session, pendingCall: approvalCall(for: session))
                     }
                     Composer(
                         sessionID: sessionID,
                         agent: session?.agent ?? .legacyClaude,
                         isWorking: session?.status == "busy",
-                        declining: session?.status == "waiting" && session?.waitingFor != "needs input" ? session : nil,
+                        declining: session.flatMap { waiting in
+                            guard waiting.status == "waiting", waiting.waitingFor != "needs input" else { return nil }
+                            guard waiting.agent?.approvalKeys != nil else { return waiting }
+
+                            return approvalCall(for: waiting).flatMap { $0.use.name == "AskUserQuestion" ? nil : waiting }
+                        },
                         context: context,
                         openContext: openContext,
                         draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
@@ -42,6 +48,13 @@ struct SessionControls: View {
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
+    }
+
+    private func approvalCall(for session: RemoteSession) -> ToolCall? {
+        if session.waitingFor == "permission prompt" { return pendingCall }
+        guard let approval, approval.waitingSince == session.waitingSince else { return nil }
+
+        return ToolCall(use: approval.call, result: nil)
     }
 }
 
@@ -113,9 +126,11 @@ private struct ApprovalCard: View {
                         }
                     }
                 }
-                Button("Dismiss", role: .destructive, action: deny)
-                    .buttonStyle(.borderless)
-                    .frame(maxWidth: .infinity)
+                if (agent.approvalKeys?.deny ?? .escape) == .escape {
+                    Button("Dismiss", role: .destructive, action: deny)
+                        .buttonStyle(.borderless)
+                        .frame(maxWidth: .infinity)
+                }
             } else if let plan {
                 Text("Ready to start?")
                     .font(.headline)
@@ -145,11 +160,11 @@ private struct ApprovalCard: View {
                     Button(isExpanded ? "Show Less" : "Show More") { isExpanded.toggle() }
                         .font(.footnote)
                 }
-                actions(allow: "Allow", deny: "Deny")
+                actions(allow: "Allow", deny: "Deny", always: agent.approvalKeys?.always)
             } else {
                 Text("\(agent.name) is waiting for an answer on your Mac.")
                     .font(.headline)
-                if session.waitingFor != "needs input" {
+                if session.waitingFor != "needs input", agent.approvalKeys == nil {
                     Button("Dismiss", role: .destructive, action: deny)
                         .buttonStyle(.borderless)
                         .frame(maxWidth: .infinity)
@@ -164,9 +179,9 @@ private struct ApprovalCard: View {
         .sensoryFeedback(.warning, trigger: denials)
     }
 
-    private func actions(allow: String, detail: String? = nil, deny title: String) -> some View {
+    private func actions(allow: String, detail: String? = nil, deny title: String, always: RemoteKey? = nil) -> some View {
         VStack(spacing: 4) {
-            Button { press(.digit1) } label: {
+            Button { press(session.agent?.approvalKeys?.approve ?? .digit1) } label: {
                 VStack(spacing: 0) {
                     Text(allow)
                     if let detail {
@@ -178,6 +193,10 @@ private struct ApprovalCard: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            if let always {
+                Button("Always Allow") { press(always) }
+                    .buttonStyle(.bordered)
+            }
             Button(title, role: .destructive, action: deny)
                 .buttonStyle(.borderless)
                 .frame(maxWidth: .infinity, minHeight: 44)
