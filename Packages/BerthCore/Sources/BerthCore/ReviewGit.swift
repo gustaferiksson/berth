@@ -322,15 +322,47 @@ public enum ReviewGit {
         try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
     }
 
-    static func git(_ arguments: [String], in root: String, timeout: TimeInterval? = nil) async throws -> Data {
+    public static func blame(_ path: String, at head: String, text: String, in root: String) async -> (entries: [Int: ReviewBlame], lineCount: Int)? {
+        guard !text.isEmpty, text.utf8.count <= maxBytes else { return nil }
+
+        let newlines = text.utf8.count(where: { $0 == 0x0A })
+        let fileLineCount = newlines + (text.utf8.last == 0x0A ? 0 : 1)
+        guard fileLineCount <= 20_000 else { return nil }
+
+        do {
+            try validateCommitSHA(head)
+            _ = try contained(path, in: root)
+            let inputURL = FileManager.default.temporaryDirectory.appending(path: "berth-blame-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: inputURL) }
+            guard FileManager.default.createFile(atPath: inputURL.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600]) else { return nil }
+
+            let input = try FileHandle(forReadingFrom: inputURL)
+            defer { try? input.close() }
+            let data = try await git(["blame", "--porcelain", "--encoding=UTF-8", "--no-textconv", "--contents", "-", head, "--", path], in: root, timeout: 15, input: input)
+            let entries = ReviewBlame.parse(String(decoding: data, as: UTF8.self))
+            guard entries.count == fileLineCount else { return nil }
+
+            return (entries, newlines + 1)
+        } catch {
+            return nil
+        }
+    }
+
+    public static func blameMessage(_ hash: String, in root: String) async -> String? {
+        guard (try? validateCommitSHA(hash)) != nil, let data = try? await git(["show", "-s", "--format=%B", "--encoding=UTF-8", hash, "--"], in: root, timeout: 5) else { return nil }
+
+        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
+    }
+
+    static func git(_ arguments: [String], in root: String, timeout: TimeInterval? = nil, input: FileHandle = .nullDevice) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(with: Result { try runBlocking(arguments, in: root, timeout: timeout) })
+                continuation.resume(with: Result { try runBlocking(arguments, in: root, timeout: timeout, input: input) })
             }
         }
     }
 
-    private static func runBlocking(_ arguments: [String], in root: String, timeout: TimeInterval?) throws -> Data {
+    private static func runBlocking(_ arguments: [String], in root: String, timeout: TimeInterval?, input: FileHandle) throws -> Data {
         let process = Process()
         let output = Pipe()
         let errors = Pipe()
@@ -338,7 +370,7 @@ public enum ReviewGit {
         process.arguments = arguments
         process.currentDirectoryURL = URL(filePath: root, directoryHint: .isDirectory)
         process.environment = ProcessInfo.processInfo.environment.merging(["GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"]) { $1 }
-        process.standardInput = FileHandle.nullDevice
+        process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
         try process.run()

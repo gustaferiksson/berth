@@ -680,6 +680,21 @@ enum Snapshot {
 
                 try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
             }
+            let blameSetting = UserDefaults.standard.object(forKey: ReviewStyle.showsBlameKey)
+            if let line = UserDefaults.standard.string(forKey: "snapshotReviewBlameLine").flatMap(Int.init), line > 0,
+               let right = sides.last, right.isEditable, let document = model.selectedDocument,
+               blameSetting == nil || UserDefaults.standard.bool(forKey: ReviewStyle.showsBlameKey),
+               let blame = await model.loadBlame(for: document), blame.entries[line] != nil {
+                let deadline = Date.now + 5
+                while right.blame == nil || right.side == nil, Date.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+                if let rows = right.side?.rows, rows.indices.contains(line - 1), right.lineStarts.indices.contains(line - 1) {
+                    window.makeFirstResponder(right)
+                    right.setSelectedRange(NSRange(location: right.lineStarts[line - 1], length: 0))
+                    right.scrollVertically(to: right.top(ofRow: rows[line - 1]) - right.visibleRect.height / 3)
+                    try? await Task.sleep(for: .milliseconds(400))
+                    save(".blame.png")
+                }
+            }
             let click = { (point: [Double]) in
                 let location = NSPoint(x: point.first ?? 0, y: (window.contentView?.frame.height ?? 0) - (point.last ?? 0))
                 let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) }

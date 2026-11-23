@@ -20,6 +20,7 @@ struct ReviewStyle: Equatable {
     static let fontSizeKey = "reviewFontSize"
     static let lineHeightKey = "reviewLineHeight"
     static let showsMinimapKey = "reviewShowsMinimap"
+    static let showsBlameKey = "reviewShowsBlame"
     static let monospacedFamilies = Set((NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? []).compactMap { NSFont(name: $0, size: 12)?.familyName }).sorted()
 
     private struct Syntax: Equatable {

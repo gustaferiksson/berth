@@ -17,6 +17,20 @@ struct ReviewTab: Identifiable {
     var document: ReviewDocument { history[index].document }
 }
 
+nonisolated struct ReviewBlameSnapshot: Sendable {
+    let id = UUID()
+    let root: String
+    let entries: [Int: ReviewBlame]
+    let lineCount: Int
+}
+
+private struct ReviewBlameKey: Hashable {
+    let root: String
+    let path: String
+    let head: String
+    let contentHash: Int
+}
+
 enum ReviewDiffLayout: String {
     case auto
     case sideBySide
@@ -35,6 +49,7 @@ final class ReviewModel {
     private(set) var error: (any Error)?
     private(set) var isLoading = false
     private(set) var contents: [ReviewDocument: ReviewContents] = [:]
+    private(set) var blameRevision = UUID()
     private(set) var language: ReviewLanguage?
     private(set) var tabs: [ReviewTab] = []
     private(set) var graphCommits: [GraphCommit] = []
@@ -77,6 +92,7 @@ final class ReviewModel {
     @ObservationIgnored private var commitSelection = 0
     @ObservationIgnored private(set) var loadCount = 0
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
+    @ObservationIgnored private var blameCache: [ReviewBlameKey: Task<ReviewBlameSnapshot?, Never>] = [:]
     @ObservationIgnored private var pullRequestDetailsLoadedAt: [Int: (repository: String, date: Date)] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
     @ObservationIgnored private var savedFromCommitted: Set<String> = []
@@ -115,6 +131,10 @@ final class ReviewModel {
 
     private func loadLists() async {
         loadCount += 1
+        defer {
+            blameCache.removeAll()
+            blameRevision = UUID()
+        }
         let refreshGraph = graphHasLoaded || isLoadingGraph || graphError != nil
         do {
             let picks = UserDefaults.standard.dictionary(forKey: Self.baseBranchesKey) as? [String: [String: String]] ?? [:]
@@ -351,6 +371,29 @@ final class ReviewModel {
         await loadContents(of: document)
     }
 
+    func loadBlame(for document: ReviewDocument) async -> ReviewBlameSnapshot? {
+        let path = document.path
+        guard document.compare == nil || document.compare == .uncommitted, let changes,
+              case let .text(text)? = contents[document]?.modified,
+              changes.uncommitted.first(where: { $0.path == path })?.status != .added
+        else { return nil }
+
+        let revision = blameRevision
+        let contentHash = await Task.detached { text.hashValue }.value
+        guard revision == blameRevision, !Task.isCancelled else { return nil }
+
+        let key = ReviewBlameKey(root: changes.root, path: path, head: changes.head, contentHash: contentHash)
+        if let cached = blameCache[key] { return await cached.value }
+
+        let task = Task.detached(priority: .utility) { () -> ReviewBlameSnapshot? in
+            guard let blame = await ReviewGit.blame(path, at: changes.head, text: text, in: changes.root) else { return nil }
+
+            return ReviewBlameSnapshot(root: changes.root, entries: blame.entries, lineCount: blame.lineCount)
+        }
+        blameCache[key] = task
+        return await task.value
+    }
+
     private func listedFile(for document: ReviewDocument, in changes: ReviewChanges) -> ReviewFile? {
         let files: [ReviewFile]
         switch document.compare {
@@ -442,6 +485,8 @@ final class ReviewModel {
         drafts[path] = nil
         if selectedDocument == ReviewDocument(path: path, compare: .committed) { savedFromCommitted.insert(path) }
         setWorkingTreeText(.text(text), of: path)
+        blameCache = blameCache.filter { $0.key.path != path }
+        blameRevision = UUID()
     }
 
     private func setWorkingTreeText(_ text: ReviewText?, of path: String) {
@@ -1901,6 +1946,8 @@ struct ReviewDiffColumn: View {
                             replyDrafts: Bindable(model).replyDrafts,
                             isWritingPullRequest: model.isWritingPullRequest,
                             style: style,
+                            blameRevision: model.blameRevision,
+                            loadBlame: { await model.loadBlame(for: document) },
                             language: areLanguageServersEnabled ? model.language : nil,
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
                             revealLine: revealLine,
