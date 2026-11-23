@@ -66,7 +66,7 @@ This is the slim first version; the rest is listed under Later.
 - Graph: switch the bottom pane to Graph to browse the repository’s commit history with branch,
   remote and tag labels. Select a commit to expand its changed files and preview the first diff.
   Load More shows older commits. See `Sources/ReviewGraphView.swift`.
-- Hovering a file row (any section) shows an Open File button (`doc`) before the counts; it opens
+- Hovering a file row (any section) shows an Open File button (`doc`) over the counts, which stay visible otherwise (selected rows too); it opens
   the working-tree file as the plain file, through the same `ReviewModel.open`. Deleted files
   have none.
 - Refreshing: the panel reloads its lists on its own when the repository changes on disk. While
