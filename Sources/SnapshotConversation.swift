@@ -288,7 +288,10 @@ extension Snapshot {
                 print("switch visibility at \(argument): toolbar button \(store.canShowConversation), footer \(store.selectedStatusBarIsReachable), suspended \(store.conversationSuspended.contains(tab.id))")
                 save(".\(argument).png")
 
-            case "preview": if let data = store.conversationModels[tab.id]?.turns.lazy.compactMap({ $0.prompt?.images?.first }).first { ConversationImagePreview.shared.show(data) }
+            case "preview":
+                guard let model = store.conversationModels[tab.id], let prompt = model.turns.lazy.compactMap(\.prompt).first(where: { $0.images != nil }) else { break }
+
+                if let data = await model.promptImage(entryID: prompt.id, index: 0) { ConversationImagePreview.shared.showOriginal(data) }
 
             case "log": log()
 

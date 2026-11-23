@@ -1179,6 +1179,7 @@ private struct RowChrome: ViewModifier {
             .contentShape(.rect)
             .onTapGesture(perform: select)
             .onHover { isHovering = $0 }
+            // swiftlint:disable:next negative_padding - widens the row's hit area back to the list edges, the close button is an overlay added after
             .padding(.horizontal, -Self.listMargin)
             .overlay(alignment: .trailing) {
                 if let close {

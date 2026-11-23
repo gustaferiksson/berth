@@ -173,7 +173,9 @@ public enum TranscriptTail {
             }
         }
         let rangeByEntry = Dictionary(parsed.flatMap { line in line.entries.map { ($0.id, line.range) } }) { $1 }
-        let imageLines = Dictionary(resolved.flatMap { entry in (entry.imageRefs ?? []).compactMap { ref in rangeByEntry[entry.id].map { (ref.id, $0) } } }) { $1 }
+        let resultLines = resolved.flatMap { entry in (entry.imageRefs ?? []).compactMap { ref in rangeByEntry[entry.id].map { (ref.id, $0) } } }
+        let promptLines = resolved.flatMap { entry in (entry.images ?? []).indices.compactMap { index in rangeByEntry[entry.id].map { (TranscriptImages.promptImageID(entryID: entry.id, index: index), $0) } } }
+        let imageLines = Dictionary(resultLines + promptLines) { $1 }
         return (resolved, consumed, queue, imageLines)
     }
 
@@ -198,8 +200,7 @@ public enum TranscriptTail {
         let numbered = imageBlocks.enumerated().lazy.compactMap { index, block -> (number: Int, data: Data)? in
             guard let base64 = (block["source"] as? [String: Any])?["data"] as? String,
                   let data = Data(base64Encoded: base64),
-                  let thumbnail = TranscriptImages.jpeg(data, maxPixel: thumbnailPixels, quality: 0.85),
-                  thumbnail.count <= maxThumbnailBytes
+                  let thumbnail = [(thumbnailPixels, 0.85), (thumbnailPixels, 0.6), (640, 0.5)].lazy.compactMap({ TranscriptImages.jpeg(data, maxPixel: $0.0, quality: $0.1) }).first(where: { $0.count <= maxThumbnailBytes })
             else { return nil }
 
             return (placeholders.count == imageBlocks.count ? placeholders[index] : index + 1, thumbnail)
