@@ -98,7 +98,6 @@ struct ConversationPrompt: View {
             }
         }
         .font(theme.conversationFont())
-        .lineSpacing(2)
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
         .background {
@@ -240,7 +239,6 @@ struct ConversationMarkdown: View {
                     Text(attributed)
                         .font(theme.conversationFont())
                         .foregroundStyle(theme.foreground)
-                        .lineSpacing(2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                 }
@@ -262,13 +260,14 @@ private enum ConversationMarkdownCache {
         let foreground: Color
         let secondary: Color
         let unread: Color
+        let inlineCode: Color
         let font: NSFont
     }
 
     private static var cached: [Key: [Segment]] = [:]
 
     static func segments(text: String, theme: GhosttyTheme) -> [Segment] {
-        let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, font: theme.font)
+        let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font)
         if let segments = cached[key] { return segments }
 
         var blocks: [[MarkdownBlock]] = []
@@ -313,8 +312,12 @@ private enum ConversationMarkdownCache {
 
     private static func styled(_ block: MarkdownBlock, theme: GhosttyTheme) -> AttributedString {
         var attributed = (try? AttributedString(markdown: block.lines.joined(separator: "\n"), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(block.lines.joined(separator: "\n"))
-        for run in attributed.runs where run.inlinePresentationIntent?.contains(.code) == true || run.link != nil {
-            attributed[run.range].foregroundColor = theme.unread
+        for run in attributed.runs {
+            if run.inlinePresentationIntent?.contains(.code) == true {
+                attributed[run.range].foregroundColor = theme.inlineCode
+            } else if run.link != nil {
+                attributed[run.range].foregroundColor = theme.unread
+            }
         }
         if case let .heading(level) = block.kind {
             attributed.font = theme.conversationFont(level == 1 ? 4 : level == 2 ? 2 : 1).bold()
@@ -396,7 +399,6 @@ struct ConversationCodeBlock: View {
             ScrollView(maxHeight.isFinite ? [.horizontal, .vertical] : .horizontal) {
                 HighlightedConversationText(text: text, language: syntax ?? language)
                     .font(theme.conversationFont(-1))
-                    .lineSpacing(2)
                     .textSelection(.enabled)
                     .padding(12)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }

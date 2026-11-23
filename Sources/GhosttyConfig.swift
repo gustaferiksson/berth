@@ -1,3 +1,4 @@
+import CoreText
 import Foundation
 import GhosttyTerminal
 import SwiftUI
@@ -13,6 +14,11 @@ enum GhosttyConfig {
             + ["super+9", "super+shift+[", "super+shift+]", "ctrl+tab", "ctrl+shift+tab"]
             + (1...8).flatMap { ["super+\($0)", "super+digit_\($0)"] }
     ).map { "keybind = \($0)=unbind" }
+
+    static func registerBundledFonts() {
+        let urls = Bundle.main.urls(forResourcesWithExtension: "ttf", subdirectory: nil) ?? []
+        CTFontManagerRegisterFontURLs(urls as CFArray, .process, true, nil)
+    }
 
     static let watchedPaths = directories + ["\(home)/.config"]
     static let overrideFile = "\(home)/.config/berth/ghostty"
@@ -99,6 +105,11 @@ enum GhosttyConfig {
         let withoutTheme = lines.filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("theme") }
         let combined = [themeContents] + withoutTheme
         let values = settings(in: combined.flatMap { $0.split(separator: "\n").map(String.init) }).reduce(into: [String: String]()) { values, setting in
+            if setting.key == "font-feature" {
+                values[setting.key] = [values[setting.key], setting.value].compactMap(\.self).joined(separator: ",")
+                return
+            }
+
             guard setting.key == "palette" else {
                 values[setting.key] = setting.value
                 return
@@ -156,6 +167,7 @@ struct GhosttyTheme: Equatable {
     let shellAttached: Color
     let closed: Color
     let unread: Color
+    let inlineCode: Color
     let series: [Color]
     let font: NSFont
 
@@ -179,12 +191,20 @@ struct GhosttyTheme: Equatable {
         shellAttached = values["palette-13"] == values["palette-5"] ? .pink : readable("palette-13", .pink, 4.5)
         closed = readable("palette-1", .red, 4.5)
         unread = readable("palette-4", .blue, 4.5)
+        inlineCode = isDark ? Color(red: 177 / 255, green: 185 / 255, blue: 249 / 255) : Color(red: 79 / 255, green: 70 / 255, blue: 229 / 255)
         let slots = [("palette-6", Color.teal), ("palette-1", .red), ("palette-4", .blue), ("palette-3", .yellow), ("palette-5", .purple), ("palette-2", .green)]
         series = slots.enumerated().map { index, slot in
             slots[(index + 1)...].contains { values[$0.0] == values[slot.0] } ? slot.1 : readable(slot.0, slot.1, 3)
         }
         let fontSize = values["font-size"].flatMap(Double.init) ?? 13
-        font = values["font-family"].flatMap { NSFontManager.shared.font(withFamily: $0.trimmingCharacters(in: CharacterSet(charactersIn: "\"")), traits: [], weight: 5, size: fontSize) } ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let family = values["font-family"]?.trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? "JetBrains Mono"
+        let base = NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: fontSize) ?? .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        let features = (values["font-feature"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.count >= 4 }.map { feature -> [String: Any] in
+            let enabled = !feature.hasPrefix("-")
+            let tag = String(feature.drop { $0 == "-" || $0 == "+" }.prefix(4))
+            return [kCTFontOpenTypeFeatureTag as String: tag, kCTFontOpenTypeFeatureValue as String: enabled ? 1 : 0]
+        }
+        font = features.isEmpty ? base : NSFont(descriptor: base.fontDescriptor.addingAttributes([.featureSettings: features]), size: fontSize) ?? base
     }
 }
 

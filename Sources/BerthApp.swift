@@ -16,6 +16,7 @@ struct BerthApp: App {
     @AppStorage(GeneralSettings.conversationKey) private var isConversationEnabled = false
 
     init() {
+        GhosttyConfig.registerBundledFonts()
         // Restyling a SwiftUI List's scroll view afterwards re-tiles it inside a SwiftUI update, which crashes outline lists.
         var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         arguments["AppleShowScrollBars"] = "WhenScrolling"

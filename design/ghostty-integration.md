@@ -13,3 +13,5 @@ App colours come from the resolved Ghostty config (`GhosttyTheme`): colour schem
 ## Terminal theme
 
 Pass `TerminalTheme()` (empty) to the controller; the package default theme overrides the user's colours.
+
+- The Conversation view uses the terminal font: the configured family, else the bundled JetBrains Mono (Ghostty's default, registered from Resources/Fonts at launch, OFL), at the terminal font size, with font-feature settings applied and no extra line spacing (GhosttyTheme.font).
