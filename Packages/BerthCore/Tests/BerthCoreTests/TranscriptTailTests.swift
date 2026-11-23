@@ -170,6 +170,24 @@ struct TranscriptTailTests {
         let popped = TranscriptTail.entries(in: Data((#"{"type":"queue-operation","operation":"popAll","content":"second"}"# + "\n").utf8), dropFirst: false, queue: parsed.queue)
         #expect(popped.queue.isEmpty)
     }
+
+    @Test func deliveredPromptClearsItsQueueItemEvenWhenTheQueueDrifted() {
+        let stale = #"{"type":"queue-operation","operation":"enqueue","content":"<event kind=\"task\">never dequeued</event>"}"#
+        let sent = [
+            #"{"type":"queue-operation","operation":"enqueue","content":"add a border"}"#,
+            #"{"type":"queue-operation","operation":"dequeue"}"#,
+        ]
+        let delivered = #"{"type":"user","uuid":"u1","promptSource":"queued","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":[{"type":"text","text":"add a border"}]}}"#
+        let first = TranscriptTail.entries(in: Data(([stale] + sent).joined(separator: "\n").utf8 + Data("\n".utf8)), dropFirst: false, queue: [])
+        #expect(first.queue.contains("add a border"))
+
+        let next = TranscriptTail.entries(in: Data((delivered + "\n").utf8), dropFirst: false, queue: first.queue)
+        #expect(next.entries.map(\.text) == ["add a border"])
+        #expect(!next.queue.contains("add a border"))
+
+        let together = TranscriptTail.entries(in: Data(([stale] + sent + [delivered]).joined(separator: "\n").utf8 + Data("\n".utf8)), dropFirst: false, queue: [])
+        #expect(!together.queue.contains { !$0.hasPrefix("<") })
+    }
 }
 
 struct RemoteProtocolTests {

@@ -154,18 +154,22 @@ public enum TranscriptTail {
             entry.imageRefs = [RemoteImageRef(id: "\(entry.id)-file", bytes: 0)]
             return entry
         }
-        let operations = lines.lazy
-            .filter { $0.range(of: Data(#""type":"queue-operation""#.utf8)) != nil }
-            .compactMap { try? decoder.decode(Record.self, from: Data($0)) }
-        let queue = operations.reduce(into: queue) { queue, record in
-            if record.operation == "enqueue" {
-                queue.append(record.content ?? "")
-            } else if record.operation == "dequeue", !queue.isEmpty {
-                queue.removeFirst()
-            } else if record.operation == "remove", let index = queue.firstIndex(of: record.content ?? "") {
-                queue.remove(at: index)
-            } else if record.operation == "popAll" {
-                queue.removeAll()
+        var queue = queue
+        for (line, parsedLine) in zip(lines, parsed) {
+            if line.range(of: Data(#""type":"queue-operation""#.utf8)) != nil, let record = try? decoder.decode(Record.self, from: Data(line)) {
+                if record.operation == "enqueue" {
+                    queue.append(record.content ?? "")
+                } else if record.operation == "dequeue", !queue.isEmpty {
+                    queue.removeFirst()
+                } else if record.operation == "remove", let index = queue.firstIndex(of: record.content ?? "") {
+                    queue.remove(at: index)
+                } else if record.operation == "popAll" {
+                    queue.removeAll()
+                }
+            }
+            for entry in parsedLine.entries where entry.kind == .prompt && entry.name != "bash" {
+                let text = PendingPrompts.normalised(entry.text)
+                if !text.isEmpty, let index = queue.firstIndex(where: { PendingPrompts.normalised($0) == text }) { queue.remove(at: index) }
             }
         }
         let rangeByEntry = Dictionary(parsed.flatMap { line in line.entries.map { ($0.id, line.range) } }) { $1 }
