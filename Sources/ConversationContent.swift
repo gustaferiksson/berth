@@ -63,9 +63,10 @@ struct ConversationPrompt: View {
 
         return VStack(alignment: .trailing, spacing: 6) {
             if let images = entry.images {
+                let numbers = entry.imageNumbers ?? Array(1...max(images.count, 1))
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
-                        ConversationPromptImage(data: data, index: index)
+                        ConversationPromptImage(data: data, number: numbers[index])
                     }
                 }
             }
@@ -594,7 +595,7 @@ struct ConversationSpinner: View {
 
 private struct ConversationPromptImage: View {
     let data: Data
-    let index: Int
+    let number: Int
 
     @Environment(\.displayScale) private var displayScale
     @State private var image: NSImage?
@@ -612,9 +613,18 @@ private struct ConversationPromptImage: View {
             }
             .frame(width: image.map { min(240, 120 * $0.size.width / max($0.size.height, 1)) } ?? 160, height: 120)
             .clipShape(.rect(cornerRadius: 10))
+            .overlay(alignment: .bottomLeading) {
+                Text("#\(number)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.black.opacity(0.6), in: .capsule)
+                    .padding(4)
+            }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Image \(index + 1)")
+        .accessibilityLabel("Image \(number)")
         .accessibilityHint("Opens a preview")
         .contextMenu {
             Button("Copy Image") {

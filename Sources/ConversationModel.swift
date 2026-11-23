@@ -22,13 +22,13 @@ struct ConversationDraft {
         numbers[url].map { "[Image #\($0)]" } ?? "\0"
     }
 
-    mutating func attach(_ urls: [URL]) -> String {
+    mutating func attach(_ urls: [URL], afterImage lastSent: Int) -> String {
         var tokens: [String] = []
         for url in urls where !files.contains(url) {
             files.append(url)
             guard Self.isImage(url) else { continue }
 
-            numbers[url] = (numbers.values.max() ?? 0) + 1
+            numbers[url] = max(numbers.values.max() ?? 0, lastSent) + 1
             tokens.append(token(for: url))
         }
         return tokens.joined(separator: " ")
@@ -122,7 +122,8 @@ final class ConversationModel {
 
     func attach(_ urls: [URL]) -> String {
         var draft = draft
-        let tokens = draft.attach(urls)
+        let lastSent = turns.lazy.compactMap { $0.prompt?.imageNumbers?.max() }.max() ?? 0
+        let tokens = draft.attach(urls, afterImage: lastSent)
         self.draft = draft
         return tokens
     }

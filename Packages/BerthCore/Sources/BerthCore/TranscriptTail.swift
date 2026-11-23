@@ -193,17 +193,18 @@ public enum TranscriptTail {
     }
 
     static func prompt(id: String, text: String, date: Date?, blocks: [[String: Any]]) -> RemoteEntry {
-        let images = Array(blocks.lazy.compactMap { block -> Data? in
-            guard block["type"] as? String == "image",
-                  let base64 = (block["source"] as? [String: Any])?["data"] as? String,
+        let imageBlocks = blocks.filter { $0["type"] as? String == "image" }
+        let placeholders = text.matches(of: /\[Image #(\d+)\]/).compactMap { Int($0.output.1) }
+        let numbered = imageBlocks.enumerated().lazy.compactMap { index, block -> (number: Int, data: Data)? in
+            guard let base64 = (block["source"] as? [String: Any])?["data"] as? String,
                   let data = Data(base64Encoded: base64),
                   let thumbnail = TranscriptImages.jpeg(data, maxPixel: thumbnailPixels, quality: 0.85),
                   thumbnail.count <= maxThumbnailBytes
             else { return nil }
 
-            return thumbnail
-        }.prefix(maxImages))
-        let shown = images.isEmpty ? text : text.replacing(/\[Image #\d+\]/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return RemoteEntry(id: id, kind: .prompt, text: shown, date: date, images: images.isEmpty ? nil : images)
+            return (placeholders.count == imageBlocks.count ? placeholders[index] : index + 1, thumbnail)
+        }.prefix(maxImages)
+        let shown = numbered.isEmpty ? text : text.replacing(/\[Image #\d+\]/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return RemoteEntry(id: id, kind: .prompt, text: shown, date: date, images: numbered.isEmpty ? nil : numbered.map(\.data), imageNumbers: numbered.isEmpty ? nil : numbered.map(\.number))
     }
 }

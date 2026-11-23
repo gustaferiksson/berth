@@ -281,6 +281,16 @@ struct TranscriptTests {
         #expect(summary.lastTypedPrompt == nil)
     }
 
+    @Test func promptImagesKeepClaudeCodesNumbers() {
+        let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        let image = #"{"type":"image","source":{"data":"\#(png)"}}"#
+        let line = #"{"type":"user","uuid":"u1","timestamp":"2026-10-29T10:00:00.000Z","message":{"content":[{"type":"text","text":"[Image #12] and [Image #13] compare"},\#(image),\#(image)]}}"#
+        let plain = #"{"type":"user","uuid":"u2","timestamp":"2026-10-29T10:01:00.000Z","message":{"content":[{"type":"text","text":"look"},\#(image)]}}"#
+        let entries = TranscriptTail.entries(in: Data((line + "\n" + plain + "\n").utf8), dropFirst: false, queue: []).entries
+        #expect(entries.map(\.imageNumbers) == [[12, 13], [1]])
+        #expect(entries[0].text == "and  compare")
+    }
+
     private func transcript(withPrompt prompt: String, followedByToolResults count: Int) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appending(path: "berth-\(UUID().uuidString)/-x/far.jsonl")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
