@@ -10,6 +10,7 @@ struct ConversationView: View {
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
+    @State private var barHeight: CGFloat = 0
     @State private var isDropTargeted = false
     @State private var composerFocus = 0
     @State private var now = Date.now
@@ -39,7 +40,7 @@ struct ConversationView: View {
                 now = .now
             }
             .onChange(of: live?.status) { model.refresh() }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .overlay(alignment: .bottom) {
                 ConversationBottomBar(
                     model: model,
                     tab: tab,
@@ -57,6 +58,7 @@ struct ConversationView: View {
                     answer: { _ = answer($0, waiting) },
                     deny: { _ = deny(denial) }
                 )
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
             }
             .overlay {
                 ConversationDropTarget(isTargeted: $isDropTargeted) { files in
@@ -121,7 +123,7 @@ struct ConversationView: View {
             .frame(maxWidth: .infinity)
         }
         .contentMargins(.top, 24, for: .scrollContent)
-        .contentMargins(.bottom, model.tasks.isEmpty ? ConversationBottomBar.fadeHeight : 66, for: .scrollContent)
+        .contentMargins(.bottom, barHeight + (model.tasks.isEmpty ? 24 : 66), for: .scrollContent)
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
         .scrollEdgeEffectStyle(.soft, for: .top)
@@ -515,7 +517,7 @@ private extension PendingApproval {
 }
 
 private struct ConversationBottomBar: View {
-    static let fadeHeight = 28.0
+    private static let shadeHeight = 46.0
 
     let model: ConversationModel
     let tab: Tab
@@ -578,15 +580,11 @@ private struct ConversationBottomBar: View {
                 .alignmentGuide(.top) { $0[.bottom] + 10 }
         }
         .frame(maxWidth: .infinity)
-        .background(alignment: .top) {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [surface.opacity(0), surface], startPoint: .top, endPoint: .bottom)
-                    .frame(height: Self.fadeHeight)
-                surface
-            }
-            .padding(.top, -Self.fadeHeight)
-            .ignoresSafeArea(edges: .bottom)
-            .allowsHitTesting(false)
+        .background(alignment: .bottom) {
+            LinearGradient(colors: [surface.opacity(0), surface.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+                .frame(height: Self.shadeHeight)
+                .ignoresSafeArea(edges: .bottom)
+                .allowsHitTesting(false)
         }
         .animation(.smooth, value: isActive)
         .animation(.smooth, value: approval)
