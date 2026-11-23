@@ -13,7 +13,7 @@ struct ConversationComposer: View {
     let context: RemoteContext?
     let focusRequest: Int
 
-    private static let inset = 8.0
+    private static let inset = 10.0
     private static let controlHeight = 24.0
     private static let tileSize = 56.0
 
@@ -58,9 +58,9 @@ struct ConversationComposer: View {
                         submit: send,
                         attach: { canAttach ? model.attach($0) : "" }
                     )
-                    .padding(.horizontal, Self.inset)
-                    .padding(.top, 10)
-                    .padding(.bottom, 6)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, Self.inset)
                     HStack(spacing: Self.inset) {
                         if canAttach {
                             Menu {
