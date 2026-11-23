@@ -234,6 +234,9 @@ private struct Composer: View {
     @AppStorage("quickReplies") private var replies = QuickReply.defaults
     @State private var confirmedCommand: SlashCommand?
     @FocusState private var isFocused: Bool
+    @ScaledMetric(relativeTo: .body) private var plusGlyphSize = 18.0
+
+    private let controlFill = Color.primary.opacity(0.06)
 
     var body: some View {
         let isExpanded = isFocused || !draft.isEmpty || !attachments.isEmpty
@@ -268,7 +271,7 @@ private struct Composer: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: isExpanded ? 28 : 23.5))
+        .glassEffect(.regular, in: .rect(cornerRadius: isExpanded ? 28 : ComposerLayout.controlsHeight / 2))
         .padding(.horizontal, isExpanded ? 12 : 38)
         .padding(.bottom, isExpanded ? 12 : 4)
         .animation(.smooth(duration: 0.3), value: isExpanded)
@@ -330,14 +333,19 @@ private struct Composer: View {
                 }
             }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(.title2, weight: .light))
-                .frame(width: 44, height: 44)
+            Label("Attach", systemImage: "plus")
+                .labelStyle(.iconOnly)
+                .font(.system(
+                    size: plusGlyphSize,
+                    weight: .medium
+                ))
+                .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
+                .background(controlFill, in: .circle)
+                .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
                 .contentShape(.rect)
         }
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
-        .accessibilityLabel("Attach")
     }
 
     private func trailingControls(isExpanded: Bool) -> some View {
@@ -350,19 +358,13 @@ private struct Composer: View {
             if let context, let openContext {
                 if !agent.canChangeSettings {
                     Button(action: openContext) {
-                        Group {
-                            if isExpanded {
-                                Text(context.model)
-                                    .lineLimit(1)
-                                    .padding(.horizontal, 6)
-                            } else {
-                                Image(systemName: "chart.pie")
-                            }
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .contentShape(.rect)
+                        Image(systemName: "chart.pie")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
+                            .background(controlFill, in: .circle)
+                            .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
+                            .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(context.model)
@@ -382,9 +384,9 @@ private struct Composer: View {
                 Image(systemName: showsStop ? "stop.fill" : "arrow.up")
                     .font(.body.weight(.semibold))
                     .foregroundStyle(isAvailable ? Color.white : Color.secondary)
-                    .frame(width: 30, height: 30)
-                    .background(isAvailable ? Color.accentColor : Color.secondary.opacity(0.15), in: .circle)
-                    .frame(width: 44, height: 44)
+                    .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
+                    .background(isAvailable ? Color.accentColor : controlFill, in: .circle)
+                    .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -437,8 +439,11 @@ private struct Composer: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .padding(.horizontal, 6)
-                .frame(minWidth: 44, minHeight: 44)
+                .padding(.horizontal, 14)
+                .frame(height: ComposerLayout.controlSize)
+                .background(controlFill, in: .capsule)
+                .frame(minWidth: ComposerLayout.hitSize)
+                .frame(height: ComposerLayout.hitSize)
                 .contentShape(.rect)
         }
         .menuIndicator(.hidden)
@@ -572,7 +577,13 @@ private struct ComposerLayout: Layout {
     let isExpanded: Bool
     let hasAttachmentMenu: Bool
 
-    private static let controlsHeight: CGFloat = 47
+    static let controlSize: CGFloat = 34
+    static let hitSize: CGFloat = 44
+    static let controlsHeight = controlSize + 2 * controlInset
+
+    private static let controlInset: CGFloat = 8
+    private static let hitPadding = (hitSize - controlSize) / 2
+    private static let hitInset = controlInset - hitPadding
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? (isExpanded ? 369 : 317)
@@ -588,18 +599,19 @@ private struct ComposerLayout: Layout {
             anchor: .topLeading,
             proposal: ProposedViewSize(width: metrics.field.width, height: metrics.field.height)
         )
-        subviews[1].place(at: CGPoint(x: bounds.minX + 1, y: controlsCenter), anchor: .leading, proposal: .unspecified)
-        subviews[2].place(at: CGPoint(x: bounds.maxX - 1.5, y: controlsCenter), anchor: .trailing, proposal: ProposedViewSize(metrics.trailing))
+        subviews[1].place(at: CGPoint(x: bounds.minX + Self.hitInset, y: controlsCenter), anchor: .leading, proposal: .unspecified)
+        subviews[2].place(at: CGPoint(x: bounds.maxX - Self.hitInset, y: controlsCenter), anchor: .trailing, proposal: ProposedViewSize(metrics.trailing))
         if subviews.count > 3 {
             subviews[3].place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: metrics.tilesHeight))
         }
     }
 
     private func measure(width: CGFloat, subviews: Subviews) -> (height: CGFloat, field: CGRect, trailing: CGSize, tilesHeight: CGFloat) {
-        let trailing = subviews[2].sizeThatFits(ProposedViewSize(width: max(44, width - 50), height: Self.controlsHeight))
-        let compactLeading: CGFloat = hasAttachmentMenu ? 48 : 14
-        let fieldLeading: CGFloat = isExpanded ? 28 : compactLeading
-        let fieldTrailing = isExpanded ? 28 : trailing.width + 4
+        let leadingWidth = hasAttachmentMenu ? Self.hitSize : 0
+        let trailingWidth = max(Self.hitSize, width - leadingWidth - 2 * Self.hitInset)
+        let trailing = subviews[2].sizeThatFits(ProposedViewSize(width: trailingWidth, height: Self.controlsHeight))
+        let fieldLeading = isExpanded ? 20 : hasAttachmentMenu ? Self.controlSize + 2 * Self.controlInset : 14
+        let fieldTrailing = isExpanded ? 20 : trailing.width + 2 * Self.hitInset
         let fieldWidth = max(0, width - fieldLeading - fieldTrailing)
         let fieldHeight = max(22, subviews[0].sizeThatFits(ProposedViewSize(width: fieldWidth, height: nil)).height)
 

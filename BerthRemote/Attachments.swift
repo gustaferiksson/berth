@@ -77,11 +77,13 @@ struct AttachmentTile: View {
         .accessibilityValue(status)
         .overlay(alignment: .topTrailing) {
             Button(action: remove) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .black.opacity(0.8))
-                    .frame(width: 44, height: 44, alignment: .topTrailing)
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, height: 34)
+                    .background(Color.primary.opacity(0.06), in: .circle)
+                    .background(.background, in: .circle)
+                    .frame(width: 44, height: 44)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
