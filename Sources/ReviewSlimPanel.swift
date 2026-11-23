@@ -43,12 +43,27 @@ extension ReviewFileList {
                         slimCreatePullRequest(live: store.liveBySession[sessionID] != nil)
                     }
                     if let pullRequest {
-                        Text(pullRequest.title)
-                            .font(.callout)
-                            .foregroundStyle(theme.foreground)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .help(pullRequest.title)
+                        HStack(spacing: 4) {
+                            Text(pullRequest.title)
+                                .font(.callout)
+                                .foregroundStyle(theme.foreground)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .help(pullRequest.title)
+                            Spacer(minLength: 0)
+                            Menu("Pull Request Actions", systemImage: "ellipsis") {
+                                Button("Open on GitHub", systemImage: "arrow.up.right.square") { openURL(pullRequest.url) }
+                                if let repository = shown?.repository, [.open, .draft].contains(pullRequest.state) {
+                                    StewardPullRequestButton(link: PullRequestLink(repository: repository, number: pullRequest.number), url: pullRequest.url)
+                                }
+                            }
+                            .labelStyle(.iconOnly)
+                            .menuStyle(.button)
+                            .buttonStyle(.borderless)
+                            .menuIndicator(.hidden)
+                            .foregroundStyle(theme.secondary)
+                            .fixedSize()
+                        }
                     }
                     if let status = model.status {
                         slimBranchStatus(status, changes: changes)
@@ -228,7 +243,7 @@ extension ReviewFileList {
                 let expanded = expansion(of: "otherPullRequests", defaultExpanded: false)
                 ReviewSlimSectionHeader(title: "Other pull requests", count: other.count, expansion: expanded)
                 if expanded.wrappedValue {
-                    ReviewOtherPullRequests(pullRequests: other, showsHeading: false)
+                    ReviewOtherPullRequests(pullRequests: other, repository: shownPullRequest(root: nil, branch: changes.branch)?.repository, showsHeading: false)
                 }
             }
         }

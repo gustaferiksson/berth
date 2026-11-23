@@ -274,6 +274,8 @@ This is the slim first version; the rest is listed under Later.
 - Send to Claude pastes the thread into the current session's prompt for the user to read and
   submit, using the same flow as Send N Comments.
 
+The open or draft PR card offers **Steward with Claude** in its title context menu and More menu. It uses the launcher’s PR session and worktree flow to paste `/steward <PR URL>` for the user to submit.
+
 ## Create Pull Request
 
 - The button does nothing outward itself: like Send, it pastes a prompt ("Push this branch and

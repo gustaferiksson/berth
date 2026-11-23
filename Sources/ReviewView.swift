@@ -575,6 +575,7 @@ struct ReviewPanel: View {
 }
 
 struct ReviewFileList: View {
+    @Environment(\.openURL) var openURL
     let sessionID: String
     @Bindable var model: ReviewModel
     @Environment(Store.self) var store
@@ -877,7 +878,7 @@ struct ReviewFileList: View {
 
     private func branchCard(_ changes: ReviewChanges, _ status: ReviewBranchStatus) -> some View {
         let shown = shownPullRequest(root: nil, branch: changes.branch)
-        return ReviewBranchCard(changes: changes, status: status, pullRequest: shown.map(\.pullRequest), detail: shown?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest, showThreads: { showThreadSection(ownRoot) }, showsCommits: Bindable(model).showsCommits)
+        return ReviewBranchCard(changes: changes, status: status, pullRequest: shown.map(\.pullRequest), repository: shown?.repository, detail: shown?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest, showThreads: { showThreadSection(ownRoot) }, showsCommits: Bindable(model).showsCommits)
     }
 
     private var allExtras: [(repository: ReviewRepository, model: ReviewModel)] {
@@ -999,12 +1000,13 @@ struct ReviewFileList: View {
     }
 
     private func otherPullRequests(root: String?, branch: String, shown: Int?) -> some View {
-        ReviewOtherPullRequests(pullRequests: store.pullRequests(inRoot: root, of: sessionID, branch: branch).filter { $0.number != shown })
+        let repository = store.pullRequestBranch(inRoot: root ?? ownRoot, branch: branch)?.repository
+        return ReviewOtherPullRequests(pullRequests: store.pullRequests(inRoot: root, of: sessionID, branch: branch).filter { $0.number != shown }, repository: repository)
     }
 
     private func extraCard(_ extra: (repository: ReviewRepository, model: ReviewModel), _ changes: ReviewChanges) -> some View {
         let found = shownPullRequest(root: extra.repository.root, branch: changes.branch)
-        return ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil, showThreads: { showThreadSection(extra.repository.root) }, showsCommits: Bindable(extra.model).showsCommits)
+        return ReviewBranchCard(changes: changes, status: extra.model.status ?? .unknown, pullRequest: found.map(\.pullRequest), repository: found?.repository, detail: found?.pullRequest.flatMap { extra.model.pullRequestDetails[$0.number] }, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: nil, showThreads: { showThreadSection(extra.repository.root) }, showsCommits: Bindable(extra.model).showsCommits)
     }
 
     private var ownRoot: String { store.repositoryRoot(ofSession: sessionID) ?? model.folder }
@@ -1801,83 +1803,6 @@ private struct ReviewFileNode: View {
     }
 }
 
-private struct ReviewThreadRows: View {
-    let threads: [ReviewThread]
-    let open: (ReviewThread) -> Void
-    @Environment(\.ghosttyTheme) private var theme
-
-    var body: some View {
-        let groups = Dictionary(grouping: threads, by: \.path)
-        ForEach(groups.keys.sorted(), id: \.self) { path in
-            let file = path as NSString
-            let group = groups[path, default: []]
-            HStack(spacing: 5) {
-                Text(file.lastPathComponent).bold()
-                if !file.deletingLastPathComponent.isEmpty {
-                    Text(file.deletingLastPathComponent)
-                        .foregroundStyle(theme.secondary)
-                        .truncationMode(.middle)
-                }
-            }
-            .font(.caption)
-            .lineLimit(1)
-            .accessibilityAddTraits(.isHeader)
-            .help(path)
-            .reviewRow(top: 5, bottom: 2)
-            ForEach(group.filter { !$0.isResolved } + group.filter(\.isResolved)) { thread in
-                Button { open(thread) } label: {
-                    row(thread)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .help(thread.line.map { "Open \(path) at line \($0)" } ?? "Open \(path)")
-                .reviewRow(top: 4, bottom: 4)
-            }
-        }
-    }
-
-    private func row(_ thread: ReviewThread) -> some View {
-        let first = thread.comments.first
-        let author = first?.author ?? "Unknown author"
-        let tint = thread.isResolved ? theme.secondary : theme.branch
-        return HStack(alignment: .top, spacing: 7) {
-            Text(String(author.prefix(1)).uppercased())
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(tint)
-                .frame(width: 22, height: 22)
-                .background(tint.opacity(0.16), in: .circle)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(author).fontWeight(.semibold).lineLimit(1)
-                    Spacer(minLength: 0)
-                    Text("^[\(max(0, thread.comments.count - 1)) reply](inflect: true)")
-                        .monospacedDigit()
-                        .foregroundStyle(theme.secondary)
-                    if thread.isResolved {
-                        Image(systemName: "checkmark.circle")
-                            .foregroundStyle(theme.working)
-                            .accessibilityLabel("Resolved")
-                            .help("Resolved")
-                    }
-                    if thread.isOutdated {
-                        Text("Outdated")
-                            .foregroundStyle(theme.needsYou)
-                            .padding(.horizontal, 4)
-                            .background(theme.needsYou.opacity(0.16), in: .rect(cornerRadius: 4))
-                    }
-                }
-                .font(.caption)
-                Text(first?.body.split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: \.isNewline).first.map(String.init) ?? "")
-                    .font(.callout)
-                    .foregroundStyle(theme.secondary)
-                    .lineLimit(2)
-            }
-        }
-    }
-}
-
 struct PullRequestStatePill: View {
     let pullRequest: PullRequest
     var isSlim = false
@@ -1916,6 +1841,7 @@ private struct ReviewBranchCard: View {
     let changes: ReviewChanges
     let status: ReviewBranchStatus
     let pullRequest: PullRequest??
+    let repository: String?
     let detail: PullRequestDetail?
     let isClaudeLive: Bool
     let createPullRequest: (() -> Void)?
@@ -2002,6 +1928,7 @@ private struct ReviewBranchCard: View {
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .help(found.title)
+                    .contextMenu { stewardAction(found) }
             } else {
                 Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits")")
                     .font(.headline)
@@ -2107,9 +2034,17 @@ private struct ReviewBranchCard: View {
         }
     }
 
+    @ViewBuilder
+    private func stewardAction(_ found: PullRequest) -> some View {
+        if let repository, [.open, .draft].contains(found.state) {
+            StewardPullRequestButton(link: PullRequestLink(repository: repository, number: found.number), url: found.url)
+        }
+    }
+
     private func moreMenu(_ found: PullRequest) -> some View {
         Menu {
             Button("Open on GitHub", systemImage: "arrow.up.right.square") { openURL(found.url) }
+            stewardAction(found)
             Button("Copy Link", systemImage: "link") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(found.url.absoluteString, forType: .string)

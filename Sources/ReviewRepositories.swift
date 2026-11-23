@@ -138,6 +138,7 @@ struct ReviewRepoRows: View {
 
 struct ReviewOtherPullRequests: View {
     let pullRequests: [PullRequest]
+    let repository: String?
     var showsHeading = true
     @Environment(\.openURL) private var openURL
 
@@ -162,6 +163,11 @@ struct ReviewOtherPullRequests: View {
                 .help(pullRequest.title)
                 PullRequestTag(pullRequest: pullRequest)
                     .fixedSize()
+            }
+            .contextMenu {
+                if let repository, [.open, .draft].contains(pullRequest.state) {
+                    StewardPullRequestButton(link: PullRequestLink(repository: repository, number: pullRequest.number), url: pullRequest.url)
+                }
             }
             .reviewRow(bottom: 6)
         }
