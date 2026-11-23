@@ -169,6 +169,12 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         target.textView.onDefinition?(target.range.location)
     }
 
+    override func selectionRange(forProposedRange proposedCharRange: NSRange, granularity: NSSelectionGranularity) -> NSRange {
+        guard granularity == .selectByWord else { return super.selectionRange(forProposedRange: proposedCharRange, granularity: granularity) }
+
+        return CodeWordRange.expand(proposedCharRange, in: string as NSString)
+    }
+
     override func keyDown(with event: NSEvent) {
         guard event.keyCode == 111, event.modifierFlags.intersection([.shift, .command, .option, .control]) == .shift, onReferences != nil else { return super.keyDown(with: event) }
 
