@@ -87,6 +87,20 @@ struct ControlTests {
         #expect(try parse(["open-terminal"]).request.command == nil)
         #expect(try parse(["ls", "--json"]).json)
 
+        let session = try parse(["open-session", "--cwd", "../api", "--background", "--json", "--", "review", "the PR"])
+        #expect(session.request == ControlRequest(token: "tok", caller: "me", operation: .openSession, cwd: "/work/api", text: "review the PR", background: true))
+        #expect(session.json)
+
+        let quoted = try parse(["open-session", "--", #"check "quoted text""#, "it's ready", "--json"])
+        #expect(quoted.request.text == #"check "quoted text" it's ready --json"#)
+        #expect(!quoted.json)
+        #expect(try parse(["open-session"]).request == ControlRequest(token: "tok", caller: "me", operation: .openSession))
+        #expect(try parse(["open-session", "--"]).request.text == nil)
+        #expect(throws: ControlCommand.UsageError.self) { try parse(["open-session", "--unknown"]) }
+        #expect(throws: ControlCommand.UsageError.self) { try parse(["open-session", "--cwd"]) }
+        #expect(throws: ControlCommand.UsageError.self) { try parse(["open-session", "--cwd", "--background"]) }
+        #expect(throws: ControlCommand.UsageError.self) { try parse(["open-session", "hello"]) }
+
         let send = try parse(["send", "ab12", "hello", "world", "--no-enter"]).request
         #expect(send.tab == "ab12" && send.text == "hello world" && send.enter == false)
         #expect(try parse(["wait", "ab12", "--timeout", "30"]).request.timeout == 30)
@@ -94,6 +108,19 @@ struct ControlTests {
         #expect(throws: ControlCommand.UsageError.self) { try parse(["close"]) }
         #expect(throws: ControlCommand.UsageError.self) { try parse(["bogus"]) }
         #expect(throws: ControlCommand.UsageError.self) { try ControlCommand.parse(["ls"], environment: [:], currentDirectory: "/") }
+    }
+
+    @Test func openSessionRequestRoundTripsThroughJSON() throws {
+        let request = ControlRequest(token: "tok", caller: "me", operation: .openSession, cwd: "/work/api", text: "review the PR", background: true)
+        let data = try JSONEncoder().encode(request)
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["operation"] as? String == "open-session")
+        #expect(try JSONDecoder().decode(ControlRequest.self, from: data) == request)
+    }
+
+    @Test func usageAndSkillDescribeOpeningSessions() {
+        #expect(ControlCommand.usage.contains("berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]"))
+        #expect(ControlInstall.skill.contains(#"berth open-session --cwd <worktree> --background -- "<prompt>""#))
     }
 
     @Test func exitStatusIsRecordedBeforeTheTabEnds() throws {

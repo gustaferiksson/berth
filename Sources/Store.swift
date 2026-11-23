@@ -1413,7 +1413,7 @@ final class Store {
         }
         let id = UUID()
         #if DEBUG
-        if Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil {
+        if Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil || UserDefaults.standard.bool(forKey: "snapshotControl") {
             probeOpened.append((agent, cwd, start))
             return id
         }

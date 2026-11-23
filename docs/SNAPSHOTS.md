@@ -155,6 +155,8 @@ Snapshot mode never uses the session host (no hosted launch, reattach or hang-up
 `-snapshotHost new|reattach|close -snapshotHostID <uuid> -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`; end with `close`).
 `-snapshotControl YES -controlEnabled YES -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`) runs the embedded `berth-cli` against the live control socket from a fake caller tab and prints `ls`, `open-terminal`, `wait` (exit status), `send`, `capture`, a refused send and close on the caller, a close, a wrong token and a missing environment.
 
+It also runs `open-session --cwd <dir> --background -- "hello"` with the system temporary directory and a missing folder inside it. Expect exit 0 with an 8 hex tab id for the existing folder, exit 1 with `No folder` for the missing folder, and one `probeOpened` call for a new Claude session in the temporary directory. The DEBUG probe returns before launching Claude.
+
 ### Grouping
 
 `-snapshotTriage YES` (with `-showsTriage YES`, `-snapshotAllDone YES`, `-snoozedExpanded YES`).

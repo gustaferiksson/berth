@@ -102,6 +102,7 @@ One JSON request line in, one response line out per connection (`ControlRequest`
 
 - `ls [--json]`: every tab with an 8 hex id (any unique prefix resolves), kind, title, folder, session id, live status; `*` marks tabs the caller opened.
 - `open-terminal [--cwd] [--background] [-- cmd…]`: `Store.openShell` in the caller's folder; `--background` restores the previous selection. The command runs as `ControlExitStatus.wrapping`, which writes its status to `control/exits/<tab uuid>` before the tab ends.
+- `open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]` opens a Claude tab through `Store.openSession` with checkout `.main` and returns its 8 hex id. The caller's folder is the default and the folder must exist. Berth uses the existing checkout, pastes any prompt as raw text, and keeps the current tab selected with `--background`.
 - `send <tab> <text> [--no-enter]` and `close <tab>`: only tabs the caller opened (`openedBy`, in memory), so a session can't type into or close the user's terminals or other sessions.
 - `wait <tab> [--timeout]`: until the exit file exists or the tab is gone; the CLI exits with that status.
 - `capture <tab>`: any tab. libghostty-spm exposes no screen read on a live surface, so it reads the session host's scrollback ring through `HostFrame.dump` (a request that doesn't attach, so the tab's client isn't replaced) and strips escapes with `TerminalText.plain`; tabs not behind a host report capture as unsupported.

@@ -58,7 +58,7 @@ final class ControlService {
 
         if request.operation == .list { return list(for: caller) }
 
-        if request.operation == .open { return open(request, for: caller) }
+        if request.operation == .open || request.operation == .openSession { return open(request, for: caller) }
 
         guard let tab = request.tab else { return .failure("Missing tab") }
 
@@ -106,19 +106,26 @@ final class ControlService {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory), isDirectory.boolValue else { return .failure("No folder \(cwd)") }
 
-        let id = UUID()
-        let command = request.command.map { ControlExitStatus.wrapping($0, recordingIn: Self.exitsDirectory + "/" + id.uuidString) }
-        try? FileManager.default.createDirectory(atPath: Self.exitsDirectory, withIntermediateDirectories: true)
+        let id: UUID
         let previous = store.selectedTabID
-        let callerTab = store.tabs.first { $0.id == caller }
-        let parent = callerTab?.kind == .claude ? callerTab?.id : callerTab?.parentTabID
-        store.openShell(cwd: cwd, command: command, id: id, parent: parent)
+        if request.operation == .openSession {
+            guard let opened = store.openSession(cwd: cwd, checkout: .main, pasting: request.text, selectsTab: request.background != true) else { return .failure("Couldn’t open a Claude session in \(cwd)") }
+
+            id = opened
+        } else {
+            id = UUID()
+            let command = request.command.map { ControlExitStatus.wrapping($0, recordingIn: Self.exitsDirectory + "/" + id.uuidString) }
+            try? FileManager.default.createDirectory(atPath: Self.exitsDirectory, withIntermediateDirectories: true)
+            let callerTab = store.tabs.first { $0.id == caller }
+            let parent = callerTab?.kind == .claude ? callerTab?.id : callerTab?.parentTabID
+            store.openShell(cwd: cwd, command: command, id: id, parent: parent)
+        }
         openedBy = openedBy.filter { opened in store.tabs.contains { $0.id == opened.key } }
         openedBy[id] = caller
-        if request.background == true {
-            store.selectedTabID = previous
-        } else {
+        if request.background != true {
             store.activate(.tab(id))
+        } else if request.operation == .open {
+            store.selectedTabID = previous
         }
         return ControlResponse(tab: Self.shortID(id))
     }

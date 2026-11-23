@@ -4,6 +4,7 @@ public enum ControlCommand {
     public static let usage = """
     usage: berth ls [--json]
            berth open-terminal [--cwd <dir>] [--background] [--json] [--] [<command>...]
+           berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]
            berth send <tab> <text> [--no-enter]
            berth capture <tab>
            berth close <tab>
@@ -24,10 +25,11 @@ public enum ControlCommand {
         guard let socketPath = environment[ControlEnvironment.socket], let token = environment[ControlEnvironment.token], let caller = environment[ControlEnvironment.tab] else {
             throw UsageError(message: "Not inside a Berth tab, or Agent Control is off in Berth's Settings > General")
         }
-        guard let name = arguments.first, let operation = [ControlOp.list, .send, .capture, .close, .wait].first(where: { $0.rawValue == name }) ?? (name == "open-terminal" ? .open : nil) else {
+        guard let name = arguments.first, let operation = [ControlOp.list, .openSession, .send, .capture, .close, .wait].first(where: { $0.rawValue == name }) ?? (name == "open-terminal" ? .open : nil) else {
             throw UsageError(message: usage)
         }
 
+        let opensTab = operation == .open || operation == .openSession
         var request = ControlRequest(token: token, caller: caller, operation: operation)
         var json = false
         var positional: [String] = []
@@ -39,12 +41,13 @@ public enum ControlCommand {
 
             case "--no-enter" where operation == .send: request.enter = false
 
-            case "--background" where operation == .open: request.background = true
+            case "--background" where opensTab: request.background = true
 
-            case "--cwd" where operation == .open:
-                guard !rest.isEmpty else { throw UsageError(message: "--cwd needs a folder") }
+            case "--cwd" where opensTab:
+                guard let folder = rest.first, operation == .open || !folder.hasPrefix("--") else { throw UsageError(message: "--cwd needs a folder") }
 
-                request.cwd = URL(filePath: rest.removeFirst(), relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
+                rest.removeFirst()
+                request.cwd = URL(filePath: folder, relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
 
             case "--timeout" where operation == .wait:
                 guard !rest.isEmpty, let seconds = Double(rest.removeFirst()), seconds >= 0 else { throw UsageError(message: "--timeout needs a number of seconds") }
@@ -55,6 +58,10 @@ public enum ControlCommand {
                 positional += rest
                 rest = []
 
+            case "--" where operation == .openSession:
+                request.text = rest.isEmpty ? nil : rest.joined(separator: " ")
+                rest = []
+
             default:
                 guard !argument.hasPrefix("--") else { throw UsageError(message: "Unknown option \(argument)\n\(usage)") }
 
@@ -62,7 +69,7 @@ public enum ControlCommand {
             }
         }
         switch operation {
-        case .list:
+        case .list, .openSession:
             guard positional.isEmpty else { throw UsageError(message: usage) }
 
         case .open:
