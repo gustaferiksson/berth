@@ -37,8 +37,8 @@ public nonisolated struct UsageWindow: Codable, Sendable, Hashable, Identifiable
         Int((used * 100).rounded())
     }
 
-    public func summary(at now: Date) -> String {
-        guard let resetsAt, isCurrent(at: now) else { return "Resets when you next use Claude · 0% used" }
+    public func summary(at now: Date, harness: String = "Claude") -> String {
+        guard let resetsAt, isCurrent(at: now) else { return "Resets when you next use \(harness) · 0% used" }
 
         let minutes = max(Int(resetsAt.timeIntervalSince(now) / 60), 1)
         let days = minutes / 1440

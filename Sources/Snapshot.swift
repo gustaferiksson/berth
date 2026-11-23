@@ -524,6 +524,13 @@ enum Snapshot {
                 UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: ahead ? 0.66 : 0.81, resetsAt: .now.addingTimeInterval(ahead ? 4 * 86_400 : 3 * 86_400)),
             ])
         }
+        if UserDefaults.standard.bool(forKey: "snapshotCodexUsage") {
+            let stale = UserDefaults.standard.bool(forKey: "snapshotCodexUsageStale")
+            store.codexUsage = CodexUsage(usage: PlanUsage(windows: [
+                UsageWindow(id: "codex_primary", title: "Session", length: 5 * 3600, used: 0.18, resetsAt: .now.addingTimeInterval(3.5 * 3600)),
+                UsageWindow(id: "codex_secondary", title: "Week", length: 7 * 86_400, used: 0.47, resetsAt: .now.addingTimeInterval(3.5 * 86_400)),
+            ]), recordedAt: .now.addingTimeInterval(stale ? -3 * 3600 : -120))
+        }
         if UserDefaults.standard.bool(forKey: "snapshotFakeContext") {
             let sessions = Array(topSessions.prefix(4))
             store.fakeContexts = Dictionary(uniqueKeysWithValues: zip(sessions, [68_000, 126_000, 162_000, 188_000]).map { session, tokens in

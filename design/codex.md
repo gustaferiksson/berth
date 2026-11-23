@@ -22,6 +22,10 @@ Sending is refused while waiting, or during an open turn when the title supplies
 
 Attachments are off for Codex. Its context chip is read-only and opens the shared usage popover. The composer uses the harness name and keeps drops as a no-op when attachments are unavailable.
 
+## Plan usage
+
+With Show plan usage on, the sidebar usage meter adds a Codex group (`CodexUsage`, `Store.refreshCodexUsage`). It takes the newest `token_count` record carrying `rate_limits` from the eight most recently modified rollouts, labels `primary` and `secondary` by `window_minutes` (300 is Session, 10080 is Week) and reads `resets_at` or `resets_in_seconds`. Codex only writes limits while a session runs, so the group dims and the tooltip says when it was last reported once the record is over an hour old. The iOS app does not show it.
+
 ## Live status
 
 `Harness.readLive` returns `LiveSession` records, so the sidebar dots, Needs Attention, notifications, Dock badge, Triage and idle unload read Codex exactly like Claude. `CodexLive` derives one record per open Codex tab with a session id (pid 0, kind `tab`; `Store.liveBySession` merges every enabled harness and skips pid 0 for orphan, lock and claim logic). `Store` polls every 2 seconds while such a tab is open, because a title change touches no file.
