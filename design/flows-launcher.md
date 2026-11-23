@@ -6,6 +6,8 @@ Moved from CLAUDE.md. See also design/flows-groups.md (Launcher section).
 
 ⌘N (File ▸ New Session…) opens the launcher (`Launcher`, a glass overlay on the terminal area): known session folders, the current folder first, fuzzy matched, plus a typed existing path. `submit` reads `highlighted` at submit time (an `onSubmit` closure once started a stale row). `Store.openClaude` passes the session id (or attach job id) to `claude --session-id|--resume|attach "$BERTH_SESSION_ID"` through the `BERTH_SESSION_ID` env var (`envVars` on the surface), never interpolated, and shows "Folder Not Found" instead of launching in a missing folder.
 
+Settings > General > Agents picks the agent ⌘N starts (`newSessionAgent`, `Store.defaultAgent`, Claude unless chosen otherwise). With both agents enabled the ↩ hint names it and ⌥⇧↩ starts the other (`Store.otherAgent`, hint shows its name); with one enabled the modifier does nothing and no agent name is shown. `Store.openSession` defaults to `defaultAgent`.
+
 With Settings > General `startsInWorktree` on, a new session (launcher, group +, drop, remote) in a folder inside a git repo starts as `claude --session-id "$BERTH_SESSION_ID" -w` (`ClaudeLaunch.Start.newInWorktree`; Claude names the worktree and branch); ⌥↩ in the launcher (`NewSessionCheckout.main`, footer hint only while the setting is on) starts in the main checkout. The launcher's promoted current folder is the selected tab's checkout, so worktree paths never appear there.
 
 ## Open Pull Request
