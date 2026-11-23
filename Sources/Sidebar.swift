@@ -1161,6 +1161,7 @@ private struct RowChrome: ViewModifier {
     let select: () -> Void
     @State private var isHovering = false
     @Environment(Store.self) private var store
+    private static let listMargin = 16.0
 
     private var isSelected: Bool {
         if !store.multiSelection.isEmpty { return store.multiSelection.contains(item) }
@@ -1174,8 +1175,11 @@ private struct RowChrome: ViewModifier {
         let isHighlighted = isHovering || Snapshot.forcedHover.contains(hoverID)
         let fill = isSelected ? 0.1 : isHighlighted && !isLocked ? 0.05 : 0
         content
+            .padding(.horizontal, Self.listMargin)
             .contentShape(.rect)
             .onTapGesture(perform: select)
+            .onHover { isHovering = $0 }
+            .padding(.horizontal, -Self.listMargin)
             .overlay(alignment: .trailing) {
                 if let close {
                     Button("Close Terminal", systemImage: "xmark", action: close)
@@ -1188,7 +1192,6 @@ private struct RowChrome: ViewModifier {
                         .help("Close terminal")
                 }
             }
-            .onHover { isHovering = $0 }
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction(.default, select)
             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
