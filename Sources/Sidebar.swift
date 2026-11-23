@@ -1539,6 +1539,7 @@ private struct SuggestionLine: View {
         .font(.caption)
         .foregroundStyle(Color.secondary)
         .padding(.leading, 8)
+        // swiftlint:disable:next negative_padding - tucks the suggestion under the row above
         .padding(.top, -4)
         .padding(.bottom, density.suggestionBottomPadding)
         .onHover { isHovering = $0 }
@@ -1668,6 +1669,7 @@ private struct CardRow<Detail: View>: View {
         }
         .opacity(isLocked && state == nil ? 0.55 : 1)
         .padding(.leading, 8)
+        // swiftlint:disable:next negative_padding - row content only, the close button is an overlay on RowChrome
         .padding(.trailing, -10)
         .padding(.vertical, density.rowPadding)
         .overlay(alignment: .topLeading) {
@@ -1865,6 +1867,7 @@ private struct BranchText: View {
                 .padding(.horizontal, 4)
                 .padding(.vertical, 2)
                 .background(Color.primary.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 4))
+                // swiftlint:disable:next negative_padding - bleeds the highlight past the label, no controls inside
                 .padding(.horizontal, -4)
         }
         .buttonStyle(.plain)

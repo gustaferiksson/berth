@@ -1,21 +1,8 @@
 import Foundation
 
-public nonisolated struct CodexUsage: Sendable, Hashable {
-    public static let staleAfter: TimeInterval = 3600
+extension CodexUsage {
     static let rolloutsRead = 8
     static let tailBytes = 256 * 1024
-
-    public let usage: PlanUsage
-    public let recordedAt: Date
-
-    public init(usage: PlanUsage, recordedAt: Date) {
-        self.usage = usage
-        self.recordedAt = recordedAt
-    }
-
-    public func isStale(at now: Date) -> Bool {
-        now.timeIntervalSince(recordedAt) > Self.staleAfter
-    }
 
     public static func latest(in codexRoot: URL) -> Self? {
         let keys: [URLResourceKey] = [.contentModificationDateKey, .isRegularFileKey]

@@ -167,8 +167,38 @@ custom_rules:
     message: 'Use @Observable with @State, @Bindable and @Environment. Only the libghostty TerminalViewState is an ObservableObject.'
   grouped_identifier_number:
     name: Grouped Identifier Number
-    regex: '(Text|Label|Button|\.help|\.accessibilityLabel)\("[^"\n]*#\\\((?!String\()'
-    message: 'A localized string literal groups an Int ("#1,742"). Use Text(verbatim:), or interpolate String(number) in Label, Button, .help and .accessibilityLabel.'
+    regex: '(?:(?:Text|Label|Button|Toggle|Section|LabeledContent|Link|\.help|\.navigationTitle|\.accessibilityLabel|\.accessibilityValue|\.accessibilityHint)\(|String\(localized: )"[^"\n]*(?:[#:]\\\((?!String\()|\\\((?![^)]*String\()(?:[\w.]*\.number|(?:[\w.]*\.)?(?:port|pid|line))\))'
+    message: 'A localized string literal groups an Int ("#1,742", "localhost:7,878"). Use Text(verbatim:), or interpolate String(number) in Label, Button, .help and .accessibilityLabel.'
+  negative_padding:
+    name: Negative Padding
+    regex: '\.padding\((?:[^)\n]*,\s*)?-\s*[\w.]'
+    message: 'A negative inset moves a view outside its parent, so the parent clips its hit area (a trailing × stopped working). Bleed with .background, .overlay or .contentShape; if the view holds no controls, disable this line with the reason.'
+  hosting_without_sizing_options:
+    name: Hosting Without Sizing Options
+    regex: 'let (\w+) = NSHosting(?:View|Controller)\([^\n]*\n(?!(?:[^\n]*\n){0,5}[^\n]*\1\.sizingOptions)'
+    message: 'Set sizingOptions on the line after: [] when a frame or panel sizes it, [.intrinsicContentSize] to size from content. The default lets SwiftUI drive min and max sizes, which loops in updateConstraints and crashes.'
+  text_kit_1_layout_manager:
+    name: TextKit 1 Layout Manager
+    regex: '\.layoutManager\b'
+    message: 'Reading layoutManager on an NSTextView silently switches it to TextKit 1. Use textLayoutManager, or disable this line on a view built with usingTextLayoutManager: false.'
+  line_fragment_padding:
+    name: Line Fragment Padding
+    regex: 'lineFragmentPadding\s*=\s*(?!0\b|\s)'
+    message: 'TextKit 2 puts the container origin at -lineFragmentPadding, so a live resize re-anchors the scroll by the padding. Keep it 0 (docs/adr/0003).'
+  snapshot_defaults_write:
+    name: Snapshot Defaults Write
+    regex: 'UserDefaults\.standard\.(?:set|removeObject)\('
+    message: 'Snapshots must not write the real defaults (a crash or a second run keeps the value). Put it in the argument domain with setVolatileDomain; if the app itself writes it, restore it and disable this line with the reason.'
+    included: 'Sources/(Snapshot|SettingsSnapshot)[^/]*\.swift'
+  git_identity_override:
+    name: Git Identity Override
+    regex: '\buser\.(?:name|email)\b|--author\b|GIT_(?:AUTHOR|COMMITTER)_'
+    message: 'Never set a git author or committer, even for a fixture repo. Plain git commit uses the configured identity; the tests isolate it with GIT_CONFIG_GLOBAL.'
+    excluded_match_kinds: [comment]
+  empty_catch:
+    name: Empty Catch
+    regex: 'catch\s*\{\s*\}'
+    message: 'A swallowed error loses data silently. Handle it, log it, or write try? where discarding is intended.'
   unstable_view_identity:
     name: Unstable View Identity
     regex: '\.id\(UUID\(\)\)'

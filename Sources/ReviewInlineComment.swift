@@ -169,6 +169,7 @@ final class ReviewInlineComment: NSView {
     }
 
     private func textHeight(forWidth width: CGFloat) -> CGFloat {
+        // swiftlint:disable:next text_kit_1_layout_manager - the field is built with usingTextLayoutManager: false
         guard let manager = field.layoutManager, let container = field.textContainer else { return 0 }
 
         container.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)

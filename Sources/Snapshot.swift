@@ -472,6 +472,7 @@ enum Snapshot {
                 .background(store.theme.background ?? .black, in: .rect(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(store.theme.foreground.opacity(0.15)))
                 .padding(8)
+            // swiftlint:disable:next hosting_without_sizing_options - throwaway view measured for fittingSize, never shown
             let size = NSHostingView(rootView: card).fittingSize
             let screen = NSRect(x: 0, y: 0, width: 1800, height: 1100)
             for trailing in [true, false] {
@@ -685,6 +686,7 @@ enum Snapshot {
         let showsStats = UserDefaults.standard.bool(forKey: "snapshotStats")
         let root = editedGroup.map { AnyView(GroupEditor(group: $0).environment(\.ghosttyTheme, store.theme).preferredColorScheme(store.theme.isDark ? .dark : .light)) }
             ?? editedServer.map { AnyView(LanguageServerEditor(server: $0, servers: .constant(servers)).preferredColorScheme(store.theme.isDark ? .dark : .light)) } ?? AnyView(showsStats ? AnyView(StatsView()) : AnyView(ContentView()))
+        // swiftlint:disable:next hosting_without_sizing_options - the offscreen window is sized by setContentSize
         let hosting = NSHostingController(rootView: root.environment(store).environment(\.openURL, OpenURLAction { url in
             print("snapshot openURL \(url)")
             return .handled
@@ -878,6 +880,7 @@ enum Snapshot {
                 state("double-clicked")
                 report("reset")
                 save(".split-reset.png")
+                // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                 UserDefaults.standard.set(saved, forKey: "reviewSplitRatio")
             }
             if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument, file.compare?.isCommit != true {
@@ -1114,6 +1117,7 @@ enum Snapshot {
                         drag(nil, 2)
                         try? await Task.sleep(for: .seconds(1))
                         state("double-clicked")
+                        // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                         UserDefaults.standard.set(saved, forKey: "reviewReferencesSplitRatio")
                     }
                     key(shown.list, 125, "\u{F701}", [])
@@ -1279,12 +1283,15 @@ enum Snapshot {
                 if let spec = UserDefaults.standard.string(forKey: "snapshotReviewRestyle"), let separator = spec.firstIndex(of: ":") {
                     let keys = [ReviewStyle.colorSchemeKey, ReviewStyle.lineHeightKey]
                     let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     UserDefaults.standard.set(String(spec[..<separator]), forKey: keys[0])
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     UserDefaults.standard.set(Double(spec[spec.index(after: separator)...]) ?? 1.3, forKey: keys[1])
                     try? await Task.sleep(for: .milliseconds(800))
                     print("restyled \(spec): text view background \(sides[1].backgroundColor), row height \(sides[1].rowHeight), inline \(sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.map { "\($0.frame) \($0.appearance?.name.rawValue ?? "-")" })")
                     report("restyled")
                     save(".restyled.png")
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     for (key, value) in zip(keys, saved) { UserDefaults.standard.set(value, forKey: key) }
                 }
                 if UserDefaults.standard.bool(forKey: "snapshotReviewDelete") {
@@ -1748,6 +1755,7 @@ enum Snapshot {
                     continue
                 }
                 if spec.hasPrefix("layout:") {
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     UserDefaults.standard.set(spec == "layout:auto" ? nil : String(spec.dropFirst(7)), forKey: ReviewDiffLayout.key)
                     try? await Task.sleep(for: .seconds(1))
                     print("\(spec) (writes reviewDiffLayout, restored after the run):\n  \(state())")
@@ -1820,6 +1828,7 @@ enum Snapshot {
                 try? await Task.sleep(for: .milliseconds(100))
             }
             NotificationCenter.default.removeObserver(observer)
+            // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
             UserDefaults.standard.set(savedLayout, forKey: ReviewDiffLayout.key)
             if let savedPasteboard {
                 NSPasteboard.general.clearContents()
