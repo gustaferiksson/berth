@@ -103,7 +103,7 @@ struct UsageSheet: View {
                             LabeledContent("Used", value: "\(window.usedPercent)%")
                                 .foregroundStyle(UsageTrack.aheadTint(window, now: timeline.date) ?? .primary)
                             LabeledContent("Pace", value: window.pace(at: timeline.date).formatted(.wholePercent))
-                            LabeledContent("Resets", value: window.resetsAt.formatted(date: .abbreviated, time: .shortened))
+                            LabeledContent("Resets", value: window.resetsAt?.formatted(date: .abbreviated, time: .shortened) ?? "When next used")
                         }
                         .accessibilityElement(children: .combine)
                         .accessibilityValue(window.isAhead(at: timeline.date) ? "\(window.summary(at: timeline.date)), ahead of pace" : window.summary(at: timeline.date))
