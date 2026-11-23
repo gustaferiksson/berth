@@ -581,7 +581,7 @@ struct ConversationDiff: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 1)
-                .background(row.kind == .added ? theme.working.opacity(0.16) : row.kind == .removed ? theme.closed.opacity(0.16) : .clear)
+                .background { Rectangle().fill(row.kind == .added ? theme.working.opacity(0.16) : row.kind == .removed ? theme.closed.opacity(0.16) : .clear) }
             }
             if rows.count > limit {
                 Button("Show \(rows.count - limit) more lines") { showsAll = true }
