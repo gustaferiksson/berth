@@ -3,7 +3,7 @@ import SwiftUI
 struct SessionView: View {
     let sessionID: String
 
-    private static let controlsInset: CGFloat = 16
+    private static let controlsInset: CGFloat = 12
 
     @Environment(RemoteClient.self) private var client
     @Environment(\.openURL) private var openURL
@@ -133,7 +133,7 @@ struct SessionView: View {
                 )
             }
             .padding(.horizontal, Self.controlsInset)
-            .padding(.bottom, 10)
+            .padding(.bottom, Self.controlsInset)
         }
         .ignoresSafeArea(.container, edges: .bottom)
         .sheet(isPresented: $isShowingRunning) {

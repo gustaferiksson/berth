@@ -6,6 +6,8 @@ Offscreen snapshot and verification flags for Debug builds (`Sources/Snapshot.sw
 
 Snapshot without touching the screen (Debug build only): `.build/Build/Products/Debug/Berth.app/Contents/MacOS/Berth -snapshot /abs/out.png` plus `-AppleInterfaceStyle Dark`, `-snapshotShell YES` (two terminals in the Terminals group, the second showing a fake `npm run dev` title and working dots; add `-snapshotShellCd "<args>"` to type `cd <args>` into the first one), `-snapshotClaudeTab YES` (a shell-backed claude tab with no transcript yet), or `-snapshotClaude /abs/dir` (launches real `claude` without `-w` whatever the setting, shows its trust prompt), or `-snapshotResume <sessionId>` (the sidebar click path, `claude --resume`).
 
+Use `-windowBackground theme|glass|darker` to select the detail background through the argument domain. For example, pass `-windowBackground darker` to show the cards' theme background colour in the gaps. System glass requires an on-screen window to render.
+
 ## Sidebar fixtures
 
 `-snapshotSessionTerminals YES` opens a shell-backed Claude tab for a fixture session, two compact terminals indented under it, and one plain terminal in the Terminals group. `-snapshotSelectNestedTerminal YES` selects the first nested one, `-snapshotCloseNested YES` calls `Store.close` on it and prints the tab counts. `-snapshotClickAt "x,y;x,y"` (any run, points from the window's top-left) sends each synthetic click through `window.sendEvent` before the capture and prints the tabs before and after (Buttons land, plain row taps do not).
