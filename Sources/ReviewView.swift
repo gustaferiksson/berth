@@ -1902,6 +1902,7 @@ struct ReviewDiffColumn: View {
     @AppStorage(ReviewStyle.lineHeightKey) private var lineHeight = 1.3
     @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
     @AppStorage(ReviewDiffLayout.key) private var diffLayout = ReviewDiffLayout.auto
+    @AppStorage(ReviewStyle.wrapsLinesKey) private var wrapsLines = false
     @State private var isNarrow = false
     @State private var measuredNarrow = false
 
@@ -2059,8 +2060,11 @@ struct ReviewDiffColumn: View {
                     .padding(.leading, 6)
                 }
                 HStack(spacing: 6) {
-                    if tab != nil, model.selectedDocumentHasBothSides || AppAction.save.isAvailable(in: store) {
+                    if tab != nil {
                         GlassCapsule {
+                            Button("Wrap Lines", systemImage: "arrow.turn.down.left") { wrapsLines.toggle() }
+                                .foregroundStyle(wrapsLines ? Color.accentColor : Color(nsColor: style.secondary))
+                                .help("Wrap Lines")
                             if model.selectedDocumentHasBothSides {
                                 Button(isUnified ? "Show Side by Side" : "Show Inline", systemImage: isUnified ? "rectangle.split.2x1" : "rectangle") {
                                     diffLayout = isUnified ? .sideBySide : .inline
