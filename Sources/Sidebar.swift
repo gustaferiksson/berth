@@ -1254,6 +1254,7 @@ private struct SessionRow: View {
     let suggestion: String?
     let issue: IssueRef?
     @Binding var showsLockedNotice: Bool
+    @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.sidebarDensity) private var density
 
@@ -1282,6 +1283,7 @@ private struct SessionRow: View {
                         if let pullRequest {
                             PullRequestTag(pullRequest: pullRequest, more: morePullRequests)
                                 .fixedSize()
+                                .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .sidebar, store: store))
                         }
                     }
                 } else if pullRequest != nil || session.branch != nil || projectName != nil {
@@ -1320,6 +1322,7 @@ private struct SessionRow: View {
                         if let pullRequest {
                             PullRequestTag(pullRequest: pullRequest, more: morePullRequests)
                                 .fixedSize()
+                                .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .sidebar, store: store))
                         }
                     }
                 } else {

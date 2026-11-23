@@ -463,6 +463,7 @@ enum Snapshot {
             print("sidebar: \(store.sidebarGroups.map { "\($0.group.title) \($0.entries.map { "\($0)" })" })")
         }
         if let status = UserDefaults.standard.string(forKey: "snapshotSidebarStatus").flatMap(SidebarStatus.init(rawValue:)) { store.sidebarStatus = status }
+        captureItemPreview(to: output, theme: store.theme)
         for session in store.sessionsByID.values.filter({ forcedHover.contains($0.title) }) {
             let isOpen = store.tab(forSession: session.id) != nil || store.liveBySession[session.id] != nil
             let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."))
@@ -1963,7 +1964,7 @@ enum Snapshot {
         return output.split(separator: "\n").count(where: { $0.contains("/dev/ptmx") })
     }
 
-    private static func fail(_ message: String) -> Never {
+    static func fail(_ message: String) -> Never {
         ProcessAncestry.hangUpDescendants()
         FileHandle.standardError.write(Data("snapshot: \(message)\n".utf8))
         exit(1)

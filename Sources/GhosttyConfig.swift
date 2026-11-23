@@ -208,7 +208,7 @@ struct GhosttyTheme: Equatable {
     }
 }
 
-private struct RGB {
+struct RGB {
     let red: Double
     let green: Double
     let blue: Double

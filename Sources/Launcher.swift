@@ -32,6 +32,7 @@ struct Launcher: View {
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
+    @AppStorage(ItemPreviewSetting.key) private var richPreviews = false
     @State private var query: String
     @State private var highlighted = 0
     @State private var folders: [Folder] = []
@@ -119,6 +120,7 @@ struct Launcher: View {
                     .focused($isQueryFocused)
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
+                    .modifier(LauncherItemPreview(url: pullRequest?.url ?? issueRow?.url, highlighted: highlighted, query: query, store: store))
                     .onKeyPress(.tab) {
                         guard let nextScope else { return .ignored }
 
@@ -254,6 +256,7 @@ struct Launcher: View {
                     hint("↩", "Open")
                     hint("↑↓", "Session")
                 }
+                if richPreviews, mode == .pullRequests || mode == .issues, ranked.older + issues.older == 0 { hint("␣", "Preview") }
                 if let nextScope { hint("⇥", nextScope.title) }
                 Spacer()
                 if ranked.older > 0 {
@@ -362,6 +365,7 @@ struct Launcher: View {
                                     .padding(.bottom, 4)
                             }
                             pullRequestRow(pullRequest, isHighlighted: index == highlighted)
+                                .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .launcher, store: store))
                                 .id(index)
                                 .onTapGesture { open(pullRequest) }
                         }
@@ -376,6 +380,7 @@ struct Launcher: View {
                                 issueRow(issue, isHighlighted: index == highlighted)
                             }
                             .buttonStyle(.plain)
+                            .modifier(ItemPreviewTrigger(reference: ItemReference(url: issue.url), placement: .launcher, store: store))
                             .id(index)
                         }
                         if issues.isEmpty {
@@ -809,19 +814,10 @@ struct Launcher: View {
 
     private func openIssueResult(_ linked: [LinkedPullRequest]) {
         if linked.isEmpty, let selectedIssue {
-            startIssueSession(selectedIssue)
+            store.startIssueSession(repository: selectedIssue.repository, number: selectedIssue.number, url: selectedIssue.url)
         } else {
             openLinkedPullRequests(linked)
         }
-    }
-
-    private func startIssueSession(_ issue: InboxIssue) {
-        guard let folder = store.localCheckout(of: issue.repository),
-              store.openSession(cwd: folder, checkout: .worktree, pasting: "Work on issue #\(issue.number) (\(issue.url.absoluteString)).") != nil
-        else { return }
-
-        store.isHarborShown = false
-        store.launcherMode = nil
     }
 
     private func openOnGitHub(_ url: URL) {

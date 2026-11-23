@@ -21,8 +21,9 @@ struct ReviewMarkdownView: View {
     @State private var nodes: [MarkdownNode] = []
 
     var body: some View {
-        let directory = context.root.appending(path: path).deletingLastPathComponent()
-        let markdown = MarkdownRenderStyle(style: style, directory: directory, root: context.root)
+        let root = context.root.resolvingSymlinksInPath()
+        let directory = context.root.appending(path: path).deletingLastPathComponent().resolvingSymlinksInPath()
+        let markdown = MarkdownRenderStyle(style: style, source: .document(directory: directory, root: root))
         ScrollView {
             VStack(alignment: .leading, spacing: markdown.size) {
                 ForEach(nodes.enumerated(), id: \.offset) { _, node in
@@ -43,26 +44,30 @@ struct ReviewMarkdownView: View {
             }
             guard let file = markdown.localURL(for: url.absoluteString), (try? file.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { return .handled }
 
-            context.open(String(file.path.dropFirst(markdown.root.path.count + 1)))
+            context.open(String(file.path.dropFirst(root.path.count + 1)))
             return .handled
         })
     }
 }
 
-private struct MarkdownRenderStyle {
-    let style: ReviewStyle
-    let directory: URL
-    let root: URL
+struct MarkdownRenderStyle {
+    enum Source {
+        case document(directory: URL, root: URL)
+        case preview
+    }
 
-    init(style: ReviewStyle, directory: URL, root: URL) {
+    let style: ReviewStyle
+    let source: Source
+    let size: CGFloat
+    var foreground: Color
+
+    init(style: ReviewStyle, source: Source, size: CGFloat? = nil) {
         self.style = style
-        self.directory = directory.resolvingSymlinksInPath()
-        self.root = root.resolvingSymlinksInPath()
+        self.source = source
+        self.size = size ?? (style.font.pointSize + 2)
         foreground = Color(nsColor: style.foreground)
     }
 
-    var size: CGFloat { style.font.pointSize + 2 }
-    var foreground: Color
     var secondary: Color { Color(nsColor: style.secondary) }
 
     var dimmed: Self {
@@ -85,14 +90,15 @@ private struct MarkdownRenderStyle {
     }
 
     func localURL(for source: String) -> URL? {
-        guard let url = URL(string: source), url.scheme == nil, !url.path.isEmpty else { return nil }
+        guard case let .document(directory, root) = self.source,
+              let url = URL(string: source), url.scheme == nil, !url.path.isEmpty else { return nil }
 
         let resolved = (url.path.hasPrefix("/") ? root.appending(path: url.path) : directory.appending(path: url.path)).resolvingSymlinksInPath()
         return resolved.path.hasPrefix(root.path + "/") ? resolved : nil
     }
 }
 
-private struct MarkdownNodeView: View {
+struct MarkdownNodeView: View {
     let node: MarkdownNode
     let markdown: MarkdownRenderStyle
 
@@ -120,7 +126,7 @@ private struct MarkdownNodeView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if case let .code(language, text) = node {
-            MarkdownCodeBlock(language: language, text: text, style: markdown.style)
+            MarkdownCodeBlock(language: language, text: text, markdown: markdown)
         } else if case let .quote(nodes) = node {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(nodes.enumerated(), id: \.offset) { _, node in Self(node: node, markdown: markdown.dimmed) }
@@ -170,36 +176,44 @@ private struct MarkdownNodeView: View {
     }
 }
 
-private struct MarkdownTable: View {
+struct MarkdownTable: View {
     let rows: [[AttributedString]]
     let markdown: MarkdownRenderStyle
 
     var body: some View {
-        ScrollView(.horizontal) {
-            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
-                ForEach(rows.enumerated(), id: \.offset) { index, row in
-                    GridRow {
-                        ForEach(row.enumerated(), id: \.offset) { _, cell in
-                            Text(markdown.prose(cell))
-                                .bold(index == 0)
-                        }
-                    }
-                    if index < rows.count - 1 { Divider() }
-                }
+        Group {
+            if case .preview = markdown.source {
+                grid
+            } else {
+                ScrollView(.horizontal) { grid }
+                    .scrollIndicators(.hidden)
             }
-            .font(.system(size: markdown.size - 1))
-            .foregroundStyle(markdown.foreground)
-            .padding(12)
         }
-        .scrollIndicators(.hidden)
         .background(markdown.foreground.opacity(0.05), in: .rect(cornerRadius: 10))
+    }
+
+    private var grid: some View {
+        Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) {
+            ForEach(rows.enumerated(), id: \.offset) { index, row in
+                GridRow {
+                    ForEach(row.enumerated(), id: \.offset) { _, cell in
+                        Text(markdown.prose(cell))
+                            .bold(index == 0)
+                    }
+                }
+                if index < rows.count - 1 { Divider() }
+            }
+        }
+        .font(.system(size: markdown.size - 1))
+        .foregroundStyle(markdown.foreground)
+        .padding(12)
     }
 }
 
-private struct MarkdownCodeBlock: View {
+struct MarkdownCodeBlock: View {
     let language: String
     let text: String
-    let style: ReviewStyle
+    let markdown: MarkdownRenderStyle
 
     @State private var highlighted: AttributedString?
 
@@ -208,33 +222,38 @@ private struct MarkdownCodeBlock: View {
             if !language.isEmpty {
                 Text(language)
                     .font(.caption)
-                    .foregroundStyle(Color(nsColor: style.secondary))
+                    .foregroundStyle(markdown.secondary)
             }
-            ScrollView(.horizontal) {
-                Text(highlighted ?? AttributedString(text))
-                    .font(Font(style.font))
-                    .foregroundStyle(Color(nsColor: style.foreground))
-                    .fixedSize()
+            if case .preview = markdown.source {
+                code.fixedSize(horizontal: false, vertical: true)
+            } else {
+                ScrollView(.horizontal) { code.fixedSize() }
+                    .scrollIndicators(.automatic)
             }
-            .scrollIndicators(.automatic)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: style.foreground).opacity(0.06), in: .rect(cornerRadius: 10))
+        .background(Color(nsColor: markdown.style.foreground).opacity(0.06), in: .rect(cornerRadius: 10))
         .task(id: [text, language]) {
             guard !language.isEmpty else { return }
 
             let spans = await Task.detached { CodeHighlighter.spans(in: text, language: language) }.value
             let colored = NSMutableAttributedString(string: text)
             for span in spans where NSMaxRange(span.range) <= colored.length {
-                colored.addAttribute(.foregroundColor, value: style.color(forCapture: span.capture), range: span.range)
+                colored.addAttribute(.foregroundColor, value: markdown.style.color(forCapture: span.capture), range: span.range)
             }
             highlighted = try? AttributedString(colored, including: \.appKit)
         }
     }
+
+    private var code: some View {
+        Text(highlighted ?? AttributedString(text))
+            .font(Font(markdown.style.font))
+            .foregroundStyle(Color(nsColor: markdown.style.foreground))
+    }
 }
 
-private struct MarkdownImageView: View {
+struct MarkdownImageView: View {
     let image: MarkdownImage
     let markdown: MarkdownRenderStyle
 
