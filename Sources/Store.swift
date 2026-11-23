@@ -698,14 +698,19 @@ final class Store {
                 await previous?.value
                 defer { preparingPullRequests.removeAll { $0 == key } }
 
-                let head = await Task.detached { PullRequestStatus.head(of: key) }.value
-                guard let head else {
-                    pullRequestFailure = "Couldn’t read the head branch of PR #\(key.number). Check that the GitHub CLI (gh) is signed in."
-                    return
-                }
-
                 do {
-                    let path = try await PullRequestCheckout.prepare(root: root, number: key.number, head: head)
+                    let path: String
+                    if let worktrunk = PullRequestStatus.worktrunk {
+                        path = try await PullRequestCheckout.prepare(root: root, number: key.number, worktrunk: worktrunk)
+                    } else {
+                        let head = await Task.detached { PullRequestStatus.head(of: key) }.value
+                        guard let head else {
+                            pullRequestFailure = "Couldn’t read the head branch of PR #\(key.number). Check that the GitHub CLI (gh) is signed in."
+                            return
+                        }
+
+                        path = try await PullRequestCheckout.prepare(root: root, number: key.number, head: head)
+                    }
                     startPullRequestSession(key, in: path, prompt: prompt, selectsTab: selectsTab)
                 } catch {
                     pullRequestFailure = (error as? PullRequestCheckout.Failure)?.message ?? "Couldn’t prepare a worktree for PR #\(key.number)."

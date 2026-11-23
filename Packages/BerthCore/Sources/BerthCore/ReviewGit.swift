@@ -376,22 +376,22 @@ public enum ReviewGit {
         return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
     }
 
-    static func git(_ arguments: [String], in root: String, timeout: TimeInterval? = nil, input: FileHandle = .nullDevice) async throws -> Data {
+    static func git(_ arguments: [String], in root: String, timeout: TimeInterval? = nil, input: FileHandle = .nullDevice, executable: String = "/usr/bin/git", environment: [String: String] = [:]) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(with: Result { try runBlocking(arguments, in: root, timeout: timeout, input: input) })
+                continuation.resume(with: Result { try runBlocking(arguments, in: root, timeout: timeout, input: input, executable: executable, environment: environment) })
             }
         }
     }
 
-    private static func runBlocking(_ arguments: [String], in root: String, timeout: TimeInterval?, input: FileHandle) throws -> Data {
+    private static func runBlocking(_ arguments: [String], in root: String, timeout: TimeInterval?, input: FileHandle, executable: String, environment: [String: String]) throws -> Data {
         let process = Process()
         let output = Pipe()
         let errors = Pipe()
-        process.executableURL = URL(filePath: "/usr/bin/git")
+        process.executableURL = URL(filePath: executable)
         process.arguments = arguments
         process.currentDirectoryURL = URL(filePath: root, directoryHint: .isDirectory)
-        process.environment = ProcessInfo.processInfo.environment.merging(["GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"]) { $1 }
+        process.environment = ProcessInfo.processInfo.environment.merging(["GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0"].merging(environment) { $1 }) { $1 }
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors

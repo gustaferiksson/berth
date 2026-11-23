@@ -36,6 +36,17 @@ public enum PullRequestCheckout {
         return PullRequestHead(branch: response.headRefName, owner: response.headRepositoryOwner?.login, isCrossRepository: response.isCrossRepository)
     }
 
+    public static func worktrunkArguments(root: String, number: Int) -> [String] {
+        ["-C", root, "switch", "pr:\(number)", "--no-cd", "-y", "--format", "json"]
+    }
+
+    public static func parseWorktrunk(_ output: Data) -> String? {
+        struct Response: Decodable {
+            let path: String
+        }
+        return (try? JSONDecoder().decode(Response.self, from: output))?.path
+    }
+
     public static func worktreePath(root: String, branch: String) -> String {
         let main = URL(filePath: root, directoryHint: .isDirectory).standardizedFileURL
         let folder = branch.replacing("/", with: "-").replacing("\\", with: "-")
@@ -50,6 +61,22 @@ public enum PullRequestCheckout {
             let branch = lines.first { $0.hasPrefix("branch refs/heads/") }
             return (String(path.dropFirst("worktree ".count)), branch.map { String($0.dropFirst("branch refs/heads/".count)) })
         }
+    }
+
+    public static func prepare(root: String, number: Int, worktrunk: String) async throws -> String {
+        let environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:" + (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin")]
+        let output: Data
+        do {
+            output = try await ReviewGit.git(worktrunkArguments(root: root, number: number), in: root, timeout: 180, executable: worktrunk, environment: environment)
+        } catch let ReviewGitError.git(_, message) {
+            let lines = message.split(separator: "\n")
+            let reason = lines.last { $0.hasPrefix("✗ ") }.map { String($0.dropFirst(2)) } ?? lines.last.map(String.init)
+            throw Failure(message: ["Worktrunk couldn’t set up a worktree for PR #\(number).", reason].compactMap(\.self).joined(separator: " "))
+        }
+
+        guard let path = parseWorktrunk(output) else { throw Failure(message: "Worktrunk didn’t report a worktree path for PR #\(number).") }
+
+        return path
     }
 
     public static func prepare(root: String, number: Int, head: PullRequestHead) async throws -> String {

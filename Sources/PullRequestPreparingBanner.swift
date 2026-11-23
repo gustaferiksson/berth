@@ -8,7 +8,7 @@ struct PullRequestPreparingBanner: View {
         HStack(spacing: 10) {
             ProgressView()
                 .controlSize(.small)
-            Text(number.map { "Preparing a worktree for PR #\($0)" } ?? "Preparing worktrees for \(count) pull requests")
+            Text(number.map { "Setting up the worktree for PR #\($0)" } ?? "Setting up worktrees for \(count) pull requests")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)

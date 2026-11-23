@@ -117,4 +117,28 @@ final class PullRequestCheckoutTests {
         #expect(failure?.message.hasPrefix("Couldn’t fetch PR #99 from origin") == true)
         #expect(!FileManager.default.fileExists(atPath: base.appending(path: "widgets.worktrees").path))
     }
+
+    private func fakeWorktrunk(_ body: String) throws -> String {
+        let script = base.appending(path: "wt")
+        try "#!/bin/sh\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return script.path
+    }
+
+    @Test func worktrunkPathComesFromItsJSON() async throws {
+        let worktrunk = try fakeWorktrunk(#"echo "◎ Fetching PR #7..." >&2; echo '{"action":"created","branch":"b","path":"/tmp/widgets.worktrees/b"}'"#)
+
+        let path = try await PullRequestCheckout.prepare(root: base.path, number: 7, worktrunk: worktrunk)
+
+        #expect(path == "/tmp/widgets.worktrees/b")
+    }
+
+    @Test func worktrunkFailureShowsItsReason() async throws {
+        let worktrunk = try fakeWorktrunk(#"echo "◎ Fetching PR #7..." >&2; echo "✗ No GitHub remote configured" >&2; exit 1"#)
+
+        let failure = await #expect(throws: PullRequestCheckout.Failure.self) {
+            try await PullRequestCheckout.prepare(root: base.path, number: 7, worktrunk: worktrunk)
+        }
+        #expect(failure?.message == "Worktrunk couldn’t set up a worktree for PR #7. No GitHub remote configured")
+    }
 }
