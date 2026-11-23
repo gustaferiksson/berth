@@ -124,7 +124,7 @@ struct ConversationView: View {
         .contentMargins(.bottom, model.tasks.isEmpty ? 16 : 58, for: .scrollContent)
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
-        .scrollEdgeEffectStyle(.hard, for: .bottom)
+        .scrollEdgeEffectHidden(true, for: .bottom)
         .onScrollGeometryChange(for: ConversationScrollState.self) { geometry in
             ConversationScrollState(height: geometry.contentSize.height, isAtBottom: geometry.visibleRect.maxY >= geometry.contentSize.height + geometry.contentInsets.bottom - 40)
         } action: { old, new in
