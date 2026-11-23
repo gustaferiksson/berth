@@ -21,7 +21,10 @@ struct SessionStatusBar: View {
             HStack(spacing: 16) {
                 if isShell {
                     Label("bash mode", systemImage: "terminal")
+                        .fontWeight(.regular)
+                        .symbolRenderingMode(.monochrome)
                         .foregroundStyle(theme.shellAttached)
+                        .opacity(0.8)
                         .lineLimit(1)
                         .layoutPriority(1)
                 }
