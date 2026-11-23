@@ -91,7 +91,7 @@ extension Snapshot {
         switch variant {
         case "pr", "pr-checks":
             preview = .fixtureRoundingPullRequest
-            actions = ItemPreviewActions(openInBerth: {}, openInBerthTitle: "Resume Session", copyLink: {}, openOnGitHub: {})
+            actions = ItemPreviewActions(openInBerth: {}, openInBerthTitle: "Resume Session", steward: {}, copyLink: {}, openOnGitHub: {})
 
         case "issue":
             preview = .fixtureStartupIssue

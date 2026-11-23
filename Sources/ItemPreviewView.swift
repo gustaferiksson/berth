@@ -6,6 +6,7 @@ struct ItemPreviewActions {
     var openInBerth: (() -> Void)?
     var openInBerthTitle = "Open in Berth"
     var openInBerthDisabledReason: String?
+    var steward: (() -> Void)?
     let copyLink: () -> Void
     let openOnGitHub: () -> Void
 }
@@ -422,15 +423,22 @@ struct ItemPreviewView: View {
                     Button(actions.openInBerthTitle, action: openInBerth)
                         .buttonStyle(.borderedProminent)
                         .help(actions.openInBerthTitle)
+                    if let steward = actions.steward {
+                        Button(StewardPullRequestButton.title, systemImage: "eye", action: steward)
+                            .buttonStyle(.bordered)
+                            .help("Open the session and ask Claude to steward this pull request")
+                    }
                     Spacer(minLength: 0)
                 }
                 Button(action: actions.copyLink) {
                     Label("Copy Link", systemImage: "doc.on.doc")
                 }
+                .labelStyle(.iconOnly)
                 .help("Copy the GitHub link")
                 Button(action: actions.openOnGitHub) {
                     Label("Open on GitHub", systemImage: "arrow.up.right")
                 }
+                .labelStyle(.iconOnly)
                 .help("Open this item on GitHub")
             }
             .buttonStyle(.bordered)
