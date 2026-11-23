@@ -617,7 +617,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         private func comment(on textView: ReviewTextView, lines: ClosedRange<Int>) {
-            guard let parent, parent.compare?.isCommit != true, let rows = textView.side?.rows, rows.indices.contains(lines.upperBound) else { return }
+            guard let parent, parent.compare?.isCommit != true, parent.editor != nil || parent.compare != nil, let rows = textView.side?.rows, rows.indices.contains(lines.upperBound) else { return }
 
             let isRemoval = textView === left && lines.contains { left.side?.changedLines.contains($0) == true }
             let numbered = textView === left && !isRemoval ? right : textView

@@ -173,6 +173,10 @@ It also runs `open-session --cwd <dir> --background -- "hello"` with the system 
 
 `-snapshotChecks "passed|passed||failed"` fails the draft #12 fixture session's checks (marked as your own PR) so it enters Needs Attention; `-snapshotSidebarStatus` sets the status filter and `-snapshotSidebarFilter` also prints `attention`.
 
+### Session files
+
+`-snapshotSessionFiles "/abs/a:/abs/b"` (with `-snapshotReview /abs/folder`) sets the claude tab's edited files as if the transcript had listed them (nothing is filtered for existence), so Review shows Edited by Session; `-snapshotSessionFileOpen /abs/file` opens one in the diff column and prints its state. A non-git folder shows the section instead of No Git Repository. Run with `CFFIXED_USER_HOME=/abs/home` for `~` paths and `-reviewChangesAsTree YES|NO` for the two layouts.
+
 ### Tasks
 
 `-snapshotTasksReview YES` builds scratch repos under `.build/tasks-review` (`-snapshotTasksReviewSession`, default `task-usage-api`, the only one that forms the task card; `-snapshotReviewRepoTab <repo name|all>`, `-snapshotTasksReviewDefaults "key=value|…"` flips argument-domain keys mid-run and saves a shot per step, `-snapshotTasksReviewCollapse "billing|web|infra"` collapses those repo sections, `-snapshotTasksReviewTransition YES` drops a repo while its tab is selected, `-snapshotLinkedPullRequests YES` gives fixture sessions linked PRs in two repos).
