@@ -226,19 +226,20 @@ struct ConversationTurnView: View {
 
     var body: some View {
         let workCount = turn.parts.count { $0.isWork }
-        let lastIndex = turn.parts.count - 1
+        let openCall = isFinished ? nil : turn.openCall
 
         VStack(alignment: .leading, spacing: 14) {
             if let prompt = turn.prompt {
                 ConversationPrompt(entry: prompt)
             }
-            ForEach(turn.parts.enumerated(), id: \.element.id) { index, part in
-                if case let .work(calls) = part, !turn.isInterrupted, isFinished || index < lastIndex {
-                    ConversationFold(label: isFinished && workCount == 1 ? turn.duration.map { "Worked for \($0.formatted(elapsedFormat))" } ?? "Worked" : ToolCall.summary(of: calls)) {
-                        ConversationPartView(part: part, tasks: tasks, details: details, openCall: nil, isWaiting: false)
+            ForEach(turn.parts) { part in
+                if case let .work(calls) = part, !turn.isInterrupted {
+                    let live = calls.last.flatMap { $0.id == openCall?.id ? $0 : nil }
+                    ConversationFold(label: foldLabel(calls: calls, live: live, workCount: workCount), state: live == nil ? .finished : waitingFor != nil ? .waiting : .running) {
+                        ConversationPartView(part: part, tasks: tasks, details: details, openCall: openCall, isWaiting: waitingFor != nil)
                     }
                 } else {
-                    ConversationPartView(part: part, tasks: tasks, details: details, openCall: isFinished ? nil : turn.openCall, isWaiting: waitingFor != nil)
+                    ConversationPartView(part: part, tasks: tasks, details: details, openCall: openCall, isWaiting: waitingFor != nil)
                 }
             }
             if isFinished, !turn.isInterrupted, let changes = turn.fileChanges {
@@ -253,6 +254,16 @@ struct ConversationTurnView: View {
                 working
             }
         }
+    }
+
+    private func foldLabel(calls: [ToolCall], live: ToolCall?, workCount: Int) -> String {
+        if let live {
+            return waitingFor != nil ? (live.use.name == "AskUserQuestion" ? "Waiting for your answer" : "Waiting for approval") : "\(live.verb.present) \(live.subject)"
+        }
+
+        guard isFinished, workCount == 1 else { return ToolCall.summary(of: calls) }
+
+        return turn.duration.map { "Worked for \($0.formatted(elapsedFormat))" } ?? "Worked"
     }
 
     private var working: some View {
@@ -329,6 +340,7 @@ private struct ConversationPartView: View {
 
 private struct ConversationFold<Content: View>: View {
     let label: String
+    let state: ConversationToolState
     @ViewBuilder let content: Content
 
     @Environment(\.ghosttyTheme) private var theme
@@ -339,7 +351,7 @@ private struct ConversationFold<Content: View>: View {
             Button {
                 withAnimation(.smooth(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                ConversationFoldLabel(label: label, isExpanded: isExpanded)
+                ConversationFoldLabel(label: label, state: state, isExpanded: isExpanded)
             }
             .buttonStyle(.plain)
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
@@ -358,16 +370,24 @@ private struct ConversationFold<Content: View>: View {
 
 private struct ConversationFoldLabel: View {
     let label: String
+    let state: ConversationToolState
     let isExpanded: Bool
 
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(verbatim: "✻")
-                .accessibilityHidden(true)
+            if state == .running, !reduceMotion {
+                ConversationSpinner()
+            } else {
+                Text(verbatim: state == .waiting ? "!" : "✻")
+                    .foregroundStyle(state == .waiting ? theme.needsYou : theme.secondary)
+                    .accessibilityHidden(true)
+            }
             Text(label)
+                .lineLimit(1)
                 .monospacedDigit()
             Image(systemName: "chevron.right")
                 .font(.system(size: 10, weight: .semibold))
