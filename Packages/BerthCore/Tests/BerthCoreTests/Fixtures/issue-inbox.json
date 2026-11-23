@@ -3,7 +3,13 @@
     "assigned": {
       "nodes": [
         null,
-        {"repository": {"nameWithOwner": "acme/billing"}, "number": 57, "title": "Export billing reports", "url": "https://github.com/acme/billing/issues/57", "updatedAt": "2026-02-28T12:00:00Z", "timelineItems": {"nodes": [
+        {"repository": {"nameWithOwner": "acme/billing"}, "number": 57, "title": "Export billing reports", "url": "https://github.com/acme/billing/issues/57", "updatedAt": "2026-02-28T12:00:00Z", "author": {"login": "lee"}, "labels": {"nodes": [
+          {"name": "enhancement", "color": "a2eeef"},
+          {"name": "billing", "color": "0e8a16"},
+          {"name": "reports", "color": "1d76db"},
+          {"name": "frontend", "color": "5319e7"},
+          {"name": "good first issue", "color": "7057ff"}
+        ]}, "timelineItems": {"nodes": [
           {"__typename": "CrossReferencedEvent", "source": {"__typename": "PullRequest", "repository": {"nameWithOwner": "acme/billing"}, "number": 61, "state": "OPEN"}},
           {"__typename": "ConnectedEvent", "subject": {"__typename": "PullRequest", "repository": {"nameWithOwner": "ACME/Billing"}, "number": 61, "state": "OPEN"}},
           {"__typename": "ConnectedEvent", "subject": {"__typename": "PullRequest", "repository": {"nameWithOwner": "acme/web"}, "number": 61, "state": "OPEN"}},
@@ -11,19 +17,25 @@
           {"__typename": "CrossReferencedEvent", "source": {"__typename": "PullRequest", "repository": {"nameWithOwner": "acme/billing"}, "number": 62, "state": "CLOSED"}},
           {"__typename": "CrossReferencedEvent", "source": {"__typename": "PullRequest", "repository": {"nameWithOwner": "acme/web"}, "number": 62, "state": "MERGED"}},
           {"__typename": "CrossReferencedEvent", "source": {"__typename": "Issue", "repository": {"nameWithOwner": "acme/api"}, "number": 63, "state": "OPEN"}}
-        ]}}
+        ]}},
+        {"repository": {"nameWithOwner": "acme/billing"}, "number": 58, "title": "Check dashboard timezone", "url": "https://github.com/acme/billing/issues/58", "updatedAt": "2026-02-28T15:00:00Z"}
       ]
     },
     "mine": {
       "nodes": [
         {"repository": {"nameWithOwner": "ACME/Billing"}, "number": 57, "title": "Duplicate from mine", "url": "https://github.com/ACME/Billing/issues/57", "updatedAt": "2026-02-28T12:00:00Z", "timelineItems": {"nodes": []}},
-        {"repository": {"nameWithOwner": "acme/web"}, "number": 57, "title": "Update the web dashboard", "url": "https://github.com/acme/web/issues/57", "updatedAt": "2026-02-28T13:00:00Z", "timelineItems": {"nodes": []}}
+        {"repository": {"nameWithOwner": "acme/web"}, "number": 57, "title": "Update the web dashboard", "url": "https://github.com/acme/web/issues/57", "updatedAt": "2026-02-28T13:00:00Z", "author": {"login": "me"}, "labels": {"nodes": [
+          {"name": "invalid", "color": 123},
+          null,
+          {"name": "bug", "color": "d73a4a"}
+        ]}, "timelineItems": {"nodes": []}}
       ]
     },
     "mentioned": {
       "nodes": [
         {"repository": {"nameWithOwner": "acme/web"}, "number": 57, "title": "Duplicate from mentioned", "url": "https://github.com/acme/web/issues/57", "updatedAt": "2026-02-28T13:00:00Z", "timelineItems": {"nodes": []}},
-        {"repository": {"nameWithOwner": "acme/api"}, "number": 15, "title": "Drop the legacy CSV importer", "url": "https://github.com/acme/api/issues/15", "updatedAt": "2025-12-01T12:00:00Z", "timelineItems": {"nodes": []}}
+        {"repository": {"nameWithOwner": "acme/api"}, "number": 15, "title": "Drop the legacy CSV importer", "url": "https://github.com/acme/api/issues/15", "updatedAt": "2025-12-01T12:00:00Z", "author": {"login": 123}, "labels": {"nodes": false}, "timelineItems": {"nodes": []}},
+        {"repository": {"nameWithOwner": "acme/web"}, "number": 60, "title": "Dashboard export status", "url": "https://github.com/acme/web/issues/60", "updatedAt": "2026-02-28T14:00:00Z", "author": null, "labels": null, "timelineItems": {"nodes": []}}
       ]
     }
   }

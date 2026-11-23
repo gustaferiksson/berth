@@ -139,10 +139,11 @@ struct ReviewRepoRows: View {
 struct ReviewOtherPullRequests: View {
     let pullRequests: [PullRequest]
     let repository: String?
+    var showsHeading = true
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        if !pullRequests.isEmpty {
+        if showsHeading, !pullRequests.isEmpty {
             Text("Other pull requests")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.secondary)

@@ -21,6 +21,7 @@ struct ContentView: View {
     @AppStorage(WindowBackdrop.backgroundKey) private var windowBackground = WindowBackground.theme
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
+    @State private var previousLauncherScope: LauncherMode?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -53,11 +54,14 @@ struct ContentView: View {
                             Color.clear
                                 .contentShape(.rect)
                                 .onTapGesture { store.launcherMode = nil }
-                            Launcher(mode: mode, query: store.launcherQuery)
+                            Launcher(mode: mode, query: store.launcherQuery, previousScope: $previousLauncherScope)
                                 .id(mode)
                                 .padding(.top, 120)
                         }
                     }
+                }
+                .onChange(of: store.launcherMode) {
+                    if store.launcherMode == nil { previousLauncherScope = nil }
                 }
                 .overlay(alignment: .top) {
                     if let restart = store.updater.pendingRestart {

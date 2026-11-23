@@ -4,6 +4,7 @@ import SwiftUI
 struct GeneralSettings: View {
     static let unloadIdleKey = "unloadIdleSessionsAfter"
     static let reviewKey = "reviewEnabled"
+    static let reviewSlimPanelKey = "reviewSlimPanel"
     static let conversationKey = "conversationEnabled"
     static let conversationViewKey = "conversationDefaultView"
     static let terminalBelowKey = "reviewTerminalBelow"
