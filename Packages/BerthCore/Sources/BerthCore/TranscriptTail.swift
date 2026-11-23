@@ -21,8 +21,8 @@ public enum TranscriptTail {
     static let minPrompts = 5
     static let maxDetail = 300
     static let maxImages = 4
-    static let thumbnailPixels = 360
-    static let maxThumbnailBytes = 96 * 1024
+    static let thumbnailPixels = 1000
+    static let maxThumbnailBytes = 300 * 1024
 
     public static func read(_ url: URL, after offset: Int?, queue: [String] = [], includeSidechain: Bool = false) -> Chunk? {
         readWindow(url, after: offset) { data, dropFirst, start, continuation in
@@ -197,7 +197,7 @@ public enum TranscriptTail {
             guard block["type"] as? String == "image",
                   let base64 = (block["source"] as? [String: Any])?["data"] as? String,
                   let data = Data(base64Encoded: base64),
-                  let thumbnail = TranscriptImages.jpeg(data, maxPixel: thumbnailPixels, quality: 0.7),
+                  let thumbnail = TranscriptImages.jpeg(data, maxPixel: thumbnailPixels, quality: 0.85),
                   thumbnail.count <= maxThumbnailBytes
             else { return nil }
 
