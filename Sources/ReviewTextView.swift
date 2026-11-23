@@ -365,7 +365,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             label.onCancel = { [weak self] in self?.dismissHover() }
             label.textStorage?.setAttributedString(text)
             let container = label.textContainer ?? NSTextContainer()
+            // swiftlint:disable:next text_kit_1_layout_manager - the label is built with usingTextLayoutManager: false
             label.layoutManager?.ensureLayout(for: container)
+            // swiftlint:disable:next text_kit_1_layout_manager - the label is built with usingTextLayoutManager: false
             let used = label.layoutManager?.usedRect(for: container) ?? .zero
             label.frame.size = NSSize(width: used.width.rounded(.up), height: used.height.rounded(.up))
             label.textContainer?.containerSize.width = label.frame.width

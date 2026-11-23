@@ -584,6 +584,7 @@ private struct ConversationBottomBar: View {
                     .frame(height: Self.fadeHeight)
                 surface
             }
+            // swiftlint:disable:next negative_padding - the fade tucks under the composer, no controls inside
             .padding(.top, -Self.fadeHeight)
             .ignoresSafeArea(edges: .bottom)
             .allowsHitTesting(false)
