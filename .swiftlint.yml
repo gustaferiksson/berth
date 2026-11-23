@@ -147,6 +147,10 @@ custom_rules:
     name: Legacy Observation
     regex: '@Published\b|@StateObject\b|@EnvironmentObject\b|:\s*ObservableObject\b|@ObservedObject(?! var terminal: TerminalViewState)'
     message: 'Use @Observable with @State, @Bindable and @Environment. Only the libghostty TerminalViewState is an ObservableObject.'
+  grouped_identifier_number:
+    name: Grouped Identifier Number
+    regex: '(Text|Label|Button|\.help|\.accessibilityLabel)\("[^"\n]*#\\\((?!String\()'
+    message: 'A localized string literal groups an Int ("#1,742"). Use Text(verbatim:), or interpolate String(number) in Label, Button, .help and .accessibilityLabel.'
   unstable_view_identity:
     name: Unstable View Identity
     regex: '\.id\(UUID\(\)\)'

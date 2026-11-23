@@ -1581,7 +1581,7 @@ private struct PullRequestStatePill: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .pointerStyle(.link)
-        .help("Open pull request #\(pullRequest.number) on GitHub")
+        .help("Open pull request #\(String(pullRequest.number)) on GitHub")
     }
 }
 

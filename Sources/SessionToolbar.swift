@@ -97,7 +97,7 @@ private struct PullRequestButton: View {
                 .labelStyle(.titleAndIcon)
                 .foregroundStyle(pullRequest.state.color(in: theme))
         }
-        .help("Open pull request #\(pullRequest.number)")
+        .help("Open pull request #\(String(pullRequest.number))")
     }
 }
 

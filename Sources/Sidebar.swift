@@ -1435,7 +1435,7 @@ struct IssueTag: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .pointerStyle(.link)
-        .help("Open issue \(issue.repository)#\(issue.number)")
+        .help("Open issue \(issue.repository)#\(String(issue.number))")
     }
 }
 
@@ -1470,7 +1470,7 @@ struct IssueStatePill: View {
                 .foregroundStyle(Color.secondary)
             Spacer(minLength: 0)
         }
-        .help("Open issue \(issue.repository)#\(issue.number)")
+        .help("Open issue \(issue.repository)#\(String(issue.number))")
     }
 }
 
@@ -1823,7 +1823,7 @@ struct PullRequestTag: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .pointerStyle(.link)
-        .help("Open pull request #\(pullRequest.number)\(checks.map { ", checks \($0.rawValue)" } ?? "")\(more > 0 ? ", \(more) more on this session" : "")")
+        .help("Open pull request #\(String(pullRequest.number))\(checks.map { ", checks \($0.rawValue)" } ?? "")\(more > 0 ? ", \(more) more on this session" : "")")
     }
 }
 
