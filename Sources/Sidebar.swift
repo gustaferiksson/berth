@@ -335,7 +335,7 @@ private struct SidebarList: View, Equatable {
                             .id(SidebarItem.session(id))
                     }
                 } header: {
-                    GroupHeader(title: "Archived", help: "Archived sessions", count: layout.archivedIDs.count) { EmptyView() } accessory: { _ in EmptyView() }
+                    GroupHeader(title: "Done", help: "Done sessions", count: layout.archivedIDs.count) { EmptyView() } accessory: { _ in EmptyView() }
                 }
             }
         }
@@ -820,7 +820,7 @@ private struct SessionItem: View {
                     MultiSelectionMenu()
                 } else if place == .archived {
                     if let tab { Button("New Terminal") { store.newTerminal(for: tab.id) } }
-                    Button("Unarchive") { store.unarchive(id) }
+                    Button("Mark as Not Done") { store.unarchive(id) }
                     flagButton
                     Divider()
                     CopySessionIDButton(sessionID: id)
