@@ -6,6 +6,7 @@ struct SidebarSettings: View {
     @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
     @AppStorage("showsSessionUsageDivisions") private var showsSessionUsageDivisions = false
     @AppStorage("showsWeeklyUsageDivisions") private var showsWeeklyUsageDivisions = false
+    @AppStorage(SidebarStyle.key) private var style = SidebarStyle.classic
     @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
     @AppStorage(ItemPreviewSetting.key) private var richPreviews = false
 
@@ -17,15 +18,26 @@ struct SidebarSettings: View {
                     Text("Right").tag(SidebarPosition.right)
                 }
                 .pickerStyle(.segmented)
-                Picker("Density", selection: $density) {
-                    ForEach(SidebarDensity.allCases, id: \.self) { Text($0.title).tag($0) }
+                Picker("Style", selection: $style) {
+                    ForEach(SidebarStyle.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                SidebarDensityPreview(density: density)
+                if style == .classic {
+                    Picker("Density", selection: $density) {
+                        ForEach(SidebarDensity.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    SidebarDensityPreview(density: density)
+                }
             } header: {
                 Text("Layout")
             } footer: {
-                Text("Compact shows one line per session, with the pull request beside the title.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Slim puts each session on one line with the status glyph first, a small trailing pull request glyph, and actions on hover.")
+                    if style == .classic {
+                        Text("Compact shows one line per session, with the pull request beside the title.")
+                    }
+                }
             }
             Section {
                 Toggle("Show plan usage", isOn: $showsPlanUsage)

@@ -4,6 +4,7 @@ import GhosttyTerminal
 import SwiftUI
 import WebKit
 
+// swiftlint:disable:next type_body_length
 enum Snapshot {
     #if DEBUG
     static let showsWatching = UserDefaults.standard.bool(forKey: "snapshotWatching")
@@ -317,7 +318,87 @@ enum Snapshot {
         return rows.map { SessionSummary(id: $0.id, cwd: "\(code)/\($0.folder)", title: $0.title, lastActivity: .now - $0.minutes * 60) }
     }()
 
-    static let fixtureTasks = taskFixtures?.tasks
+    private struct BusySidebarFixture {
+        let sessions: [SessionSummary]
+        let repositories: [String: String?]
+        let pullRequests: [PullRequestBranch: PullRequest?]
+
+        static let exportTask = "task:busy-export"
+        static let releaseTask = "task:busy-release"
+        static let exportIssue = IssueRef(repository: "acme/billing", number: 57)
+
+        var tasks: TaskState {
+            TaskState(tasks: [
+                StoredTask(id: Self.exportTask, name: "Usage export", issue: Self.exportIssue, origin: .local, sessionIDs: ["busy-export-api", "busy-export-tests"]),
+                StoredTask(id: Self.releaseTask, name: "Release packaging", origin: .local, sessionIDs: ["busy-release-signing", "busy-release-notes"]),
+            ])
+        }
+    }
+
+    static let usesBusySidebar = UserDefaults.standard.bool(forKey: "snapshotBusySidebar")
+
+    private static let busySidebar: BusySidebarFixture? = {
+        guard usesBusySidebar else { return nil }
+
+        let root = NSTemporaryDirectory() + "berth-busy-sidebar"
+        let rows: [(id: String, project: String, title: String)] = [
+            ("rounding", "acme/billing", "Reconcile ledger entries against settlement exports and flag every mismatch"),
+            ("passed", "acme/billing", "Fix pagination when an invoice has more than a hundred line items"),
+            ("export-api", "acme/billing", "Add the usage export CSV endpoint"),
+            ("export-tests", "acme/billing", "Cover settlement cutoffs in the CSV export tests"),
+            ("invoice-copy", "acme/billing", "Clarify the invoice adjustment wording"),
+            ("tax-rates", "acme/billing", "Refresh the regional tax rate table"),
+            ("retry-export", "acme/billing", "Retry the export when the object store is unavailable"),
+            ("ledger-index", "acme/billing", "Add an index for nightly ledger lookups"),
+            ("credits", "acme/billing", "Audit how imported credits are applied"),
+            ("draft", "acme/web", "Draft the accessible keyboard flow for the account switcher"),
+            ("web-needs", "acme/web", "Investigate the flaky checkout test"),
+            ("web-unread", "acme/web", "Update the onboarding walkthrough"),
+            ("infra-working", "acme/infra", "Rotate the staging credentials"),
+            ("merged", "acme/infra", "Reduce CI queue times with a shared build cache"),
+            ("infra-shell", "acme/infra", "Watch the deploy canary"),
+            ("closed", "acme/api", "Remove the legacy redirect middleware"),
+            ("api-needs", "acme/api", "Trace intermittent webhook signature mismatches"),
+            ("api-pin", "acme/api", "Keep the API migration checklist handy"),
+            ("docs-unread", "docs", "Document the recovery workflow for interrupted exports"),
+            ("docs-snoozed", "docs", "Review the release guide tomorrow"),
+            ("docs-done", "docs", "Publish the audit log reference"),
+            ("release-signing", "desktop", "Update the signing configuration"),
+            ("release-notes", "desktop", "Draft the next release notes"),
+            ("desktop-unread", "desktop", "Check the layout with long window titles"),
+            ("mobile-working", "mobile", "Profile first launch on a cold device"),
+            ("mobile-pin", "mobile", "Track accessibility fixes before the next release"),
+            ("agent-done", "automation", "Remove the old smoke test"),
+            ("agent-logs", "automation", "Summarize the nightly run failures"),
+        ]
+        let pullRequestStates: [String: (PullRequestState, PullRequestChecks.State?)] = [
+            "rounding": (.open, .failed), "passed": (.open, .passed), "draft": (.draft, .running),
+            "merged": (.merged, nil), "closed": (.closed, nil),
+        ]
+        var repositories: [String: String?] = [:]
+        var pullRequests: [PullRequestBranch: PullRequest?] = [:]
+        let now = Date.now
+        let sessions = rows.enumerated().map { index, row in
+            let folder = "\(root)/\(row.project)"
+            let hasRepository = row.project.hasPrefix("acme/")
+            try? FileManager.default.createDirectory(atPath: hasRepository ? folder + "/.git" : folder, withIntermediateDirectories: true)
+            if hasRepository { repositories[RepositoryRoot.resolve(folder)] = row.project }
+
+            let branch = pullRequestStates[row.id].map { _ in "work/\(row.id)" }
+            if let branch, let (state, checks) = pullRequestStates[row.id] {
+                let number = 4800 + index
+                let url = URL(string: "https://github.com/\(row.project)/pull/\(number)")!
+                pullRequests[PullRequestBranch(repository: row.project, branch: branch)] =
+                    PullRequest(number: number, url: url, title: row.title, state: state, headRefName: branch, checks: checks, viewerDidAuthor: true)
+            }
+            let issueRefs = ["export-api", "export-tests", "retry-export"].contains(row.id) ? [BusySidebarFixture.exportIssue] : []
+            let context = row.id == "rounding" ? SessionContext(model: "fixture", tokens: 162_000, window: 200_000) : nil
+            return SessionSummary(id: "busy-\(row.id)", cwd: folder, title: row.title, lastActivity: now - Double(2 + index * index * index) * 60, branch: branch, issueRefs: issueRefs, context: context)
+        }
+        return BusySidebarFixture(sessions: sessions, repositories: repositories, pullRequests: pullRequests)
+    }()
+
+    static let fixtureTasks = busySidebar?.tasks ?? taskFixtures?.tasks
     private static let sessionTerminalFixtures: [SessionSummary]? = {
         guard UserDefaults.standard.bool(forKey: "snapshotSessionTerminals") else { return nil }
 
@@ -327,6 +408,7 @@ enum Snapshot {
     }()
 
     static let fixtureSessions: [SessionSummary]? = {
+        if let busySidebar { return busySidebar.sessions }
         if let issueFixtures { return issueFixtures.sessions }
 
         if let fixtures = triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures { return fixtures }
@@ -338,9 +420,9 @@ enum Snapshot {
     }()
 
     private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
-    static let fixtureRepositories = issueFixtures?.repositories ?? inboxFixtures?.repositories ?? taskFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
+    static let fixtureRepositories = busySidebar?.repositories ?? issueFixtures?.repositories ?? inboxFixtures?.repositories ?? taskFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
     private static let fixtureChecks = (UserDefaults.standard.string(forKey: "snapshotChecks") ?? "").split(separator: "|", omittingEmptySubsequences: false).map { PullRequestChecks.State(rawValue: String($0)) }
-    static let fixturePullRequests = inboxFixtures?.pullRequests ?? taskFixtures?.pullRequests ?? Dictionary(pullRequestFixtures.enumerated().compactMap { index, item in
+    static let fixturePullRequests = busySidebar?.pullRequests ?? inboxFixtures?.pullRequests ?? taskFixtures?.pullRequests ?? Dictionary(pullRequestFixtures.enumerated().compactMap { index, item in
         item.session.branch.map { branch in
             var pullRequest = item.pullRequest
             pullRequest?.checks = index < fixtureChecks.count ? fixtureChecks[index] : nil
@@ -388,6 +470,40 @@ enum Snapshot {
     static let expandedGroups: Set<String> = []
     #endif
 
+    #if DEBUG
+    private static func prepareBusySidebar(_ fixture: BusySidebarFixture, store: Store) {
+        let activity: [String: (Int32, String, String?)] = [
+            "busy-rounding": (0, "waiting", "Permission prompt"),
+            "busy-web-needs": (1, "waiting", "Test credentials"),
+            "busy-api-needs": (0, "waiting", "Approval to retry"),
+            "busy-infra-working": (0, "busy", nil),
+            "busy-mobile-working": (0, "busy", nil),
+            "busy-infra-shell": (0, "shell", nil),
+        ]
+        store.fakeLiveSessions = fixture.sessions.compactMap { session in
+            activity[session.id].map { pid, status, reason in
+                LiveSession(pid: pid, sessionId: session.id, cwd: session.cwd, status: status, waitingFor: reason)
+            }
+        }
+        store.refreshLive()
+        for id in ["busy-web-unread", "busy-docs-unread", "busy-desktop-unread"] { store.markUnread(id) }
+        for id in ["busy-rounding", "busy-ledger-index"] { store.flag(id) }
+        for id in ["busy-api-pin", "busy-mobile-pin"] { store.pin(id) }
+        store.snooze("busy-docs-snoozed", .until(.now.addingTimeInterval(3600)))
+        for id in ["busy-docs-done", "busy-agent-done"] { store.archive(id) }
+        for session in fixture.sessions where ["busy-infra-shell", "busy-agent-logs"].contains(session.id) {
+            store.openShell(cwd: session.cwd)
+        }
+
+        var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        arguments["showsTriage"] = arguments["showsTriage"] ?? true
+        arguments["snoozedExpanded"] = arguments["snoozedExpanded"] ?? true
+        arguments["archivedExpanded"] = arguments["archivedExpanded"] ?? true
+        UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        store.showsTriage = UserDefaults.standard.bool(forKey: "showsTriage")
+    }
+    #endif
+
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     static func capture(to output: URL, store: Store) async {
         #if DEBUG
@@ -427,6 +543,7 @@ enum Snapshot {
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         }
         await store.waitForScan()
+        if let busySidebar { prepareBusySidebar(busySidebar, store: store) }
         if UserDefaults.standard.bool(forKey: "snapshotRemote") { store.remote.update() }
         if UserDefaults.standard.bool(forKey: "snapshotFakeWaiting") {
             for (step, waiting) in [false, true, true, false, true].enumerated() {

@@ -629,6 +629,11 @@ final class Store {
     }
 
     func refreshPullRequests() {
+        #if DEBUG
+        guard !Snapshot.usesBusySidebar else { return }
+
+        #endif
+
         let sessions = pinnedSessions + groups.flatMap(\.sessions) + archivedSessions
         let branches = Set(sessions.flatMap(pullRequestBranches))
         let watched = transcriptWatches.compactMap { id, watch -> PullRequestLink? in
