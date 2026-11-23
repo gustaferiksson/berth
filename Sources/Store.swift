@@ -293,6 +293,7 @@ final class Store {
     private(set) var isInboxLoading = Snapshot.launcherLoading
     private(set) var issueInbox = Snapshot.fixtureIssueInbox
     private(set) var isIssueInboxLoading = Snapshot.launcherLoading
+    let projects = ProjectsModel()
     private var pullRequestTabs: [PullRequestLink: Tab.ID] = [:]
     private(set) var searchIndexVersion = 0
     private(set) var searchIndexing: (done: Int, total: Int)?
@@ -404,6 +405,7 @@ final class Store {
                 self?.refreshPullRequests()
                 self?.refreshInbox()
                 self?.refreshIssueInbox()
+                self?.projects.refresh()
                 self?.refreshLocalClones()
                 self?.unloadIdleTabs()
                 await self?.refreshPlanUsage()
@@ -427,6 +429,7 @@ final class Store {
         applyCodexSetting()
         refreshInbox()
         refreshIssueInbox()
+        projects.refresh()
         Task {
             await refreshPlanUsage()
             await refreshCodexUsage()

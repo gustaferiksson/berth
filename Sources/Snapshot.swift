@@ -506,7 +506,7 @@ enum Snapshot {
         if let status = UserDefaults.standard.string(forKey: "snapshotSidebarStatus").flatMap(SidebarStatus.init(rawValue:)) { store.sidebarStatus = status }
         for session in store.sessionsByID.values.filter({ forcedHover.contains($0.title) }) {
             let isOpen = store.tab(forSession: session.id) != nil || store.liveBySession[session.id] != nil
-            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, watch: store.pullRequestWatch(for: session.id), excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."))
+            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, watch: store.pullRequestWatch(for: session.id), excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."), projectStatuses: store.projects.statusLabels(for: store.pullRequests(of: session)))
                 .environment(\.ghosttyTheme, store.theme)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
@@ -696,6 +696,7 @@ enum Snapshot {
             if showsPullRequestActions { print("pull request menu \(StewardPullRequestButton.title)") }
             if launcherKeys == nil { store.launcherMode = .pullRequests }
         }
+        if UserDefaults.standard.bool(forKey: "snapshotProjectsLauncher"), launcherKeys == nil { store.launcherMode = .projects }
         if let issueInboxQuery {
             let ranked = IssueInbox.rank(issueInboxQuery, in: store.issueInbox ?? [], now: .now)
             print("issues for \"\(issueInboxQuery)\": \(ranked.issues.count) shown, \(ranked.older) older hidden")

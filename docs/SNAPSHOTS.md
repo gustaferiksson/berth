@@ -110,7 +110,9 @@ It prints the window title, toolbar items, the File and View menus (Group By wit
 
 ## Settings snapshot
 
-Settings snapshot (rinse's pattern): `Berth -settingsSnapshot /abs/out.png -settingsTab general|sidebar|terminal|conversation|review|remote|about`, a stored `appearance` opens Sidebar (plus `-AppleInterfaceStyle Dark`). It opens Settings through the app menu's ⌘, item with window ordering swizzled so the window never touches a display and its saved frame isn't overwritten. `-settingsScroll <y>` scrolls the form to y before capture (420 shows General's Language Servers section with Review and language servers on).
+Settings snapshot (rinse's pattern): `Berth -settingsSnapshot /abs/out.png -settingsTab general|sidebar|terminal|conversation|review|github|remote|about`, a stored `appearance` opens Sidebar (plus `-AppleInterfaceStyle Dark`). It opens Settings through the app menu's ⌘, item with window ordering swizzled so the window never touches a display and its saved frame isn't overwritten. `-settingsScroll <y>` scrolls the form to y before capture (420 shows General's Language Servers section with Review and language servers on).
+
+`-snapshotProjects YES` enables GitHub Projects and installs two fixture boards without calling `gh` (`-snapshotProjectsLauncher YES` opens the launcher's Project scope, `-snapshotHover` shows the status on a fixture PR's hover card with `-snapshotLongNames YES`), and `-snapshotProjectsState needsScope|noCLI|failed` shows a notice in `-settingsTab github`.
 
 ## Snapshot window and activation policy
 

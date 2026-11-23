@@ -113,7 +113,7 @@ struct SessionHoverTrigger: ViewModifier {
                     let row = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
                     let column = anchor.enclosingScrollView.map { window.convertToScreen($0.convert($0.bounds, to: nil)) } ?? row
                     HoverCardPanel.shared.show(
-                        SessionHoverCard(session: session, pullRequests: pullRequests, context: context, watch: store.pullRequestWatch(for: session.id), excerpt: excerpt)
+                        SessionHoverCard(session: session, pullRequests: pullRequests, context: context, watch: store.pullRequestWatch(for: session.id), excerpt: excerpt, projectStatuses: store.projects.statusLabels(for: pullRequests))
                             .environment(\.ghosttyTheme, theme),
                         owner: session.id,
                         isDark: theme.isDark,
@@ -162,6 +162,7 @@ struct SessionHoverCard: View {
     let context: SessionContext?
     let watch: PullRequestWatch?
     let excerpt: HoverExcerpt?
+    var projectStatuses: [String: String] = [:]
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -222,6 +223,11 @@ struct SessionHoverCard: View {
                     .font(.caption2)
                     .foregroundStyle(.primary.opacity(0.7))
                     .lineLimit(1)
+                if let project = projectStatuses["\(item.repository.lowercased())#\(item.number)"] {
+                    Label(project, systemImage: "checklist")
+                        .font(.caption2.weight(.medium))
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 0)
         }
