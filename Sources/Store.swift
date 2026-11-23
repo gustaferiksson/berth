@@ -581,6 +581,11 @@ final class Store {
     }
 
     func refreshPullRequests() {
+        #if DEBUG
+        guard !Snapshot.usesBusySidebar else { return }
+
+        #endif
+
         let sessions = pinnedSessions + groups.flatMap(\.sessions) + archivedSessions
         let branches = Set(sessions.flatMap(pullRequestBranches))
         let linked = Set(sessions.flatMap(\.pullRequests).filter { [nil, .open, .draft].contains(linkedPullRequests[$0]?.state) })
