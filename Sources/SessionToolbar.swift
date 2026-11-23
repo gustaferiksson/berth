@@ -97,7 +97,7 @@ private struct PullRequestButton: View {
                 .labelStyle(.titleAndIcon)
                 .foregroundStyle(pullRequest.state.color(in: theme))
         }
-        .help("Open pull request #\(pullRequest.number)")
+        .help("Open pull request #\(String(pullRequest.number))")
     }
 }
 
@@ -137,6 +137,7 @@ struct ContextButton: View {
             HStack(spacing: 5) {
                 if let context, let window = context.window {
                     ContextRing(context: context, window: window)
+                        .frame(width: 14)
                 } else {
                     Circle()
                         .strokeBorder(Color.primary.opacity(0.2), lineWidth: 2)

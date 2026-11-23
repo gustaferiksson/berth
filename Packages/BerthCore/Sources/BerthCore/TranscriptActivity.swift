@@ -315,7 +315,8 @@ public struct TranscriptActivity: Sendable {
     }
 
     mutating func start(_ id: String, _ launch: Launch) {
-        guard ended[id].map({ $0 < launch.started }) ?? true else { return }
+        let reusesID = Self.agentTools.contains(launch.tool)
+        guard ended[id].map({ reusesID && $0 < launch.started }) ?? true else { return }
 
         if ["CronCreate", "Monitor"].contains(launch.tool), launch.tendPrompt != nil {
             guard launch.started >= watchEndedAt else { return }

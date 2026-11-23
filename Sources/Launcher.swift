@@ -48,7 +48,6 @@ struct Launcher: View {
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
-    @AppStorage(GeneralSettings.codexKey) private var isCodexEnabled = false
     @State private var query: String
     @State private var highlighted = 0
     @State private var folders: [Folder] = []
@@ -158,9 +157,9 @@ struct Launcher: View {
                         guard mode == .newSession, matches.indices.contains(highlighted) else { return .ignored }
 
                         if press.modifiers.contains(.shift) {
-                            guard isCodexEnabled else { return .ignored }
+                            guard let other = Store.otherAgent else { return .ignored }
 
-                            startCodex(in: matches[highlighted].path)
+                            start(other, in: matches[highlighted].path)
                             return .handled
                         }
                         start(in: matches[highlighted].path, checkout: .main)
@@ -244,9 +243,11 @@ struct Launcher: View {
             Divider()
             HStack(spacing: 16) {
                 if mode == .newSession {
-                    hint("↩", target.map { "Start in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start")
+                    let other = Store.otherAgent
+                    let agent = other == nil ? "" : " \(Store.defaultAgent.name)"
+                    hint("↩", target.map { "Start\(agent) in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start\(agent)")
                     if startsInWorktree { hint("⌥↩", "Main Checkout") }
-                    if isCodexEnabled { hint("⌥⇧↩", "Codex") }
+                    if let other { hint("⌥⇧↩", other.name) }
                     hint("↑↓", "Folder")
                 } else if issue != nil {
                     let openable = linked.count { $0.opening.isOpenable }
@@ -559,7 +560,7 @@ struct Launcher: View {
                 Text(issue.title)
                     .fontWeight(.medium)
                     .lineLimit(1)
-                Text("\(issue.repository) #\(issue.number)")
+                Text(verbatim: "\(issue.repository) #\(issue.number)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -594,7 +595,7 @@ struct Launcher: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(pullRequest.title)
                     .fontWeight(.medium)
-                Text("\(link.repository)#\(link.number)\(pullRequest.isDraft ? " · Draft" : "")")
+                Text(verbatim: "\(link.repository)#\(link.number)\(pullRequest.isDraft ? " · Draft" : "")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -864,8 +865,8 @@ struct Launcher: View {
         openURL(url)
     }
 
-    private func startCodex(in path: String) {
-        store.openSession(.codex, cwd: path)
+    private func start(_ agent: Agent, in path: String) {
+        store.openSession(agent, cwd: path)
         store.launcherMode = nil
     }
 

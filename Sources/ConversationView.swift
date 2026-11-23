@@ -12,6 +12,7 @@ struct ConversationView: View {
     @State private var isAtBottom = true
     @State private var isDropTargeted = false
     @State private var composerFocus = 0
+    @State private var barHeight: CGFloat = 0
     @State private var now = Date.now
     @FocusState private var isFocused: Bool
 
@@ -39,7 +40,7 @@ struct ConversationView: View {
                 now = .now
             }
             .onChange(of: live?.status) { model.refresh() }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .overlay(alignment: .bottom) {
                 ConversationBottomBar(
                     model: model,
                     tab: tab,
@@ -57,6 +58,7 @@ struct ConversationView: View {
                     answer: { _ = answer($0, waiting) },
                     deny: { _ = deny(denial) }
                 )
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
             }
             .overlay {
                 ConversationDropTarget(isTargeted: $isDropTargeted) { files in
@@ -84,6 +86,7 @@ struct ConversationView: View {
             }
             .environment(\.openAgentConversation, OpenAgentConversation(open: model.openAgent))
             .environment(\.conversationFolder, tab.cwd)
+            .environment(\.promptImageLoader, PromptImageLoader { [model] entryID, index in await model.promptImage(entryID: entryID, index: index) })
             .accessibilityLabel("Conversation")
     }
 
@@ -101,11 +104,12 @@ struct ConversationView: View {
                         turn: turn,
                         isFinished: !(isCurrent && (isWorking || waitingFor != nil)),
                         isWorking: isCurrent && isWorking,
+                        agent: tab.agent,
                         waitingFor: isCurrent ? waitingFor : nil,
                         since: since,
                         tasks: model.tasks,
                         details: model.details,
-                        reviewChanges: isReviewEnabled ? { AppAction.showChanges.perform(on: store) } : nil
+                        reviewChanges: isReviewEnabled ? { store.showChanges(opening: $0) } : nil
                     )
                 }
                 ForEach(model.queued.enumerated(), id: \.offset) { _, prompt in
@@ -121,11 +125,10 @@ struct ConversationView: View {
             .frame(maxWidth: .infinity)
         }
         .contentMargins(.top, 24, for: .scrollContent)
-        .contentMargins(.bottom, model.tasks.isEmpty ? ConversationBottomBar.fadeHeight : 66, for: .scrollContent)
+        .contentMargins(.bottom, barHeight + (model.tasks.isEmpty ? 16 : 58), for: .scrollContent)
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
-        .scrollEdgeEffectStyle(.soft, for: .top)
-        .scrollEdgeEffectHidden(for: .bottom)
+        .scrollEdgeEffectHidden(true, for: .bottom)
         .onScrollGeometryChange(for: ConversationScrollState.self) { geometry in
             ConversationScrollState(height: geometry.contentSize.height, isAtBottom: geometry.visibleRect.maxY >= geometry.contentSize.height + geometry.contentInsets.bottom - 40)
         } action: { old, new in
@@ -215,30 +218,31 @@ struct ConversationTurnView: View {
     let turn: Turn
     let isFinished: Bool
     let isWorking: Bool
+    let agent: Agent
     let waitingFor: String??
     let since: Date?
     let tasks: [RemoteTask]
     let details: [String: ToolCallDetails]
-    let reviewChanges: (() -> Void)?
+    let reviewChanges: (([String]) -> Void)?
 
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let workCount = turn.parts.count { $0.isWork }
-        let lastIndex = turn.parts.count - 1
+        let openCall = isFinished ? nil : turn.openCall
 
         VStack(alignment: .leading, spacing: 14) {
             if let prompt = turn.prompt {
                 ConversationPrompt(entry: prompt)
             }
-            ForEach(turn.parts.enumerated(), id: \.element.id) { index, part in
-                if case let .work(calls) = part, !turn.isInterrupted, isFinished || index < lastIndex {
-                    ConversationFold(label: isFinished && workCount == 1 ? turn.duration.map { "Worked for \($0.formatted(elapsedFormat))" } ?? "Worked" : ToolCall.summary(of: calls)) {
-                        ConversationPartView(part: part, tasks: tasks, details: details, openCall: nil, isWaiting: false)
+            ForEach(turn.parts) { part in
+                if case let .work(calls) = part, !turn.isInterrupted {
+                    let live = calls.last.flatMap { $0.id == openCall?.id ? $0 : nil }
+                    ConversationFold(label: foldLabel(calls: calls, live: live, workCount: workCount), state: live == nil ? .finished : waitingFor != nil ? .waiting : .running) {
+                        ConversationPartView(part: part, tasks: tasks, details: details, openCall: openCall, isWaiting: waitingFor != nil)
                     }
                 } else {
-                    ConversationPartView(part: part, tasks: tasks, details: details, openCall: isFinished ? nil : turn.openCall, isWaiting: waitingFor != nil)
+                    ConversationPartView(part: part, tasks: tasks, details: details, openCall: openCall, isWaiting: waitingFor != nil)
                 }
             }
             if isFinished, !turn.isInterrupted, let changes = turn.fileChanges {
@@ -255,23 +259,21 @@ struct ConversationTurnView: View {
         }
     }
 
-    private var working: some View {
-        HStack(spacing: 8) {
-            if reduceMotion {
-                Image(systemName: "hourglass")
-                    .accessibilityHidden(true)
-            } else {
-                ConversationSpinner()
-            }
-            Text("Working")
-            if let since {
-                Text(verbatim: "·")
-                ConversationElapsed(since: since)
-            }
+    private func foldLabel(calls: [ToolCall], live: ToolCall?, workCount: Int) -> String {
+        if let live {
+            return waitingFor != nil ? (live.use.name == "AskUserQuestion" ? "Waiting for your answer" : "Waiting for approval") : "\(live.verb.present) \(live.subject)"
         }
-        .font(.subheadline)
-        .foregroundStyle(theme.secondary)
-        .padding(.leading, 2)
+
+        guard isFinished, workCount == 1 else { return ToolCall.summary(of: calls) }
+
+        return turn.duration.map { "Worked for \($0.formatted(elapsedFormat))" } ?? "Worked"
+    }
+
+    private var working: some View {
+        ConversationWorking(agent: agent, since: since)
+            .font(.subheadline)
+            .foregroundStyle(theme.secondary)
+            .padding(.leading, 2)
     }
 
     private func changedFiles(_ changes: FileChanges) -> some View {
@@ -287,7 +289,7 @@ struct ConversationTurnView: View {
                     .foregroundStyle(theme.closed)
             }
             if let reviewChanges {
-                Button("Review Changes", action: reviewChanges)
+                Button("Review Changes") { reviewChanges(changes.paths) }
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
@@ -329,6 +331,7 @@ private struct ConversationPartView: View {
 
 private struct ConversationFold<Content: View>: View {
     let label: String
+    let state: ConversationToolState
     @ViewBuilder let content: Content
 
     @Environment(\.ghosttyTheme) private var theme
@@ -339,7 +342,7 @@ private struct ConversationFold<Content: View>: View {
             Button {
                 withAnimation(.smooth(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                ConversationFoldLabel(label: label, isExpanded: isExpanded)
+                ConversationFoldLabel(label: label, state: state, isExpanded: isExpanded)
             }
             .buttonStyle(.plain)
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
@@ -358,16 +361,24 @@ private struct ConversationFold<Content: View>: View {
 
 private struct ConversationFoldLabel: View {
     let label: String
+    let state: ConversationToolState
     let isExpanded: Bool
 
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(verbatim: "✻")
-                .accessibilityHidden(true)
+            if state == .running, !reduceMotion {
+                ConversationSpinner()
+            } else {
+                Text(verbatim: state == .waiting ? "!" : "✻")
+                    .foregroundStyle(state == .waiting ? theme.needsYou : theme.secondary)
+                    .accessibilityHidden(true)
+            }
             Text(label)
+                .lineLimit(1)
                 .monospacedDigit()
             Image(systemName: "chevron.right")
                 .font(.system(size: 10, weight: .semibold))
@@ -385,6 +396,7 @@ private struct ConversationFoldLabel: View {
 }
 
 private struct ConversationStatusBar: View {
+    let agent: Agent
     let since: Date?
     let isWorking: Bool
     let tasks: [RemoteTask]
@@ -392,33 +404,20 @@ private struct ConversationStatusBar: View {
     let jump: () -> Void
 
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsTasks = conversationShowsTasks
     private let pillTransition = AnyTransition.opacity.combined(with: .scale(scale: 0.92))
 
     var body: some View {
         let kinds = [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor].filter { kind in tasks.contains { $0.kind == kind } }
 
-        GlassEffectContainer(spacing: 10) {
+        GlassEffectContainer(spacing: 0) {
             HStack(spacing: 10) {
                 if isWorking, !isAtBottom {
-                    HStack(spacing: 8) {
-                        if reduceMotion {
-                            Image(systemName: "hourglass")
-                                .accessibilityHidden(true)
-                        } else {
-                            ConversationSpinner()
-                        }
-                        Text("Working")
-                        if let since {
-                            Text(verbatim: "·")
-                            ConversationElapsed(since: since)
-                        }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .glassEffect(in: .capsule)
-                    .transition(pillTransition)
+                    ConversationWorking(agent: agent, since: since)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .glassEffect(in: .capsule)
+                        .transition(pillTransition)
                 }
                 if !tasks.isEmpty {
                     Button { showsTasks.toggle() } label: {
@@ -445,8 +444,7 @@ private struct ConversationStatusBar: View {
                 if !isAtBottom {
                     Button(action: jump) {
                         Image(systemName: "arrow.down")
-                            .frame(width: 15, height: 15)
-                            .padding(8)
+                            .frame(width: 31, height: 31)
                             .contentShape(.circle)
                     }
                     .buttonStyle(.plain)
@@ -471,12 +469,12 @@ private struct ConversationTaskList: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
             ForEach(tasks) { task in
                 ConversationAgentButton(isAgent: task.kind == RemoteTask.agent, agentID: task.id, toolUseID: task.id, title: task.title, dismissesPopover: true) {
                     HStack(spacing: 10) {
                         Image(systemName: task.symbol)
-                            .foregroundStyle(theme.secondary)
+                            .foregroundStyle(task.kind == RemoteTask.agent ? AgentTint.color(for: task.title) : theme.secondary)
                             .frame(width: 20)
                             .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 1) {
@@ -491,11 +489,13 @@ private struct ConversationTaskList: View {
                             .font(.caption)
                             .foregroundStyle(theme.secondary)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
                     .accessibilityElement(children: .combine)
                 }
             }
         }
-        .padding(16)
+        .padding(8)
         .frame(width: 320, alignment: .leading)
         .transaction { $0.animation = nil }
     }
@@ -515,8 +515,6 @@ private extension PendingApproval {
 }
 
 private struct ConversationBottomBar: View {
-    static let fadeHeight = 28.0
-
     let model: ConversationModel
     let tab: Tab
     let harness: Harness
@@ -537,7 +535,7 @@ private struct ConversationBottomBar: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let surface = theme.background ?? Color(nsColor: .textBackgroundColor)
+        let isShell = harness.supports(.bashMode) && model.draft.text.hasPrefix("!")
 
         VStack(spacing: 10) {
             if let approval, approval.isActionable || approval == .loading {
@@ -566,28 +564,18 @@ private struct ConversationBottomBar: View {
                 }
             }
             VStack(spacing: 2) {
-                ConversationComposer(model: model, harnessName: harness.name, canAttach: canAttach, isWorking: isWorking, waiting: denial, focusRequest: composerFocus)
-                SessionStatusBar(model: model, tab: tab, harness: harness, isWorking: isWorking, isWaiting: waiting != nil)
+                ConversationComposer(model: model, harnessName: harness.name, canAttach: canAttach, isShell: isShell, isWorking: isWorking, waiting: denial, focusRequest: composerFocus)
+                SessionStatusBar(model: model, tab: tab, harness: harness, isShell: isShell, isWorking: isWorking, isWaiting: waiting != nil)
             }
         }
         .frame(maxWidth: 860)
         .padding(.horizontal, 18)
         .padding(.bottom, 8)
         .overlay(alignment: .top) {
-            ConversationStatusBar(since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
+            ConversationStatusBar(agent: tab.agent, since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
                 .alignmentGuide(.top) { $0[.bottom] + 10 }
         }
         .frame(maxWidth: .infinity)
-        .background(alignment: .top) {
-            VStack(spacing: 0) {
-                LinearGradient(colors: [surface.opacity(0), surface], startPoint: .top, endPoint: .bottom)
-                    .frame(height: Self.fadeHeight)
-                surface
-            }
-            .padding(.top, -Self.fadeHeight)
-            .ignoresSafeArea(edges: .bottom)
-            .allowsHitTesting(false)
-        }
         .animation(.smooth, value: isActive)
         .animation(.smooth, value: approval)
     }

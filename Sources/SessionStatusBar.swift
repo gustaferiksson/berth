@@ -5,6 +5,7 @@ struct SessionStatusBar: View {
     let model: ConversationModel
     let tab: Tab
     let harness: Harness
+    let isShell: Bool
     let isWorking: Bool
     let isWaiting: Bool
 
@@ -16,13 +17,22 @@ struct SessionStatusBar: View {
         let context = model.context
         let live = tab.sessionID.flatMap { store.liveBySession[$0] }
 
-        HStack(spacing: 14) {
-            HStack(spacing: 14) {
+        HStack(spacing: 16) {
+            HStack(spacing: 16) {
+                if isShell {
+                    Label("bash mode", systemImage: "terminal")
+                        .fontWeight(.regular)
+                        .symbolRenderingMode(.monochrome)
+                        .foregroundStyle(theme.shellAttached)
+                        .opacity(0.8)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                }
                 Label(URL(filePath: tab.folder).lastPathComponent, systemImage: "folder")
                     .lineLimit(1)
                     .help(tab.folder)
                 if let summary {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Label(summary.branch, systemImage: "arrow.triangle.branch")
                             .foregroundStyle(theme.branch)
                             .lineLimit(1)
@@ -60,7 +70,7 @@ struct SessionStatusBar: View {
                     .layoutPriority(1)
             }
         }
-        .labelStyle(.titleAndIcon)
+        .labelStyle(StatusLabelStyle())
         .font(.caption)
         .padding(.horizontal, 16)
         .frame(height: 26)
@@ -76,6 +86,15 @@ struct SessionStatusBar: View {
         guard let sessionID = tab.sessionID else { return }
 
         _ = store.cycleMode(sessionID)
+    }
+}
+
+private struct StatusLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 5) {
+            configuration.icon.frame(width: 14)
+            configuration.title
+        }
     }
 }
 
@@ -134,7 +153,7 @@ private struct SessionModelMenu: View {
                 modelMenu
             } else {
                 Button { showsContext = true } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Text(modelName(context.model))
                             .foregroundStyle(theme.foreground)
                         if let effort = context.effort {
@@ -194,8 +213,11 @@ private struct SessionModelMenu: View {
             Button("Context", systemImage: "chart.pie") { showsContext = true }
             Text(canChange ? "Changes apply to this session only" : "Available while \(harness.name) is idle")
         } label: {
-            Text("\(Text(modelTitle).foregroundStyle(theme.foreground)) \(Text(effortChoice.wrappedValue?.title ?? "").foregroundStyle(theme.secondary))")
-                .lineLimit(1)
+            HStack(spacing: 5) {
+                Text(modelTitle).foregroundStyle(theme.foreground)
+                Text(effortChoice.wrappedValue?.title ?? "").foregroundStyle(theme.secondary)
+            }
+            .lineLimit(1)
         }
         .menuIndicator(.hidden)
         .buttonStyle(.plain)

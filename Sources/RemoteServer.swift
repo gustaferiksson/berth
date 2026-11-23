@@ -30,6 +30,7 @@ final class RemoteServer {
         var isReading = false
         var needsRead = false
         var searchQuery: String?
+        var wantsCodexUsage = false
     }
 
     private struct Upload {
@@ -47,6 +48,7 @@ final class RemoteServer {
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var clients: [ObjectIdentifier: Client] = [:]
     @ObservationIgnored private var lastSessions: Data?
+    @ObservationIgnored private var lastCodexUsage: Data?
     @ObservationIgnored private var token = ""
     @ObservationIgnored private var uploads: [String: Upload] = [:]
     @ObservationIgnored private var reviewChanges: [String: ReviewChanges] = [:]
@@ -111,6 +113,7 @@ final class RemoteServer {
         let paths = [Store.claudeDirectory.appending(path: "projects"), Store.codexDirectory.appending(path: "sessions")]
         watcher = FileWatcher(paths: paths.map(\.path), latency: 0.3) { [weak self] _ in self?.streamTranscripts() }
         observeSessions()
+        observeCodexUsage()
     }
 
     private func stop() {
@@ -118,6 +121,7 @@ final class RemoteServer {
         listener = nil
         watcher = nil
         lastSessions = nil
+        lastCodexUsage = nil
         failure = nil
         for client in clients.values { client.connection.cancel() }
         clients = [:]
@@ -222,6 +226,13 @@ final class RemoteServer {
             Task {
                 await store.refreshPlanUsage()
                 send(try? JSONEncoder().encode(RemoteServerMessage.usage(store.planUsage)), to: connection)
+            }
+
+        case .codexUsage:
+            clients[id]?.wantsCodexUsage = true
+            Task {
+                await store.refreshCodexUsage()
+                send(try? JSONEncoder().encode(RemoteServerMessage.codexUsage(store.codexUsage)), to: connection)
             }
 
         case let .changeDiff(sessionID, path, isCommitted):
@@ -445,7 +456,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.filter { $0.agent.harness.supports(.remote) }.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.filter { $0.agent.harness.supports(.remote) }.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] : []))
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] + (store.isCodexEnabled ? [RemoteCodexUsageFeature.name] : []) : []))
     }
 
     private func observeSessions() {
@@ -461,6 +472,20 @@ final class RemoteServer {
         lastSessions = data
         for client in clients.values where client.isAuthenticated { send(data, to: client.connection) }
         streamTranscripts()
+    }
+
+    private func observeCodexUsage() {
+        guard listener != nil else { return }
+
+        let data = withObservationTracking {
+            try? JSONEncoder().encode(RemoteServerMessage.codexUsage(store.codexUsage))
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeCodexUsage() }
+        }
+        guard let data, data != lastCodexUsage else { return }
+
+        lastCodexUsage = data
+        for client in clients.values where client.isAuthenticated && client.wantsCodexUsage { send(data, to: client.connection) }
     }
 
     private func streamTranscripts() {
@@ -610,6 +635,6 @@ final class RemoteServer {
 private extension RemoteAgent {
     init(harness: Harness) {
         let supportsSettings = harness.supports(.modelEffortMenu)
-        self.init(name: harness.name, asset: harness.asset, canChangeSettings: supportsSettings, canAttach: supportsSettings, approvalKeys: harness.readApproval == nil ? nil : harness.approvalKeys)
+        self.init(name: harness.name, asset: harness.asset, canChangeSettings: supportsSettings, canAttach: supportsSettings, canRunBash: harness.supports(.bashMode), approvalKeys: harness.readApproval == nil ? nil : harness.approvalKeys)
     }
 }

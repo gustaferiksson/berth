@@ -140,7 +140,7 @@ enum Snapshot {
         case "acme/web#12":
             [("acme/web", 13, "Fix the flaky login test", false)]
 
-        case "acme/billing#57", "acme/infra#42", "acme/billing#49": []
+        case "acme/billing#57", "acme/infra#42", "acme/billing#49", "acme/web#1742": []
 
         default: nil
         }
@@ -180,6 +180,7 @@ enum Snapshot {
             ("acme/billing#57", "Fix invoice rounding", 1200),
             ("acme/web#12", "Fix the flaky login test", 3600),
             ("acme/infra#42", "Rotate the export bucket key", 7200),
+            ("acme/web#1742", "Paginate the audit log", 1800),
             ("acme/billing#49", "Drop the legacy CSV importer", 45 * 86_400),
         ]
         let nodes = entries.compactMap { entry -> String? in
@@ -365,6 +366,7 @@ enum Snapshot {
     static let expandedGroups: Set<String> = []
     #endif
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     static func capture(to output: URL, store: Store) async {
         #if DEBUG
         NSApp.setActivationPolicy(.accessory)
@@ -379,6 +381,10 @@ enum Snapshot {
         }
         if let fixture = UserDefaults.standard.string(forKey: "snapshotUsage") {
             let windows = fixture.split(separator: "|").enumerated().compactMap { index, part -> UsageWindow? in
+                if part == "idle", index < PlanUsage.windows.count {
+                    let (key, title, length) = PlanUsage.windows[index]
+                    return UsageWindow(id: key, title: title, length: length, used: 0, resetsAt: nil)
+                }
                 let numbers = part.split(separator: ":").compactMap { Double($0) }
                 guard numbers.count == 2, index < PlanUsage.windows.count else { return nil }
 
@@ -425,6 +431,7 @@ enum Snapshot {
             store.openShell(cwd: session.cwd, parent: parent)
             store.openShell(cwd: session.cwd)
             store.activate(.tab(parent))
+            if UserDefaults.standard.bool(forKey: "snapshotSelectNestedTerminal"), let nested = store.tabs.first(where: { $0.parentTabID == parent }) { store.activate(.tab(nested.id)) }
         }
         if UserDefaults.standard.bool(forKey: "snapshotClaudeTab") {
             store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
@@ -484,6 +491,7 @@ enum Snapshot {
                 .background(store.theme.background ?? .black, in: .rect(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(store.theme.foreground.opacity(0.15)))
                 .padding(8)
+            // swiftlint:disable:next hosting_without_sizing_options - throwaway view measured for fittingSize, never shown
             let size = NSHostingView(rootView: card).fittingSize
             let screen = NSRect(x: 0, y: 0, width: 1800, height: 1100)
             for trailing in [true, false] {
@@ -537,6 +545,13 @@ enum Snapshot {
                 UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: ahead ? 0.55 : 0.42, resetsAt: .now.addingTimeInterval(ahead ? 3.5 * 3600 : 2 * 3600)),
                 UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: ahead ? 0.66 : 0.81, resetsAt: .now.addingTimeInterval(ahead ? 4 * 86_400 : 3 * 86_400)),
             ])
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotCodexUsage") {
+            let stale = UserDefaults.standard.bool(forKey: "snapshotCodexUsageStale")
+            store.codexUsage = CodexUsage(usage: PlanUsage(windows: [
+                UsageWindow(id: "codex_primary", title: "Session", length: 5 * 3600, used: 0.18, resetsAt: .now.addingTimeInterval(3.5 * 3600)),
+                UsageWindow(id: "codex_secondary", title: "Week", length: 7 * 86_400, used: 0.47, resetsAt: .now.addingTimeInterval(3.5 * 86_400)),
+            ]), recordedAt: .now.addingTimeInterval(stale ? -3 * 3600 : -120))
         }
         if UserDefaults.standard.bool(forKey: "snapshotFakeContext") {
             let sessions = Array(topSessions.prefix(4))
@@ -622,6 +637,15 @@ enum Snapshot {
             if !UserDefaults.standard.bool(forKey: "snapshotReviewNoComment") { store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")] }
         }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { prepareTasksReview(store: store) }
+        if let files = UserDefaults.standard.string(forKey: "snapshotSessionFiles") {
+            store.editedFiles["snapshot-review"] = files.split(separator: ":").map { URL(filePath: String($0)).resolvingSymlinksInPath().path }
+            store.prepareReviewModel()
+            if let path = UserDefaults.standard.string(forKey: "snapshotSessionFileOpen"), let model = store.reviewModels[Store.reviewKey("snapshot-review", root: Store.sessionFilesRoot)] {
+                model.open(ReviewDocument(path: String(URL(filePath: path).resolvingSymlinksInPath().path.dropFirst()), compare: nil))
+                await model.loadSelectedContents()
+                print("session file /\(model.selectedDocument?.path ?? "-"), loaded \(model.selectedDocument.flatMap { model.contents[$0] } != nil), active root \(store.activeReviewRoots["snapshot-review"] ?? "own")")
+            }
+        }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
             store.openSession(cwd: cwd, checkout: .main)
         }
@@ -682,6 +706,7 @@ enum Snapshot {
         let showsStats = UserDefaults.standard.bool(forKey: "snapshotStats")
         let root = editedGroup.map { AnyView(GroupEditor(group: $0).environment(\.ghosttyTheme, store.theme).preferredColorScheme(store.theme.isDark ? .dark : .light)) }
             ?? editedServer.map { AnyView(LanguageServerEditor(server: $0, servers: .constant(servers)).preferredColorScheme(store.theme.isDark ? .dark : .light)) } ?? AnyView(showsStats ? AnyView(StatsView()) : AnyView(ContentView()))
+        // swiftlint:disable:next hosting_without_sizing_options - the offscreen window is sized by setContentSize
         let hosting = NSHostingController(rootView: root.environment(store).environment(\.openURL, OpenURLAction { url in
             print("snapshot openURL \(url)")
             return .handled
@@ -696,6 +721,7 @@ enum Snapshot {
         if let mode = UserDefaults.standard.string(forKey: "snapshotHost") { await captureHost(mode: mode, store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotConversation") { await captureConversation(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { await captureTasksReview(store: store, window: window, output: output) }
+        if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotMarkdownRendered") { store.rendersMarkdown = true }
         if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotReviewCommitsExpanded") { store.reviewModels["snapshot-review"]?.showsCommits = true }
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30
@@ -709,8 +735,10 @@ enum Snapshot {
                     await model.openCommit(model.graphCommits[index].sha)
                 }
             }
+            let changedFiles = UserDefaults.standard.string(forKey: "snapshotReviewChangedFiles")
+            if let changedFiles { store.showChanges(opening: changedFiles.split(separator: ",").map(String.init)) }
             while Date.now < deadline, model.error == nil, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
-                if let changes = model.changes, model.selectedTab == nil {
+                if let changes = model.changes, model.selectedTab == nil, changedFiles == nil {
                     if graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
                     let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
                     if requested == nil, showsReviewThreads, let thread = fixturePullRequestDetail?.threads.first(where: { $0.path == "README.md" && $0.line != nil }) {
@@ -874,6 +902,7 @@ enum Snapshot {
                 state("double-clicked")
                 report("reset")
                 save(".split-reset.png")
+                // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                 UserDefaults.standard.set(saved, forKey: "reviewSplitRatio")
             }
             if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument, file.compare?.isCommit != true {
@@ -1110,6 +1139,7 @@ enum Snapshot {
                         drag(nil, 2)
                         try? await Task.sleep(for: .seconds(1))
                         state("double-clicked")
+                        // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                         UserDefaults.standard.set(saved, forKey: "reviewReferencesSplitRatio")
                     }
                     key(shown.list, 125, "\u{F701}", [])
@@ -1275,12 +1305,15 @@ enum Snapshot {
                 if let spec = UserDefaults.standard.string(forKey: "snapshotReviewRestyle"), let separator = spec.firstIndex(of: ":") {
                     let keys = [ReviewStyle.colorSchemeKey, ReviewStyle.lineHeightKey]
                     let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     UserDefaults.standard.set(String(spec[..<separator]), forKey: keys[0])
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     UserDefaults.standard.set(Double(spec[spec.index(after: separator)...]) ?? 1.3, forKey: keys[1])
                     try? await Task.sleep(for: .milliseconds(800))
                     print("restyled \(spec): text view background \(sides[1].backgroundColor), row height \(sides[1].rowHeight), inline \(sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.map { "\($0.frame) \($0.appearance?.name.rawValue ?? "-")" })")
                     report("restyled")
                     save(".restyled.png")
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     for (key, value) in zip(keys, saved) { UserDefaults.standard.set(value, forKey: key) }
                 }
                 if UserDefaults.standard.bool(forKey: "snapshotReviewDelete") {
@@ -1548,6 +1581,27 @@ enum Snapshot {
         }
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
         try? await Task.sleep(for: .seconds(UserDefaults.standard.integer(forKey: "snapshotHold")))
+        if UserDefaults.standard.bool(forKey: "snapshotCloseNested"), let nested = store.tabs.first(where: { $0.parentTabID != nil }) {
+            print("close nested: before \(store.tabs.count) tabs")
+            store.close(nested.id)
+            print("close nested: after \(store.tabs.count) tabs, parent kept \(store.tabs.contains { $0.id == nested.parentTabID })")
+        }
+        if let clicks = UserDefaults.standard.string(forKey: "snapshotClickAt") {
+            let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
+            let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
+            method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
+            method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
+            let tabs = { "\(store.tabs.map { "\($0.kind)/\($0.parentTabID == nil ? "top" : "nested")\($0.id == store.selectedTabID ? "*" : "")" })" }
+            for point in clicks.split(separator: ";").map({ $0.split(separator: ",").compactMap { Double($0) } }) where point.count == 2 {
+                let location = NSPoint(x: point[0], y: (window.contentView?.frame.height ?? 0) - point[1])
+                let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) }
+                let before = tabs()
+                event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
+                event(.leftMouseDown).map(window.sendEvent)
+                try? await Task.sleep(for: .seconds(1))
+                print("click at \(point): \(before) -> \(tabs())")
+            }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotCloseTabs") {
             let processes = ProcessAncestry.descendants()
             print("before close: \(processes.map(\.pid).sorted())")
@@ -1723,6 +1777,7 @@ enum Snapshot {
                     continue
                 }
                 if spec.hasPrefix("layout:") {
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     UserDefaults.standard.set(spec == "layout:auto" ? nil : String(spec.dropFirst(7)), forKey: ReviewDiffLayout.key)
                     try? await Task.sleep(for: .seconds(1))
                     print("\(spec) (writes reviewDiffLayout, restored after the run):\n  \(state())")
@@ -1795,6 +1850,7 @@ enum Snapshot {
                 try? await Task.sleep(for: .milliseconds(100))
             }
             NotificationCenter.default.removeObserver(observer)
+            // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
             UserDefaults.standard.set(savedLayout, forKey: ReviewDiffLayout.key)
             if let savedPasteboard {
                 NSPasteboard.general.clearContents()

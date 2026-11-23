@@ -320,7 +320,10 @@ public enum ReviewGit {
     }
 
     public static func workingTreeText(_ path: String, in root: String) throws -> ReviewText {
-        let url = try contained(path, in: root)
+        try plainText(at: contained(path, in: root))
+    }
+
+    public static func plainText(at url: URL) throws -> ReviewText {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         if attributes[.type] as? FileAttributeType == .typeSymbolicLink { return try .text(FileManager.default.destinationOfSymbolicLink(atPath: url.path)) }
 

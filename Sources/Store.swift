@@ -50,9 +50,14 @@ enum NewSessionCheckout {
 enum PullRequestPrompt {
     case summarize, steward
 
-    func text(number: Int, url: URL) -> String {
+    func text(for link: PullRequestLink, url: URL) -> String {
         switch self {
-        case .summarize: "Summarize PR #\(number) (\(url.absoluteString))."
+        case .summarize:
+            (UserDefaults.standard.string(forKey: GeneralSettings.pullRequestPromptKey) ?? GeneralSettings.defaultPullRequestPrompt)
+                .replacing("{number}", with: String(link.number))
+                .replacing("{url}", with: url.absoluteString)
+                .replacing("{repo}", with: link.repository)
+
         case .steward: "/steward \(url.absoluteString)"
         }
     }
@@ -136,6 +141,7 @@ final class Store {
     var editingGroup: CustomGroup?
     var isStatsRequested = false
     var planUsage: PlanUsage?
+    var codexUsage: CodexUsage?
     var isSettingsRequested = false
     var isHarborShown = false {
         didSet {
@@ -144,6 +150,12 @@ final class Store {
             guard oldValue, !isHarborShown else { return }
 
             DispatchQueue.main.async { [weak self] in self?.focusSelected() }
+        }
+    }
+
+    var rendersMarkdown = UserDefaults.standard.bool(forKey: "rendersMarkdown") {
+        didSet {
+            if persistsTabs { UserDefaults.standard.set(rendersMarkdown, forKey: "rendersMarkdown") }
         }
     }
 
@@ -164,6 +176,9 @@ final class Store {
     @ObservationIgnored private var editedTask: Task<Void, Never>?
     @ObservationIgnored private var editedTranscripts: [String: (url: URL, edits: TranscriptEdits)] = [:]
     var editedRepositories: [String: [String: String]] = [:]
+    var editedFiles: [String: [String]] = [:]
+    static let sessionFilesRoot = "session-files"
+    static let resolvedHome = URL(filePath: NSHomeDirectory()).resolvingSymlinksInPath().path
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
     var activeReviewRoots: [String: String] = [:]
     var collapsedReviewRepositories: Set<String> = []
@@ -250,8 +265,12 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(seenAt, forKey: "seenSessions") } }
     }
 
-    @ObservationIgnored private var codexIDs = Set(UserDefaults.standard.stringArray(forKey: "codexSessionIDs") ?? []) {
-        didSet { if persistsTabs { UserDefaults.standard.set(codexIDs.sorted(), forKey: "codexSessionIDs") } }
+    @ObservationIgnored private var listedIDs = Dictionary(uniqueKeysWithValues: Agent.allCases.map { ($0, Set(UserDefaults.standard.stringArray(forKey: "\($0.rawValue)SessionIDs") ?? [])) }) {
+        didSet {
+            guard persistsTabs else { return }
+
+            for (agent, ids) in listedIDs where ids != oldValue[agent] { UserDefaults.standard.set(ids.sorted(), forKey: "\(agent.rawValue)SessionIDs") }
+        }
     }
 
     private(set) var flaggedIDs = Set(UserDefaults.standard.stringArray(forKey: "flaggedSessions") ?? []) {
@@ -341,6 +360,8 @@ final class Store {
     @ObservationIgnored private var inboxFetchedAt = Date.distantPast
     @ObservationIgnored private var issueInboxFetchedAt = Date.distantPast
     @ObservationIgnored private var planUsageFetchedAt = Date.distantPast
+    @ObservationIgnored private var codexUsageReadAt = Date.distantPast
+    @ObservationIgnored private var planUsageResetRefetch: Task<Void, Never>?
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var tabSignalPolling: Task<Void, Never>?
     @ObservationIgnored private var hostedDirectoryPolling: Task<Void, Never>?
@@ -386,6 +407,7 @@ final class Store {
                 self?.refreshLocalClones()
                 self?.unloadIdleTabs()
                 await self?.refreshPlanUsage()
+                await self?.refreshCodexUsage()
             }
         }
         tabSignalPolling?.cancel()
@@ -405,7 +427,10 @@ final class Store {
         applyCodexSetting()
         refreshInbox()
         refreshIssueInbox()
-        Task { await refreshPlanUsage() }
+        Task {
+            await refreshPlanUsage()
+            await refreshCodexUsage()
+        }
         guard restoringTabs else { return }
 
         Task {
@@ -415,11 +440,13 @@ final class Store {
     }
 
     private func applyGroups() {
-        if hasScanned, isCodexEnabled {
-            let listed = Set(summaries.filter(\.agent.harness.isOptIn).map(\.id))
-            if listed != codexIDs { codexIDs = listed }
+        let enabled = Agent.allCases.filter(Self.isEnabled)
+        if hasScanned {
+            let listed = Dictionary(uniqueKeysWithValues: enabled.map { agent in (agent, Set(summaries.filter { $0.agent == agent }.map(\.id))) })
+            let merged = listedIDs.merging(listed) { _, new in new }
+            if merged != listedIDs { listedIDs = merged }
         }
-        let retained = hasScanned && !isCodexEnabled ? codexIDs : []
+        let retained = hasScanned ? Set(Agent.allCases.filter { !enabled.contains($0) }.flatMap { listedIDs[$0] ?? [] }) : []
         if hasScanned {
             let seen = Dictionary(summaries.map { ($0.id, seenAt[$0.id] ?? .now) }) { first, _ in first }
                 .merging(seenAt.filter { retained.contains($0.key) }) { first, _ in first }
@@ -625,13 +652,39 @@ final class Store {
     }
 
     func refreshPlanUsage() async {
-        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey), planUsageFetchedAt.timeIntervalSinceNow < -60 else { return }
+        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) else { return }
+
+        let resetSinceFetch = planUsage?.windows.contains { $0.resetsAt.map { $0 > planUsageFetchedAt && $0 <= .now } ?? false } ?? false
+        guard planUsageFetchedAt.timeIntervalSinceNow < -60 || resetSinceFetch else { return }
 
         planUsageFetchedAt = .now
         let usage = await Task.detached { await PlanUsageFetch.fetch() }.value
         guard let usage else { return }
 
         planUsage = usage
+        planUsageResetRefetch?.cancel()
+        guard let nextReset = usage.windows.compactMap(\.resetsAt).filter({ $0 > .now }).min() else { return }
+
+        planUsageResetRefetch = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(nextReset.timeIntervalSinceNow + 5))
+            guard !Task.isCancelled else { return }
+
+            await self?.refreshPlanUsage()
+        }
+    }
+
+    func refreshCodexUsage() async {
+        guard Snapshot.output == nil else { return }
+        guard UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey), isCodexEnabled else {
+            codexUsage = nil
+            codexUsageReadAt = .distantPast
+            return
+        }
+        guard codexUsageReadAt.timeIntervalSinceNow < -20 else { return }
+
+        codexUsageReadAt = .now
+        let usage = await Task.detached { [directory = Self.codexDirectory] in CodexUsage.latest(in: directory) }.value
+        if usage != codexUsage { codexUsage = usage }
     }
 
     func refreshInbox() {
@@ -766,7 +819,7 @@ final class Store {
         }
 
         if selectedTabID == tab.id { setConversation(false) }
-        Task { await paste(prompt.text(number: link.number, url: url), intoStartingSession: sessionID, tab: tab.id) }
+        Task { await paste(prompt.text(for: link, url: url), intoStartingSession: sessionID, tab: tab.id) }
         return true
     }
 
@@ -780,7 +833,8 @@ final class Store {
 
     @discardableResult
     private func startPullRequestSession(_ key: PullRequestLink, in folder: String, url: URL, prompt: PullRequestPrompt, selectsTab: Bool) -> Bool {
-        guard let id = openSession(cwd: folder, checkout: .main, pasting: prompt.text(number: key.number, url: url), selectsTab: selectsTab) else { return false }
+        let text = prompt.text(for: key, url: url)
+        guard let id = openSession(cwd: folder, checkout: .main, pasting: text.isEmpty ? nil : text, selectsTab: selectsTab) else { return false }
 
         pullRequestTabs[key] = id
         if selectsTab {
@@ -897,13 +951,14 @@ final class Store {
         #else
         let fakeContexts: [String: SessionContext] = [:]
         #endif
+        let claudeEnabled = Self.isEnabled(.claude)
         let codexEnabled = isCodexEnabled
         refreshTask = Task { [previous = refreshTask, index, startingCodex = codexIndex] in
             await previous?.value
             let (updated, updatedCodex, summaries, roots, checkouts, catalog) = await Task.detached { [roots = repositoryRoots, checkouts = checkouts, known = catalogModels, fixtures = Snapshot.fixtureSessions, catalogDirectory = Self.claudeDirectory.appending(path: "cache/model-catalog")] () -> (TranscriptIndex, CodexIndex, [SessionSummary], [String: String], [String: String], [String: (window: Int?, name: String?)]) in
                 var index = index
                 var codex = startingCodex
-                let refreshed = index.refresh() + (codexEnabled ? codex.refresh() : [])
+                let refreshed = (claudeEnabled ? index.refresh() : []) + (codexEnabled ? codex.refresh() : [])
                 let unchecked = Set((fixtures ?? refreshed).map(\.cwd)).filter { checkouts[$0] == nil && FileManager.default.fileExists(atPath: $0) }
                 let checkouts = checkouts.merging(unchecked.map { ($0, RepositoryRoot.checkout($0)) }) { $1 }
                 let missing = Set(refreshed.filter { $0.agent.harness.supports(.contextSize) && $0.context?.window == nil }.compactMap(\.context?.model)).subtracting(known.keys)
@@ -988,7 +1043,7 @@ final class Store {
 
     func refreshLive() {
         let live = fakeLive + Harness.all.flatMap { harness -> [LiveSession] in
-            guard !harness.isOptIn || isCodexEnabled else { return [] }
+            guard Self.isEnabled(harness.agent) else { return [] }
 
             let openTabs: [LiveProbe.Tab] = harness.liveSource == .tabSignals ? tabs.compactMap { tab in
                 guard tab.agent == harness.agent, let sessionID = tab.sessionID else { return nil }
@@ -1336,7 +1391,25 @@ final class Store {
     var sessionReviewModels: [ReviewModel] {
         guard let sessionID = selectedSessionID else { return [] }
 
-        return ([reviewModels[sessionID]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
+        return ([reviewModels[sessionID], reviewModels[Self.reviewKey(sessionID, root: Self.sessionFilesRoot)]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
+    }
+
+    func showChanges(opening paths: [String]) {
+        showsReviewPanel = true
+        isHarborShown = false
+        prepareReviewModel()
+        Task {
+            for model in sessionReviewModels { await model.load() }
+
+            for path in paths.map({ URL(filePath: $0).resolvingSymlinksInPath().path }) {
+                for model in sessionReviewModels {
+                    guard let root = model.changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path }), path.hasPrefix(root + "/"), let document = model.changedDocument(at: String(path.dropFirst(root.count + 1))) else { continue }
+
+                    model.open(document)
+                    return
+                }
+            }
+        }
     }
 
     func prepareReviewModel() {
@@ -1374,7 +1447,15 @@ final class Store {
             if activeReviewRoots[sessionID] == repository.root { activeReviewRoots[sessionID] = nil }
         }
         let prefix = sessionID + "\n"
-        for key in reviewModels.keys where key.hasPrefix(prefix) && !shown.contains(where: { Self.reviewKey(sessionID, root: $0.root) == key }) { reviewModels[key] = nil }
+        let filesKey = Self.reviewKey(sessionID, root: Self.sessionFilesRoot)
+        for key in reviewModels.keys where key.hasPrefix(prefix) && key != filesKey && !shown.contains(where: { Self.reviewKey(sessionID, root: $0.root) == key }) { reviewModels[key] = nil }
+        if editedFiles[sessionID]?.isEmpty ?? true {
+            reviewModels[filesKey] = nil
+        } else if reviewModels[filesKey] == nil {
+            let model = ReviewModel()
+            model.onOpen = { [weak self] in self?.activeReviewRoots[sessionID] = Self.sessionFilesRoot }
+            reviewModels[filesKey] = model
+        }
         if reviewRepositories[sessionID] ?? [] != shown { reviewRepositories[sessionID] = shown }
     }
 
@@ -1419,16 +1500,17 @@ final class Store {
         editedTask = Task { [previous = editedTask] in
             await previous?.value
             let cached = editedTranscripts[sessionID].flatMap { $0.url == url ? $0.edits : nil } ?? TranscriptEdits()
-            let edits = await Task.detached {
+            let (edits, files) = await Task.detached {
                 var edits = cached
                 edits.read(url)
-                return edits
+                return (edits, edits.existingFiles)
             }.value
             let open = Set(tabs.compactMap(\.sessionID))
             editedTranscripts = editedTranscripts.filter { open.contains($0.key) }.merging([sessionID: (url, edits)]) { $1 }
-            guard editedRepositories[sessionID] ?? [:] != edits.repositories else { return }
+            guard editedRepositories[sessionID] ?? [:] != edits.repositories || editedFiles[sessionID] ?? [] != files else { return }
 
             editedRepositories[sessionID] = edits.repositories
+            editedFiles[sessionID] = files
             prepareReviewModel()
             resolvePullRequests()
         }
@@ -1593,7 +1675,7 @@ final class Store {
     }
 
     @discardableResult
-    func openSession(_ agent: Agent = .claude, cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil, selectsTab: Bool = true) -> Tab.ID? {
+    func openSession(_ agent: Agent = Store.defaultAgent, cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil, selectsTab: Bool = true) -> Tab.ID? {
         let harness = agent.harness
         let session = sessionID ?? (harness.claimsNewSession ? nil : UUID().uuidString.lowercased())
         let attachID = session.flatMap { liveBySession[$0]?.attachID }
@@ -1651,13 +1733,32 @@ final class Store {
     }
 
     var isCodexEnabled: Bool {
-        UserDefaults.standard.bool(forKey: GeneralSettings.codexKey)
+        Self.isEnabled(.codex)
+    }
+
+    static func isEnabled(_ agent: Agent) -> Bool {
+        let key = "\(agent.rawValue)Enabled"
+        return UserDefaults.standard.object(forKey: key) == nil ? !agent.harness.isOptIn : UserDefaults.standard.bool(forKey: key)
+    }
+
+    static var defaultAgent: Agent {
+        let enabled = Agent.allCases.filter(isEnabled)
+        let chosen = UserDefaults.standard.string(forKey: GeneralSettings.defaultAgentKey).flatMap(Agent.init(rawValue:))
+        return chosen.flatMap { enabled.contains($0) ? $0 : nil } ?? enabled.first ?? .claude
+    }
+
+    static var otherAgent: Agent? {
+        Agent.allCases.first { $0 != defaultAgent && isEnabled($0) }
     }
 
     func applyCodexSetting() {
         let paths = ["sessions", "session_index.jsonl"].map { Self.codexDirectory.appending(path: $0).path }
-        codexWatcher = isCodexEnabled ? FileWatcher(paths: paths, latency: 1) { [weak self] _ in self?.refresh() } : nil
+        codexWatcher = isCodexEnabled ? FileWatcher(paths: paths, latency: 1) { [weak self] _ in
+            self?.refresh()
+            Task { await self?.refreshCodexUsage() }
+        } : nil
         refresh()
+        Task { await refreshCodexUsage() }
     }
 
     private func paste(_ prompt: String, intoStartingSession sessionID: String, tab id: Tab.ID) async {
@@ -1843,6 +1944,7 @@ final class Store {
             activeReviewRoots[sessionID] = nil
             reviewRepositories[sessionID] = nil
             editedRepositories[sessionID] = nil
+            editedFiles[sessionID] = nil
         }
         conversationTabIDs.remove(id)
         conversationSuspended.remove(id)
