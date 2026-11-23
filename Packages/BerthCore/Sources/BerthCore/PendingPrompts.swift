@@ -29,7 +29,7 @@ public enum PendingPrompts {
             let isRecorded = if let baseline = prompt.baseline {
                 recordedCount(text: prompt.text, attachmentCount: prompt.attachmentCount, entries: entries) > baseline
             } else {
-                entries.contains { $0.kind == .prompt && $0.text.hasSuffix(prompt.text) && ($0.date ?? .distantPast) >= prompt.sentAt.addingTimeInterval(-1) }
+                entries.contains { $0.kind == .prompt && normalised($0.text).hasSuffix(normalised(prompt.text)) && ($0.date ?? .distantPast) >= prompt.sentAt.addingTimeInterval(-1) }
             }
             if isRecorded { return nil }
 
@@ -39,12 +39,14 @@ public enum PendingPrompts {
                 return prompt
             }
 
-            return prompt.wasQueued || now.timeIntervalSince(prompt.sentAt) > grace ? nil : prompt
+            let isSuperseded = prompt.baseline == nil && entries.contains { $0.kind == .prompt && ($0.date ?? .distantPast) > prompt.sentAt.addingTimeInterval(1) }
+
+            return prompt.wasQueued || isSuperseded || now.timeIntervalSince(prompt.sentAt) > grace ? nil : prompt
         }
     }
 
     public static func recordedCount(text: String, attachmentCount: Int, entries: [RemoteEntry]) -> Int {
-        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = normalised(text)
         return entries.count { $0.kind == .prompt && matches($0.text, text: text, attachmentCount: attachmentCount) }
     }
 
@@ -60,7 +62,7 @@ public enum PendingPrompts {
         if queued.contains(prompt.text) { return true }
         guard prompt.baseline != nil else { return false }
 
-        let text = prompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = normalised(prompt.text)
         return queued.contains { matches($0, text: text, attachmentCount: prompt.attachmentCount) }
     }
 
@@ -71,6 +73,10 @@ public enum PendingPrompts {
         let images = entryText.matches(of: imageToken)
         guard uploads.count + images.count == attachmentCount else { return false }
 
-        return entryText.replacing(uploadPath, with: "").replacing(imageToken, with: "").trimmingCharacters(in: .whitespacesAndNewlines) == text
+        return normalised(entryText) == text
+    }
+
+    static func normalised(_ text: String) -> String {
+        text.replacing(uploadPath, with: "").replacing(imageToken, with: "").split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }

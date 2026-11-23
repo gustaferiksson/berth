@@ -73,6 +73,15 @@ struct PendingPromptsTests {
         #expect(PendingPrompts.unqueued(differentCount, queued: ["read this"]).isEmpty)
     }
 
+    @Test func matchesAnImagePromptWhoseRecordedTextLacksTheToken() {
+        let pending = [PendingPrompt(text: "[Image #1] this diff  still\nhas corners", sentAt: sent)]
+        let recorded = RemoteEntry(id: "u0", kind: .prompt, text: "this diff still has corners", date: sent, images: [Data([1])])
+        let unrelated = RemoteEntry(id: "u1", kind: .prompt, text: "other", date: sent.addingTimeInterval(5))
+
+        #expect(PendingPrompts.reconcile(pending, entries: [recorded], queued: [], now: sent).isEmpty)
+        #expect(PendingPrompts.reconcile(pending, entries: [unrelated], queued: [], now: sent).isEmpty)
+    }
+
     @Test func keepsFailedPromptsPastGraceAndIgnoresMatchingEntries() {
         let pending = [PendingPrompt(text: "continue", sentAt: sent, baseline: 0, isFailed: true)]
         let recorded = RemoteEntry(id: "u0", kind: .prompt, text: "continue")

@@ -22,6 +22,28 @@ struct TranscriptTailTests {
         #expect(parsed.entries[4].command == "swift test" && parsed.entries[4].toolID == "t2")
     }
 
+    @Test func foldsBashOutputIntoItsPrompt() throws {
+        let records = [
+            #"{"type":"user","uuid":"shell","message":{"role":"user","content":"<bash-input>git status</bash-input>"}}"#,
+            #"{"type":"user","uuid":"output","message":{"role":"user","content":"<bash-stdout>\nOn branch main\nWorking tree clean\n</bash-stdout><bash-stderr>\nwarning: sample warning\n</bash-stderr>"}}"#,
+            lines[0],
+        ]
+        let entries = TranscriptTail.entries(in: Data((records.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: []).entries
+        #expect(entries.map(\.kind) == [.prompt, .toolResult, .prompt])
+        let output = try #require(entries.dropFirst().first)
+        #expect(output.id == "output" && output.name == "bash-output" && output.toolID == nil)
+
+        let turns = Turn.turns(from: entries)
+        #expect(turns.map(\.id) == ["shell", "u1"])
+        let prompt = try #require(turns.first?.prompt)
+        #expect(prompt.name == "bash" && prompt.text == "git status" && prompt.command == "git status")
+        #expect(prompt.shellOutput == "On branch main\nWorking tree clean")
+        #expect(prompt.shellError == "warning: sample warning")
+        #expect(turns.first?.parts.isEmpty == true)
+        #expect(turns.last?.prompt == RemoteEntry(id: "u1", kind: .prompt, text: "Rename the widget"))
+        #expect(Turn.turns(from: [output]).isEmpty)
+    }
+
     @Test func showsMidTurnUpdatesAsReplies() {
         let updates = [
             #"{"type":"assistant","uuid":"n1","message":{"content":[{"type":"thinking","thinking":"Checking the widget now.","signature":"eHh4eG5hcnJhdGlvbnh4eHg="},{"type":"thinking","thinking":"Private reasoning.","signature":"eHh4eHRoaW5raW5neHh4eA=="},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}},{"type":"thinking","thinking":"","signature":"eHh4eG5hcnJhdGlvbnh4eHg="}]}}"#,

@@ -134,6 +134,8 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 
 `-snapshotConversation YES` (needs an empty `CFFIXED_USER_HOME`; pass `-reviewEnabled NO`, `-conversationEnabled YES`; `-snapshotConversationStatus busy|waiting|idle`, `-snapshotConversationExpanded YES`, `-snapshotConversationHeight <pt>`) seeds an invented transcript, saves `<out>.conversation.png` and `<out>.terminal.png` and prints the surface identity across toggles.
 
+The Claude fixture includes bash-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
+
 `-snapshotConversationAgent codex` with `-codexEnabled YES` seeds an invented Codex rollout and opens a Codex conversation tab without fake live status. `-snapshotConversationStatus busy` leaves its final turn open; other statuses close it with task_complete. `-snapshotTerminalTitle "<text>"` sets the tab terminal's OSC title, so `[ ! ] Action Required`, `Thinking` or `Ready` drives the Codex live status. The fixture includes command output, updated and added files, a web search, a plan, a final reply, context usage and a pull request URL.
 
 With `-snapshotConversation YES -codexEnabled YES`, `-snapshotConversationCodexApproval YES` sets the Action Required title and shows an invented command, its justification, and the Allow, Always Allow, and Deny buttons. `-snapshotConversationCodexTasks YES` sets the Ready title and shows an invented running subagent and background terminal in the tasks pill. Use an empty `CFFIXED_USER_HOME` and leave `CODEX_HOME` unset or point it at that fixture home’s `.codex` directory.

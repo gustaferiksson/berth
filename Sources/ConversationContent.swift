@@ -47,8 +47,13 @@ struct ConversationPrompt: View {
     var isQueued = false
 
     @Environment(\.ghosttyTheme) private var theme
+    @State private var isExpanded = conversationExpandsAll
 
     var body: some View {
+        if entry.name == "bash" { shell } else { promptBubble }
+    }
+
+    private var promptBubble: some View {
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 4, topTrailingRadius: 10, style: .continuous)
 
         return VStack(alignment: .leading, spacing: 8) {
@@ -104,6 +109,49 @@ struct ConversationPrompt: View {
             }
         }
         .contextMenu { Button("Copy") { copyToPasteboard(entry.text) } }
+    }
+
+    private var shell: some View {
+        let output = entry.shellOutput.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
+        let errors = entry.shellError.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
+        let lines = output.map { (text: $0, isError: false) } + errors.map { (text: $0, isError: true) }
+        let moreLines = lines.count - 4
+
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(verbatim: "!")
+                    .foregroundStyle(theme.secondary)
+                    .frame(width: markerWidth - 8, alignment: .leading)
+                    .accessibilityHidden(true)
+                Text(verbatim: entry.text)
+                    .textSelection(.enabled)
+            }
+            if !lines.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: "⎿")
+                        .foregroundStyle(theme.secondary)
+                        .frame(width: markerWidth - 8, alignment: .leading)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(lines.prefix(isExpanded ? lines.count : 4).enumerated(), id: \.offset) { _, line in
+                            Text(verbatim: line.text.isEmpty ? " " : String(line.text))
+                                .foregroundStyle(line.isError ? theme.closed : theme.secondary)
+                                .textSelection(.enabled)
+                        }
+                        if moreLines > 0 {
+                            Button(isExpanded ? "Show less" : "Show \(moreLines) more lines") { isExpanded.toggle() }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
+                                .foregroundStyle(theme.secondary)
+                        }
+                    }
+                }
+                .padding(.leading, markerWidth)
+            }
+        }
+        .font(theme.conversationFont().monospaced())
+        .foregroundStyle(theme.foreground)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -265,9 +313,8 @@ private enum ConversationMarkdownCache {
 
     private static func styled(_ block: MarkdownBlock, theme: GhosttyTheme) -> AttributedString {
         var attributed = (try? AttributedString(markdown: block.lines.joined(separator: "\n"), options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(block.lines.joined(separator: "\n"))
-        for run in attributed.runs {
-            if run.inlinePresentationIntent?.contains(.code) == true { attributed[run.range].backgroundColor = theme.foreground.opacity(0.1) }
-            if run.link != nil { attributed[run.range].foregroundColor = theme.unread }
+        for run in attributed.runs where run.inlinePresentationIntent?.contains(.code) == true || run.link != nil {
+            attributed[run.range].foregroundColor = theme.unread
         }
         if case let .heading(level) = block.kind {
             attributed.font = theme.conversationFont(level == 1 ? 4 : level == 2 ? 2 : 1).bold()
