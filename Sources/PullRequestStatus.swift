@@ -42,6 +42,12 @@ nonisolated struct PullRequestBranch: Sendable, Hashable {
 nonisolated enum PullRequestStatus {
     private static let gh = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"].first { FileManager.default.isExecutableFile(atPath: $0) }
 
+    static func head(of link: PullRequestLink) -> PullRequestHead? {
+        guard let gh, let output = run(gh, arguments: PullRequestCheckout.viewArguments(repository: link.repository, number: link.number), requireSuccess: true) else { return nil }
+
+        return PullRequestCheckout.parseHead(output)
+    }
+
     private struct Response: Decodable {
         struct Payload: Decodable {
             let info: Info?
