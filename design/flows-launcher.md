@@ -12,7 +12,7 @@ With Settings > General `startsInWorktree` on, a new session (launcher, group +,
 
 `.pullRequests` (File ▸ Open Pull Request…, the palette, ⇥ or a leading `#` in ⌘N, the toolbar capsule) lists open PRs where my review is requested, mine and assigned to me (`PullRequestInbox`: one `gh api graphql` call with three aliased `search`es of at most 50, deduplicated in that order), sectioned Review Requested, Mine, Assigned; with an empty query, Mine and Assigned PRs not updated in 30 days hide behind a count. Fetched off main at launch, on activation, in the 5 min poll and when the scope opens, at most once a minute, keeping old results on failure, never in snapshot mode.
 
-A PR's sessions are those whose `pr-link`s name it or whose branch lookup gives it (`Store.sessions(for:)`). ↩ resumes the most recent through `Store.activate(.session)`, else starts a `-w` session (`NewSessionCheckout.worktree`) in the repo's local checkout and, once live and not waiting plus 2 s, pastes 'Check out PR #N (url) with gh pr checkout N in this worktree, then summarize it.' without Return; no checkout shows 'No local checkout of owner/name' with Open on GitHub. ⌥↩ opens the PR.
+A PR's sessions are those whose `pr-link`s name it or whose branch lookup gives it (`Store.sessions(for:)`). ↩ resumes the most recent through `Store.activate(.session)`, else opens the PR in a worktree on its head branch: `Store.openPullRequest` finds the repo's checkout (the origin cache inverted; origins resolve for every session root), reads the head with `gh pr view`, and `PullRequestCheckout.prepare` fetches `origin pull/N/head` and adds `<repo>.worktrees/<branch>` (worktrunk's template, `/` and `\\` become `-`). A branch already checked out in a worktree is reused and fast-forwarded (`merge --ff-only`, failures ignored); a path held by another branch (`a/b` vs `a-b`) is an error. A fork PR keeps the head branch name, or `<owner>/<branch>` when a local branch of that name exists outside its own worktree. Same-repo branches track `origin/<branch>`. Nothing is reset, forced or deleted. Claude then starts in that folder as a plain new session (no `-w`), and once live and not waiting, at least 5 s after the tab opened (the Conversation composer's gate), Ctrl+U clears typed-ahead input and 'Summarize PR #N (url).' is pasted without Return. Work is serialised, a banner shows progress, and failures show a 'Couldn’t Open Pull Request' alert. Snapshot and probe runs skip git and gh. No checkout shows 'No local checkout of owner/name' with Open on GitHub. ⌥↩ opens the PR.
 
 The toolbar's 'N to review' capsule (hidden at 0) opens the scope filtered to Review Requested (`Store.launcherRole`).
 
@@ -24,9 +24,9 @@ Return or a click looks up an issue's current linked PRs and opens them. With ze
 
 ### Open from Issue
 
-Paste a GitHub issue URL or type `owner/repo#N` in Pull Requests or Issues to see the issue’s open linked PRs across repositories, including drafts. Return opens every available PR and selects the first. Click a row to open just that PR. Both actions switch to or resume an existing session when available, or start a Claude worktree session from a known local checkout.
+Paste a GitHub issue URL or type `owner/repo#N` in Pull Requests or Issues to see the issue’s open linked PRs across repositories, including drafts. Return opens every available PR and selects the first. Click a row to open just that PR. Both actions switch to or resume an existing session when available, or open the PR in its own worktree from a known local checkout (as above, one at a time).
 
-Lookup errors appear in the issue panel. The launcher stays open when a PR is unavailable or fails to open so its status remains visible. Claude runs the checkout, and any checkout failure appears in its session.
+Lookup errors appear in the issue panel. The launcher stays open when a PR is unavailable or fails to open so its status remains visible. Checkout failures appear in the alert.
 
 ## Local checkout discovery
 

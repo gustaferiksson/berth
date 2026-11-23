@@ -63,6 +63,13 @@ struct ContentView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
+                .overlay(alignment: .bottom) {
+                    if !store.preparingPullRequests.isEmpty {
+                        PullRequestPreparingBanner(count: store.preparingPullRequests.count, number: store.preparingPullRequests.count == 1 ? store.preparingPullRequests.first?.number : nil)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.default, value: store.preparingPullRequests)
                 .animation(.default, value: store.updater.pendingRestart?.deadline)
                 .background(store.theme.chrome ?? .clear)
                 .background {
@@ -174,6 +181,10 @@ struct ContentView: View {
             Button("Delete Group", role: .destructive) { store.customGroups.removeAll { $0.id == group.id } }
         } message: { _ in
             Text("Its sessions go back to their automatic groups. No transcripts are deleted.")
+        }
+        .alert("Couldn’t Open Pull Request", isPresented: Binding(get: { store.pullRequestFailure != nil }, set: { if !$0 { store.pullRequestFailure = nil } }), presenting: store.pullRequestFailure) { _ in
+        } message: { message in
+            Text(message)
         }
         .alert("Folder Not Found", isPresented: Binding(get: { store.missingFolder != nil }, set: { if !$0 { store.missingFolder = nil } }), presenting: store.missingFolder) { _ in
         } message: { folder in

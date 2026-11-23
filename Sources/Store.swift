@@ -118,6 +118,9 @@ final class Store {
     var multiSelection: [SidebarItem] = []
     @ObservationIgnored private var multiSelectionAnchor: SidebarItem?
     var missingFolder: String?
+    var pullRequestFailure: String?
+    private(set) var preparingPullRequests: [PullRequestLink] = []
+    @ObservationIgnored private var pullRequestPreparation: Task<Void, Never>?
     var editingGroup: CustomGroup?
     var isStatsRequested = false
     var planUsage: PlanUsage?
@@ -683,20 +686,57 @@ final class Store {
         case let .tab(id): return activate(.tab(id), selectsTab: selectsTab)
         case .noCheckout: return false
         case let .worktree(root):
-            let prompt = "Check out PR #\(link.number) (\(url.absoluteString)) with gh pr checkout \(link.number) in this worktree, then summarize it."
-            guard let id = openSession(cwd: root, checkout: .worktree, pasting: prompt, selectsTab: selectsTab) else { return false }
+            let key = PullRequestLink(repository: link.repository.lowercased(), number: link.number)
+            guard !preparingPullRequests.contains(key) else { return true }
 
-            pullRequestTabs[PullRequestLink(repository: link.repository.lowercased(), number: link.number)] = id
-            if selectsTab { isHarborShown = false }
+            let prompt = "Summarize PR #\(link.number) (\(url.absoluteString))."
+            if opensAreProbed { return startPullRequestSession(key, in: root, prompt: prompt, selectsTab: selectsTab) }
+
+            preparingPullRequests.append(key)
+            let previous = pullRequestPreparation
+            pullRequestPreparation = Task {
+                await previous?.value
+                defer { preparingPullRequests.removeAll { $0 == key } }
+
+                let head = await Task.detached { PullRequestStatus.head(of: key) }.value
+                guard let head else {
+                    pullRequestFailure = "Couldn’t read the head branch of PR #\(key.number). Check that the GitHub CLI (gh) is signed in."
+                    return
+                }
+
+                do {
+                    let path = try await PullRequestCheckout.prepare(root: root, number: key.number, head: head)
+                    startPullRequestSession(key, in: path, prompt: prompt, selectsTab: selectsTab)
+                } catch {
+                    pullRequestFailure = (error as? PullRequestCheckout.Failure)?.message ?? "Couldn’t prepare a worktree for PR #\(key.number)."
+                }
+            }
             return true
         }
+    }
+
+    private var opensAreProbed: Bool {
+        #if DEBUG
+        Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || Snapshot.issueInboxQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil || UserDefaults.standard.bool(forKey: "snapshotControl")
+        #else
+        false
+        #endif
+    }
+
+    @discardableResult
+    private func startPullRequestSession(_ key: PullRequestLink, in folder: String, prompt: String, selectsTab: Bool) -> Bool {
+        guard let id = openSession(cwd: folder, checkout: .main, pasting: prompt, selectsTab: selectsTab) else { return false }
+
+        pullRequestTabs[key] = id
+        if selectsTab { isHarborShown = false }
+        return true
     }
 
     func issuePullRequestStatus(_ pullRequest: LinkedPullRequest, opening: PullRequestOpening) -> String {
         switch opening {
         case let .session(session): tab(forSession: session.id) == nil ? "Resume Session" : "Switch To Session"
         case .tab: "Switch To Session"
-        case .worktree: "New Worktree"
+        case .worktree: preparingPullRequests.contains(PullRequestLink(repository: pullRequest.link.repository.lowercased(), number: pullRequest.link.number)) ? "Preparing Worktree" : "New Worktree"
         case .noCheckout: "No local checkout of \(pullRequest.link.repository)"
         }
     }
@@ -1476,7 +1516,7 @@ final class Store {
         }
         let id = UUID()
         #if DEBUG
-        if Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || Snapshot.issueInboxQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil || UserDefaults.standard.bool(forKey: "snapshotControl") {
+        if opensAreProbed {
             probeOpened.append((agent, cwd, start, prompt))
             return id
         }
@@ -1535,9 +1575,16 @@ final class Store {
 
             refreshLive()
         }
-        try? await Task.sleep(for: .seconds(2))
+        let tabAge = tabs.first { $0.id == id }.map { Date.now.timeIntervalSince($0.opened) } ?? 0
+        try? await Task.sleep(for: .seconds(max(2, 5 - tabAge)))
         refreshLive()
-        guard let terminal = tabs.first(where: { $0.id == id })?.terminal, liveBySession[sessionID].map({ $0.status != "waiting" }) == true, terminal.paste(text: prompt) else { return }
+        guard let terminal = tabs.first(where: { $0.id == id })?.terminal, liveBySession[sessionID].map({ $0.status != "waiting" }) == true else { return }
+
+        if let clear = TerminalKeyPress(typing: "u", modifiers: .ctrl) {
+            terminal.sendKey(clear)
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        guard terminal.paste(text: prompt) else { return }
 
         if selectedTabID == id, launcherMode == nil { terminal.requestFocus() }
     }

@@ -69,7 +69,7 @@ subagents; remove one once its branch is pushed.":
 - With the setting on, ⌥↩ in the launcher starts in the main checkout instead (footer hint
   shown only then). Every other new-session entry (group +, New Session menus, drop,
   remote) follows the setting.
-- Berth never creates worktrees itself; every one goes through Claude and the `wt` hook.
+- Berth creates worktrees itself only to open a pull request (design/flows-launcher.md, Open Pull Request); every other one goes through Claude and the `wt` hook. A plain `git worktree add` does not run worktrunk's `post-start` `copy-ignored` step.
 - ⌘T from a worktree session opens a terminal in the worktree (today's `currentCwd`).
 
 ## Folder, grouping, launcher list
