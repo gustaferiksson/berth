@@ -372,6 +372,10 @@ enum Snapshot {
         }
         if let fixture = UserDefaults.standard.string(forKey: "snapshotUsage") {
             let windows = fixture.split(separator: "|").enumerated().compactMap { index, part -> UsageWindow? in
+                if part == "idle", index < PlanUsage.windows.count {
+                    let (key, title, length) = PlanUsage.windows[index]
+                    return UsageWindow(id: key, title: title, length: length, used: 0, resetsAt: nil)
+                }
                 let numbers = part.split(separator: ":").compactMap { Double($0) }
                 guard numbers.count == 2, index < PlanUsage.windows.count else { return nil }
 
