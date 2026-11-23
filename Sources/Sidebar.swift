@@ -1575,7 +1575,7 @@ private struct CardRow<Detail: View>: View {
                 if let close {
                     Button("Close Terminal", systemImage: "xmark", action: close)
                         .labelStyle(.iconOnly)
-                        .buttonStyle(.plain)
+                        .buttonStyle(.borderless)
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(Color.secondary)
                         .frame(width: 16, height: 16)
