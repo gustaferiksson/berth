@@ -164,6 +164,12 @@ nonisolated enum PullRequestStatus {
         return PullRequestInbox.parse(output)
     }
 
+    static func issueInbox() -> [InboxIssue]? {
+        guard let gh, let output = run(gh, arguments: IssueInbox.arguments, requireSuccess: true) else { return nil }
+
+        return IssueInbox.parse(output)
+    }
+
     static func linkedPullRequests(issue: IssueReference) -> Result<[LinkedPullRequest], IssuePullRequests.LookupError> {
         guard let gh else { return .failure(.missingCLI) }
         guard let output = run(gh, arguments: IssuePullRequests.arguments(issue: issue)) else { return .failure(.requestFailed) }

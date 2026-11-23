@@ -37,13 +37,41 @@ public enum RepositoryRoot {
     public static func gitHubRepositories(of roots: Set<String>) async -> [String: String?] {
         await withTaskGroup(of: (String, String?).self) { group in
             for root in roots {
-                group.addTask {
-                    let remote = try? await ReviewGit.git(["remote", "get-url", "origin"], in: root)
-                    return (root, remote.flatMap { gitHubRepository(remoteURL: String(decoding: $0, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)) })
-                }
+                group.addTask { await (root, gitHubRepository(at: root)) }
             }
             return await group.reduce(into: [:]) { $0[$1.0] = .some($1.1) }
         }
+    }
+
+    public static func gitHubSiblingClones(of roots: Set<String>) async -> [String: [String: String]] {
+        let parents = Set(roots.compactMap { root -> String? in
+            let folder = URL(filePath: root, directoryHint: .isDirectory).standardizedFileURL
+            return hasGitDirectory(folder) ? folder.deletingLastPathComponent().path : nil
+        })
+        var found: [String: [String: String]] = [:]
+        for parent in parents {
+            let folder = URL(filePath: parent, directoryHint: .isDirectory)
+            let children = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            var clones: [String: String] = [:]
+            for child in children {
+                guard hasGitDirectory(child), let repository = await gitHubRepository(at: child.path) else { continue }
+
+                clones[folder.appending(path: child.lastPathComponent).path] = repository.lowercased()
+            }
+            found[parent] = clones
+        }
+        return found
+    }
+
+    private static func hasGitDirectory(_ folder: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: folder.appending(path: ".git").path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private static func gitHubRepository(at root: String) async -> String? {
+        guard let remote = try? await ReviewGit.git(["remote", "get-url", "origin"], in: root) else { return nil }
+
+        return gitHubRepository(remoteURL: String(decoding: remote, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     static func gitHubRepository(remoteURL: String) -> String? {

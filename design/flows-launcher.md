@@ -1,4 +1,4 @@
-# Launcher, palette and pull requests: implementation notes
+# Launcher, palette, pull requests and issues
 
 Moved from CLAUDE.md. See also design/flows-groups.md (Launcher section).
 
@@ -16,11 +16,21 @@ A PR's sessions are those whose `pr-link`s name it or whose branch lookup gives 
 
 The toolbar's 'N to review' capsule (hidden at 0) opens the scope filtered to Review Requested (`Store.launcherRole`).
 
+## Issues
+
+Tab cycles through Folders, Pull Requests and Issues. Issues lists open issues assigned to, authored by or mentioning you, in that priority for deduplication. The inbox uses one GitHub CLI request and counts unique open PRs from up to 50 linked timeline events per issue. Refreshing follows the PR inbox schedule and retains the last successful results. Search includes issues older than 30 days, which are hidden until you type.
+
+Return or a click looks up an issue's current linked PRs and opens them. With zero open linked PRs, Berth starts a Claude worktree session from the local checkout and pastes `Work on issue #N (url).` without Return. A missing checkout shows Open on GitHub. Option-Return opens the issue on GitHub.
+
 ### Open from Issue
 
-Paste a GitHub issue URL or type `owner/repo#N` in Pull Requests to see the issue’s open linked PRs across repositories, including drafts. Return opens every available PR and selects the first. Click a row to open just that PR. Both actions switch to or resume an existing session when available, or open the PR in its own worktree from a known local checkout (as above, one at a time).
+Paste a GitHub issue URL or type `owner/repo#N` in Pull Requests or Issues to see the issue’s open linked PRs across repositories, including drafts. Return opens every available PR and selects the first. Click a row to open just that PR. Both actions switch to or resume an existing session when available, or open the PR in its own worktree from a known local checkout (as above, one at a time).
 
 Lookup errors appear in the issue panel. The launcher stays open when a PR is unavailable or fails to open so its status remains visible. Checkout failures appear in the alert.
+
+## Local checkout discovery
+
+PR and issue sessions prefer checkouts known from session folders. Berth also scans one level of each known repo's parent folder for sibling checkouts with a `.git` directory and a matching GitHub origin. It scans off the main thread, caches results by parent, and refreshes when the known repo folders change or on the five-minute poll. Berth skips worktree pointers and never clones a repo.
 
 ## Launcher modes
 

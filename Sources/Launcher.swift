@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum LauncherMode {
-    case newSession, search, palette, pullRequests
+    case newSession, search, palette, pullRequests, issues
 }
 
 struct Launcher: View {
@@ -33,7 +33,7 @@ struct Launcher: View {
     @Environment(\.openURL) private var openURL
     @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
     @AppStorage(GeneralSettings.codexKey) private var isCodexEnabled = false
-    @State private var query = ""
+    @State private var query: String
     @State private var highlighted = 0
     @State private var folders: [Folder] = []
     @State private var hits: [SearchHit] = []
@@ -41,23 +41,53 @@ struct Launcher: View {
     @State private var resultsHeight = 0.0
     @State private var isBrowsing = false
     @State private var missingCheckout: InboxPullRequest?
+    @State private var selectedIssue: InboxIssue?
     @State private var issueLookup: (reference: IssueReference, result: Result<[LinkedPullRequest], IssuePullRequests.LookupError>)?
     @State private var issueOpenFailures: Set<PullRequestLink> = []
     @FocusState private var isQueryFocused: Bool
 
+    init(mode: LauncherMode, query: String) {
+        self.mode = mode
+        _query = State(initialValue: query)
+    }
+
     private static let visibleMatches = 6
 
+    private static let scopes: [(mode: LauncherMode, title: String)] = [(.newSession, "Folders"), (.pullRequests, "Pull Requests"), (.issues, "Issues")]
+
+    private var nextScope: (mode: LauncherMode, title: String)? {
+        guard let index = Self.scopes.firstIndex(where: { $0.mode == mode }) else { return nil }
+
+        return Self.scopes[(index + 1) % Self.scopes.count]
+    }
+
     private var issueReference: IssueReference? {
-        mode == .pullRequests ? IssueReference.parse(query) : nil
+        guard mode == .pullRequests || mode == .issues else { return nil }
+
+        return IssueReference.parse(selectedIssue?.id ?? query)
     }
 
     private var issueResult: Result<[LinkedPullRequest], IssuePullRequests.LookupError>? {
         guard let issueReference else { return nil }
 
-        #if DEBUG
-        if Snapshot.output != nil { return Snapshot.issueReference == issueReference ? Snapshot.fixtureIssuePullRequests : .failure(.issueNotFound) }
-        #endif
         return issueLookup?.reference == issueReference ? issueLookup?.result : nil
+    }
+
+    private var rankedIssues: (issues: [InboxIssue], older: Int) {
+        guard mode == .issues, issueReference == nil else { return ([], 0) }
+
+        return IssueInbox.rank(query, in: store.issueInbox ?? [], now: .now)
+    }
+
+    private var rankedPullRequests: (pullRequests: [InboxPullRequest], older: Int) {
+        guard mode == .pullRequests, issueReference == nil else { return ([], 0) }
+
+        return PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now)
+    }
+
+    private var highlightedIssue: InboxIssue? {
+        let issues = rankedIssues.issues
+        return issues.indices.contains(highlighted) ? issues[highlighted] : nil
     }
 
     var body: some View {
@@ -67,33 +97,45 @@ struct Launcher: View {
         let row = rows.indices.contains(highlighted) ? rows[highlighted] : nil
         let issue = issueReference
         let linked = ((try? issueResult?.get()) ?? []).map { (pullRequest: $0, opening: store.opening(of: $0.link)) }
-        let ranked = mode == .pullRequests && issue == nil ? PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now) : (pullRequests: [], older: 0)
+        let ranked = rankedPullRequests
+        let issues = rankedIssues
         let pullRequest = ranked.pullRequests.indices.contains(highlighted) ? ranked.pullRequests[highlighted] : nil
-        let count = mode == .newSession ? matches.count : mode == .palette ? rows.count : mode == .pullRequests ? ranked.pullRequests.count : hits.count
+        let issueRow = issues.issues.indices.contains(highlighted) ? issues.issues[highlighted] : nil
+        let count = switch mode {
+        case .newSession: matches.count
+        case .palette: rows.count
+        case .pullRequests: ranked.pullRequests.count
+        case .issues: issues.issues.count
+        case .search: hits.count
+        }
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: [LauncherMode.newSession: "chevron.right", .palette: "command", .pullRequests: "arrow.triangle.pull"][mode] ?? "magnifyingglass")
+                Image(systemName: [LauncherMode.newSession: "chevron.right", .palette: "command", .pullRequests: "arrow.triangle.pull", .issues: "exclamationmark.circle"][mode] ?? "magnifyingglass")
                     .font(.title3)
                     .foregroundStyle(.secondary)
                     .frame(width: 20)
-                TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests or paste an issue"][mode] ?? "Search all sessions"))
+                TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests or paste an issue", .issues: "Search or paste an issue"][mode] ?? "Search all sessions"))
                     .textFieldStyle(.plain)
                     .font(.title3)
                     .focused($isQueryFocused)
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
                     .onKeyPress(.tab) {
-                        guard [.newSession, .pullRequests].contains(mode) else { return .ignored }
+                        guard let nextScope else { return .ignored }
 
-                        switchScope(to: mode == .newSession ? .pullRequests : .newSession)
+                        switchScope(to: nextScope.mode)
                         return .handled
                     }
                     .onKeyPress(.return, phases: .down) { press in
-                        guard press.modifiers.contains(.option), issueReference == nil else { return .ignored }
+                        guard press.modifiers.contains(.option) else { return .ignored }
 
-                        let pullRequests = PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now).pullRequests
+                        if let url = selectedIssue?.url ?? issueReference?.url ?? highlightedIssue?.url {
+                            openOnGitHub(url)
+                            return .handled
+                        }
+                        let pullRequests = rankedPullRequests.pullRequests
                         if mode == .pullRequests, pullRequests.indices.contains(highlighted) {
-                            openOnGitHub(pullRequests[highlighted])
+                            openOnGitHub(pullRequests[highlighted].url)
                             return .handled
                         }
                         let matches = self.matches
@@ -111,6 +153,7 @@ struct Launcher: View {
                     .onSubmit(submit)
                     .onChange(of: query) {
                         highlighted = 0
+                        selectedIssue = nil
                         guard mode == .newSession, query.hasPrefix("#") else { return }
 
                         store.launcherQuery = String(query.dropFirst())
@@ -129,9 +172,9 @@ struct Launcher: View {
                     .buttonStyle(.plain)
                     .help("Show all pull requests")
                 }
-                if [.newSession, .pullRequests].contains(mode) {
+                if nextScope != nil {
                     HStack(spacing: 0) {
-                        ForEach([(LauncherMode.newSession, "Folders"), (.pullRequests, "Pull Requests")], id: \.0) { scope, title in
+                        ForEach(Self.scopes, id: \.mode) { scope, title in
                             Button { switchScope(to: scope) } label: {
                                 Text(title)
                                     .font(.subheadline)
@@ -144,7 +187,7 @@ struct Launcher: View {
                         }
                     }
                     .background(theme.foreground.opacity(0.1), in: .capsule)
-                    .help("Switch between folders and pull requests (⇥)")
+                    .help("Switch launcher scope (⇥)")
                 }
                 if mode == .newSession {
                     Button { isBrowsing = true } label: {
@@ -165,20 +208,11 @@ struct Launcher: View {
             if mode == .newSession {
                 folderList(matches)
             } else {
-                results(rows, pullRequests: ranked.pullRequests, issue: issue, linked: linked)
+                results(rows, pullRequests: ranked.pullRequests, issues: issues.issues, issue: issue, linked: linked)
             }
             if let pullRequest, missingCheckout == pullRequest {
                 Divider()
-                HStack(spacing: 8) {
-                    Image(systemName: "folder.badge.questionmark")
-                        .foregroundStyle(.secondary)
-                    Text("No local checkout of \(pullRequest.repository)")
-                    Spacer(minLength: 8)
-                    Button("Open on GitHub") { openOnGitHub(pullRequest) }
-                }
-                .font(.callout)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                checkoutNotice(repository: pullRequest.repository, url: pullRequest.url)
             }
             Divider()
             HStack(spacing: 16) {
@@ -187,11 +221,10 @@ struct Launcher: View {
                     if startsInWorktree { hint("⌥↩", "Main Checkout") }
                     if isCodexEnabled { hint("⌥⇧↩", "Codex") }
                     hint("↑↓", "Folder")
-                    hint("⇥", "Pull Requests")
                 } else if issue != nil {
                     let openable = linked.count { $0.opening.isOpenable }
                     if openable > 0 { hint("↩", "Open \(openable) Pull Request\(openable == 1 ? "" : "s")") }
-                    hint("⇥", "Folders")
+                    hint("⌥↩", "Open on GitHub")
                 } else if mode == .pullRequests {
                     let opening = pullRequest.map { store.opening(of: PullRequestLink(repository: $0.repository, number: $0.number)) }
                     let label = if case let .session(session)? = opening {
@@ -207,7 +240,12 @@ struct Launcher: View {
                     }
                     hint("↩", label)
                     hint("⌥↩", "Open on GitHub")
-                    hint("⇥", "Folders")
+                } else if mode == .issues {
+                    if let issueRow {
+                        hint("↩", issueRow.openPullRequestCount == 0 ? "Start" : "Open PRs")
+                        hint("⌥↩", "GitHub")
+                    }
+                    hint("↑↓", "Issue")
                 } else if mode == .palette {
                     hint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
                     hint("↑↓", "Select")
@@ -215,9 +253,15 @@ struct Launcher: View {
                     hint("↩", "Open")
                     hint("↑↓", "Session")
                 }
+                if let nextScope { hint("⇥", nextScope.title) }
                 Spacer()
-                if mode == .pullRequests, ranked.older > 0 {
-                    Text("^[\(ranked.older) older pull request](inflect: true): type to search")
+                if ranked.older > 0 {
+                    Text("^[\(ranked.older) older pull request](inflect: true) · Type to search")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if issues.older > 0 {
+                    Text("^[\(issues.older) older issue](inflect: true) · Type to search")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -237,11 +281,12 @@ struct Launcher: View {
         .padding(.horizontal, 24)
         .onExitCommand { store.launcherMode = nil }
         .onAppear {
-            query = store.launcherQuery
             store.launcherQuery = ""
             isQueryFocused = true
             if mode == .search { store.updateSearchIndex() }
             if mode == .pullRequests { store.refreshInbox() }
+            if mode == .issues { store.refreshIssueInbox() }
+            if mode == .pullRequests || mode == .issues { store.refreshLocalClones() }
             guard mode == .newSession else { return }
 
             let known = store.knownFolders
@@ -258,18 +303,22 @@ struct Launcher: View {
             await search()
         }
         .task(id: issue) {
-            guard let issue, Snapshot.output == nil else { return }
+            guard let issue else { return }
 
             issueLookup = nil
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled else { return }
+            issueOpenFailures = []
+            guard let result = await lookup(issue), !Task.isCancelled, issueReference == issue else { return }
 
-            let result = await Task.detached { PullRequestStatus.linkedPullRequests(issue: issue) }.value
-            guard !Task.isCancelled, issueReference == issue else { return }
+            let linked = try? result.get()
+            if let selectedIssue, let linked {
+                let needsCheckout = linked.isEmpty ? store.localCheckout(of: selectedIssue.repository) == nil : linked.contains { !store.opening(of: $0.link).isOpenable }
+                if needsCheckout { await store.waitForLocalClones() }
+                guard !Task.isCancelled, issueReference == issue else { return }
+            }
 
             issueLookup = (issue, result)
+            if selectedIssue != nil, let linked { openIssueResult(linked) }
         }
-        .onChange(of: issue) { issueOpenFailures = [] }
         .onChange(of: store.searchIndexVersion) { Task { await search() } }
         .onChange(of: store.launcherRole) { highlighted = 0 }
         .fileImporter(isPresented: $isBrowsing, allowedContentTypes: [.folder]) { result in
@@ -294,7 +343,7 @@ struct Launcher: View {
         .padding(8)
     }
 
-    private func results(_ rows: [PaletteRow], pullRequests: [InboxPullRequest], issue: IssueReference?, linked: [(pullRequest: LinkedPullRequest, opening: PullRequestOpening)]) -> some View {
+    private func results(_ rows: [PaletteRow], pullRequests: [InboxPullRequest], issues: [InboxIssue], issue: IssueReference?, linked: [(pullRequest: LinkedPullRequest, opening: PullRequestOpening)]) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
@@ -317,6 +366,19 @@ struct Launcher: View {
                         }
                         if pullRequests.isEmpty {
                             Text(store.inbox == nil ? store.isInboxLoading ? "Loading pull requests…" : "Couldn’t list pull requests with the GitHub CLI (gh)" : query.allSatisfy(\.isWhitespace) ? "No open pull requests need you" : "No matching pull requests")
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                        }
+                    } else if mode == .issues {
+                        ForEach(Array(issues.enumerated()), id: \.element.id) { index, issue in
+                            Button { selectedIssue = issue } label: {
+                                issueRow(issue, isHighlighted: index == highlighted)
+                            }
+                            .buttonStyle(.plain)
+                            .id(index)
+                        }
+                        if issues.isEmpty {
+                            Text(store.issueInbox == nil ? store.isIssueInboxLoading ? "Loading issues…" : "Couldn’t list issues with the GitHub CLI (gh)" : query.allSatisfy(\.isWhitespace) ? "No recent open issues" : "No matching issues")
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, minHeight: 48)
                         }
@@ -366,11 +428,13 @@ struct Launcher: View {
             .buttonStyle(.plain)
             .disabled(!row.opening.isOpenable)
         }
-        if linked.isEmpty {
+        if linked.isEmpty, let selectedIssue, case .success? = issueResult, store.localCheckout(of: selectedIssue.repository) == nil {
+            checkoutNotice(repository: selectedIssue.repository, url: selectedIssue.url)
+        } else if linked.isEmpty {
             let message = switch issueResult {
             case .none: "Looking up linked pull requests…"
             case let .failure(error): error.message
-            case .success: "No open linked pull requests"
+            case .success: selectedIssue == nil ? "No open linked pull requests" : "Couldn’t start session"
             }
             Text(message)
                 .foregroundStyle(.secondary)
@@ -454,6 +518,41 @@ struct Launcher: View {
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
         .contentShape(.rect)
+    }
+
+    private func issueRow(_ issue: InboxIssue, isHighlighted: Bool) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(issue.title)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Text("\(issue.repository) #\(issue.number)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(issue.openPullRequestCount == 0 ? "Start Issue Session" : issue.openPullRequestCount == 1 ? "1 PR" : "\(issue.openPullRequestCount) PRs")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .background(theme.foreground.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 8))
+        .contentShape(.rect)
+    }
+
+    private func checkoutNotice(repository: String, url: URL) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "folder.badge.questionmark")
+                .foregroundStyle(.secondary)
+            Text("No local checkout of \(repository)")
+            Spacer(minLength: 8)
+            Button("Open on GitHub") { openOnGitHub(url) }
+        }
+        .font(.callout)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     private func linkedPullRequestRow(_ pullRequest: LinkedPullRequest, opening: PullRequestOpening) -> some View {
@@ -600,11 +699,15 @@ struct Launcher: View {
 
     private func submit() {
         if issueReference != nil {
-            if let linked = try? issueResult?.get() { openLinkedPullRequests(linked) }
+            if let linked = try? issueResult?.get() { openIssueResult(linked) }
+            return
+        }
+        if mode == .issues {
+            selectedIssue = highlightedIssue
             return
         }
         if mode == .pullRequests {
-            let pullRequests = PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now).pullRequests
+            let pullRequests = rankedPullRequests.pullRequests
             if pullRequests.indices.contains(highlighted) { open(pullRequests[highlighted]) }
             return
         }
@@ -693,12 +796,39 @@ struct Launcher: View {
         store.launcherMode = nil
     }
 
-    private func openOnGitHub(_ pullRequest: InboxPullRequest) {
+    private func lookup(_ issue: IssueReference) async -> Result<[LinkedPullRequest], IssuePullRequests.LookupError>? {
+        #if DEBUG
+        if Snapshot.output != nil { return Snapshot.linkedPullRequests(for: issue) }
+        #endif
+        try? await Task.sleep(for: .milliseconds(200))
+        guard !Task.isCancelled else { return nil }
+
+        return await Task.detached { PullRequestStatus.linkedPullRequests(issue: issue) }.value
+    }
+
+    private func openIssueResult(_ linked: [LinkedPullRequest]) {
+        if linked.isEmpty, let selectedIssue {
+            startIssueSession(selectedIssue)
+        } else {
+            openLinkedPullRequests(linked)
+        }
+    }
+
+    private func startIssueSession(_ issue: InboxIssue) {
+        guard let folder = store.localCheckout(of: issue.repository),
+              store.openSession(cwd: folder, checkout: .worktree, pasting: "Work on issue #\(issue.number) (\(issue.url.absoluteString)).") != nil
+        else { return }
+
+        store.isHarborShown = false
+        store.launcherMode = nil
+    }
+
+    private func openOnGitHub(_ url: URL) {
         store.launcherMode = nil
         #if DEBUG
-        if Snapshot.launcherKeys != nil { return store.probeOpenedURLs.append(pullRequest.url) }
+        if Snapshot.launcherKeys != nil { return store.probeOpenedURLs.append(url) }
         #endif
-        openURL(pullRequest.url)
+        openURL(url)
     }
 
     private func startCodex(in path: String) {

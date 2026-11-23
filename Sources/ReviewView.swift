@@ -1369,7 +1369,7 @@ private struct ReviewChangeRow: View {
         #if DEBUG
         if UserDefaults.standard.string(forKey: "snapshotReviewHoverRow") == file.path { return true }
         #endif
-        return isHovering || model.selectedDocument?.path == file.path
+        return isHovering
     }
 
     var body: some View {

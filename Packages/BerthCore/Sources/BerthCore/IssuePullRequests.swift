@@ -5,6 +5,10 @@ public struct IssueReference: Sendable, Hashable {
     public let name: String
     public let number: Int
 
+    public var repository: String { "\(owner)/\(name)" }
+
+    public var url: URL { URL(string: "https://github.com/\(repository)/issues/\(number)")! }
+
     public static func parse(_ query: String) -> Self? {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let match = query.wholeMatch(of: /(?i:https:\/\/github\.com\/)([A-Za-z0-9-]+)\/([A-Za-z0-9._-]+)\/issues\/([0-9]+)/)
@@ -40,25 +44,81 @@ public enum IssuePullRequests {
         }
     }
 
+    static func timelineFields(first: Int, pullRequestDetails: String = "") -> String {
+        let pullRequest = "__typename ... on PullRequest { number state repository { nameWithOwner } \(pullRequestDetails) }"
+        return """
+        timelineItems(itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT], first: \(first)) {
+          nodes {
+            __typename
+            ... on CrossReferencedEvent { source { \(pullRequest) } }
+            ... on ConnectedEvent { subject { \(pullRequest) } }
+          }
+        }
+        """
+    }
+
     public static func arguments(issue: IssueReference) -> [String] {
-        let pullRequest = "__typename ... on PullRequest { number title url state isDraft headRefName repository { nameWithOwner } }"
+        let timeline = timelineFields(first: 100, pullRequestDetails: "title url isDraft headRefName")
         let query = """
         query($owner: String!, $name: String!, $number: Int!) {
           repository(owner: $owner, name: $name) {
             issueOrPullRequest(number: $number) { __typename }
-            issue(number: $number) {
-              timelineItems(itemTypes: [CROSS_REFERENCED_EVENT, CONNECTED_EVENT], first: 100) {
-                nodes {
-                  __typename
-                  ... on CrossReferencedEvent { source { \(pullRequest) } }
-                  ... on ConnectedEvent { subject { \(pullRequest) } }
-                }
-              }
-            }
+            issue(number: $number) { \(timeline) }
           }
         }
         """
         return ["api", "graphql", "-f", "query=\(query)", "--hostname", "github.com", "-f", "owner=\(issue.owner)", "-f", "name=\(issue.name)", "-F", "number=\(issue.number)"]
+    }
+
+    struct Timeline: Decodable {
+        let nodes: [Event?]
+
+        var subjects: [Subject] {
+            nodes.compactMap { event in
+                switch event?.type {
+                case "CrossReferencedEvent": event?.source
+                case "ConnectedEvent": event?.subject
+                default: nil
+                }
+            }
+        }
+    }
+
+    struct Event: Decodable {
+        enum CodingKeys: String, CodingKey {
+            case type = "__typename"
+            case source, subject
+        }
+
+        let type: String
+        let source: Subject?
+        let subject: Subject?
+    }
+
+    struct Subject: Decodable {
+        enum CodingKeys: String, CodingKey {
+            case type = "__typename"
+            case number, title, url, state, isDraft, headRefName, repository
+        }
+
+        struct RepositoryName: Decodable {
+            let nameWithOwner: String
+        }
+
+        let type: String
+        let number: Int?
+        let title: String?
+        let url: URL?
+        let state: String?
+        let isDraft: Bool?
+        let headRefName: String?
+        let repository: RepositoryName?
+
+        var openLink: PullRequestLink? {
+            guard type == "PullRequest", state == "OPEN", let number, let repository else { return nil }
+
+            return PullRequestLink(repository: repository.nameWithOwner, number: number)
+        }
     }
 
     private struct Response: Decodable {
@@ -73,41 +133,6 @@ public enum IssuePullRequests {
 
         struct Issue: Decodable {
             let timelineItems: Timeline
-        }
-
-        struct Timeline: Decodable {
-            let nodes: [Event?]
-        }
-
-        struct Event: Decodable {
-            enum CodingKeys: String, CodingKey {
-                case type = "__typename"
-                case source, subject
-            }
-
-            let type: String
-            let source: Subject?
-            let subject: Subject?
-        }
-
-        struct Subject: Decodable {
-            enum CodingKeys: String, CodingKey {
-                case type = "__typename"
-                case number, title, url, state, isDraft, headRefName, repository
-            }
-
-            struct RepositoryName: Decodable {
-                let nameWithOwner: String
-            }
-
-            let type: String
-            let number: Int?
-            let title: String?
-            let url: URL?
-            let state: String?
-            let isDraft: Bool?
-            let headRefName: String?
-            let repository: RepositoryName?
         }
 
         struct QueryError: Decodable {
@@ -129,19 +154,13 @@ public enum IssuePullRequests {
         guard let issue = repository?.issue else { return .failure(.issueNotFound) }
 
         var seen: Set<PullRequestLink> = []
-        let pullRequests = issue.timelineItems.nodes.compactMap { event -> LinkedPullRequest? in
-            let subject: Response.Subject? = switch event?.type {
-            case "CrossReferencedEvent": event?.source
-            case "ConnectedEvent": event?.subject
-            default: nil
-            }
-            guard let subject, subject.type == "PullRequest", subject.state == "OPEN",
-                  let number = subject.number, let title = subject.title, let url = subject.url,
-                  let isDraft = subject.isDraft, let headRefName = subject.headRefName, let repository = subject.repository?.nameWithOwner,
-                  seen.insert(PullRequestLink(repository: repository.lowercased(), number: number)).inserted
+        let pullRequests = issue.timelineItems.subjects.compactMap { subject -> LinkedPullRequest? in
+            guard let link = subject.openLink, let title = subject.title, let url = subject.url,
+                  let isDraft = subject.isDraft, let headRefName = subject.headRefName,
+                  seen.insert(PullRequestLink(repository: link.repository.lowercased(), number: link.number)).inserted
             else { return nil }
 
-            return LinkedPullRequest(link: PullRequestLink(repository: repository, number: number), title: title, url: url, isDraft: isDraft, headRefName: headRefName)
+            return LinkedPullRequest(link: link, title: title, url: url, isDraft: isDraft, headRefName: headRefName)
         }
         return .success(pullRequests)
     }
