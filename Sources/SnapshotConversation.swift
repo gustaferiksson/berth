@@ -303,6 +303,29 @@ extension Snapshot {
         log()
     }
 
+    private static func textViews(in view: NSView) -> [ConversationNSTextView] {
+        (view as? ConversationNSTextView).map { [$0] } ?? view.subviews.flatMap { textViews(in: $0) }
+    }
+
+    private static func selectAcrossBlocks(window: NSWindow, save: (String) -> Void) async {
+        guard let content = window.contentView,
+              let view = textViews(in: content).first(where: { $0.string.contains("Fixed.") })
+        else { return print("select: no reply view found") }
+
+        let text = view.string as NSString
+        let start = text.range(of: "machine's time zone").location
+        let end = text.range(of: "UTC").upperBound
+        window.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: start, length: end - start))
+        try? await Task.sleep(for: .milliseconds(500))
+        save(".selection.png")
+        let pasteboard = NSPasteboard.withUniqueName()
+        let written = view.writeSelection(to: pasteboard, types: view.writablePasteboardTypes)
+        print("select: wrote \(written), range \(view.selectedRange())")
+        print("select: uses TextKit 2 \(view.textLayoutManager != nil), pasteboard types \(pasteboard.types?.map(\.rawValue) ?? [])")
+        print("select: copied \(pasteboard.string(forType: .string)?.debugDescription ?? "nothing")")
+    }
+
     static func captureConversation(store: Store, window: NSWindow, output: URL) async {
         window.setContentSize(NSSize(width: 1100, height: UserDefaults.standard.double(forKey: "snapshotConversationHeight") > 0 ? UserDefaults.standard.double(forKey: "snapshotConversationHeight") : 900))
         let save = { (suffix: String) in
@@ -373,6 +396,11 @@ extension Snapshot {
             try? await Task.sleep(for: .seconds(1))
         }
         save(".conversation.png")
+        if UserDefaults.standard.bool(forKey: "snapshotConversationSelect") {
+            await selectAcrossBlocks(window: window, save: save)
+            ProcessAncestry.hangUpDescendants()
+            exit(0)
+        }
         if let script = UserDefaults.standard.string(forKey: "snapshotConversationDrive") {
             await driveConversation(script, store: store, tab: tab, rawLog: rawLog, save: save)
             ProcessAncestry.hangUpDescendants()

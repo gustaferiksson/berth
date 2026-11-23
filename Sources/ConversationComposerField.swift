@@ -37,7 +37,7 @@ struct ConversationComposerField: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.documentView = textView
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.scrollerStyle = .overlay
         scrollView.autohidesScrollers = true
         return scrollView
@@ -80,7 +80,9 @@ struct ConversationComposerField: NSViewRepresentable {
         layout.ensureLayout(for: layout.documentRange)
         let used = layout.usageBoundsForTextContainer.height
         let inset = textView.textContainerInset.height * 2
-        return CGSize(width: width, height: min(max(used, lineHeight), lineHeight * Self.maxLines) + inset)
+        let maxHeight = lineHeight * Self.maxLines
+        nsView.hasVerticalScroller = used > maxHeight
+        return CGSize(width: width, height: min(max(used, lineHeight), maxHeight) + inset)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {

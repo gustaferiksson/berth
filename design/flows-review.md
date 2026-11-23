@@ -59,6 +59,23 @@ This is the slim first version; the rest is listed under Later.
   colours, file name, +/- counts. Each row opens its own compare. Nothing changed: "No
   uncommitted changes on <branch>" on the default branch or without a base, else "No changes,
   <branch> matches <base>".
+- Edited by Session, below Committed (collapse id `sessionFiles`, count, follows the Changes tree
+  or flat toggle, home-relative paths with `~`): the files the session wrote through Edit, Write,
+  MultiEdit or NotebookEdit (`TranscriptEdits.existingFiles`, from the local transcript only,
+  Claude sessions only, subagent lines skipped) that exist and that no loaded Uncommitted or
+  Committed list shows (own repository and every edited or task repository, by resolved absolute
+  path). It covers non-git folders, git-ignored files and files in repositories with nothing
+  to diff. A file that no longer exists is dropped, not dimmed: it can't be opened. In a session
+  whose folder isn't a git repository the panel shows this section instead of "No Git
+  Repository". It is hidden while a task's single repository tab is picked. The transcript scan
+  is incremental (`Store.refreshEditedRepositories` keeps the byte offset per session and parses
+  only lines that mention a tool use of those tools), so `Store.editedFiles` follows every
+  transcript change. A row opens the file read-only as plain content through the same
+  `ReviewModel.open` and diff pane, in a per-session `ReviewModel` (`ReviewModel()`,
+  `isSessionFiles`, key `Store.sessionFilesRoot`) whose paths are absolute minus the leading
+  slash. There is no diff against HEAD: an unlisted file in a repository has none by
+  construction (ignored, or equal to HEAD or the base). No comments or edits there; Remote is
+  unchanged.
 - Files: the repository as an outline (`ReviewFileTree`, folders first), changed files in their
   status colour (Uncommitted first). A file row opens its Uncommitted compare when it has one,
   else the plain file. Folders only expand. The list highlights the current tab's row: its

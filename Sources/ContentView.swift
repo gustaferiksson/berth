@@ -17,6 +17,7 @@ struct ContentView: View {
     @AppStorage(GeneralSettings.conversationKey) private var isConversationEnabled = false
     @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
     @AppStorage(GeneralSettings.terminalBelowKey) private var isTerminalBelow = false
+    @AppStorage(WindowBackdrop.transparencyKey) private var windowTransparency = 0.0
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
     @Environment(\.openWindow) private var openWindow
@@ -44,7 +45,7 @@ struct ContentView: View {
         } detail: {
             TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel, isTerminalBelow: isTerminalBelow)
                 .background { SplitWidthSettled(isActive: showsPanel, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
-                .padding(EdgeInsets(top: 0, leading: 8, bottom: store.selectedConversationIsVisible ? 0 : 8, trailing: 8))
+                .padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
                 .overlay {
                     if let mode = store.launcherMode {
                         ZStack(alignment: .top) {
@@ -71,7 +72,7 @@ struct ContentView: View {
                 }
                 .animation(.default, value: store.preparingPullRequests)
                 .animation(.default, value: store.updater.pendingRestart?.deadline)
-                .background(store.theme.chrome ?? .clear)
+                .background { Color.clear.glassEffect(.regular, in: .rect).ignoresSafeArea() }
                 .background {
                     if let selected, !store.isHarborShown {
                         TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
@@ -123,17 +124,20 @@ struct ContentView: View {
                     .toolbar { ChangesToolbar(store: store, isReviewEnabled: isReviewEnabled) }
             }
         }
-        .containerBackground(store.theme.chrome ?? .clear, for: .window)
+        .containerBackground(for: .window) { WindowBackdrop(chrome: store.theme.chrome, transparency: windowTransparency) }
         .environment(\.ghosttyTheme, store.theme)
         .preferredColorScheme(store.theme.isDark ? .dark : .light)
-        .background(WindowChrome(color: store.theme.chrome))
+        .background(WindowChrome(color: store.theme.chrome, transparency: windowTransparency))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             store.isAppActive = true
             store.refreshPullRequests()
             store.refreshInbox()
             store.refreshIssueInbox()
             store.refreshLocalClones()
-            Task { await store.refreshPlanUsage() }
+            Task {
+                await store.refreshPlanUsage()
+                await store.refreshCodexUsage()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
         .task(id: "\(selected?.sessionID ?? "")\n\(selected?.cwd ?? "")\(isReviewEnabled)") {
@@ -482,8 +486,41 @@ private struct ScrollPocketSeparatorRemover: NSViewRepresentable {
     }
 }
 
+struct WindowBackdrop: View {
+    static let transparencyKey = "windowTransparency"
+    static let maxTransparency = 0.8
+
+    let chrome: Color?
+    let transparency: Double
+
+    var body: some View {
+        if transparency > 0 {
+            ZStack {
+                BehindWindowBlur()
+                (chrome ?? Color(nsColor: .windowBackgroundColor)).opacity(1 - min(transparency, Self.maxTransparency))
+            }
+        } else {
+            chrome ?? .clear
+        }
+    }
+}
+
+private struct BehindWindowBlur: NSViewRepresentable {
+    func makeNSView(context _: Context) -> NSView {
+        // swiftlint:disable:next hand_rolled_material
+        let view = NSVisualEffectView()
+        view.material = .underWindowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_: NSView, context _: Context) {}
+}
+
 struct WindowChrome: NSViewRepresentable {
     let color: Color?
+    var transparency = 0.0
 
     func makeNSView(context _: Context) -> NSView { NSView() }
 
@@ -492,7 +529,8 @@ struct WindowChrome: NSViewRepresentable {
             guard let window = view.window else { return }
 
             window.titlebarAppearsTransparent = color != nil
-            window.backgroundColor = color.map(NSColor.init) ?? .windowBackgroundColor
+            window.isOpaque = transparency == 0
+            window.backgroundColor = transparency > 0 ? .clear : color.map(NSColor.init) ?? .windowBackgroundColor
         }
     }
 }

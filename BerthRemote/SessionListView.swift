@@ -289,7 +289,7 @@ private struct PullRequestTag: View {
 
         HStack(spacing: 3) {
             Image(systemName: icon)
-            Text("#\(String(pullRequest.number))")
+            Text(verbatim: "#\(pullRequest.number)")
                 .monospaced()
             if let checks = pullRequest.checks {
                 Image(systemName: ChecksStyle.symbol(checks))

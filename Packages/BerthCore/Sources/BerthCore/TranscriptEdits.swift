@@ -9,6 +9,8 @@ public struct TranscriptEdits: Sendable {
 
     public private(set) var end = 0
     public private(set) var repositories: [String: String] = [:]
+    public private(set) var files: [String] = []
+    private var seenFiles: Set<String> = []
     private var directories: [String: (identity: String, folder: String)?] = [:]
 
     public init() {}
@@ -27,6 +29,11 @@ public struct TranscriptEdits: Sendable {
             end += consumed
             buffer = Data(buffer.dropFirst(consumed))
         }
+    }
+
+    public var existingFiles: [String] {
+        var seen: Set<String> = []
+        return files.map { URL(filePath: $0).resolvingSymlinksInPath().path }.filter { FileManager.default.fileExists(atPath: $0) && seen.insert($0).inserted }
     }
 
     mutating func apply(_ data: Data) -> Int {
@@ -53,6 +60,8 @@ public struct TranscriptEdits: Sendable {
             return start
         }
         for path in paths where path.hasPrefix("/") {
+            if seenFiles.insert(path).inserted { files.append(path) }
+
             let directory = (path as NSString).deletingLastPathComponent
             let found = directories[directory] ?? RepositoryRoot.worktree(containing: directory)
             directories[directory] = .some(found)
