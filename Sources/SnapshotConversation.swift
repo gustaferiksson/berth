@@ -159,6 +159,8 @@ extension Snapshot {
             result("t5", (1...60).map { "\($0)\tline \($0)" }.joined(separator: "\n"), 1, [:]),
             assistant(15, [use("t6", "Edit", ["file_path": file, "old_string": "struct Row {\n    let date: Date\n    let amount: Decimal\n}", "new_string": "struct Row {\n    let date: Date\n    let amount: Decimal\n    let planName: String\n}"])]),
             result("t6", "The file \(file) has been updated.", 1, [:]),
+            assistant(2, [use("t6b", "Edit", ["file_path": file, "old_string": "let rate = 1", "new_string": "let rate = 2"])]),
+            result("t6b", "The file \(file) has been updated.", 1, [:]),
             assistant(6, [text("Column added. Starting the migration check and the docs review now."), use("t7", "Bash", ["command": "swift test --filter MigrationTests --parallel", "description": "Run the migration check in the background", "run_in_background": true])]),
             result("t7", "Command running in background with ID: bg-migration. Output is being written to: /private/tmp/bg-migration.output", 1, ["toolUseResult": ["backgroundTaskId": "bg-migration"]]),
             assistant(3, [use("t8", "Agent", ["description": "Review the docs for the export column", "subagent_type": "general-purpose", "prompt": "Read docs/columns.md and list what must change for the plan name column.", "run_in_background": true])]),
