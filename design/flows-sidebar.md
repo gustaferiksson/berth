@@ -18,7 +18,7 @@ Batches loop over the single-row actions: Pin in sidebar order, the rest with th
 
 ## Glass (see docs/adr/0005)
 
-Glass: the session sidebar column and the Review panel (both positions) show the system glass: `glassSidebarTint` in `ContentView` only hides the list background, so the untinted system glass shows (the window behind is `GhosttyTheme.chrome`, the theme background mixed toward black, 40% dark, 5% light, then 3% toward white to match the glass sidebars); `ScrollPocketSeparatorRemover` only clears the separator, never the edge effect; the terminal and diff stay opaque. `GlassCapsule` (`ReviewView.swift`) is the one 24 pt glass capsule (the tab pill's height, 22 pt buttons) for grouped icon buttons (the diff strip's back/forward, change arrows, layout/Save, the Changes tab's tree/Refresh).
+The session sidebar column and the Review panel show untinted system glass in both positions. `glassSidebarTint` in `ContentView` hides the list background. The window behind it uses `GhosttyTheme.chrome`, the theme background mixed toward black (40% dark, 5% light), then 3% toward white. `ScrollPocketSeparatorRemover` clears the separator and preserves the edge effect. The detail column draws glass only when Window Background is set to Glass. That layer extends under the toolbar and scales past the window edges to clip the rim offscreen. `GlassCapsule` (`ReviewView.swift`) is the one 24 pt glass capsule (the tab pill's height, 22 pt buttons) for grouped icon buttons (the diff strip's back/forward, change arrows, layout/Save, the Changes tab's tree/Refresh).
 
 The sidebar's footer is a bottom inset: `UsageBar` above the filter field (Settings > Sidebar `showsSessionUsageDivisions` divides the 5-hour bar into hours and `showsWeeklyUsageDivisions` divides a window of two days or more into days, both off by default), both glass in one `GlassEffectContainer` with 10 pt padding on every side; the field is 28 pt (NSSearchField's large size) with a magnifying glass. Reminders-style smart tiles (Needs You, Working, Unread, Flagged: tinted symbol circle and count, a 2x2 grid) top the sidebar and set the status filter; a second click clears it. The status filter (`Store.sidebarStatus`: All, Working, Needs You, Unread, Flagged, Background Shell, one entry per status dot; in memory, All at launch) counts non-archived sessions, keeps a task's matching members, shows terminals only under All, combines with the text filter in `Store.sidebarLayout` and is cleared with it by Esc (`-snapshotSidebarStatus <status>`).
 
@@ -50,6 +50,8 @@ Working indicators are three dots (`WorkingDots`), each a `TimelineView` steppin
 
 Compacting isn't shown: the session file stays `busy`, and libghostty-spm's viewport text read is public only on `InMemoryTerminalSession`. Per-row repeating symbol effects cost ~13% CPU (Debug). A native-tabs experiment lives on branch `native-tabs`.
 
+A live, idle PR watch shows an eye and **Watching #N** (or **Watching PR** while the number is unknown) in the session row and hover card. The row shows Claude’s usual working or needs-input state during a turn or approval. **Stop Watching** in the session menu submits `/ship stop` in its running Berth tab with the regular prompt safety checks. Active watches are kept loaded by the idle-unload timer.
+
 ## Harbor
 
 Harbor (View ▸ Harbor, palette; `Store.isHarborShown`) replaces the terminal area: one pier per group with live or open sessions (Pinned first, at most 6 piers; per pier at most what fits before the open water, then "+N"), one side-view boat per session; working boats bob with a wake in the working colour, needs-you boats bob more under a flag in the needs-you colour, idle ones sit still, live sessions locked elsewhere are dimmed, and sessions finished in the last hour (not live, no tab) lie at anchor, faded, in the open water.
@@ -60,4 +62,6 @@ The render-server animations measured 0.4% (Debug, over 10 s), against 0.4% for 
 
 ## One seamless background
 
-One seamless background: `WindowChrome` (an NSViewRepresentable) makes the title bar transparent and sets the window background to `GhosttyTheme.chrome` (the terminal card keeps the theme background); SwiftUI's toolbar background modifiers alone left the title bar a shade off (#28282a vs #282c34).
+`WindowChrome` (an `NSViewRepresentable`) makes the title bar transparent and sets the window background to `GhosttyTheme.chrome` at zero transparency. SwiftUI's toolbar background modifiers alone left the title bar a shade off (#28282a vs #282c34).
+
+Window Background in Settings > Terminal sets the fill behind the cards. Theme (default) uses the chrome colour at zero transparency and reveals the window backdrop when transparency is raised. Glass opts into the oversized system glass layer described above. Darker uses the cards' theme background colour at full opacity and fades to `1 - windowTransparency` when transparency is raised. Window Transparency continues to affect the backdrop behind the sidebars in every mode. The terminal, conversation and diff cards stay opaque.

@@ -208,21 +208,30 @@ private struct PromptBubble: View {
         let uploads = PendingPrompts.uploadPath
         let files = attachments?.filter { $0.thumbnail == nil }.map(\.name) ?? entry.text.matches(of: uploads).map { String($0.output.1) }
         let images = attachments?.compactMap(\.thumbnail) ?? entry.images ?? []
+        let numbers = attachments == nil ? entry.imageNumbers ?? Array(1...max(images.count, 1)) : Array(1...max(images.count, 1))
         let text = (attachments == nil ? entry.text.replacing(uploads, with: "") : entry.text).trimmingCharacters(in: .whitespacesAndNewlines)
-        let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 5, topTrailingRadius: 20, style: .continuous)
-        let dashed = StrokeStyle(lineWidth: 1, dash: [4, 3])
+        let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 4, topTrailingRadius: 20, style: .continuous)
 
         return VStack(alignment: .trailing, spacing: 6) {
             if !images.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
+                        let number = numbers[index]
                         if let image = UIImage(data: data), image.size.height > 0 {
                             Image(uiImage: image)
                                 .resizable()
                                 .scaledToFill()
                                 .frame(width: min(200, 120 * image.size.width / image.size.height), height: 120)
                                 .clipShape(.rect(cornerRadius: 14))
-                                .accessibilityLabel("Image \(index + 1)")
+                                .overlay(alignment: .bottomLeading) {
+                                    Text(verbatim: "#\(number)")
+                                        .font(.caption2.weight(.bold))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color(.systemBackground).opacity(0.85), in: .capsule)
+                                        .padding(4)
+                                }
+                                .accessibilityLabel("Image \(number)")
                         }
                     }
                 }
@@ -233,29 +242,17 @@ private struct PromptBubble: View {
                     .lineLimit(1)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background {
-                        if isQueued {
-                            bubble.strokeBorder(.secondary, style: dashed)
-                        } else {
-                            RoundedRectangle(cornerRadius: 14).fill(.fill.tertiary)
-                        }
-                    }
+                    .background { RoundedRectangle(cornerRadius: 14).fill(.fill.tertiary) }
             }
             if !text.isEmpty {
                 Text(verbatim: text)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background {
-                        if isQueued {
-                            bubble.strokeBorder(.secondary, style: dashed)
-                        } else {
-                            bubble.fill(.fill.tertiary)
-                        }
-                    }
+                    .background { bubble.fill(.fill.tertiary) }
                     .textSelection(.enabled)
             }
         }
-        .foregroundStyle(isQueued ? .secondary : .primary)
+        .opacity(isQueued ? 0.6 : 1)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.85 }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }

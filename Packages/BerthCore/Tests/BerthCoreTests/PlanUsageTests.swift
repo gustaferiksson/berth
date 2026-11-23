@@ -53,7 +53,7 @@ struct PlanUsageTests {
 
     @Test func skipsWindowsWithMissingData() {
         let json = """
-        {"five_hour": {"utilization": 10}, "seven_day": {"resets_at": "2027-01-18T00:00:00Z"},
+        {"five_hour": "soon", "seven_day": {"resets_at": "2027-01-18T00:00:00Z"},
          "seven_day_sonnet": {"utilization": 250, "resets_at": "not a date"}}
         """
         #expect(PlanUsage.parse(Data(json.utf8)) == nil)
@@ -61,11 +61,28 @@ struct PlanUsageTests {
         #expect(PlanUsage.parse(Data("nope".utf8)) == nil)
     }
 
-    @Test func clampsUsageAndDropsWindowsThatReset() throws {
+    @Test func aWindowWithoutResetTimeIsFreshAtZero() throws {
+        let json = """
+        {"five_hour": {"utilization": null, "resets_at": null},
+         "seven_day": {"utilization": 18, "resets_at": "2027-01-18T00:00:00Z"}, "seven_day_opus": null}
+        """
+        let usage = try #require(PlanUsage.parse(Data(json.utf8)))
+        let now = try #require(ISO8601DateFormatter().date(from: "2027-01-15T08:00:00Z"))
+        #expect(usage.current(at: now).map(\.id) == ["five_hour", "seven_day"])
+        #expect(usage.current(at: now)[0].usedPercent == 0)
+        #expect(usage.current(at: now)[0].summary(at: now) == "Resets when you next use Claude · 0% used")
+        #expect(usage.current(at: now)[1].usedPercent == 18)
+    }
+
+    @Test func aWindowPastItsResetShowsFreshInsteadOfVanishing() throws {
         let json = #"{"five_hour": {"utilization": 130, "resets_at": "2027-01-15T08:00:00Z"}}"#
         let usage = try #require(PlanUsage.parse(Data(json.utf8)))
         #expect(usage.windows[0].used == 1)
+        let before = try #require(ISO8601DateFormatter().date(from: "2027-01-15T07:59:59Z"))
         let after = try #require(ISO8601DateFormatter().date(from: "2027-01-15T08:00:01Z"))
-        #expect(usage.current(at: after).isEmpty)
+        #expect(usage.current(at: before)[0].usedPercent == 100)
+        #expect(usage.current(at: after).map(\.usedPercent) == [0])
+        #expect(usage.current(at: after)[0].resetsAt == nil)
+        #expect(usage.current(at: after)[0].severity(at: after) == .normal)
     }
 }

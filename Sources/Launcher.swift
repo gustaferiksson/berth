@@ -4,6 +4,22 @@ import GhosttyTerminal
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct StewardPullRequestButton: View {
+    static let title = "Steward with Claude"
+    let link: PullRequestLink
+    let url: URL
+
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        let opening = store.opening(of: link, prompt: .steward)
+        Button(Self.title, systemImage: "eye") {
+            if store.openPullRequest(link, url: url, opening: opening, prompt: .steward) { store.launcherMode = nil }
+        }
+        .disabled(!opening.isOpenable)
+    }
+}
+
 enum LauncherMode {
     case newSession, search, palette, pullRequests, issues
 }
@@ -33,7 +49,6 @@ struct Launcher: View {
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
-    @AppStorage(GeneralSettings.codexKey) private var isCodexEnabled = false
     @State private var query: String
     @State private var highlighted = 0
     @State private var folders: [Folder] = []
@@ -146,9 +161,9 @@ struct Launcher: View {
                         guard mode == .newSession, matches.indices.contains(highlighted) else { return .ignored }
 
                         if press.modifiers.contains(.shift) {
-                            guard isCodexEnabled else { return .ignored }
+                            guard let other = Store.otherAgent else { return .ignored }
 
-                            startCodex(in: matches[highlighted].path)
+                            start(other, in: matches[highlighted].path)
                             return .handled
                         }
                         start(in: matches[highlighted].path, checkout: .main)
@@ -207,6 +222,17 @@ struct Launcher: View {
             } else {
                 results(rows, pullRequests: ranked, issues: issues, issue: issue, linked: linked)
             }
+            #if DEBUG
+            if Snapshot.showsPullRequestActions, let pullRequest {
+                Divider()
+                StewardPullRequestButton(link: PullRequestLink(repository: pullRequest.repository, number: pullRequest.number), url: pullRequest.url)
+                    .labelStyle(.titleAndIcon)
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
+            #endif
             if let pullRequest, missingCheckout == pullRequest {
                 Divider()
                 checkoutNotice(repository: pullRequest.repository, url: pullRequest.url)
@@ -214,9 +240,11 @@ struct Launcher: View {
             Divider()
             HStack(spacing: 8) {
                 if mode == .newSession {
-                    LauncherKeyHint("↩", target.map { "Start in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start")
+                    let other = Store.otherAgent
+                    let agent = other == nil ? "" : " \(Store.defaultAgent.name)"
+                    LauncherKeyHint("↩", target.map { "Start\(agent) in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start\(agent)")
                     if startsInWorktree { LauncherKeyHint("⌥↩", "Main Checkout") }
-                    if isCodexEnabled { LauncherKeyHint("⌥⇧↩", "Codex") }
+                    if let other { LauncherKeyHint("⌥⇧↩", other.name) }
                     LauncherKeyHint("↑↓", "Folder")
                 } else if issue != nil {
                     let openable = linked.count { $0.opening.isOpenable }
@@ -356,6 +384,9 @@ struct Launcher: View {
                             pullRequestRow(pullRequest, isHighlighted: index == highlighted)
                                 .id(index)
                                 .onTapGesture { open(pullRequest) }
+                                .contextMenu {
+                                    StewardPullRequestButton(link: PullRequestLink(repository: pullRequest.repository, number: pullRequest.number), url: pullRequest.url)
+                                }
                         }
                         if pullRequests.isEmpty {
                             if store.inbox == nil {
@@ -451,6 +482,9 @@ struct Launcher: View {
             }
             .buttonStyle(.plain)
             .disabled(!row.opening.isOpenable)
+            .contextMenu {
+                StewardPullRequestButton(link: row.pullRequest.link, url: row.pullRequest.url)
+            }
         }
         if linked.isEmpty, let selectedIssue, case .success? = issueResult, store.localCheckout(of: selectedIssue.repository) == nil {
             checkoutNotice(repository: selectedIssue.repository, url: selectedIssue.url)
@@ -821,8 +855,8 @@ struct Launcher: View {
         openURL(url)
     }
 
-    private func startCodex(in path: String) {
-        store.openSession(.codex, cwd: path)
+    private func start(_ agent: Agent, in path: String) {
+        store.openSession(agent, cwd: path)
         store.launcherMode = nil
     }
 

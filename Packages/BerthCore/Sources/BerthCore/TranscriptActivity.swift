@@ -6,6 +6,7 @@ public struct TranscriptActivity: Sendable {
         let title: String
         let started: Date
         var deadline: Date?
+        var branch: String?
         var command: String?
         var agentType: String?
         var output: String?
@@ -17,7 +18,7 @@ public struct TranscriptActivity: Sendable {
         let date: Date
     }
 
-    static let tools = ["Agent", "Task", "Bash", "Monitor", "SendMessage", "TaskStop"]
+    static let tools = ["Agent", "Task", "Bash", "Monitor", "SendMessage", "TaskStop", "CronCreate", "CronDelete"]
     static let agentTools: Set<String> = ["Agent", "Task"]
     static let toolNames = tools.map { Array(#""name":"\#($0)""#.utf8) }
     static let resultKey = Array(#""tool_use_id":""#.utf8)
@@ -41,13 +42,21 @@ public struct TranscriptActivity: Sendable {
     var effort: String?
     public private(set) var permissionMode: String?
 
-    public init() {}
+    var commandWatch: PullRequestWatch?
+    var watchEndedAt = Date.distantPast
+    var watchBranch: String?
+    var watchWorktree: String?
+    private let watchOnly: Bool
+
+    public init(watchOnly: Bool = false) {
+        self.watchOnly = watchOnly
+    }
 
     public mutating func read(_ url: URL) {
         guard let handle = try? FileHandle(forReadingFrom: url), let size = try? handle.seekToEnd() else { return }
 
         defer { try? handle.close() }
-        if Int(size) < end { self = Self() }
+        if Int(size) < end { self = Self(watchOnly: watchOnly) }
         guard (try? handle.seek(toOffset: UInt64(end))) != nil else { return }
 
         var buffer = Data()
@@ -65,10 +74,11 @@ public struct TranscriptActivity: Sendable {
         let background = running.filter { id, launch in
             launch.started >= startedAt
                 && launch.deadline.map { now < $0 } ?? true
+                && launch.tendPrompt == nil
                 && !(launch.tool == "Bash" && status == "idle")
                 && !(Self.agentTools.contains(launch.tool) && isFinished(id))
         }
-        let foreground = ["busy", "waiting"].contains(status) ? pending.filter { Self.agentTools.contains($0.value.tool) && $0.value.started >= startedAt } : [:]
+        let foreground = ["busy", "waiting"].contains(status) ? pending.filter { Self.agentTools.contains($0.value.tool) && $0.value.tendPrompt == nil && $0.value.started >= startedAt } : [:]
         return background.merging(foreground) { first, _ in first }
             .map { id, launch in
                 RemoteTask(id: id, kind: Self.agentTools.contains(launch.tool) ? RemoteTask.agent : launch.tool == "Bash" ? RemoteTask.shell : RemoteTask.monitor, title: launch.title, started: launch.started, command: launch.command, agentType: launch.agentType, toolCount: progress[id]?.toolCount, tokens: progress[id]?.tokens, call: progress[id]?.calls.last)
@@ -119,32 +129,40 @@ public struct TranscriptActivity: Sendable {
                 let line = UnsafeRawBufferPointer(rebasing: buffer[start..<base.distance(to: newline)])
                 start = base.distance(to: newline) + 1
                 let find = { (pattern: [UInt8]) in memmem(line.baseAddress, line.count, pattern, pattern.count) }
-                if line.starts(with: Self.permissionModePrefix) {
+                if line.starts(with: Self.requestPrefix) {
+                    if !watchOnly, Self.mainThreadSources.contains(where: { find($0) != nil }), let found = find(Self.requestEffort) {
+                        effort = Self.level(at: UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + Self.requestEffort.count)...]))
+                    }
+                    continue
+                }
+                let watches = Self.watchMarkers.contains { find($0) != nil } || watchBranch.map { branch in
+                    guard let value = find(Self.branchKey) else { return false }
+
+                    let offset = line.baseAddress!.distance(to: value) + Self.branchKey.count
+                    return !line[offset...].starts(with: (branch + "\"").utf8)
+                } ?? false
+                let resultID = find(Self.resultKey).map { found in
+                    String(decoding: UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + Self.resultKey.count)...]).prefix { $0 != UInt8(ascii: "\"") }, as: UTF8.self)
+                }
+                let resolvesLaunch = resultID.map { pending[$0] != nil } ?? false
+                guard !watchOnly || watches || resolvesLaunch else { continue }
+
+                if !watchOnly, line.starts(with: Self.permissionModePrefix) {
                     if let found = find(Self.permissionModeKey) {
                         let value = UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + Self.permissionModeKey.count)...])
                         permissionMode = String(decoding: value.prefix { $0 != UInt8(ascii: "\"") }, as: UTF8.self)
                     }
                     continue
                 }
-                if line.starts(with: Self.requestPrefix) {
-                    if Self.mainThreadSources.contains(where: { find($0) != nil }), let found = find(Self.requestEffort) {
-                        effort = Self.level(at: UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + Self.requestEffort.count)...]))
-                    }
-                    continue
-                }
-                if let found = find(SessionPicker.effortConfirmation) {
+                if !watchOnly, let found = find(SessionPicker.effortConfirmation) {
                     effort = Self.level(at: UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + SessionPicker.effortConfirmation.count)...])) ?? effort
                     continue
                 }
-                let resultID = find(Self.resultKey).map { found in
-                    String(decoding: UnsafeRawBufferPointer(rebasing: line[(line.baseAddress!.distance(to: found) + Self.resultKey.count)...]).prefix { $0 != UInt8(ascii: "\"") }, as: UTF8.self)
-                }
-                let isReply = find(Array(#""type":"assistant""#.utf8)) != nil && find(Array(#""isSidechain":true"#.utf8)) == nil && find(Array(#""model":"<synthetic>""#.utf8)) == nil
+                let isReply = !watchOnly && find(Array(#""type":"assistant""#.utf8)) != nil && find(Array(#""isSidechain":true"#.utf8)) == nil && find(Array(#""model":"<synthetic>""#.utf8)) == nil
                 if isReply { replies.append(Data(line)) }
-                guard isReply && find(Array(#""type":"tool_use""#.utf8)) != nil && Self.toolNames.contains(where: { find($0) != nil })
+                guard watches || isReply && find(Array(#""type":"tool_use""#.utf8)) != nil && Self.toolNames.contains(where: { find($0) != nil })
                     || find(Array(#""compact_boundary""#.utf8)) != nil
-                    || find(Array("<task-notification>".utf8)) != nil
-                    || resultID.map({ pending[$0] != nil }) ?? false
+                    || resolvesLaunch
                     || resultID?.hasPrefix("repl_") == true && Self.virtualLaunchKeys.contains(where: { find($0) != nil }),
                     let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                     object["isSidechain"] as? Bool != true,
@@ -158,6 +176,7 @@ public struct TranscriptActivity: Sendable {
                     lastCompaction = date
                     reply?.tokens = nil
                 }
+                if watches { updateWatch(object, at: date) }
                 launch(object, at: date)
                 resolve(object, at: date)
                 endNotified(object, at: date)
@@ -197,8 +216,11 @@ public struct TranscriptActivity: Sendable {
             guard let id = block["id"] as? String, let tool = block["name"] as? String, Self.tools.contains(tool) else { continue }
 
             let input = block["input"] as? [String: Any] ?? [:]
-            let title = ["description", "summary", "command"].lazy.compactMap { input[$0] as? String }.first ?? tool
-            pending[id] = Launch(tool: tool, title: title, started: date, command: input["command"] as? String, agentType: input["subagent_type"] as? String)
+            let prompt = tool == "CronCreate" ? input["prompt"] as? String : nil
+            let title = ["description", "summary", "command"].lazy.compactMap { input[$0] as? String }.first ?? prompt ?? tool
+            let command = input["command"] as? String ?? prompt ?? (tool == "CronDelete" ? input["id"] as? String : nil)
+            let launch = Launch(tool: tool, title: title, started: date, branch: object["gitBranch"] as? String, command: command, agentType: input["subagent_type"] as? String)
+            if !watchOnly || launch.tendPrompt != nil || ["TaskStop", "CronDelete"].contains(tool) { pending[id] = launch }
         }
     }
 
@@ -214,6 +236,11 @@ public struct TranscriptActivity: Sendable {
 
             if launch.tool == "TaskStop", let task = result["task_id"] as? String {
                 end(task, at: date)
+            } else if launch.tool == "CronDelete", let task = launch.command {
+                end(task, at: date)
+            } else if launch.tool == "CronCreate", launch.tendPrompt != nil {
+                let task = result["id"] as? String ?? result["jobId"] as? String ?? result["taskId"] as? String ?? id
+                start(task, launch)
             } else if Self.agentTools.contains(launch.tool), result["isAsync"] as? Bool == true, let agent = result["agentId"] as? String {
                 agentTitles[agent] = launch.title
                 agentTypes[agent] = launch.agentType
@@ -227,7 +254,7 @@ public struct TranscriptActivity: Sendable {
                 start(task, started)
             } else if launch.tool == "Monitor", let task = result["taskId"] as? String {
                 let timeout = result["persistent"] as? Bool == true ? nil : result["timeoutMs"] as? Double
-                start(task, Launch(tool: launch.tool, title: launch.title, started: launch.started, deadline: timeout.map { launch.started + $0 / 1000 }, command: launch.command))
+                start(task, Launch(tool: launch.tool, title: launch.title, started: launch.started, deadline: timeout.map { launch.started + $0 / 1000 }, branch: launch.branch, command: launch.command))
             }
         }
     }
@@ -235,7 +262,10 @@ public struct TranscriptActivity: Sendable {
     static func replLaunch(id: String, result: [String: Any], at date: Date) -> Launch? {
         guard id.hasPrefix("repl_") else { return nil }
 
-        let title = result["description"] as? String
+        let prompt = result["prompt"] as? String ?? result["command"] as? String
+        let title = result["description"] as? String ?? result["title"] as? String
+        let cron = Launch(tool: "CronCreate", title: title ?? "Scheduled task", started: date, command: prompt)
+        if cron.tendPrompt != nil { return cron }
         if result["isAsync"] as? Bool == true, result["agentId"] != nil {
             return Launch(tool: "Agent", title: title ?? "Agent", started: date, agentType: result["subagent_type"] as? String)
         }
@@ -266,15 +296,33 @@ public struct TranscriptActivity: Sendable {
         let text = carried as? String ?? (carried as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
 
         for notification in text.components(separatedBy: "<task-notification>").dropFirst() {
+            if let terminal = notification.firstMatch(of: /(?i)(?:PR|pull request)\s+#?([0-9]+)\s+(?:was |has been |is )?(?:merged|closed)\b/),
+               let number = Int(terminal.1), commandWatch?.number == number
+               || running.values.contains(where: { $0.tendPrompt.map { Self.watch(argument: $0.dropFirst(2).first, at: date).number == number } == true }) {
+                stopWatch(at: date)
+            }
             guard notification.contains("<status>") || notification.contains(/<event>\s*\[Monitor (expired|timed out)/) else { continue }
 
-            for match in notification.matches(of: /<task-id>([^<]*)<\/task-id>/) { end(String(match.1), at: date) }
+            for match in notification.matches(of: /<task-id>([^<]*)<\/task-id>/) {
+                let id = String(match.1)
+                if running[id]?.tendPrompt != nil,
+                   !notification.contains(/<status>\s*(?:completed|stopped|failed|killed|cancelled|canceled|expired)\s*<\/status>/),
+                   !notification.contains(/<event>\s*\[Monitor (expired|timed out)/) { continue }
+
+                end(id, at: date)
+            }
         }
     }
 
     mutating func start(_ id: String, _ launch: Launch) {
-        guard ended[id].map({ $0 < launch.started }) ?? true else { return }
+        let reusesID = Self.agentTools.contains(launch.tool)
+        guard ended[id].map({ reusesID && $0 < launch.started }) ?? true else { return }
 
+        if ["CronCreate", "Monitor"].contains(launch.tool), launch.tendPrompt != nil {
+            guard launch.started >= watchEndedAt else { return }
+
+            watchBranch = launch.branch ?? watchBranch
+        }
         running[id] = launch
     }
 
@@ -283,5 +331,11 @@ public struct TranscriptActivity: Sendable {
         guard let launch = running[id], launch.started <= date else { return }
 
         running[id] = nil
+        if ["CronCreate", "Monitor"].contains(launch.tool), launch.tendPrompt != nil,
+           !running.values.contains(where: { $0.tendPrompt != nil }), commandWatch.map({ $0.since <= launch.started }) == true {
+            commandWatch = nil
+            watchEndedAt = max(watchEndedAt, date)
+        }
+        if commandWatch == nil, !running.values.contains(where: { $0.tendPrompt != nil }) { watchBranch = nil }
     }
 }

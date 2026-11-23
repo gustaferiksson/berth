@@ -12,6 +12,10 @@ enum ConversationHighlighting {
         return try? AttributedString(colored, including: \.appKit)
     }
 
+    static func highlighted(_ text: String, language: String?, theme: GhosttyTheme) async -> NSAttributedString? {
+        await colored(text, language: language, style: style(theme))
+    }
+
     static func diffLines(_ rows: [(old: Bool, new: Bool, text: String)], language: String?, theme: GhosttyTheme) async -> [AttributedString] {
         let style = style(theme)
         var result = rows.map { AttributedString($0.text) }

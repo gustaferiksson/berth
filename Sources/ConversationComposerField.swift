@@ -6,6 +6,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let placeholder: String
     let font: NSFont
     let color: NSColor
+    let promptColor: NSColor?
     let focusRequest: Int
     let submit: () -> Void
     let attach: ([URL]) -> String
@@ -37,7 +38,7 @@ struct ConversationComposerField: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.documentView = textView
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.scrollerStyle = .overlay
         scrollView.autohidesScrollers = true
         return scrollView
@@ -64,6 +65,9 @@ struct ConversationComposerField: NSViewRepresentable {
             textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
             textView.needsDisplay = true
         }
+        if let promptColor, text.hasPrefix("!") {
+            textView.textStorage?.addAttribute(.foregroundColor, value: promptColor, range: NSRange(location: 0, length: 1))
+        }
         guard focusRequest != context.coordinator.focusRequest else { return }
 
         context.coordinator.focusRequest = focusRequest
@@ -80,7 +84,9 @@ struct ConversationComposerField: NSViewRepresentable {
         layout.ensureLayout(for: layout.documentRange)
         let used = layout.usageBoundsForTextContainer.height
         let inset = textView.textContainerInset.height * 2
-        return CGSize(width: width, height: min(max(used, lineHeight), lineHeight * Self.maxLines) + inset)
+        let maxHeight = lineHeight * Self.maxLines
+        nsView.hasVerticalScroller = used > maxHeight
+        return CGSize(width: width, height: min(max(used, lineHeight), maxHeight) + inset)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {

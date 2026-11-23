@@ -1,7 +1,7 @@
 import Foundation
 
 public enum ControlOp: String, Codable, Sendable {
-    case list = "ls", open, openSession = "open-session", send, capture, close, wait
+    case list = "ls", open, openSession = "open-session", openPath = "open-path", send, capture, close, wait
 }
 
 public struct ControlRequest: Codable, Equatable, Sendable {
@@ -10,18 +10,20 @@ public struct ControlRequest: Codable, Equatable, Sendable {
     public var operation: ControlOp
     public var tab: String?
     public var cwd: String?
+    public var path: String?
     public var command: String?
     public var text: String?
     public var enter: Bool?
     public var background: Bool?
     public var timeout: Double?
 
-    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil) {
+    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil) {
         self.token = token
         self.caller = caller
         self.operation = operation
         self.tab = tab
         self.cwd = cwd
+        self.path = path
         self.command = command
         self.text = text
         self.enter = enter

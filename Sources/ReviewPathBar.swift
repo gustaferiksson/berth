@@ -25,10 +25,14 @@ struct ReviewPathBar: View {
     private func bar(_ folders: [(name: String, children: [ReviewFileTree])]) -> some View {
         let name = (document.path as NSString).lastPathComponent
         return HStack(spacing: 4) {
-            segment((RepositoryRoot.checkout(model.changes?.root ?? model.folder) as NSString).lastPathComponent, children: model.tree)
-            ForEach(Array(folders.enumerated()), id: \.offset) { _, folder in
-                chevron
-                segment(folder.name, children: folder.children)
+            if model.isSessionFiles {
+                Text(sessionFolder)
+            } else {
+                segment((RepositoryRoot.checkout(model.changes?.root ?? model.folder) as NSString).lastPathComponent, children: model.tree)
+                ForEach(Array(folders.enumerated()), id: \.offset) { _, folder in
+                    chevron
+                    segment(folder.name, children: folder.children)
+                }
             }
             chevron
             segment(name, children: children(of: (document.path as NSString).deletingLastPathComponent), icon: NSImage(size: NSSize(width: 13, height: 13), flipped: false) { NSWorkspace.shared.icon(for: UTType(filenameExtension: (name as NSString).pathExtension) ?? .data).draw(in: $0); return true })
@@ -42,6 +46,11 @@ struct ReviewPathBar: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .clipped()
+    }
+
+    private var sessionFolder: String {
+        let folder = "/" + (document.path as NSString).deletingLastPathComponent
+        return folder.hasPrefix(Store.resolvedHome + "/") ? "~" + folder.dropFirst(Store.resolvedHome.count) : folder
     }
 
     private var chevron: some View {

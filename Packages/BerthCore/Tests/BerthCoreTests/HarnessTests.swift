@@ -28,7 +28,9 @@ struct HarnessTests {
 
     @Test func launchCommandsComeFromTheDescriptor() {
         let options = LaunchOptions(model: "fixture-model", effort: "high")
-        #expect(Harness.claude.command(.resume, options) == ClaudeLaunch.command(.resume))
+        #expect(Harness.claude.command(.resume, options) == ClaudeLaunch.command(.resume, options))
+        #expect(Harness.claude.command(.resume, options).contains(" --model fixture-model --effort high "))
+        #expect(!Harness.claude.command(.attach, options).contains("--model"))
         #expect(Harness.claude.command(.newInWorktree, LaunchOptions()).contains(" -w "))
         #expect(Harness.codex.command(.resume, options) == CodexLaunch.command(.resume, options))
         #expect(Harness.codex.command(.attach, options) == Harness.codex.command(.resume, options))
