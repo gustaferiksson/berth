@@ -101,6 +101,13 @@ struct ControlTests {
         #expect(throws: ControlCommand.UsageError.self) { try parse(["open-session", "--cwd", "--background"]) }
         #expect(throws: ControlCommand.UsageError.self) { try parse(["open-session", "hello"]) }
 
+        let show = try parse(["open", "../notes/plan folder", "--background", "--json"])
+        #expect(show.request == ControlRequest(token: "tok", caller: "me", operation: .openPath, path: "/work/notes/plan folder", background: true))
+        #expect(show.json)
+        #expect(throws: ControlCommand.UsageError.self) { try parse(["open"]) }
+        #expect(throws: ControlCommand.UsageError.self) { try parse(["open", "a", "b"]) }
+        #expect(throws: ControlCommand.UsageError.self) { try parse(["open", "--cwd", "/x", "a"]) }
+
         let send = try parse(["send", "ab12", "hello", "world", "--no-enter"]).request
         #expect(send.tab == "ab12" && send.text == "hello world" && send.enter == false)
         #expect(try parse(["wait", "ab12", "--timeout", "30"]).request.timeout == 30)
@@ -121,6 +128,69 @@ struct ControlTests {
     @Test func usageAndSkillDescribeOpeningSessions() {
         #expect(ControlCommand.usage.contains("berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]"))
         #expect(ControlInstall.skill.contains(#"berth open-session --cwd <worktree> --background -- "<prompt>""#))
+    }
+
+    @Test func openPathRequestReachesTheHandler() throws {
+        let directory = try Self.shortDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        let path = ControlEnvironment.socketPath(directory: directory)
+        let server = ControlServer(path: path, token: "secret") { request in
+            ControlResponse(tab: request.operation == .openPath ? "abcd1234" : nil, text: request.path)
+        }
+        try server.start()
+        defer { server.stop() }
+
+        let response = try ControlClient.send(ControlRequest(token: "secret", caller: "me", operation: .openPath, path: "/work/app"), socketPath: path)
+
+        #expect(response == ControlResponse(tab: "abcd1234", text: "/work/app"))
+        #expect(ControlCommand.usage.contains("berth open <path> [--background] [--json]"))
+        #expect(ControlInstall.skill.contains("berth open <path>"))
+    }
+
+    @Test func refreshUpdatesAnInstalledSkillAndHookButInstallsNothing() throws {
+        let directory = try Self.shortDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        let skillFile = URL(filePath: directory + "/skills/berth/SKILL.md")
+        let settingsFile = URL(filePath: directory + "/settings.json")
+
+        try ControlInstall.refreshInstalled(skillFile: skillFile, settingsFile: settingsFile)
+        #expect(!FileManager.default.fileExists(atPath: skillFile.path))
+        #expect(!FileManager.default.fileExists(atPath: settingsFile.path))
+
+        let oldHook = #"[ -z "$BERTH_TAB_ID" ] || printf 'old hint'"#
+        let hooks: [[String: String]] = [["type": "command", "command": "echo hi"], ["type": "command", "command": oldHook]]
+        let settings = try JSONSerialization.data(withJSONObject: ["model": "opus", "hooks": ["SessionStart": [["hooks": hooks]]]], options: .sortedKeys)
+        try FileManager.default.createDirectory(at: skillFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("---\nname: berth\n---\nuses BERTH_TAB_ID, old text".utf8).write(to: skillFile)
+        try settings.write(to: settingsFile)
+
+        try ControlInstall.refreshInstalled(skillFile: skillFile, settingsFile: settingsFile)
+
+        #expect(try String(contentsOf: skillFile, encoding: .utf8) == ControlInstall.skill)
+        let refreshed = try Data(contentsOf: settingsFile)
+        #expect(ControlInstall.hasHook(in: refreshed))
+        #expect(String(decoding: refreshed, as: UTF8.self).contains("echo hi"))
+        #expect(try Data(contentsOf: settingsFile.appendingPathExtension("berth-backup")) == settings)
+
+        try ControlInstall.refreshInstalled(skillFile: skillFile, settingsFile: settingsFile)
+        #expect(try Data(contentsOf: settingsFile) == refreshed)
+    }
+
+    @Test func refreshLeavesFilesBerthDidNotInstall() throws {
+        let directory = try Self.shortDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        let skillFile = URL(filePath: directory + "/SKILL.md")
+        let settingsFile = URL(filePath: directory + "/settings.json")
+        try Data("---\nname: mine\n---\nmy own skill".utf8).write(to: skillFile)
+        try Data(#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}"#.utf8).write(to: settingsFile)
+
+        try ControlInstall.refreshInstalled(skillFile: skillFile, settingsFile: settingsFile)
+
+        #expect(try String(contentsOf: skillFile, encoding: .utf8) == "---\nname: mine\n---\nmy own skill")
+        #expect(!FileManager.default.fileExists(atPath: settingsFile.appendingPathExtension("berth-backup").path))
     }
 
     @Test func exitStatusIsRecordedBeforeTheTabEnds() throws {
