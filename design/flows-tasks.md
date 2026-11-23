@@ -232,7 +232,8 @@ Built (slice 1b, review part). Decided from the mock: card `fold`, repos `stack`
 
 - Done sessions stay members and count toward forming. Done rows show in Done, not in the task;
   a task with no unarchived member is hidden (a local one shows "No sessions"). Unarchiving returns it.
-- Archiving a task: not in the first slice; archive its sessions.
+- Mark Task as Done (task row menu, E on a selected task row) archives every unarchived member through `Store.archive` (so live members' tabs close, as for a single session; there is no undo for archive, so it is not one step). If any member is working, a confirmation dialog says "2 sessions are still working". Mark Task as Not Done (task row menu when a member is done, and the Done row menu) unarchives the members. The palette acts on the current session and Remote lists no tasks, so neither has a task action.
+- A task with one listed member is not an expandable group: the sidebar shows that session's normal row with the issue tag (`SidebarFilter`, `SessionItem`). Its menu is the session menu (Mark as Done is the task action too). The stored expansion state stays keyed by task id, so a second member brings the group back as it was left. `-snapshotSoleTask YES` shows this form.
 - Folder deleted, session unlistable: as in groups; the id is pruned from the task on the next scan.
 - Session in two tasks: impossible; the first named issue wins and the other task keeps no ghost
   row in the first slice (open question).

@@ -171,7 +171,7 @@ It also runs `open-session --cwd <dir> --background -- "hello"` with the system 
 
 `-snapshotTasksReview YES` builds scratch repos under `.build/tasks-review` (`-snapshotTasksReviewSession`, default `task-usage-api`, the only one that forms the task card; `-snapshotReviewRepoTab <repo name|all>`, `-snapshotTasksReviewDefaults "key=value|…"` flips argument-domain keys mid-run and saves a shot per step, `-snapshotTasksReviewCollapse "billing|web|infra"` collapses those repo sections, `-snapshotTasksReviewTransition YES` drops a repo while its tab is selected, `-snapshotLinkedPullRequests YES` gives fixture sessions linked PRs in two repos).
 
-`-snapshotTasks YES` seeds eight fixture sessions across acme/billing, acme/web and acme/infra and prints the formed tasks, stored state, suggestions and entries.
+`-snapshotTasks YES` seeds eight fixture sessions across acme/billing, acme/web and acme/infra and prints the formed tasks, stored state, suggestions and entries; `-snapshotSoleTask YES` marks one member of the second task as done so it shows as a single session row.
 
 ## Flags described in feature docs
 
