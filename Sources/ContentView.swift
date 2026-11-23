@@ -147,6 +147,7 @@ struct ContentView: View {
             store.refreshPullRequests()
             store.refreshInbox()
             store.refreshIssueInbox()
+            store.projects.refresh()
             store.refreshLocalClones()
             Task {
                 await store.refreshPlanUsage()
