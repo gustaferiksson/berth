@@ -105,7 +105,7 @@ private struct ModeSegment: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        Picker("View", selection: Binding(get: { store.selectedShowsConversation }, set: store.setConversation)) {
+        Picker("View", selection: Binding(get: { store.selectedConversationIsVisible }, set: store.setConversation)) {
             Label(AppAction.showTerminal.title, systemImage: AppAction.showTerminal.symbol).tag(false)
             Label(AppAction.showConversation.title, systemImage: AppAction.showConversation.symbol).tag(true)
         }

@@ -1148,6 +1148,14 @@ final class Store {
         tabs.first { $0.id == selectedTabID }.map(showsConversation) ?? false
     }
 
+    var selectedConversationIsVisible: Bool {
+        !isHarborShown && isConversationEnabled && selectedTabID.flatMap { conversationModels[$0] } != nil
+    }
+
+    var selectedStatusBarIsReachable: Bool {
+        selectedConversationIsVisible && selectedTabID.flatMap { conversationModels[$0]?.openSubagent } == nil
+    }
+
     var canShowConversation: Bool {
         isConversationEnabled && !isHarborShown && tabs.first { $0.id == selectedTabID }.map { $0.kind == .claude && $0.agent.harness.supports(.conversation) } == true
     }
