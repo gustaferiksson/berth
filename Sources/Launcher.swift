@@ -585,7 +585,7 @@ struct Launcher: View {
             } else if tab.kind == .shell {
                 Image(systemName: "terminal")
             } else {
-                Image(tab.agent.harness.asset).renderingMode(.template).resizable()
+                Image(systemName: "bubble.left")
             }
 
             return PaletteRow(

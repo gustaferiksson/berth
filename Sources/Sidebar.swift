@@ -1249,7 +1249,6 @@ private struct SessionRow: View {
             hasBackgroundShell: hasBackgroundShell,
             isUnread: isUnread,
             isFlagged: isFlagged,
-            agent: session.agent,
             context: context,
             issue: issue,
             detail: {
@@ -1314,7 +1313,7 @@ private struct SessionRow: View {
         )
         .help(isLocked ? "Running in another terminal" : "")
         .accessibilityElement(children: .combine)
-        .accessibilityValue(isLocked ? "locked, running in another terminal" : "")
+        .accessibilityValue([session.agent.harness.isOptIn ? session.agent.harness.name : nil, isLocked ? "locked, running in another terminal" : nil].compactMap(\.self).joined(separator: ", "))
         .popover(isPresented: $showsLockedNotice, arrowEdge: .trailing) {
             Text("“\(session.title)” is running in another terminal. Quit it there to open it here, so the transcript isn’t written by two processes.")
                 .font(.callout)
@@ -1540,9 +1539,10 @@ private struct TabRow: View {
     var body: some View {
         let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
         if tab.kind == .claude {
-            CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil, isOpen: true, agent: tab.agent) {
+            CardRow(title: title, state: RowState(live: live), isLocked: false, modified: nil, isOpen: true) {
                 if !density.isCompact { Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(Color.secondary) }
             }
+            .accessibilityValue(tab.agent.harness.isOptIn ? tab.agent.harness.name : "")
         } else {
             CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, modified: nil, isTerminal: true, close: close) {
                 let folder = (tab.folder as NSString).abbreviatingWithTildeInPath
@@ -1572,7 +1572,6 @@ private struct CardRow<Detail: View>: View {
     var isUnread = false
     var isFlagged = false
     var isTerminal = false
-    var agent = Agent.claude
     var context: SessionContext?
     var chevron: String?
     var issue: IssueRef?
@@ -1615,16 +1614,6 @@ private struct CardRow<Detail: View>: View {
                         .foregroundStyle(Color.secondary)
                         .help("Running in another terminal")
                         .accessibilityHidden(true)
-                }
-                if agent.harness.isOptIn {
-                    Image(agent.harness.asset)
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 9, height: 9)
-                        .foregroundStyle(Color.secondary)
-                        .help(agent.harness.name)
-                        .accessibilityLabel(agent.harness.name)
                 }
                 if isFlagged {
                     Image(systemName: "flag.fill")
