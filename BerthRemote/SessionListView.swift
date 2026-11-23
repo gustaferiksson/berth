@@ -223,7 +223,6 @@ private struct SessionSummaryView: View {
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric private var gutterWidth = 14
-    @ScaledMetric(relativeTo: .caption2) private var agentIconSize = 11.0
 
     var body: some View {
         let isProminent = session.status != nil || session.isUnread == true
@@ -267,23 +266,7 @@ private struct SessionSummaryView: View {
                         time
                     }
                 }
-                HStack(spacing: 4) {
-                    Group {
-                        if UIImage(named: agent.asset) != nil {
-                            Image(agent.asset)
-                                .renderingMode(.template)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: agentIconSize, height: agentIconSize)
-                        } else {
-                            Image(systemName: agent.asset)
-                                .font(.caption2)
-                        }
-                    }
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(Text(agent.name))
-                    location
-                }
+                location
                 if let pullRequest = session.pullRequest {
                     PullRequestTag(pullRequest: pullRequest)
                 }
@@ -293,6 +276,7 @@ private struct SessionSummaryView: View {
         .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] + gutterWidth + 4 }
         .opacity(session.isLocked ? 0.55 : 1)
         .accessibilityElement(children: .combine)
+        .accessibilityValue(Text(agent.name))
     }
 }
 
