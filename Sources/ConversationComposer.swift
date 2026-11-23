@@ -25,7 +25,6 @@ struct ConversationComposer: View {
         let isExpanded = !draft.files.isEmpty || draft.text.contains(where: \.isNewline) || width > 0 && (draft.text as NSString).size(withAttributes: [.font: font]).width > singleRowWidth
         let inset = ConversationComposerLayout.inset
         let controlSize = ConversationComposerLayout.controlSize
-        let tint = isShell ? theme.shellAttached : Color.accentColor
         let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
         let placeholder = model.blocksSending ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
 
@@ -90,7 +89,7 @@ struct ConversationComposer: View {
                                     .font(.system(size: 12, weight: .bold))
                                     .foregroundStyle(.white)
                                     .frame(width: controlSize, height: controlSize)
-                                    .background(tint, in: .circle)
+                                    .background(Color.accentColor, in: .circle)
                                     .contentShape(.circle)
                             }
                             .buttonStyle(.plain)
@@ -106,8 +105,8 @@ struct ConversationComposer: View {
                         }
                     }
                 }
-                .overlay { shape.strokeBorder(theme.shellAttached, lineWidth: 1.5).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
-                .glassEffect(isShell ? .regular.tint(theme.shellAttached.opacity(0.12)) : .regular, in: shape)
+                .overlay { shape.strokeBorder(theme.shellAttached.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
+                .glassEffect(.regular, in: shape)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                 .animation(.smooth(duration: 0.2), value: isExpanded)
                 .animation(.smooth(duration: 0.2), value: isShell)
