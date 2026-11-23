@@ -161,9 +161,10 @@ final class ConversationModel {
         defer { isSending = false }
 
         let text = sent.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sentAt = Date.now
         let outcome = await store.submit(sent.text, files: sent.orderedFiles, to: sessionID)
         guard case let .refused(message) = outcome else {
-            if !text.isEmpty { show(pending: text) }
+            if !text.isEmpty { show(pending: text, sentAt: sentAt) }
             return
         }
 
@@ -171,8 +172,8 @@ final class ConversationModel {
         if draft.isEmpty { draft = sent }
     }
 
-    func show(pending text: String) {
-        pending.append(PendingPrompt(text: text, sentAt: .now))
+    func show(pending text: String, sentAt: Date) {
+        pending.append(PendingPrompt(text: text, sentAt: sentAt))
         reconcilePending()
         Task {
             try? await Task.sleep(for: .seconds(PendingPrompts.grace + 1))

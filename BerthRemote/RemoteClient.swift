@@ -247,9 +247,11 @@ final class RemoteClient {
     }
 
     private func sendPrompt(_ text: String, attachments: [Attachment], to sessionID: String, replacing index: Int? = nil) -> Bool {
-        let baseline = PendingPrompts.recordedCount(text: text, attachmentCount: attachments.count, entries: promptEntries(in: sessionID))
+        let entries = promptEntries(in: sessionID)
+        let baseline = PendingPrompts.recordedCount(text: text, attachmentCount: attachments.count, entries: entries)
+        let promptBaseline = entries.count { $0.name != "bash" }
         let date = Date.now
-        let prompt = PendingPrompt(text: text, sentAt: date, attachmentCount: attachments.count, baseline: baseline, isFailed: state != .connected || task == nil)
+        let prompt = PendingPrompt(text: text, sentAt: date, attachmentCount: attachments.count, baseline: baseline, promptBaseline: promptBaseline, isFailed: state != .connected || task == nil)
         pendingAttachments[sessionID, default: [:]][date] = attachments
         if let index {
             pending[sessionID]?[index] = prompt
@@ -294,7 +296,7 @@ final class RemoteClient {
             guard let images = entry.images, !images.isEmpty, entry.text.firstMatch(of: PendingPrompts.imageToken) == nil else { return entry }
 
             let tokens = images.indices.map { "[Image #\($0 + 1)]" }.joined(separator: " ")
-            return RemoteEntry(id: entry.id, kind: .prompt, text: "\(tokens) \(entry.text)")
+            return RemoteEntry(id: entry.id, kind: .prompt, text: "\(tokens) \(entry.text)", name: entry.name, date: entry.date)
         }
     }
 

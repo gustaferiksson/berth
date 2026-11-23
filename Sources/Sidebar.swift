@@ -193,6 +193,7 @@ private struct SidebarList: View, Equatable {
     @State private var renamingTask: SessionTask?
     @State private var taskName = ""
     @State private var deletingTask: SessionTask?
+    @State private var finishingTask: SessionTask?
     @State private var browseRoot: String?
     @FocusState private var isFocused: Bool
 
@@ -375,6 +376,12 @@ private struct SidebarList: View, Equatable {
         } message: { _ in
             Text("Its sessions stay where they are and the task won’t form again from the same issue or pull request. No transcripts are deleted.")
         }
+        .confirmationDialog("Mark “\(finishingTask?.title ?? "")” as Done?", isPresented: Binding(get: { finishingTask != nil }, set: { if !$0 { finishingTask = nil } }), presenting: finishingTask) { task in
+            Button("Mark Task as Done") { store.markTaskDone(task.id) }
+        } message: { task in
+            let working = task.sessions.count { store.liveBySession[$0.id]?.activity == .working }
+            Text("^[\(working) session](inflect: true) \(working == 1 ? "is" : "are") still working. Marking the task as done closes them.")
+        }
         .onKeyPress(.leftArrow) { setExpanded(false, in: groups) }
         .onKeyPress(.rightArrow) { setExpanded(true, in: groups) }
         .onHover { store.isPointerInSidebar = $0 }
@@ -425,6 +432,11 @@ private struct SidebarList: View, Equatable {
     }
 
     private func markDone() -> KeyPress.Result {
+        if store.multiSelection.isEmpty, case let .task(id) = store.sidebarCursor ?? store.selection, let task = store.sessionTasks.first(where: { $0.id == id }) {
+            markDone(task)
+            return .handled
+        }
+
         let selected = store.multiSelection.isEmpty ? [store.sidebarCursor ?? store.selection].compactMap { item -> String? in
             guard case let .session(id) = item else { return nil }
 
@@ -435,6 +447,12 @@ private struct SidebarList: View, Equatable {
 
         for id in done { store.archive(id) }
         return .handled
+    }
+
+    private func markDone(_ task: SessionTask) {
+        guard task.sessions.contains(where: { store.liveBySession[$0.id]?.activity == .working }) else { return store.markTaskDone(task.id) }
+
+        finishingTask = task
     }
 
     private func move(by offset: Int, in items: [SidebarItem]) -> KeyPress.Result {
@@ -566,7 +584,7 @@ private struct SidebarList: View, Equatable {
                         .id(SidebarItem.session(id))
 
                 case let .task(id):
-                    TaskItem(id: id, isExpanded: expansion(of: id), select: select, rename: { renamingTask = $0; taskName = $0.title }, delete: { deletingTask = $0 })
+                    TaskItem(id: id, isExpanded: expansion(of: id), select: select, rename: { renamingTask = $0; taskName = $0.title }, markDone: markDone, delete: { deletingTask = $0 })
                         .id(SidebarItem.task(id))
 
                 case let .member(id):
@@ -800,6 +818,7 @@ private struct SessionItem: View {
                         },
                         morePullRequests: max(pullRequests.count - 1, 0),
                         suggestion: suggestionLabel,
+                        issue: place == .task ? nil : store.sessionTasks.first { $0.sessions.count == 1 && $0.sessions[0].id == id }?.issue,
                         showsLockedNotice: Binding(get: { store.lockedSessionID == id }, set: { if !$0 { store.lockedSessionID = nil } })
                     )
                     .modifier(SessionHoverTrigger(session: session, pullRequests: pullRequests, context: tab != nil || live != nil ? session.context : nil, isNoticeShown: store.lockedSessionID == id, store: store))
@@ -821,6 +840,7 @@ private struct SessionItem: View {
                 } else if place == .archived {
                     if let tab { Button("New Terminal") { store.newTerminal(for: tab.id) } }
                     Button("Mark as Not Done") { store.unarchive(id) }
+                    if store.task(containing: id) != nil { Button("Mark Task as Not Done") { store.markTaskNotDone(containing: id) } }
                     flagButton
                     Divider()
                     CopySessionIDButton(sessionID: id)
@@ -1214,6 +1234,7 @@ private struct SessionRow: View {
     let pullRequest: PullRequest?
     let morePullRequests: Int
     let suggestion: String?
+    let issue: IssueRef?
     @Binding var showsLockedNotice: Bool
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.sidebarDensity) private var density
@@ -1230,6 +1251,7 @@ private struct SessionRow: View {
             isFlagged: isFlagged,
             agent: session.agent,
             context: context,
+            issue: issue,
             detail: {
                 if density.isCompact {
                     HStack(spacing: 6) {
@@ -1308,6 +1330,7 @@ private struct TaskItem: View {
     @Binding var isExpanded: Bool
     let select: (SidebarItem) -> Void
     let rename: (SessionTask) -> Void
+    let markDone: (SessionTask) -> Void
     let delete: (SessionTask) -> Void
     @Environment(Store.self) private var store
 
@@ -1331,6 +1354,10 @@ private struct TaskItem: View {
         .contextMenu {
             if let task {
                 Button("Rename Task…") { rename(task) }
+                Button("Mark Task as Done") { markDone(task) }
+                if let done = task.sessions.first, store.task(containing: done.id)?.sessionIDs.contains(where: { id in store.archivedSessions.contains { $0.id == id } }) == true {
+                    Button("Mark Task as Not Done") { store.markTaskNotDone(containing: done.id) }
+                }
                 Divider()
                 Button("Delete Task…", role: .destructive) { delete(task) }
             }
