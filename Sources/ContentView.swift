@@ -44,7 +44,7 @@ struct ContentView: View {
         } detail: {
             TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel, isTerminalBelow: isTerminalBelow)
                 .background { SplitWidthSettled(isActive: showsPanel, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
-                .padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
+                .padding(EdgeInsets(top: 0, leading: 8, bottom: store.selectedConversationIsVisible ? 0 : 8, trailing: 8))
                 .overlay {
                     if let mode = store.launcherMode {
                         ZStack(alignment: .top) {

@@ -1,29 +1,29 @@
 import AppKit
-import BerthCore
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct ConversationComposer: View {
     let model: ConversationModel
     let harnessName: String
-    let capabilities: Set<Capability>
     let canAttach: Bool
     let isWorking: Bool
     let waiting: (waitingFor: String?, since: Double?)?
-    let context: RemoteContext?
     let focusRequest: Int
 
-    private static let inset = 10.0
-    private static let controlHeight = 24.0
     private static let tileSize = 56.0
 
     @Environment(\.ghosttyTheme) private var theme
     @State private var isImporting = false
-    @State private var showsContext = false
+    @State private var width: CGFloat = 0
 
     var body: some View {
         let draft = model.draft
         let stops = isWorking && draft.isEmpty
+        let font = NSFont.systemFont(ofSize: theme.font.pointSize)
+        let singleRowWidth = ConversationComposerLayout.fieldBounds(in: width, isExpanded: false, canAttach: canAttach).width
+        let isExpanded = !draft.files.isEmpty || draft.text.contains(where: \.isNewline) || width > 0 && (draft.text as NSString).size(withAttributes: [.font: font]).width > singleRowWidth
+        let inset = ConversationComposerLayout.inset
+        let controlSize = ConversationComposerLayout.controlSize
         let placeholder = model.blocksSending ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
 
         GlassEffectContainer(spacing: 8) {
@@ -42,68 +42,40 @@ struct ConversationComposer: View {
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     if !draft.files.isEmpty {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileSize, maximum: Self.tileSize), spacing: Self.inset)], alignment: .leading, spacing: Self.inset) {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileSize, maximum: Self.tileSize), spacing: inset)], alignment: .leading, spacing: inset) {
                             ForEach(draft.files, id: \.self) { file in
-                                ConversationAttachmentTile(file: file, number: draft.numbers[file], size: Self.tileSize, radius: Self.controlHeight / 2) { model.remove(file) }
+                                ConversationAttachmentTile(file: file, number: draft.numbers[file], size: Self.tileSize, radius: controlSize / 2) { model.remove(file) }
                             }
                         }
-                        .padding([.horizontal, .top], Self.inset)
+                        .padding([.horizontal, .top], inset)
                     }
-                    ConversationComposerField(
-                        text: Binding { model.draft.text } set: { model.setText($0) },
-                        placeholder: placeholder,
-                        font: .systemFont(ofSize: theme.font.pointSize),
-                        color: NSColor(theme.foreground),
-                        focusRequest: focusRequest,
-                        submit: send,
-                        attach: { canAttach ? model.attach($0) : "" }
-                    )
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, Self.inset)
-                    HStack(spacing: Self.inset) {
+                    ConversationComposerLayout(isExpanded: isExpanded, canAttach: canAttach) {
                         if canAttach {
                             Menu {
                                 Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
                             } label: {
                                 Image(systemName: "plus")
                                     .font(.system(size: 12, weight: .medium))
-                                    .frame(width: Self.controlHeight, height: Self.controlHeight)
+                                    .frame(width: controlSize, height: controlSize)
                                     .background(.quaternary, in: .circle)
                             }
                             .menuIndicator(.hidden)
                             .buttonStyle(.plain)
                             .accessibilityLabel("Attach")
                             .help("Attach files or images. You can also drop or paste them.")
+                        } else {
+                            Color.clear.frame(width: 0, height: 0)
+                                .accessibilityHidden(true)
                         }
-                        if let context {
-                            if capabilities.contains(.modelEffortMenu) {
-                                modelMenu(context)
-                            } else {
-                                Button { showsContext = true } label: {
-                                    HStack(spacing: 6) {
-                                        Text(modelName(context.model))
-                                        if let effort = context.effort {
-                                            Text(effort.capitalized)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        if let tokens = context.tokens, let window = context.window, window > 0 {
-                                            Text((Double(tokens) / Double(window)).formatted(.wholePercent))
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    .lineLimit(1)
-                                    .font(.callout)
-                                    .padding(.horizontal, 10)
-                                    .frame(height: Self.controlHeight)
-                                    .background(.quaternary, in: .capsule)
-                                }
-                                .buttonStyle(.plain)
-                                .help("Context")
-                                .popover(isPresented: $showsContext, arrowEdge: .top) { contextPopover(context) }
-                            }
-                        }
-                        Spacer(minLength: 0)
+                        ConversationComposerField(
+                            text: Binding { model.draft.text } set: { model.setText($0) },
+                            placeholder: placeholder,
+                            font: font,
+                            color: NSColor(theme.foreground),
+                            focusRequest: focusRequest,
+                            submit: send,
+                            attach: { canAttach ? model.attach($0) : "" }
+                        )
                         if stops || !(draft.isEmpty || model.isSending) {
                             Button {
                                 guard stops else { return send() }
@@ -113,7 +85,7 @@ struct ConversationComposer: View {
                                 Image(systemName: stops ? "stop.fill" : "arrow.up")
                                     .font(.system(size: 12, weight: .bold))
                                     .foregroundStyle(.white)
-                                    .frame(width: Self.controlHeight, height: Self.controlHeight)
+                                    .frame(width: controlSize, height: controlSize)
                                     .background(Color.accentColor, in: .circle)
                                     .contentShape(.circle)
                             }
@@ -124,14 +96,15 @@ struct ConversationComposer: View {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(.tertiary)
-                                .frame(width: Self.controlHeight, height: Self.controlHeight)
+                                .frame(width: controlSize, height: controlSize)
                                 .background(.quaternary, in: .circle)
                                 .accessibilityLabel("Send, unavailable")
                         }
                     }
-                    .padding([.horizontal, .bottom], Self.inset)
                 }
-                .glassEffect(.regular, in: .rect(cornerRadius: Self.controlHeight / 2 + Self.inset))
+                .glassEffect(.regular, in: .rect(cornerRadius: controlSize / 2 + inset))
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+                .animation(.smooth(duration: 0.2), value: isExpanded)
             }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -145,92 +118,41 @@ struct ConversationComposer: View {
             if let waiting { await model.decline(waitingFor: waiting.waitingFor, since: waiting.since) } else { await model.send() }
         }
     }
+}
 
-    private func modelMenu(_ context: RemoteContext) -> some View {
-        let canChange = !isWorking && waiting == nil && !model.isSending
-        let model = model
-        let modelChoice = Binding<ModelChoice?> {
-            model.pickedModel ?? ModelChoice(modelID: context.model)
-        } set: { choice in
-            guard let choice else { return }
+private struct ConversationComposerLayout: Layout {
+    static let inset: CGFloat = 10
+    static let controlSize: CGFloat = 24
+    private static let fieldTop: CGFloat = 14
 
-            Task { await model.choose(.model(choice)) }
-        }
-        let effortChoice = Binding<EffortLevel?> {
-            model.pickedEffort ?? context.effort.flatMap(EffortLevel.init)
-        } set: { level in
-            guard let level else { return }
+    let isExpanded: Bool
+    let canAttach: Bool
 
-            Task { await model.choose(.effort(level)) }
-        }
-        let modelTitle = model.pickedModel.flatMap { $0 == .default ? nil : $0.title } ?? modelName(context.model)
-
-        return Menu {
-            Section("Model") {
-                Picker("Model", selection: modelChoice) {
-                    ForEach(ModelChoice.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-            .disabled(!canChange)
-            Section("Effort") {
-                Picker("Effort", selection: effortChoice) {
-                    ForEach(EffortLevel.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            }
-            .disabled(!canChange || context.effort == nil && model.pickedEffort == nil)
-            Divider()
-            Button("Context", systemImage: "chart.pie") { showsContext = true }
-            Text(canChange ? "Changes apply to this session only" : "Available while \(harnessName) is idle")
-        } label: {
-            Text("\(Text(modelTitle)) \(Text(effortChoice.wrappedValue?.title ?? "").foregroundStyle(.secondary))")
-                .lineLimit(1)
-                .font(.callout)
-                .padding(.horizontal, 10)
-                .frame(height: Self.controlHeight)
-                .background(.quaternary, in: .capsule)
-        }
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
-        .accessibilityLabel("Model and effort")
-        .help("Model, effort and context")
-        .popover(isPresented: $showsContext, arrowEdge: .top) { contextPopover(context) }
+    static func fieldBounds(in width: CGFloat, isExpanded: Bool, canAttach: Bool) -> (leading: CGFloat, width: CGFloat) {
+        let controlInset = controlSize + 2 * inset
+        let leading: CGFloat = isExpanded || !canAttach ? 16 : controlInset
+        let trailing: CGFloat = isExpanded ? 16 : controlInset
+        return (leading, max(0, width - leading - trailing))
     }
 
-    private func contextPopover(_ context: RemoteContext) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(modelName(context.model))
-                .font(.headline)
-            if !capabilities.contains(.modelEffortMenu), let effort = context.effort {
-                Text(effort.capitalized)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            if let tokens = context.tokens, let window = context.window, window > 0 {
-                ProgressView(value: min(Double(tokens) / Double(window), 1))
-                Text("\(tokenCount(tokens)) of \(tokenCount(window)) tokens, \((Double(tokens) / Double(window)).formatted(.wholePercent)) full")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Context size unknown until \(harnessName) replies")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(16)
-        .frame(width: 260, alignment: .leading)
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 400
+        let field = Self.fieldBounds(in: width, isExpanded: isExpanded, canAttach: canAttach)
+        let fieldHeight = subviews[1].sizeThatFits(ProposedViewSize(width: field.width, height: nil)).height
+        let height = isExpanded ? Self.fieldTop + fieldHeight + Self.controlSize : max(fieldHeight, Self.controlSize)
+        return CGSize(width: width, height: height + 2 * Self.inset)
     }
 
-    private func modelName(_ model: String) -> String {
-        guard capabilities.contains(.modelEffortMenu) else { return model }
-
-        let parts = model.split(separator: "-").filter { $0 != "claude" && !($0.count == 8 && Int($0) != nil) }
-        let name = parts.filter { Int($0) == nil }.map(\.capitalized).joined(separator: " ")
-        let version = parts.filter { Int($0) != nil }.joined(separator: ".")
-        return name + (version.isEmpty ? "" : " " + version)
+    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
+        let field = Self.fieldBounds(in: bounds.width, isExpanded: isExpanded, canAttach: canAttach)
+        let controlsTop = isExpanded ? bounds.maxY - Self.inset - Self.controlSize : bounds.midY - Self.controlSize / 2
+        subviews[0].place(at: CGPoint(x: bounds.minX + Self.inset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
+        subviews[1].place(
+            at: CGPoint(x: bounds.minX + field.leading, y: isExpanded ? bounds.minY + Self.fieldTop : bounds.midY),
+            anchor: isExpanded ? .topLeading : .leading,
+            proposal: ProposedViewSize(width: field.width, height: nil)
+        )
+        subviews[2].place(at: CGPoint(x: bounds.maxX - Self.inset, y: controlsTop), anchor: .topTrailing, proposal: .unspecified)
     }
 }
 

@@ -121,10 +121,11 @@ struct ConversationView: View {
             .frame(maxWidth: .infinity)
         }
         .contentMargins(.top, 24, for: .scrollContent)
-        .contentMargins(.bottom, model.tasks.isEmpty ? 24 : 66, for: .scrollContent)
+        .contentMargins(.bottom, model.tasks.isEmpty ? ConversationBottomBar.fadeHeight : 66, for: .scrollContent)
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
-        .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .scrollEdgeEffectHidden(for: .bottom)
         .onScrollGeometryChange(for: ConversationScrollState.self) { geometry in
             ConversationScrollState(height: geometry.contentSize.height, isAtBottom: geometry.visibleRect.maxY >= geometry.contentSize.height + geometry.contentInsets.bottom - 40)
         } action: { old, new in
@@ -514,6 +515,8 @@ private extension PendingApproval {
 }
 
 private struct ConversationBottomBar: View {
+    static let fadeHeight = 28.0
+
     let model: ConversationModel
     let tab: Tab
     let harness: Harness
@@ -534,6 +537,8 @@ private struct ConversationBottomBar: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
+        let surface = theme.background ?? Color(nsColor: .textBackgroundColor)
+
         VStack(spacing: 10) {
             if let approval, approval.isActionable || approval == .loading {
                 ConversationApprovalCard(
@@ -561,8 +566,8 @@ private struct ConversationBottomBar: View {
                 }
             }
             VStack(spacing: 2) {
-                ConversationComposer(model: model, harnessName: harness.name, capabilities: harness.capabilities, canAttach: canAttach, isWorking: isWorking, waiting: denial, context: model.context, focusRequest: composerFocus)
-                SessionStatusBar(model: model, tab: tab, harness: harness, isWorking: isWorking)
+                ConversationComposer(model: model, harnessName: harness.name, canAttach: canAttach, isWorking: isWorking, waiting: denial, focusRequest: composerFocus)
+                SessionStatusBar(model: model, tab: tab, harness: harness, isWorking: isWorking, isWaiting: waiting != nil)
             }
         }
         .frame(maxWidth: 860)
@@ -573,6 +578,16 @@ private struct ConversationBottomBar: View {
                 .alignmentGuide(.top) { $0[.bottom] + 10 }
         }
         .frame(maxWidth: .infinity)
+        .background(alignment: .top) {
+            VStack(spacing: 0) {
+                LinearGradient(colors: [surface.opacity(0), surface], startPoint: .top, endPoint: .bottom)
+                    .frame(height: Self.fadeHeight)
+                surface
+            }
+            .padding(.top, -Self.fadeHeight)
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+        }
         .animation(.smooth, value: isActive)
         .animation(.smooth, value: approval)
     }

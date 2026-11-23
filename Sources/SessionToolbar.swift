@@ -48,7 +48,7 @@ struct SessionToolbar: ToolbarContent {
         if store.showsSessionToolbar, let sessionID = store.selectedSessionID, !store.selectedStatusBarIsReachable {
             ToolbarItem(placement: .primaryAction) { ContextButton(context: store.sessionsByID[sessionID]?.context) }
         }
-        if store.canShowConversation, !store.selectedStatusBarIsReachable {
+        if store.canShowConversation {
             ToolbarItem(placement: .primaryAction) { ConversationButton() }
         }
     }
@@ -76,11 +76,13 @@ private struct ConversationButton: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        Button { AppAction.showConversation.perform(on: store) } label: {
-            Image(systemName: AppAction.showConversation.symbol)
+        let action = store.selectedConversationIsVisible ? AppAction.showTerminal : .showConversation
+
+        Button { action.perform(on: store) } label: {
+            Image(systemName: action.symbol)
         }
-        .accessibilityLabel(AppAction.showConversation.title)
-        .help("\(AppAction.showConversation.title) (⌥⌘J)")
+        .accessibilityLabel(action.title)
+        .help("\(action.title) (⌥⌘J)")
     }
 }
 
