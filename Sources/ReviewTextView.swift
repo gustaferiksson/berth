@@ -26,6 +26,15 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         didSet { if diagnostics != oldValue { placeDiagnostics() } }
     }
 
+    var blame: ReviewBlameSnapshot? {
+        didSet {
+            guard blame?.id != oldValue?.id else { return }
+
+            if hoverBlame != nil { dismissHover() }
+            needsDisplay = true
+        }
+    }
+
     var onHover: ((Int) async -> String?)?
     var onDefinition: ((Int) -> Void)?
     var onReferences: ((Int) -> Void)?
@@ -50,6 +59,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     private var link: PointerTarget?
     private var hoverTarget: PointerTarget?
     private var hoverDiagnostics: [LanguageServerDiagnostic] = []
+    private var hoverBlame: ReviewBlame?
     private var hoverTask: Task<Void, Never>?
     private var hoverCard: NSView?
     private var hoverClickMonitor: Any?
@@ -60,6 +70,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
     private var occurrenceSearch: Task<Void, Never>?
     private lazy var pointerTracking = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect], owner: self)
+    private static let relativeBlameDate = RelativeDateTimeFormatter()
 
     override var layoutManager: NSLayoutManager? {
         layoutManagerRequests += 1
@@ -204,6 +215,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         hoverTask = nil
         hoverTarget = nil
         hoverDiagnostics = []
+        hoverBlame = nil
         hoverClickMonitor.map(NSEvent.removeMonitor)
         hoverClickMonitor = nil
         if let hoverCard, let responder = window?.firstResponder as? NSView, responder.isDescendant(of: hoverCard) { window?.makeFirstResponder(self) }
@@ -212,7 +224,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     }
 
     private func pointerMoved(to point: NSPoint, event: NSEvent) {
-        let target = onHover == nil ? nil : pointerTarget(at: point)
+        let annotation = blameAnnotation(in: NSRect(origin: point, size: NSSize(width: 1, height: 1)))
+        let entry = annotation?.entry
+        let target = onHover == nil || entry != nil ? nil : pointerTarget(at: point)
         let newLink = event.modifierFlags.contains(.command) && onDefinition != nil ? target : nil
         if newLink?.textView !== link?.textView || newLink?.range != link?.range {
             link = newLink
@@ -220,14 +234,14 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             cursorUpdate(with: event)
         }
         let problems = diagnosticSegments.filter { $0.rect.contains(point) }
-        let unchanged = target?.textView === hoverTarget?.textView && target?.range == hoverTarget?.range && problems.map(\.diagnostic) == hoverDiagnostics
+        let unchanged = target?.textView === hoverTarget?.textView && target?.range == hoverTarget?.range && problems.map(\.diagnostic) == hoverDiagnostics && entry == hoverBlame
         if let hoverCard {
             if hoverCard.frame.contains(point) || unchanged {
                 hoverTask?.cancel()
                 hoverTask = nil
                 return
             }
-            if target == nil, problems.isEmpty {
+            if target == nil, problems.isEmpty, entry == nil {
                 if hoverTask == nil {
                     hoverTask = Task { [weak self] in
                         try? await Task.sleep(for: .milliseconds(300))
@@ -244,15 +258,29 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         dismissHover()
         hoverTarget = target
         hoverDiagnostics = problems.map(\.diagnostic)
+        hoverBlame = entry
+        let blameRoot = blame?.root
         let onHover = target?.textView.onHover
         let location = target?.range.location ?? 0
         let diagnostics = hoverDiagnostics
-        guard onHover != nil || !diagnostics.isEmpty, let anchor = target?.segments.first?.rect ?? problems.first?.rect else { return }
+        guard let anchor = annotation?.rect ?? target?.segments.first?.rect ?? problems.first?.rect else { return }
 
         hoverTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
 
+            if let entry, let blameRoot {
+                if entry.isUncommitted {
+                    self?.showHover("You · Not committed yet", diagnostics: [], below: anchor)
+                    return
+                }
+                let message = await ReviewGit.blameMessage(entry.hash, in: blameRoot) ?? entry.summary
+                guard !Task.isCancelled else { return }
+
+                let date = entry.authorTime.formatted(date: .abbreviated, time: .standard)
+                self?.showHover("\(entry.hash)\n\(entry.author)\n\(date)\n\n\(message)", diagnostics: [], below: anchor, parsesCodeFences: false)
+                return
+            }
             let markdown = await onHover?(location)
             guard !Task.isCancelled, markdown != nil || !diagnostics.isEmpty else { return }
 
@@ -292,7 +320,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         return nil
     }
 
-    private func showHover(_ markdown: String?, diagnostics: [LanguageServerDiagnostic], below anchor: NSRect) {
+    private func showHover(_ markdown: String?, diagnostics: [LanguageServerDiagnostic], below anchor: NSRect, parsesCodeFences: Bool = true) {
         hoverTask = nil
         let small = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         let problems = NSMutableAttributedString()
@@ -304,7 +332,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         let info = NSMutableAttributedString()
         var isCode = false
         for line in (markdown ?? "").split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("```") {
+            if parsesCodeFences, line.hasPrefix("```") {
                 isCode.toggle()
                 continue
             }
@@ -435,7 +463,12 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         gutter?.needsDisplay = true
     }
 
-    func highlightOccurrences(then redraw: @escaping () -> Void) {
+    func selectionDidChange(then redraw: @escaping () -> Void) {
+        gutter?.needsDisplay = true
+        if blame != nil {
+            if hoverBlame != nil { dismissHover() }
+            needsDisplay = true
+        }
         occurrenceSearch?.cancel()
         let selection = selectedRange()
         let needle = selectedRanges.count == 1 && selection.length > 0 ? textStorage?.mutableString.substring(with: selection) ?? "" : ""
@@ -657,6 +690,40 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         return NSTextParagraph(attributedString: text)
     }
 
+    private func blameAnnotation(in rect: NSRect) -> (entry: ReviewBlame, label: NSAttributedString, rect: NSRect)? {
+        guard let blame, blame.lineCount == lineStarts.count, isEditable, !isAbsent, window?.firstResponder === self,
+              selectedRanges.count == 1, carets.ranges.count == 1, !hasMarkedText(),
+              let side, side.lineCount == lineStarts.count
+        else { return nil }
+
+        let selection = selectedRange()
+        guard selection.length == 0, selection.location != NSNotFound else { return nil }
+
+        let line = lineStarts.partitioningIndex { $0 > selection.location } - 1
+        guard let entry = blame.entries[line + 1], side.rows.indices.contains(line) else { return nil }
+
+        let row = side.rows[line]
+        let top = textContainerInset.height + CGFloat(row) * rowHeight + reserved.filter { $0.key < row }.values.reduce(0, +)
+        guard rect.maxY > top, rect.minY < top + rowHeight, let storage = textContentStorage,
+              let location = storage.location(storage.documentRange.location, offsetBy: lineStarts[line]),
+              let fragment = textLayoutManager?.textLayoutFragment(for: location), let textLine = fragment.textLineFragments.first
+        else { return nil }
+
+        let x = textContainerInset.width + fragment.layoutFragmentFrame.minX + textLine.typographicBounds.maxX + 12
+        guard x < rect.maxX else { return nil }
+
+        let text = if entry.isUncommitted { "You · Not committed yet" } else {
+            "\(entry.author), \(Self.relativeBlameDate.localizedString(for: entry.authorTime, relativeTo: .now)) · \(entry.summary)"
+        }
+        let font = NSFont.systemFont(ofSize: style.font.pointSize * 0.85)
+        let label = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: style.secondary])
+        let size = label.size()
+        let frame = NSRect(x: x, y: top + (rowHeight - size.height) / 2, width: size.width, height: size.height)
+        guard frame.intersects(rect) else { return nil }
+
+        return (entry, label, frame)
+    }
+
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
 
@@ -736,6 +803,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             style.link.setFill()
             for segment in link.textView === self ? segments(of: link.range) : link.segments { NSRect(x: segment.rect.minX, y: segment.baseline + 2, width: segment.rect.width, height: 1).fill() }
         }
+        if let annotation = blameAnnotation(in: rect) { annotation.label.draw(at: annotation.rect.origin) }
         drawCarets(in: rect)
     }
 

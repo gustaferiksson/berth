@@ -12,6 +12,7 @@ struct ReviewSettings: View {
     @AppStorage(ReviewStyle.fontSizeKey) private var reviewFontSize = 0.0
     @AppStorage(ReviewStyle.lineHeightKey) private var reviewLineHeight = 1.3
     @AppStorage(ReviewStyle.showsMinimapKey) private var reviewShowsMinimap = true
+    @AppStorage(ReviewStyle.showsBlameKey) private var reviewShowsBlame = true
 
     var body: some View {
         let style = ReviewStyle(scheme: reviewColorScheme, fontFamily: reviewFontFamily, fontSize: reviewFontSize, lineHeightMultiple: reviewLineHeight, ghostty: store.theme)
@@ -40,6 +41,7 @@ struct ReviewSettings: View {
                         Stepper(reviewLineHeight.formatted(.number.precision(.fractionLength(1))), value: $reviewLineHeight, in: 1...2, step: 0.1)
                     }
                     Toggle("Show minimap", isOn: $reviewShowsMinimap)
+                    Toggle("Show inline blame", isOn: $reviewShowsBlame)
                     ReviewStylePreview(style: style)
                 } header: {
                     Text("Diff Style")

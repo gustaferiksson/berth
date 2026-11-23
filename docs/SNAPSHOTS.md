@@ -34,6 +34,8 @@ It also prints each changed file per section, the file tree's top level and its 
 
 ## Review: edit, scroll, minimap, gutter and comments
 
+`-snapshotReviewBlameLine <line>` places the caret on a one-based line in the working-tree editor, scrolls it into view and saves `<out>.blame.png`. Pair it with `-snapshotReviewFile <path>` to choose the file. Use a tracked file with a short line so the annotation fits in the editor.
+
 `-snapshotReviewEdit "<text>"` inserts text at the top of the right side (the draft and recompute path), `-snapshotReviewScroll <y>` scrolls the right side (the left follows), `-snapshotReviewWheel "<target>:<dy>"` sends a pixel scroll-wheel event to the view hit-tested at the centre of `left`, `right`, `gutter-left`, `minimap` or `ruler`, `-snapshotReviewMinimap "<y1>-<y2>"` drags the minimap and `-snapshotReviewRuler <y>` clicks the overview ruler (each prints both clip ys; the minimap also its render count).
 
 `-snapshotReviewGutter "left|right:<a>-<b>"` drags across those gutter lines (rows from `top(ofRow:)`; unified, `left` drags the right gutter at those base lines' rows), prints the draft box and focus, saves `<out>.draft.png`, sends Esc, reopens, types `fix` ⇧↩ `it` ↩, prints the comments and saves `<out>.card.png`; `-snapshotReviewRestyle "<scheme>:<line height>"` then writes those two settings (restored afterwards), reports and saves `<out>.restyled.png`; `-snapshotReviewCommitsExpanded YES` expands the branch card's commit list (every model in a tasks run); `-snapshotReviewDelete YES` then deletes the card with its × and appends and removes a comment through the model (the file column's path).

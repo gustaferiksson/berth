@@ -12,6 +12,8 @@ struct ReviewDiffPane: View {
     @Binding var replyDrafts: [String: String]
     let isWritingPullRequest: Bool
     let style: ReviewStyle
+    let blameRevision: UUID
+    let loadBlame: () async -> ReviewBlameSnapshot?
     let language: ReviewLanguage?
     let reveal: LanguageServerRange?
     let revealLine: (line: Int, side: ReviewComment.Side)?
@@ -29,9 +31,11 @@ struct ReviewDiffPane: View {
     let onSendComment: ((ReviewComment) -> Void)?
     let workingText: () -> String?
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
+    @AppStorage(ReviewStyle.showsBlameKey) private var showsBlame = true
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
     @AppStorage("reviewSplitRatio") private var splitRatio = 0.5
     @State private var analysis: ReviewDiffAnalysis?
+    @State private var blame: (revision: UUID, source: String, snapshot: ReviewBlameSnapshot?)?
 
     var body: some View {
         if let unavailable = [contents.original, contents.modified].compactMap(\.self).first(where: { if case .text = $0 { false } else { true } }) {
@@ -56,6 +60,7 @@ struct ReviewDiffPane: View {
                 isModifiedAbsent: contents.modified == nil,
                 analysis: analysis,
                 style: style,
+                blame: showsBlame && blame?.revision == blameRevision && blame?.source == loaded ? blame?.snapshot : nil,
                 showsMinimap: showsMinimap,
                 comments: $comments,
                 threads: threads,
@@ -82,6 +87,14 @@ struct ReviewDiffPane: View {
                 onEdit: { draft = $0 == loaded ? nil : $0 },
                 onSplit: { splitRatio = $0 }
             )
+            .task(id: showsBlame ? blameRevision : nil) {
+                guard showsBlame else { return }
+
+                let snapshot = await loadBlame()
+                guard !Task.isCancelled else { return }
+
+                blame = (blameRevision, loaded, snapshot)
+            }
             .task(id: [original, modified, configuredServers]) {
                 if analysis != nil { try? await Task.sleep(for: .milliseconds(300)) }
                 guard !Task.isCancelled else { return }
@@ -142,6 +155,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let isModifiedAbsent: Bool
     let analysis: ReviewDiffAnalysis?
     let style: ReviewStyle
+    let blame: ReviewBlameSnapshot?
     let showsMinimap: Bool
     @Binding var comments: [ReviewComment]
     let threads: [ReviewThread]
@@ -209,6 +223,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         coordinator.right.unifiedOriginal = nil
         coordinator.right.minimumWidth = 0
         coordinator.right.reserved = [:]
+        coordinator.right.blame = nil
         coordinator.right.dismissHover()
         coordinator.right.onHover = nil
         coordinator.right.onDefinition = nil
@@ -351,6 +366,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             }
 
             right.diagnostics = view.diagnostics
+            right.blame = view.blame
             if view.takesFocus { right.focusesInWindow = true }
             for textView in [left, right] {
                 textView.onHover = view.language == nil ? nil : { [weak self, weak textView] offset in
@@ -396,8 +412,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            (notification.object as? ReviewTextView)?.gutter?.needsDisplay = true
-            (notification.object as? ReviewTextView)?.highlightOccurrences { [weak self] in
+            (notification.object as? ReviewTextView)?.selectionDidChange { [weak self] in
                 self?.ruler.needsDisplay = true
                 self?.minimap.needsDisplay = true
             }
