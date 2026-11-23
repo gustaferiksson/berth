@@ -34,6 +34,8 @@ Nested subagents' tasks are not counted. Context is the last non-sidechain, non-
 
 Agent and background-shell calls render as cards (`TaskCards.swift`, matched to running `RemoteTask`s by tool use id, else start time and title) that stay outside the folded turn; the header capsule holds Changes and Pull Request; elapsed times use `ElapsedText` ("5m 8s", never a `.timer` colon); typing while a session waits sends Esc, then the draft once it leaves waiting. The transcript is a plain `VStack`: a `LazyVStack` re-placed its items forever (main thread at 100%) when the keyboard came up or a turn expanded while scrolled up.
 
+Sessions can also carry an optional `pullRequestWatch` with the PR number and repository when known and the date watching began. The phone shows it in idle session rows. Older session payloads decode without the field.
+
 ## Queued prompts
 
 Prompts queued mid-turn come from `queue-operation` records (enqueue, dequeue, remove by content, popAll; `<`-tagged ones are notifications), folded per client across reads and sent as the transcript message's optional `queued`.

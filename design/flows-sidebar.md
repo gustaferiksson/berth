@@ -50,6 +50,8 @@ Working indicators are three dots (`WorkingDots`), each a `TimelineView` steppin
 
 Compacting isn't shown: the session file stays `busy`, and libghostty-spm's viewport text read is public only on `InMemoryTerminalSession`. Per-row repeating symbol effects cost ~13% CPU (Debug). A native-tabs experiment lives on branch `native-tabs`.
 
+A live, idle PR watch shows an eye and **Watching #N** (or **Watching PR** while the number is unknown) in the session row and hover card. The row shows Claude’s usual working or needs-input state during a turn or approval. **Stop Watching** in the session menu submits `/ship stop` in its running Berth tab with the regular prompt safety checks. Active watches are kept loaded by the idle-unload timer.
+
 ## Harbor
 
 Harbor (View ▸ Harbor, palette; `Store.isHarborShown`) replaces the terminal area: one pier per group with live or open sessions (Pinned first, at most 6 piers; per pier at most what fits before the open water, then "+N"), one side-view boat per session; working boats bob with a wake in the working colour, needs-you boats bob more under a flag in the needs-you colour, idle ones sit still, live sessions locked elsewhere are dimmed, and sessions finished in the last hour (not live, no tab) lie at anchor, faded, in the open water.

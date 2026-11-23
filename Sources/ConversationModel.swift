@@ -96,6 +96,19 @@ final class ConversationModel {
         return tab.agent.harness.summaryContext?(summary)
     }
 
+    var pullRequestWatch: PullRequestWatch? {
+        sessionID.flatMap(store.pullRequestWatch(for:))
+    }
+
+    func stopWatching() async {
+        guard let sessionID, !isSending else { return }
+
+        isSending = true
+        notice = nil
+        defer { isSending = false }
+        if case let .refused(message) = await store.stopWatching(sessionID) { notice = message }
+    }
+
     var tasks: [RemoteTask] {
         guard !shellTasks.isEmpty, let sessionID, let live = store.liveBySession[sessionID], live.status == "idle", live.reportsWaiting else { return transcriptTasks }
 

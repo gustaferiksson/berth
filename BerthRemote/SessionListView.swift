@@ -225,6 +225,7 @@ private struct SessionSummaryView: View {
     @ScaledMetric private var gutterWidth = 14
 
     var body: some View {
+        let gutterWidth = gutterWidth
         let isProminent = session.status != nil || session.isUnread == true
         let folder = URL(filePath: session.folder).lastPathComponent
         let isAccessibility = dynamicTypeSize.isAccessibilitySize
@@ -267,6 +268,11 @@ private struct SessionSummaryView: View {
                     }
                 }
                 location
+                if let watch = session.pullRequestWatch, session.status == "idle" {
+                    Label(watch.title, systemImage: "eye")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 if let pullRequest = session.pullRequest {
                     PullRequestTag(pullRequest: pullRequest)
                 }

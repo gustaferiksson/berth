@@ -186,6 +186,10 @@ struct ContentView: View {
         } message: { message in
             Text(message)
         }
+        .alert("Couldn’t Stop Watching", isPresented: Binding(get: { store.stopWatchingFailure != nil }, set: { if !$0 { store.stopWatchingFailure = nil } }), presenting: store.stopWatchingFailure) { _ in
+        } message: { message in
+            Text(message)
+        }
         .alert("Folder Not Found", isPresented: Binding(get: { store.missingFolder != nil }, set: { if !$0 { store.missingFolder = nil } }), presenting: store.missingFolder) { _ in
         } message: { folder in
             Text("\((folder as NSString).abbreviatingWithTildeInPath) no longer exists, so Claude can’t start there.")

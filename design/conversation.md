@@ -19,3 +19,5 @@ Agent cards and running-agent popover rows open a conversation-pane overlay with
 Claude bash-mode commands appear as shell rows on Mac and Remote with stdout and stderr folded after four lines.
 
 Codex rollouts supply turn-open state as well as entries. An open turn blocks sending and keeps the draft when the title supplies no usable status. The Action Required title gates approval and question cards, with details read separately from the rollout tail. A quiet Show Terminal hint appears after 20 seconds without new entries or a state change. Codex context is read-only, with no model picker or attachments. Sources, parsing rules and input limitations are in design/codex.md.
+
+The footer shows an active PR watch and a **Stop Watching** button. It submits `/ship stop` through the normal prompt path and reports refusals in the composer. The button is disabled while Claude is waiting for an answer.

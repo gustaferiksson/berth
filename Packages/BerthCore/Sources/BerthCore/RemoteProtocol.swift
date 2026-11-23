@@ -43,8 +43,9 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let isUnread: Bool?
     public let turnStartedAt: Date?
     public let agent: RemoteAgent?
+    public let pullRequestWatch: PullRequestWatch?
 
-    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil) {
+    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil, pullRequestWatch: PullRequestWatch? = nil) {
         self.id = id
         self.title = title
         self.folder = folder
@@ -60,6 +61,25 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
         self.isUnread = isUnread
         self.turnStartedAt = turnStartedAt
         self.agent = agent
+        self.pullRequestWatch = pullRequestWatch
+    }
+}
+
+public struct PullRequestWatch: Codable, Sendable, Hashable {
+    public let number: Int?
+    public let repository: String?
+    public let since: Date
+
+    public init(number: Int?, repository: String? = nil, since: Date) {
+        self.number = number
+        self.repository = repository
+        self.since = since
+    }
+
+    public var expiresAt: Date { since.addingTimeInterval(7 * 86_400) }
+
+    public var title: String {
+        number.map { "Watching #\($0)" } ?? "Watching PR"
     }
 }
 
