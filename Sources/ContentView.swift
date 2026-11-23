@@ -51,7 +51,7 @@ struct ContentView: View {
                             Color.clear
                                 .contentShape(.rect)
                                 .onTapGesture { store.launcherMode = nil }
-                            Launcher(mode: mode)
+                            Launcher(mode: mode, query: store.launcherQuery)
                                 .id(mode)
                                 .padding(.top, 120)
                         }
@@ -124,6 +124,8 @@ struct ContentView: View {
             store.isAppActive = true
             store.refreshPullRequests()
             store.refreshInbox()
+            store.refreshIssueInbox()
+            store.refreshLocalClones()
             Task { await store.refreshPlanUsage() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }

@@ -257,6 +257,8 @@ final class Store {
     private(set) var linkedPullRequests = Snapshot.fixtureLinkedPullRequests
     private(set) var inbox = Snapshot.fixtureInbox
     private(set) var isInboxLoading = false
+    private(set) var issueInbox = Snapshot.fixtureIssueInbox
+    private(set) var isIssueInboxLoading = false
     private var pullRequestTabs: [PullRequestLink: Tab.ID] = [:]
     private(set) var searchIndexVersion = 0
     private(set) var searchIndexing: (done: Int, total: Int)?
@@ -267,7 +269,7 @@ final class Store {
     @ObservationIgnored var submittingSessions: Set<String> = []
 
     #if DEBUG
-    @ObservationIgnored var probeOpened: [(agent: Agent, cwd: String, start: LaunchStart)] = []
+    @ObservationIgnored var probeOpened: [(agent: Agent, cwd: String, start: LaunchStart, prompt: String?)] = []
     @ObservationIgnored var probeOpenedURLs: [URL] = []
     #endif
 
@@ -286,7 +288,11 @@ final class Store {
     @ObservationIgnored private var repositoryRoots: [String: String] = [:]
     @ObservationIgnored private var checkouts: [String: String] = [:]
     @ObservationIgnored private var catalogModels: [String: (window: Int?, name: String?)] = [:]
-    @ObservationIgnored private var repositories = Snapshot.fixtureRepositories
+    private var repositories = Snapshot.fixtureRepositories
+    private var siblingClones: [String: [String: String]] = [:]
+    @ObservationIgnored private var scannedCloneRoots: Set<String> = []
+    @ObservationIgnored private var clonesScannedAt = Date.distantPast
+    @ObservationIgnored private var cloneScan: Task<Void, Never>?
     @ObservationIgnored private var archivedAt = UserDefaults.standard.dictionary(forKey: "archivedSessions") as? [String: Date] ?? [:] {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
     }
@@ -309,6 +315,7 @@ final class Store {
 
     @ObservationIgnored private var pullRequestsFetchedAt = Date.distantPast
     @ObservationIgnored private var inboxFetchedAt = Date.distantPast
+    @ObservationIgnored private var issueInboxFetchedAt = Date.distantPast
     @ObservationIgnored private var planUsageFetchedAt = Date.distantPast
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var tabSignalPolling: Task<Void, Never>?
@@ -350,6 +357,8 @@ final class Store {
                 try? await Task.sleep(for: .seconds(300))
                 self?.refreshPullRequests()
                 self?.refreshInbox()
+                self?.refreshIssueInbox()
+                self?.refreshLocalClones()
                 self?.unloadIdleTabs()
                 await self?.refreshPlanUsage()
             }
@@ -370,6 +379,7 @@ final class Store {
         }
         applyCodexSetting()
         refreshInbox()
+        refreshIssueInbox()
         Task { await refreshPlanUsage() }
         guard restoringTabs else { return }
 
@@ -592,6 +602,38 @@ final class Store {
         }
     }
 
+    func refreshIssueInbox() {
+        guard Snapshot.output == nil, !isIssueInboxLoading, issueInboxFetchedAt.timeIntervalSinceNow < -60 else { return }
+
+        issueInboxFetchedAt = .now
+        isIssueInboxLoading = true
+        Task {
+            let fetched = await Task.detached { PullRequestStatus.issueInbox() }.value
+            if let fetched, fetched != issueInbox { issueInbox = fetched }
+            isIssueInboxLoading = false
+        }
+    }
+
+    func refreshLocalClones() {
+        guard Snapshot.output == nil, cloneScan == nil else { return }
+
+        let roots = Set(summaries.compactMap { repositoryRoots[$0.checkout] })
+        guard roots != scannedCloneRoots || clonesScannedAt.timeIntervalSinceNow < -300 else { return }
+
+        cloneScan = Task {
+            let found = await Task.detached { await RepositoryRoot.gitHubSiblingClones(of: roots) }.value
+            if siblingClones != found { siblingClones = found }
+            scannedCloneRoots = roots
+            clonesScannedAt = .now
+            cloneScan = nil
+            refreshLocalClones()
+        }
+    }
+
+    func waitForLocalClones() async {
+        while let cloneScan, !Task.isCancelled { await cloneScan.value }
+    }
+
     func sessions(for pullRequest: PullRequestLink) -> [SessionSummary] {
         let repository = pullRequest.repository.lowercased()
         return (activeSessions + archivedSessions)
@@ -608,10 +650,18 @@ final class Store {
         let link = PullRequestLink(repository: repository, number: pullRequest.number)
         if let id = pullRequestTabs[link], tabs.contains(where: { $0.id == id }) { return .tab(id) }
 
-        let root = knownFolders.lazy.compactMap { self.repositoryRoots[$0.path] }.first { root in
+        return localCheckout(of: repository).map(PullRequestOpening.worktree) ?? .noCheckout
+    }
+
+    func localCheckout(of repository: String) -> String? {
+        let repository = repository.lowercased()
+        if let root = knownFolders.lazy.compactMap({ self.repositoryRoots[$0.path] }).first(where: { root in
             (self.repositories[root] ?? nil)?.lowercased() == repository && FileManager.default.fileExists(atPath: root)
-        }
-        return root.map(PullRequestOpening.worktree) ?? .noCheckout
+        }) { return root }
+
+        return siblingClones.keys.sorted().lazy
+            .flatMap { self.siblingClones[$0, default: [:]].filter { $0.value == repository }.keys.sorted() }
+            .first { FileManager.default.fileExists(atPath: $0) }
     }
 
     @discardableResult
@@ -771,6 +821,7 @@ final class Store {
             refreshLive()
             if searchIndexTask != nil { updateSearchIndex() }
             resolvePullRequests()
+            refreshLocalClones()
             refreshEditedRepositories()
         }
     }
@@ -1413,8 +1464,8 @@ final class Store {
         }
         let id = UUID()
         #if DEBUG
-        if Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil || UserDefaults.standard.bool(forKey: "snapshotControl") {
-            probeOpened.append((agent, cwd, start))
+        if Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || Snapshot.issueInboxQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil || UserDefaults.standard.bool(forKey: "snapshotControl") {
+            probeOpened.append((agent, cwd, start, prompt))
             return id
         }
         #endif

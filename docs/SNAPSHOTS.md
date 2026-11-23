@@ -128,9 +128,11 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 
 `-snapshotSidebarFilter "<q>|…"` prints the visible rows per query; `-snapshotKeys` ⌃⌥+arrow chords take the CGEvent path and its state line prints `right top line`.
 
-### Open Pull Request
+### Pull Requests and Issues
 
 `-snapshotPullRequests "<query>"` uses fixture sessions and a fixture inbox (no `gh`) and prints each PR's section, checks, decision, sessions and what ↩ does; `-snapshotLauncherKeys` also knows `tab`, `#`.
+
+`-snapshotIssues "<query>"` opens Issues with fixture rows across several repos, including 0, 1 and 3 linked PRs, one long title and one older issue. Use an empty query for the full recent list. Add `-snapshotLauncherKeys "enter"` to probe opening the three linked PRs, or use the query `"rounding"` with Enter to probe a new Claude worktree session and its unsent prompt. Use `"bucket"` to see the missing checkout notice, or `"alt-enter"` as a key to probe opening the issue URL.
 
 `-snapshotIssue "owner/repo#1"` opens Pull Requests with one fixture linked PR. `-snapshotIssue "acme/api#10"` shows four PRs across repositories, with three known checkouts and an unavailable row for `acme/infra`. The snapshot prints each row's status. Add `-snapshotLauncherKeys "enter"` to print the recorded `openClaude` calls and whether the launcher stays open. The issue lookup uses fixtures and session opens are recorded as probes.
 

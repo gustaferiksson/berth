@@ -1,0 +1,30 @@
+{
+  "data": {
+    "assigned": {
+      "nodes": [
+        null,
+        {"repository": {"nameWithOwner": "acme/billing"}, "number": 57, "title": "Export billing reports", "url": "https://github.com/acme/billing/issues/57", "updatedAt": "2026-02-28T12:00:00Z", "timelineItems": {"nodes": [
+          {"__typename": "CrossReferencedEvent", "source": {"__typename": "PullRequest", "repository": {"nameWithOwner": "acme/billing"}, "number": 61, "state": "OPEN"}},
+          {"__typename": "ConnectedEvent", "subject": {"__typename": "PullRequest", "repository": {"nameWithOwner": "ACME/Billing"}, "number": 61, "state": "OPEN"}},
+          {"__typename": "ConnectedEvent", "subject": {"__typename": "PullRequest", "repository": {"nameWithOwner": "acme/web"}, "number": 61, "state": "OPEN"}},
+          {"__typename": "CrossReferencedEvent", "source": {"__typename": "PullRequest", "repository": {"nameWithOwner": "acme/api"}, "number": 62, "state": "OPEN"}},
+          {"__typename": "CrossReferencedEvent", "source": {"__typename": "PullRequest", "repository": {"nameWithOwner": "acme/billing"}, "number": 62, "state": "CLOSED"}},
+          {"__typename": "CrossReferencedEvent", "source": {"__typename": "PullRequest", "repository": {"nameWithOwner": "acme/web"}, "number": 62, "state": "MERGED"}},
+          {"__typename": "CrossReferencedEvent", "source": {"__typename": "Issue", "repository": {"nameWithOwner": "acme/api"}, "number": 63, "state": "OPEN"}}
+        ]}}
+      ]
+    },
+    "mine": {
+      "nodes": [
+        {"repository": {"nameWithOwner": "ACME/Billing"}, "number": 57, "title": "Duplicate from mine", "url": "https://github.com/ACME/Billing/issues/57", "updatedAt": "2026-02-28T12:00:00Z", "timelineItems": {"nodes": []}},
+        {"repository": {"nameWithOwner": "acme/web"}, "number": 57, "title": "Update the web dashboard", "url": "https://github.com/acme/web/issues/57", "updatedAt": "2026-02-28T13:00:00Z", "timelineItems": {"nodes": []}}
+      ]
+    },
+    "mentioned": {
+      "nodes": [
+        {"repository": {"nameWithOwner": "acme/web"}, "number": 57, "title": "Duplicate from mentioned", "url": "https://github.com/acme/web/issues/57", "updatedAt": "2026-02-28T13:00:00Z", "timelineItems": {"nodes": []}},
+        {"repository": {"nameWithOwner": "acme/api"}, "number": 15, "title": "Drop the legacy CSV importer", "url": "https://github.com/acme/api/issues/15", "updatedAt": "2025-12-01T12:00:00Z", "timelineItems": {"nodes": []}}
+      ]
+    }
+  }
+}

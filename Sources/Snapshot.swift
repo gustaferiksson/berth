@@ -98,7 +98,7 @@ enum Snapshot {
 
     static let launcherKeys = UserDefaults.standard.string(forKey: "snapshotLauncherKeys")
     static let issueQuery = UserDefaults.standard.string(forKey: "snapshotIssue")
-    static let issueReference = issueQuery.flatMap(IssueReference.parse)
+    static let issueInboxQuery = UserDefaults.standard.string(forKey: "snapshotIssues")
 
     private static let hubFolders: [SessionSummary] = {
         let code = NSTemporaryDirectory() + "berth-launcher-keys"
@@ -109,11 +109,14 @@ enum Snapshot {
         ]
     }()
 
-    private static let issueFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: Result<[LinkedPullRequest], IssuePullRequests.LookupError>)? = {
-        guard let issueReference else { return nil }
+    private static let issueFixtures = (issueQuery ?? (issueInboxQuery == nil ? nil : "acme/web#21"))
+        .flatMap(IssueReference.parse)
+        .map { makeIssueFixture($0) }
 
-        let issue = "\(issueReference.owner)/\(issueReference.name)#\(issueReference.number)"
-        let linked: [(repository: String, number: Int, title: String, draft: Bool)] = switch issue {
+    private typealias FixtureIssueLink = (repository: String, number: Int, title: String, draft: Bool)
+
+    private static func issueFixtureLinks(_ reference: IssueReference) -> [FixtureIssueLink]? {
+        switch "\(reference.repository)#\(reference.number)" {
         case "owner/repo#1":
             [("owner/repo", 2, "Add the export endpoint", false)]
 
@@ -125,10 +128,24 @@ enum Snapshot {
                 ("acme/infra", 13, "Schedule the export job", false),
             ]
 
-        default: []
-        }
-        guard !linked.isEmpty else { return ([], [:], .failure(.issueNotFound)) }
+        case "acme/web#21":
+            [
+                ("acme/billing", 61, "Add the usage export API", false),
+                ("acme/web", 22, "Add the download button", false),
+                ("acme/api", 22, "Support exports on the API gateway", true),
+            ]
 
+        case "acme/web#12":
+            [("acme/web", 13, "Fix the flaky login test", false)]
+
+        case "acme/billing#57", "acme/infra#42", "acme/billing#49": []
+
+        default: nil
+        }
+    }
+
+    private static func makeIssueFixture(_ reference: IssueReference) -> (sessions: [SessionSummary], repositories: [String: String?]) {
+        let linked = issueFixtureLinks(reference) ?? []
         let code = NSTemporaryDirectory() + "berth-issue"
         var repositories: [String: String?] = [:]
         let sessions = linked.filter { $0.repository != "acme/infra" }.map { item in
@@ -137,11 +154,39 @@ enum Snapshot {
             repositories[RepositoryRoot.resolve(folder)] = item.repository
             return SessionSummary(id: "fixture-issue-\(item.repository)", cwd: folder, title: "Prepare the checkout", lastActivity: .now)
         }
-        let nodes = linked.map { item in
+        return (sessions, repositories)
+    }
+
+    private static func issueFixtureEvents(_ linked: [FixtureIssueLink]) -> String {
+        linked.map { item in
             #"{"__typename":"CrossReferencedEvent","source":{"__typename":"PullRequest","number":\#(item.number),"title":"\#(item.title)","url":"https://github.com/\#(item.repository)/pull/\#(item.number)","state":"OPEN","isDraft":\#(item.draft),"headRefName":"feature/exports","repository":{"nameWithOwner":"\#(item.repository)"}}}"#
+        }.joined(separator: ",")
+    }
+
+    static func linkedPullRequests(for reference: IssueReference) -> Result<[LinkedPullRequest], IssuePullRequests.LookupError> {
+        guard let linked = issueFixtureLinks(reference) else { return .failure(.issueNotFound) }
+
+        let json = #"{"data":{"repository":{"issue":{"timelineItems":{"nodes":[\#(issueFixtureEvents(linked))]}}}}}"#
+        return IssuePullRequests.parse(Data(json.utf8))
+    }
+
+    static let fixtureIssueInbox: [InboxIssue]? = {
+        guard issueInboxQuery != nil else { return nil }
+
+        let entries: [(id: String, title: String, age: TimeInterval)] = [
+            ("acme/web#21", "Let billing administrators download usage reports for any closed billing period from the dashboard", 60),
+            ("acme/billing#57", "Fix invoice rounding", 1200),
+            ("acme/web#12", "Fix the flaky login test", 3600),
+            ("acme/infra#42", "Rotate the export bucket key", 7200),
+            ("acme/billing#49", "Drop the legacy CSV importer", 45 * 86_400),
+        ]
+        let nodes = entries.compactMap { entry -> String? in
+            guard let issue = IssueReference.parse(entry.id), let linked = issueFixtureLinks(issue) else { return nil }
+
+            return #"{"number":\#(issue.number),"title":"\#(entry.title)","url":"\#(issue.url)","updatedAt":"\#((Date.now - entry.age).ISO8601Format())","repository":{"nameWithOwner":"\#(issue.repository)"},"timelineItems":{"nodes":[\#(issueFixtureEvents(linked))]}}"#
         }
-        let json = #"{"data":{"repository":{"issue":{"timelineItems":{"nodes":[\#(nodes.joined(separator: ","))]}}}}}"#
-        return (sessions, repositories, IssuePullRequests.parse(Data(json.utf8)))
+        let json = #"{"data":{"assigned":{"nodes":[\#(nodes.joined(separator: ","))]}}}"#
+        return IssueInbox.parse(Data(json.utf8))
     }()
 
     private static let inboxFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: [PullRequestBranch: PullRequest?], inbox: [InboxPullRequest]?)? = {
@@ -274,7 +319,6 @@ enum Snapshot {
         }
     }) { first, _ in first }
     static let fixtureInbox = inboxFixtures?.inbox
-    static let fixtureIssuePullRequests = issueFixtures?.pullRequests ?? .failure(.issueNotFound)
     static let fixtureLinkedPullRequests = linkedFixtures
     #else
     static let fixtureSessions: [SessionSummary]? = nil
@@ -283,6 +327,7 @@ enum Snapshot {
     static let fixtureRepositories: [String: String?] = [:]
     static let fixturePullRequests: [PullRequestBranch: PullRequest?] = [:]
     static let fixtureInbox: [InboxPullRequest]? = nil
+    static let fixtureIssueInbox: [InboxIssue]? = nil
     static let fixtureLinkedPullRequests: [PullRequestLink: PullRequest] = [:]
     static let fixturePullRequestDetail: PullRequestDetail? = nil
     #endif
@@ -299,7 +344,7 @@ enum Snapshot {
     }
 
     #if DEBUG
-    static let launcherQuery = issueQuery ?? UserDefaults.standard.string(forKey: "snapshotLauncher") ?? UserDefaults.standard.string(forKey: "snapshotSearch") ?? UserDefaults.standard.string(forKey: "snapshotPalette") ?? UserDefaults.standard.string(forKey: "snapshotPullRequests") ?? ""
+    static let launcherQuery = issueQuery ?? UserDefaults.standard.string(forKey: "snapshotLauncher") ?? UserDefaults.standard.string(forKey: "snapshotSearch") ?? UserDefaults.standard.string(forKey: "snapshotPalette") ?? UserDefaults.standard.string(forKey: "snapshotPullRequests") ?? issueInboxQuery ?? ""
     #else
     static let launcherQuery = ""
     #endif
@@ -580,9 +625,18 @@ enum Snapshot {
             if UserDefaults.standard.string(forKey: "snapshotLauncherRole") == "reviewRequested" { store.launcherRole = .reviewRequested }
             if launcherKeys == nil { store.launcherMode = .pullRequests }
         }
+        if let issueInboxQuery {
+            let ranked = IssueInbox.rank(issueInboxQuery, in: store.issueInbox ?? [], now: .now)
+            print("issues for \"\(issueInboxQuery)\": \(ranked.issues.count) shown, \(ranked.older) older hidden")
+            for issue in ranked.issues {
+                print("  \(issue.id) | \(issue.title) | \(issue.openPullRequestCount) PRs")
+            }
+            if launcherKeys == nil { store.launcherMode = .issues }
+        }
         if let issueQuery {
             print("linked pull requests for \(issueQuery)")
-            switch fixtureIssuePullRequests {
+            let lookup = IssueReference.parse(issueQuery).map { linkedPullRequests(for: $0) }
+            switch lookup ?? .failure(.issueNotFound) {
             case let .success(pullRequests):
                 for pullRequest in pullRequests {
                     let link = pullRequest.link
@@ -593,7 +647,7 @@ enum Snapshot {
             case let .failure(error):
                 print("  \(error.message)")
             }
-            if launcherKeys == nil { store.launcherMode = .pullRequests }
+            if launcherKeys == nil { store.launcherMode = issueInboxQuery == nil ? .pullRequests : .issues }
         }
         let editedGroup = UserDefaults.standard.string(forKey: "snapshotEditGroup").map { name in
             store.customGroups.first { $0.name == name } ?? CustomGroup(name: "", rules: [])
@@ -1728,7 +1782,7 @@ enum Snapshot {
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
             window.identifier = NSUserInterfaceItemIdentifier("main-snapshot")
-            store.launcherMode = issueQuery == nil ? .newSession : .pullRequests
+            store.launcherMode = issueInboxQuery != nil ? .issues : issueQuery != nil ? .pullRequests : .newSession
             try? await Task.sleep(for: .seconds(1))
             print("launcher first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "alt-shift-enter": (36, "\r"), "tab": (48, "\t")]
@@ -1748,6 +1802,7 @@ enum Snapshot {
                 let calls = store.probeOpened.filter { $0.agent == harness.agent }
                 print("open\(harness.name) calls: \(calls.count) \(calls.map { "\(URL(filePath: $0.cwd).lastPathComponent) \($0.start)" })")
             }
+            for prompt in store.probeOpened.compactMap(\.prompt) { print("session prompt \(prompt)") }
             print("opened URLs: \(store.probeOpenedURLs.map(\.absoluteString))")
         }
         let tab = store.tabs.first { $0.id == store.selectedTabID }

@@ -606,6 +606,32 @@ struct RepositoryRootTests {
         #expect(RepositoryRoot.gitHubRepository(remoteURL: "https://github.com/example/alpha/pulls") == nil)
     }
 
+    @Test func scansOneLevelForSiblingClonesWithGitHubOrigins() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "berth-clones-\(UUID().uuidString)").resolvingSymlinksInPath()
+        defer { try? FileManager.default.removeItem(at: parent) }
+        try FileManager.default.createDirectory(at: parent.appending(path: "nested"), withIntermediateDirectories: true)
+
+        let repositories = [
+            ("billing", "https://github.com/acme/billing.git"),
+            ("checkout", "git@github.com:Acme/Web.git"),
+            ("nested/api", "https://github.com/acme/api"),
+            ("unrelated", "https://gitlab.com/acme/web"),
+        ]
+        for (path, remote) in repositories {
+            let checkout = parent.appending(path: path).path
+            _ = try await ReviewGit.git(["init", "--quiet", checkout], in: parent.path)
+            _ = try await ReviewGit.git(["remote", "add", "origin", remote], in: checkout)
+        }
+
+        let billing = parent.appending(path: "billing")
+        let worktree = parent.appending(path: "billing-worktree")
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+        try "gitdir: ../billing/.git\n".write(to: worktree.appending(path: ".git"), atomically: true, encoding: .utf8)
+
+        let clones = await RepositoryRoot.gitHubSiblingClones(of: [billing.path, parent.appending(path: "checkout").path])
+        #expect(clones == [parent.path: [billing.path: "acme/billing", parent.appending(path: "checkout").path: "acme/web"]])
+    }
+
     @Test func resolvesTheOriginOfARealRepository() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "berth-origin-\(UUID().uuidString)").resolvingSymlinksInPath()
         defer { try? FileManager.default.removeItem(at: root) }
