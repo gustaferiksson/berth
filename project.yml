@@ -64,6 +64,8 @@ targets:
       - path: Resources/AppIcon.icon
       - path: Resources/highlights-typescript.scm
         buildPhase: resources
+      - path: Resources/Fonts
+        buildPhase: resources
     dependencies:
       - package: BerthCore
       - target: BerthHost
