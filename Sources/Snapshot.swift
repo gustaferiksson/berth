@@ -358,6 +358,7 @@ enum Snapshot {
     static let expandedGroups: Set<String> = []
     #endif
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     static func capture(to output: URL, store: Store) async {
         #if DEBUG
         NSApp.setActivationPolicy(.accessory)
