@@ -150,6 +150,8 @@ With `-snapshotConversation YES -codexEnabled YES`, `-snapshotConversationCodexA
 
 `-snapshotConversationRepeat <n>` repeats the fixture transcript with unique record, message and tool IDs and monotonic timestamps for longer conversation performance runs (try `16`, about 500 entries; the image is kept in the first repetition only, since the reader takes the last 256 KB).
 
+`-snapshotConversationSelect YES` (with `-snapshotConversationHeight 1500`) selects from the first reply paragraph through its list, code block and table with the real selection API, saves `<out>.selection.png` and prints the string the copy path writes to a private pasteboard.
+
 `-snapshotConversationSubagent YES` opens the invented docs agent conversation directly, including its prompt, tool call and reply. Use with `-snapshotConversation YES`.
 
 `-snapshotConversationDrive "<step>|…"` (type:, attach:, remove:, send:, decline:, stop, show, allow, deny, choose:<n>, status:<s>[/<waitingFor>], restamp, drop, wait:<ms>, snap:<name>, log), `-snapshotConversationWaitingFor`, `-snapshotConversationPending bash|edit|question|plan` and `-snapshotConversationRawLog /abs/file` (raw-mode pty logger, so Esc and digits reach the file) prove what reaches the pty.
