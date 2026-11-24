@@ -155,6 +155,12 @@ struct ReviewPullRequest: Identifiable {
     var id: PullRequestLink { location.link }
 }
 
+extension ReviewPullRequest {
+    init(pullRequest: PullRequest, repository: String, root: String) {
+        self.init(location: ReviewPullRequestLocation(link: PullRequestLink(repository: repository.lowercased(), number: pullRequest.number), root: root), pullRequest: pullRequest)
+    }
+}
+
 nonisolated struct ReviewPullRequestFiles: Sendable {
     let compare: ReviewCompare
     let files: [ReviewFile]
@@ -179,51 +185,17 @@ extension ReviewModel {
 struct ReviewOtherPullRequests: View {
     let entries: [ReviewPullRequest]
     let model: ReviewModel
-    var showsRepository = false
-    @Environment(\.openURL) private var openURL
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         ForEach(entries) { entry in
             let link = entry.id
-            let pullRequest = entry.pullRequest
             let isExpanded = model.expandedPullRequests.contains(link)
-            Button {
+            ReviewCompactPullRequestRow(entry: entry, model: model, isExpanded: isExpanded) {
                 if isExpanded {
                     model.expandedPullRequests.remove(link)
                 } else {
                     Task { await model.expandPullRequest(entry) }
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(theme.secondary)
-                        .frame(width: 10)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(pullRequest.title)
-                        if showsRepository {
-                            Text(link.repository)
-                                .font(.caption2)
-                                .foregroundStyle(theme.secondary)
-                        }
-                    }
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    PullRequestTag(pullRequest: pullRequest, opensOnGitHub: false)
-                        .fixedSize()
-                }
-                .padding(.vertical, 4)
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .help(pullRequest.title)
-            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-            .contextMenu {
-                Button("Open on GitHub") { openURL(pullRequest.url) }
-                if [.open, .draft].contains(pullRequest.state) {
-                    StewardPullRequestButton(link: link, url: pullRequest.url)
                 }
             }
             .reviewRow()
@@ -379,5 +351,249 @@ struct ReviewBranchCommitRow: View {
         }
         .frame(height: 22)
         .help(commit.subject)
+    }
+}
+
+struct ReviewBranchCard: View {
+    let changes: ReviewChanges
+    let status: ReviewBranchStatus
+    let pullRequest: PullRequest??
+    let repository: String?
+    let detail: PullRequestDetail?
+    let isClaudeLive: Bool
+    let createPullRequest: (() -> Void)?
+    let showThreads: () -> Void
+    @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        let found = pullRequest ?? nil
+        let decision = detail?.reviewDecision.flatMap(InboxPullRequest.ReviewDecision.init(rawValue:)) ?? found?.reviewDecision
+        VStack(alignment: .leading, spacing: 10) {
+            if found == nil, changes.isDefaultBranch || changes.base == nil {
+                Text(changes.uncommitted.isEmpty ? "No uncommitted changes on \(changes.branch)" : "Uncommitted changes on \(changes.branch)")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                pushState
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                headline(found)
+                Text(verbatim: "\(found?.headRefName ?? changes.branch) → \(found?.baseRefName ?? changes.base ?? "")")
+                    .font(.caption)
+                    .foregroundStyle(Color.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if found != nil {
+                    if detail != nil || decision != nil {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 8) { reviewStatus(decision) }
+                            VStack(alignment: .leading, spacing: 4) { reviewStatus(decision) }
+                        }
+                        .font(.caption)
+                    }
+                    checksRow
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        facts
+                        VStack(alignment: .leading, spacing: 2) { facts }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Color.secondary)
+                }
+            }
+            actions(found)
+        }
+        .lineLimit(1)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .geometryGroup()
+    }
+
+    private func headline(_ found: PullRequest?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if pullRequest != nil {
+                HStack(spacing: 8) {
+                    if let found {
+                        PullRequestStatePill(pullRequest: found)
+                        Text(verbatim: "#\(found.number)")
+                            .font(.caption.weight(.medium))
+                            .monospacedDigit()
+                            .foregroundStyle(Color.secondary)
+                    } else {
+                        Label("No pull request", systemImage: "arrow.triangle.branch")
+                            .labelStyle(CompactLabel())
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.secondary.opacity(0.16), in: .rect(cornerRadius: 4))
+                    }
+                    Spacer(minLength: 0)
+                    if let found { moreMenu(found) }
+                }
+            }
+            if let found {
+                Text(found.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .help(found.title)
+                    .contextMenu { stewardAction(found) }
+            } else {
+                Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits")")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+            }
+        }
+    }
+
+    @ViewBuilder private var facts: some View {
+        if status.behind > 0 {
+            Label("\(status.behind) behind", systemImage: "arrow.down")
+                .help("\(status.behind) behind \(changes.base ?? "")")
+        }
+        if let total = changes.total {
+            Text("+\(total.additions) −\(total.deletions)")
+                .monospacedDigit()
+                .help("Changes against \(changes.base ?? ""), uncommitted included")
+        }
+        if status.ahead > 0 {
+            pushState
+        }
+    }
+
+    @ViewBuilder
+    private func reviewStatus(_ decision: InboxPullRequest.ReviewDecision?) -> some View {
+        if let decision {
+            let tag: (String, Color) = switch decision {
+            case .approved: ("Approved", theme.working)
+            case .changesRequested: ("Changes requested", theme.closed)
+            case .reviewRequired: ("Review required", theme.needsYou)
+            }
+            Text(tag.0)
+                .fontWeight(.semibold)
+                .foregroundStyle(tag.1)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(tag.1.opacity(0.16), in: .rect(cornerRadius: 4))
+        }
+        if let detail {
+            let open = detail.unresolvedThreads
+            Button(action: showThreads) {
+                Label(open == 0 ? "All resolved" : "\(open) open", systemImage: open == 0 ? "checkmark" : "bubble.left")
+                    .labelStyle(CompactLabel())
+                    .monospacedDigit()
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(open == 0 ? theme.working : theme.foreground)
+            .disabled(detail.threads.isEmpty)
+            .help(detail.threads.isEmpty ? "No review threads" : "Show Review Threads")
+        }
+    }
+
+    @ViewBuilder private var checksRow: some View {
+        if detail?.checks != nil || detail?.changedFiles != nil || detail?.commits != nil || changes.total != nil {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { pullRequestFacts }
+                VStack(alignment: .leading, spacing: 4) { pullRequestFacts }
+            }
+        }
+    }
+
+    @ViewBuilder private var pullRequestFacts: some View {
+        if let checks = detail?.checks {
+            HStack(spacing: 8) {
+                if checks.passed > 0 {
+                    Label("\(checks.passed)", systemImage: "checkmark.circle.fill").foregroundStyle(theme.working)
+                }
+                if checks.failed > 0 {
+                    Label("\(checks.failed)", systemImage: "xmark.circle.fill").foregroundStyle(theme.closed)
+                }
+                if checks.running > 0 {
+                    Label("\(checks.running)", systemImage: "clock.fill").foregroundStyle(theme.needsYou)
+                }
+            }
+            .labelStyle(CompactLabel())
+            .font(.callout.weight(.medium))
+            .fixedSize()
+            .help("Checks · \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
+        }
+        HStack(spacing: 6) {
+            if let files = detail?.changedFiles { Text("\(files) \(files == 1 ? "file" : "files")") }
+            if let commits = detail?.commits { Text("\(commits) \(commits == 1 ? "commit" : "commits")") }
+            if let total = changes.total {
+                Text("+\(total.additions) −\(total.deletions)")
+                    .help("Changes against \(changes.base ?? ""), uncommitted included")
+            }
+        }
+        .font(.caption)
+        .monospacedDigit()
+        .foregroundStyle(Color.secondary)
+    }
+
+    @ViewBuilder
+    private func actions(_ found: PullRequest?) -> some View {
+        if let createPullRequest, pullRequest != nil, found == nil, !changes.isDefaultBranch, changes.base != nil, status.ahead > 0 {
+            Button(action: createPullRequest) {
+                Text("Create Pull Request…").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+            .disabled(!isClaudeLive)
+            .help(isClaudeLive ? "Paste a prompt asking Claude to push this branch and open a pull request" : "Claude isn’t running in this tab")
+        }
+    }
+
+    @ViewBuilder
+    private func stewardAction(_ found: PullRequest) -> some View {
+        if let repository, [.open, .draft].contains(found.state) {
+            StewardPullRequestButton(link: PullRequestLink(repository: repository, number: found.number), url: found.url)
+        }
+    }
+
+    private func moreMenu(_ found: PullRequest) -> some View {
+        Menu {
+            Button("Open on GitHub", systemImage: "arrow.up.right.square") { openURL(found.url) }
+            stewardAction(found)
+            Button("Copy Link", systemImage: "link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(found.url.absoluteString, forType: .string)
+            }
+            Button("Copy Number", systemImage: "number") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString("#\(found.number)", forType: .string)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .accessibilityLabel("More")
+        }
+        .menuIndicator(.hidden)
+        .foregroundStyle(theme.secondary)
+        .frame(width: 20, alignment: .trailing)
+        .padding(.trailing, 2)
+    }
+
+    private var pushState: some View {
+        Group {
+            if let upstream = status.upstream, upstream.ahead > 0 {
+                Label("\(upstream.ahead) not pushed", systemImage: "arrow.up")
+                    .foregroundStyle(theme.needsYou)
+                    .help("\(upstream.ahead) \(upstream.ahead == 1 ? "commit" : "commits") not pushed to \(upstream.name)")
+            } else if let upstream = status.upstream, upstream.behind > 0 {
+                Label("\(upstream.behind) behind \(upstream.name)", systemImage: "arrow.down")
+                    .foregroundStyle(theme.needsYou)
+            } else if let upstream = status.upstream {
+                Label("Up to date with \(upstream.name)", systemImage: "checkmark")
+                    .foregroundStyle(theme.working)
+            } else {
+                Label(changes.isDefaultBranch || changes.base == nil ? "No upstream" : "Not pushed", systemImage: "arrow.up")
+                    .foregroundStyle(theme.needsYou)
+                    .help("\(changes.branch) has no upstream branch")
+            }
+        }
+        .labelStyle(CompactLabel())
     }
 }

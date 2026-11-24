@@ -26,8 +26,9 @@ enum MarkdownAttributedString {
 
     static func highlightKey(language: String, code: String) -> String { "\(language)\n\(code)" }
 
-    static func render(_ blocks: [MarkdownBlock], theme: GhosttyTheme, highlighted: [String: NSAttributedString] = [:]) -> NSAttributedString {
-        let gap: [NSAttributedString.Key: Any] = [.font: theme.conversationNSFont(0).withSize(4)]
+    static func render(_ blocks: [MarkdownBlock], theme: GhosttyTheme, highlighted: [String: NSAttributedString] = [:], proseFont: NSFont? = nil) -> NSAttributedString {
+        let font = proseFont ?? theme.conversationNSFont()
+        let gap: [NSAttributedString.Key: Any] = [.font: font.withSize(4)]
         var units: [Unit] = []
         for (index, block) in blocks.enumerated() {
             if index > 0 {
@@ -42,7 +43,7 @@ enum MarkdownAttributedString {
                 units += tableUnits(block.lines, theme: theme)
 
             default:
-                units.append(proseUnit(block, theme: theme))
+                units.append(proseUnit(block, font: font, theme: theme))
             }
         }
 
@@ -79,16 +80,16 @@ enum MarkdownAttributedString {
         return result
     }
 
-    private static func proseUnit(_ block: MarkdownBlock, theme: GhosttyTheme) -> Unit {
+    private static func proseUnit(_ block: MarkdownBlock, font base: NSFont, theme: GhosttyTheme) -> Unit {
         let source = block.lines.joined(separator: "\n")
-        let base = theme.conversationNSFont(0)
         let style = NSMutableParagraphStyle()
         style.lineHeightMultiple = theme.lineHeightMultiple
         var content: NSMutableAttributedString
         var terminator: [NSAttributedString.Key: Any] = [.font: base]
         switch block.kind {
         case let .heading(level):
-            content = inline(source, font: theme.conversationNSFont(level == 1 ? 4 : level == 2 ? 2 : 1), theme: theme, traits: .bold)
+            let increase: CGFloat = level == 1 ? 4 : level == 2 ? 2 : 1
+            content = inline(source, font: base.withSize(base.pointSize + increase), theme: theme, traits: .bold)
 
         case let .item(marker, depth):
             let prefix = NSMutableAttributedString(string: String(repeating: " ", count: depth * 2) + marker + " ", attributes: [.font: base, .foregroundColor: NSColor(theme.secondary)])

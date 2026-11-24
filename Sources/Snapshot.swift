@@ -65,7 +65,7 @@ enum Snapshot {
         let branch: String
         if let requested = UserDefaults.standard.string(forKey: "snapshotReviewPullRequest") {
             branch = requested
-        } else if UserDefaults.standard.bool(forKey: "snapshotReviewThreads") || showsReviewSessionPullRequests {
+        } else if UserDefaults.standard.bool(forKey: "snapshotReviewThreads") || showsReviewSessionPullRequests || showsReviewIssue || showsReviewStack || showsReviewPullRequestDetails || reviewSelectedPullRequestNumber != nil || createsReviewPullRequest || UserDefaults.standard.string(forKey: "snapshotReviewPullRequestState") != nil {
             let git = Process()
             let output = Pipe()
             git.executableURL = URL(filePath: "/usr/bin/git")
@@ -82,9 +82,49 @@ enum Snapshot {
         }
 
         let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch, pullRequests: linkedFixtureLinks + reviewSessionPullRequests.keys)
-        let state = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestState") ?? "Open"
-        return [(session, PullRequestState(rawValue: state.capitalized).map { PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries against settlement exports and flag every mismatch", state: $0, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase")) })]
+        let state = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestState") ?? (createsReviewPullRequest ? "none" : "Open")
+        let pullRequest = PullRequestState(rawValue: state.capitalized).map { state in
+            PullRequest(
+                number: 4821,
+                url: URL(string: "https://github.com/\(fixtureRepository)/pull/4821")!,
+                title: "Reconcile ledger entries against settlement exports and flag every mismatch",
+                state: state,
+                baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase") ?? (showsReviewStack ? "feature/currency-minor-unit" : nil),
+                headRefName: branch,
+                closingIssues: showsReviewIssue ? [reviewIssueFixture] : [],
+                commentCount: showsReviewPullRequestDetails ? 2 : 0
+            )
+        }
+        return [(session, pullRequest)]
     }()
+
+    static let showsReviewIssue = UserDefaults.standard.bool(forKey: "snapshotReviewIssue")
+    private static let showsReviewStack = UserDefaults.standard.bool(forKey: "snapshotReviewStack")
+    private static let showsReviewPullRequestDetails = UserDefaults.standard.bool(forKey: "snapshotReviewPullRequestDetails")
+    private static let createsReviewPullRequest = UserDefaults.standard.bool(forKey: "snapshotReviewCreatePullRequest")
+    static let reviewSelectedPullRequestNumber = UserDefaults.standard.string(forKey: "snapshotReviewSelectPullRequest").flatMap(Int.init)
+
+    static var reviewPullRequestFixture: PullRequest? { reviewPullRequest.first?.pullRequest }
+
+    static let reviewIssueFixture = ClosingIssue(ref: IssueRef(repository: "acme/billing", number: 377), title: "CSV export drops the currency column for EUR invoices", state: .open)
+
+    static let reviewStackFixture: ReviewPullRequestStack? = {
+        guard showsReviewStack, let branch = reviewPullRequest.first?.session.branch else { return nil }
+
+        let parent = PullRequest(number: 412, url: URL(string: "https://github.com/\(fixtureRepository)/pull/412")!, title: "Round ledger totals to the currency minor unit", state: .open, baseRefName: "main", headRefName: "feature/currency-minor-unit", checks: .passed, reviewDecision: .approved)
+        let child = PullRequest(number: 421, url: URL(string: "https://github.com/\(fixtureRepository)/pull/421")!, title: "Add export button and progress toast to the invoices table", state: .draft, baseRefName: branch, headRefName: "feature/invoice-export", checks: .failed, commentCount: 2)
+        return ReviewPullRequestStack(parent: parent, children: [child])
+    }()
+
+    static let reviewDiffFixture = ReviewPullRequestFiles(
+        compare: .range(base: String(repeating: "0", count: 40), head: String(repeating: "1", count: 40)),
+        files: [ReviewFile(path: "Sources/InvoiceExport.swift", oldPath: nil, status: .modified, additions: 1, deletions: 1)]
+    )
+
+    static let reviewDiffContents = ReviewContents(
+        original: .text("func export(_ invoice: Invoice) {\n    csv.write(invoice.total)\n}\n"),
+        modified: .text("func export(_ invoice: Invoice) {\n    csv.write(invoice.total, invoice.currency)\n}\n")
+    )
 
     static let fixturePullRequestDetail: PullRequestDetail? = {
         let showsThreads = UserDefaults.standard.bool(forKey: "snapshotReviewThreads")
@@ -456,7 +496,31 @@ enum Snapshot {
     static let launcherLoading = false
     static let fixtureLinkedPullRequests: [PullRequestLink: PullRequest] = [:]
     static let fixturePullRequestDetail: PullRequestDetail? = nil
+    static let reviewStackFixture: ReviewPullRequestStack? = nil
     static let fixtureShownPullRequests: [PullRequestLink: PullRequest] = [:]
+    #endif
+
+    #if DEBUG
+    private static func openReviewPullRequestFixture(in model: ReviewModel) async {
+        await model.load()
+        guard let changes = model.changes else { return }
+
+        let repository = fixtureRepository.lowercased()
+        if let number = reviewSelectedPullRequestNumber {
+            let related = reviewStackFixture.map { [$0.parent].compactMap(\.self) + $0.children } ?? []
+            let candidates = [reviewPullRequestFixture].compactMap(\.self) + related + Array(reviewSessionPullRequests.values)
+            guard let pullRequest = candidates.first(where: { $0.number == number }) else { fail("No Review fixture for PR #\(number)") }
+
+            if reviewSessionPullRequests.values.contains(where: { $0.number == number }) { model.expansionOverrides["otherPullRequests"] = true }
+            if related.contains(where: { $0.number == number }) { model.expansionOverrides["stack"] = true }
+            await model.openPullRequestDiff(ReviewPullRequest(pullRequest: pullRequest, repository: repository, root: changes.root))
+        }
+        if showsReviewPullRequestDetails {
+            guard let pullRequest = reviewPullRequestFixture else { fail("Review PR details require a branch pull request fixture") }
+
+            model.openPullRequestDetails(ReviewPullRequest(pullRequest: pullRequest, repository: repository, root: changes.root))
+        }
+    }
     #endif
 
     static func forcedSelection(in groups: [SessionGroup]) -> SidebarItem? {
@@ -793,10 +857,9 @@ enum Snapshot {
             store.refresh()
             await store.waitForScan()
         }
-        let createPullRequestClick = UserDefaults.standard.string(forKey: "snapshotReviewCreatePullRequest")?.split(separator: ",").compactMap { Double($0) }
         if let reviewFolder {
-            store.openShell(cwd: reviewFolder, command: createPullRequestClick != nil ? UserDefaults.standard.string(forKey: "snapshotRemoteLog").map { "/usr/bin/tee -a '\($0)'" } : nil)
-            if createPullRequestClick != nil, let live = try? JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":1,"sessionId":"snapshot-review","cwd":"\#(reviewFolder)","status":"idle","startedAt":0}"#.utf8)) {
+            store.openShell(cwd: reviewFolder, command: createsReviewPullRequest ? UserDefaults.standard.string(forKey: "snapshotRemoteLog").map { "/usr/bin/tee -a '\($0)'" } : nil)
+            if createsReviewPullRequest, let live = try? JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":1,"sessionId":"snapshot-review","cwd":"\#(reviewFolder)","status":"idle","startedAt":0}"#.utf8)) {
                 store.fakeLiveSessions = [live]
                 store.refreshLive()
             }
@@ -921,6 +984,8 @@ enum Snapshot {
                     }
                 }
                 print("review selected PR #\(number), expanded \(model.expandedPullRequests.contains(link)), files \(location.flatMap { model.pullRequestFiles[$0]?.files.count } ?? 0), notice \(model.notice ?? "-")")
+            } else if showsReviewPullRequestDetails || reviewSelectedPullRequestNumber != nil {
+                await openReviewPullRequestFixture(in: model)
             } else if let index = graphCommitIndex, index >= 0 {
                 while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
                 if !model.graphHasLoaded { await model.loadGraph() }
@@ -933,9 +998,9 @@ enum Snapshot {
             }
             let changedFiles = UserDefaults.standard.string(forKey: "snapshotReviewChangedFiles")
             if let changedFiles { store.showChanges(opening: changedFiles.split(separator: ",").map(String.init)) }
-            while Date.now < deadline, model.error == nil, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
+            while Date.now < deadline, model.error == nil, model.selectedDocument?.pullRequestTab != .details, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
                 if let changes = model.changes, model.selectedTab == nil, changedFiles == nil {
-                    if shownPullRequestClone != nil || expandedPullRequestNumber != nil || graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
+                    if shownPullRequestClone != nil || expandedPullRequestNumber != nil || reviewSelectedPullRequestNumber != nil || showsReviewPullRequestDetails || graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
                     let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
                     if requested == nil, showsReviewThreads, let thread = fixturePullRequestDetail?.threads.first(where: { $0.path == "README.md" && $0.line != nil }) {
                         model.open(thread)
@@ -1012,12 +1077,12 @@ enum Snapshot {
                 print("after refresh: \(branch) \(lookup())")
                 save(".refreshed.png")
             }
-            if let point = createPullRequestClick {
+            if createsReviewPullRequest {
                 let log = { (try? String(contentsOfFile: UserDefaults.standard.string(forKey: "snapshotRemoteLog") ?? "", encoding: .utf8)).debugDescription }
                 window.makeFirstResponder(nil)
-                click(point)
+                store.createPullRequest(sessionID: "snapshot-review", model: model)
                 try? await Task.sleep(for: .seconds(1))
-                print("after create pull request click: log \(log()), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil"), notice \(model.notice ?? "-")")
+                print("after create pull request action: log \(log()), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil"), notice \(model.notice ?? "-")")
                 save(".pr.png")
                 _ = store.tab(forSession: "snapshot-review")?.terminal.sendKey(.enter)
                 try? await Task.sleep(for: .seconds(1))
@@ -2157,7 +2222,7 @@ enum Snapshot {
         return "tabs " + model.tabs.map { tab in
             let document = tab.document
             let name = if let number = document.pullRequestNumber {
-                "PR #\(number):\(document.path)"
+                document.pullRequestTab == .details ? "PR #\(number) details" : "PR #\(number):\(document.path)"
             } else if case let .commit(sha) = document.compare {
                 "commit \(sha.prefix(7)):\(document.path)"
             } else {

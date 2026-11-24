@@ -104,3 +104,20 @@ struct ProjectNotice: View {
         }
     }
 }
+
+struct ProjectMoveToStatusMenu: View {
+    let item: ProjectItem
+    @AppStorage(ProjectsModel.allowsEditingKey) private var allowsEditing = false
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        if allowsEditing, let board = store.projects.boards[item.projectID], board.statusFieldID != nil, !board.statusOptions.isEmpty {
+            Menu("Move To Status") {
+                ForEach(board.statusOptions, id: \.id) { option in
+                    Button(option.name) { store.projects.move(item, to: option) }
+                        .disabled(option.id == item.statusOptionID)
+                }
+            }
+        }
+    }
+}

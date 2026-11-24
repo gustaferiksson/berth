@@ -38,8 +38,8 @@ final class ItemPreviewCache {
     func preview(for reference: ItemReference) async -> ItemPreview? {
         #if DEBUG
         if Snapshot.output != nil || Snapshot.launcherKeys != nil {
-            let fixtures: [ItemPreview] = [.fixtureRoundingPullRequest, .fixtureStartupIssue]
-            return fixtures.first { ItemReference(url: $0.url) == reference }
+            let fixtures: [ItemPreview?] = [.fixtureRoundingPullRequest, .fixtureStartupIssue, Snapshot.showsReviewIssue ? .fixtureReviewIssue : nil, .fixtureReviewPullRequest]
+            return fixtures.compactMap(\.self).first { ItemReference(url: $0.url) == reference }
         }
         #endif
         let now = ContinuousClock.now

@@ -42,7 +42,22 @@ struct ReviewPathBar: View {
                 }
             }
             chevron
-            segment(title, children: document.pullRequestLink == nil ? children(of: (document.path as NSString).deletingLastPathComponent) : [], icon: NSImage(size: NSSize(width: 13, height: 13), flipped: false) { NSWorkspace.shared.icon(for: UTType(filenameExtension: (name as NSString).pathExtension) ?? .data).draw(in: $0); return true })
+            if document.pullRequestTab == .diff, let link = document.pullRequestLink, let root = document.root,
+               let files = model.pullRequestFiles[ReviewPullRequestLocation(link: link, root: root)]?.files, files.count > 1 {
+                Menu {
+                    ForEach(files, id: \.path) { file in
+                        Button(file.path) { model.selectPullRequestFile(file, in: document) }
+                            .disabled(file.path == document.path)
+                    }
+                } label: {
+                    Text(title).monospaced()
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Choose a changed file")
+            } else {
+                segment(title, children: document.pullRequestLink == nil ? children(of: (document.path as NSString).deletingLastPathComponent) : [], icon: NSImage(size: NSSize(width: 13, height: 13), flipped: false) { NSWorkspace.shared.icon(for: UTType(filenameExtension: (name as NSString).pathExtension) ?? .data).draw(in: $0); return true })
+            }
             Spacer(minLength: 8)
             switch document.compare {
             case .uncommitted: Text("Uncommitted")

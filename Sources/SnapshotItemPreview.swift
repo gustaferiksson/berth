@@ -49,6 +49,51 @@ extension ItemPreview {
         )
     }()
 
+    static var fixtureReviewIssue: Self {
+        let issue = Snapshot.reviewIssueFixture
+        return Self(
+            kind: .issue, repository: issue.ref.repository, number: issue.ref.number, url: issue.ref.url!,
+            title: issue.title, state: .open, body: "The CSV export omits the currency for EUR invoices.",
+            author: .init(login: "mara"), createdAt: .now - 86_400, updatedAt: .now - 3600,
+            labels: [.init(name: "bug", color: "d73a4a"), .init(name: "export", color: "0366d6")], assignees: ["mara"]
+        )
+    }
+
+    static var fixtureReviewPullRequest: Self? {
+        guard let pullRequest = Snapshot.reviewPullRequestFixture, let reference = ItemReference(url: pullRequest.url) else { return nil }
+
+        let state: State = switch pullRequest.state {
+        case .open: .open
+        case .draft: .draft
+        case .merged: .merged
+        case .closed: .closed
+        }
+        return Self(
+            kind: .pullRequest, repository: reference.repository, number: pullRequest.number, url: pullRequest.url,
+            title: pullRequest.title, state: state,
+            body: """
+            Add currency to the ledger export and cover reconciliation in the fixtures.
+
+            - Include `invoice.currency` on each row.
+            - Check that EUR settlements round to the correct minor unit.
+            """,
+            author: .init(login: "mara"), createdAt: .now - 86_400, updatedAt: .now - 1800,
+            reviewers: [
+                .init(login: "lee", state: .approved),
+                .init(login: "kim", state: .changesRequested),
+                .init(login: "sam", state: .requested),
+            ],
+            reviewDecision: .changesRequested,
+            checks: .init(items: [.init(name: "Build", outcome: .passed), .init(name: "Settlement replay", outcome: .failed), .init(name: "Unit tests", outcome: .running)]),
+            baseRefName: pullRequest.baseRefName, headRefName: pullRequest.headRefName,
+            related: pullRequest.closingIssues.map { .init(repository: $0.ref.repository, number: $0.ref.number, title: $0.title, isPullRequest: false, state: "OPEN") },
+            comments: [
+                .init(author: "kim", body: "Please cover totals less than one euro in the replay fixture.", createdAt: .now - 10_800),
+                .init(author: "mara", body: "Added a case for `0.01 EUR` and restarted the replay.", createdAt: .now - 1800),
+            ], commentCount: 2
+        )
+    }
+
     static let fixtureStartupIssue: Self = {
         let updated = Date.now.addingTimeInterval(-2 * 3600)
         return Self(

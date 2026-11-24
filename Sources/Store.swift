@@ -631,6 +631,8 @@ final class Store {
     }
 
     func refreshPullRequests() {
+        guard Snapshot.output == nil else { return }
+
         #if DEBUG
         guard !Snapshot.usesBusySidebar else { return }
 

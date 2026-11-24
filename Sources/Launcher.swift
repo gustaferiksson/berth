@@ -59,7 +59,6 @@ struct Launcher: View {
     @State private var isBrowsing = false
     @State private var missingCheckout: InboxPullRequest?
     @AppStorage(ProjectsModel.mineOnlyKey) private var mineOnly = false
-    @AppStorage(ProjectsModel.allowsEditingKey) private var allowsEditing = false
     @State private var missingProjectItem: ProjectItem?
     @State private var selectedIssue: InboxIssue?
     @State private var issueLookup: (reference: IssueReference, result: Result<[LinkedPullRequest], IssuePullRequests.LookupError>)?
@@ -928,14 +927,7 @@ struct Launcher: View {
         if let url = item.url {
             Button("Open on GitHub") { openOnGitHub(url) }
         }
-        if allowsEditing, let options = store.projects.boards[item.projectID]?.statusOptions, !options.isEmpty {
-            Menu("Move To Status") {
-                ForEach(options, id: \.id) { option in
-                    Button(option.name) { store.projects.move(item, to: option) }
-                        .disabled(option.id == item.statusOptionID)
-                }
-            }
-        }
+        ProjectMoveToStatusMenu(item: item)
     }
 
     private func open(_ item: ProjectItem) {

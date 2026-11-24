@@ -448,6 +448,12 @@ final class ReviewGitTests {
         #expect(try await git(checkout, "ls-files", "--stage") == index)
         #expect(try ReviewGit.workingTreeText("keep.txt", in: checkout.path) == .text("working copy\n"))
 
+        try await git(checkout, "update-ref", "-d", "refs/remotes/origin/release")
+        let refsWithoutRelease = try await git(checkout, "show-ref", "--head")
+        let fetchedBase = try await ReviewGit.pullRequestFiles(number: 7, repository: "acme/billing", base: "release", in: checkout.path)
+        #expect(fetchedBase.base == release && fetchedBase.files == [modified, renamed])
+        #expect(try await git(checkout, "show-ref", "--head") == refsWithoutRelease)
+
         let fallback = try await ReviewGit.pullRequestFiles(number: 7, repository: "acme/billing", base: "missing", in: checkout.path)
         #expect(fallback.base == fork && fallback.head == head)
         #expect(fallback.files.first?.additions == 2)
