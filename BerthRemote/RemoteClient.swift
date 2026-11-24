@@ -168,11 +168,11 @@ final class RemoteClient {
         let resets = Date.now.addingTimeInterval(3 * 3600)
         usage = PlanUsage(windows: [
             UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: resets),
-            UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.18, resetsAt: resets.addingTimeInterval(3 * 86_400)),
+            UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.81, resetsAt: resets.addingTimeInterval(3 * 86_400)),
         ])
         codexUsage = CodexUsage(usage: PlanUsage(windows: [
-            UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.67, resetsAt: resets),
-            UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.31, resetsAt: resets.addingTimeInterval(3 * 86_400)),
+            UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.18, resetsAt: resets),
+            UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.47, resetsAt: resets.addingTimeInterval(3 * 86_400)),
         ]), recordedAt: .now)
         if !UserDefaults.standard.bool(forKey: "snapshotDemoList") { openedSessionID = session.id }
     }
