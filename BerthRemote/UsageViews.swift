@@ -31,14 +31,14 @@ struct UsageCard: View {
                         .frame(width: 16, height: 16)
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
-                    VStack(spacing: 10) {
+                    VStack(spacing: 6) {
                         ForEach(group.windows.prefix(2)) { window in
                             HStack(spacing: 10) {
                                 Text(window.title)
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                                     .frame(width: 58, alignment: .leading)
-                                UsageTrack(window: window, now: timeline.date, height: 8)
+                                UsageTrack(window: window, now: timeline.date)
                                 Text("\(window.usedPercent)%")
                                     .font(.footnote)
                                     .monospacedDigit()
@@ -72,7 +72,6 @@ extension UsageGroup {
 struct UsageTrack: View {
     let window: UsageWindow
     let now: Date
-    let height: CGFloat
 
     @State private var width = 0.0
 
@@ -88,7 +87,7 @@ struct UsageTrack: View {
 
     private var fill: Color {
         switch window.severity(at: now) {
-        case .normal: .accentColor
+        case .normal: .primary.opacity(0.55)
         case .warning: .orange
         case .critical: .red
         }
@@ -97,7 +96,7 @@ struct UsageTrack: View {
     var body: some View {
         ZStack(alignment: .leading) {
             ZStack(alignment: .leading) {
-                Rectangle().fill(.quaternary)
+                Rectangle().fill(.primary.opacity(0.14))
                 Rectangle()
                     .fill(fill)
                     .frame(width: width * (isOvershootOnly ? window.pace(at: now) : window.used))
@@ -109,12 +108,14 @@ struct UsageTrack: View {
                 }
             }
             .clipShape(.capsule)
-            Capsule()
-                .fill(.primary)
-                .frame(width: 2, height: height + 6)
-                .offset(x: min(width * window.pace(at: now), width - 2))
+            if window.pace(at: now) > 0 {
+                Capsule()
+                    .fill(.primary)
+                    .frame(width: 1.5, height: 10)
+                    .offset(x: min(width * window.pace(at: now), width - 1.5))
+            }
         }
-        .frame(height: height + 6)
+        .frame(height: 10)
         .onGeometryChange(for: CGFloat.self, of: \.size.width) { width = $0 }
     }
 }
@@ -127,7 +128,7 @@ private struct UsageWindowSection: View {
 
     var body: some View {
         Section {
-            UsageTrack(window: window, now: now, height: 10)
+            UsageTrack(window: window, now: now)
                 .listRowSeparator(.hidden)
                 .accessibilityHidden(true)
             LabeledContent("Used", value: "\(window.usedPercent)%")
