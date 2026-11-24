@@ -318,7 +318,7 @@ final class RemoteClient {
     private func promptEntries(in sessionID: String) -> [RemoteEntry] {
         (entries[sessionID] ?? []).compactMap { entry in
             guard entry.kind == .prompt else { return nil }
-            guard let images = entry.images, !images.isEmpty, entry.text.firstMatch(of: PendingPrompts.imageToken) == nil else { return entry }
+            guard let images = entry.images, !images.isEmpty, entry.text.firstMatch(of: PromptTextPart.imageToken) == nil else { return entry }
 
             let tokens = (entry.imageNumbers ?? Array(1...images.count)).map { "[Image #\($0)]" }.joined(separator: " ")
             return RemoteEntry(id: entry.id, kind: .prompt, text: "\(tokens) \(entry.text)", name: entry.name, date: entry.date)

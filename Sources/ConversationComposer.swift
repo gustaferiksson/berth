@@ -192,12 +192,7 @@ private struct ConversationAttachmentTile: View {
         .clipShape(.rect(cornerRadius: radius))
         .overlay(alignment: .bottomLeading) {
             if let number {
-                Text(number, format: .number)
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.black.opacity(0.6), in: .capsule)
+                ConversationImageTag(number: number)
                     .padding(4)
             }
         }
