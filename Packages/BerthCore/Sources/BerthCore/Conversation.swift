@@ -270,7 +270,7 @@ public struct Turn: Identifiable, Sendable {
             if entry.kind == .toolResult, entry.name == "bash-output" {
                 guard let last = turns.indices.last, var prompt = turns[last].prompt, prompt.name == "bash" else { continue }
 
-                prompt.shellOutput = entry.text.isEmpty ? nil : entry.text
+                prompt.shellOutput = entry.text
                 prompt.shellError = entry.detail
                 turns[last].prompt = prompt
                 continue

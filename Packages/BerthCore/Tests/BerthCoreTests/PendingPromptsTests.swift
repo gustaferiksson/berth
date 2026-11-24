@@ -182,4 +182,36 @@ struct PendingPromptsTests {
 
         #expect(PendingPrompts.shown(kept, queued: afterPop.queue).isEmpty)
     }
+
+    @Test func showsASentShellCommandAsOneRunningRowThenOneCompletedRow() throws {
+        let pending = [PendingPrompt(text: "!git status", sentAt: sent)]
+        let input = #"{"type":"user","uuid":"shell","timestamp":"1970-01-01T00:16:41.000Z","message":{"role":"user","content":"<bash-input>git status</bash-input>"}}"#
+        let output = #"{"type":"user","uuid":"out","timestamp":"1970-01-01T00:16:42.000Z","message":{"role":"user","content":"<bash-stdout>clean</bash-stdout><bash-stderr></bash-stderr>"}}"#
+
+        func step(_ records: [String]) -> (pending: [PendingPrompt], turns: [Turn]) {
+            let entries = TranscriptTail.entries(in: Data((records.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: []).entries
+            return (PendingPrompts.reconcile(pending, entries: entries, queued: [], now: sent.addingTimeInterval(2)), Turn.turns(from: entries))
+        }
+
+        let sentOnly = PendingPrompts.reconcile(pending, entries: [], queued: [], now: sent.addingTimeInterval(1))
+        #expect(sentOnly.map(\.shellCommand) == ["git status"])
+
+        let running = step([input])
+        #expect(running.pending.isEmpty)
+        #expect(running.turns.count == 1)
+        let runningRow = try #require(running.turns.first?.prompt)
+        #expect(runningRow.name == "bash" && runningRow.text == "git status" && runningRow.shellOutput == nil)
+
+        let done = step([input, output])
+        #expect(done.pending.isEmpty)
+        let doneRow = try #require(done.turns.first?.prompt)
+        #expect(done.turns.count == 1 && doneRow.shellOutput == "clean")
+    }
+
+    @Test func keepsAShellCommandApartFromHumanPrompts() {
+        let pending = [PendingPrompt(text: "!ls", sentAt: sent)]
+        let human = RemoteEntry(id: "u1", kind: .prompt, text: "ls", date: sent.addingTimeInterval(1))
+
+        #expect(PendingPrompts.reconcile(pending, entries: [human], queued: [], now: sent.addingTimeInterval(2)) == pending)
+    }
 }
