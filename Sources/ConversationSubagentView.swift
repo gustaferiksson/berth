@@ -149,7 +149,7 @@ struct ConversationSubagentView: View {
                         )
                     }
                 }
-                .frame(maxWidth: 860, alignment: .leading)
+                .frame(maxWidth: theme.messageWidth, alignment: .leading)
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
