@@ -104,7 +104,7 @@ struct ConversationComposer: View {
                 }
                 .glassEffect(.regular, in: .rect(cornerRadius: controlSize / 2 + inset))
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-                .animation(.smooth(duration: 0.2), value: isExpanded)
+                .animation(isExpanded ? .smooth(duration: 0.2) : nil, value: isExpanded)
             }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
