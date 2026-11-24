@@ -96,6 +96,7 @@ struct SlimSessionRow: View {
                     HStack(spacing: 6) { actions }
                 }
             }
+            .frame(minWidth: 14, alignment: .trailing)
             .fixedSize()
         }
     }
@@ -105,15 +106,6 @@ struct SlimSessionRow: View {
             SlimRowButton(title: "Mark as Not Done", symbol: "arrow.uturn.backward") { store.unarchive(session.id) }
         } else {
             SlimRowButton(title: "Mark as Done", symbol: "checkmark") { store.archive(session.id) }
-            let isPinned = store.pinnedSessions.contains { $0.id == session.id }
-            SlimRowButton(title: isPinned ? "Unpin" : isSnoozed ? "Unsnooze and Pin" : "Pin", symbol: isPinned ? "pin.fill" : "pin") {
-                if isPinned {
-                    store.unpin(session.id)
-                } else {
-                    if isSnoozed { store.unsnooze(session.id) }
-                    store.pin(session.id)
-                }
-            }
         }
     }
 }
