@@ -43,15 +43,9 @@ struct SessionListView: View {
                     let usageGroups = client.usageGroups(at: .now)
                     if !usageGroups.isEmpty {
                         Section {
-                            VStack(spacing: 8) {
-                                ForEach(usageGroups) { group in
-                                    UsageCard(group: group) { isShowingUsage = true }
-                                        .padding(10)
-                                        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 14))
-                                }
+                            ForEach(usageGroups) { group in
+                                UsageCard(group: group) { isShowingUsage = true }
                             }
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets())
                         }
                     }
                 }
