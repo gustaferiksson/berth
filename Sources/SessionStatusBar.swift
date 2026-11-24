@@ -8,10 +8,10 @@ struct SessionStatusBar: View {
     let isShell: Bool
     let isWorking: Bool
     let isWaiting: Bool
+    let summary: ReviewBranchSummary?
 
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
-    @State private var summary: ReviewBranchSummary?
 
     var body: some View {
         let context = model.context
@@ -74,12 +74,6 @@ struct SessionStatusBar: View {
         .font(.caption)
         .padding(.horizontal, 16)
         .frame(height: 26)
-        .task(id: isWorking) {
-            while !Task.isCancelled {
-                summary = await ReviewGit.branchSummary(in: tab.folder)
-                try? await Task.sleep(for: .seconds(20))
-            }
-        }
     }
 
     private func cycle() {
