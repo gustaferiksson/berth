@@ -12,6 +12,8 @@ struct ConversationSettings: View {
     @AppStorage(ConversationTypography.codeSizeKey) private var codeSize = 0.0
     @AppStorage(ConversationTypography.widthKey) private var width = ConversationWidth.normal
 
+    @AppStorage(ConversationShellCompleter.enabledKey) private var completesShell = false
+    private let tine = TineStatus.shared
     private let families = NSFontManager.shared.availableFontFamilies
 
     var body: some View {
@@ -30,6 +32,12 @@ struct ConversationSettings: View {
                 Text("Experimental. The conversation view (⌥⌘J) shows a Claude session as a native transcript in place of the terminal. Claude keeps running in the terminal underneath, so switching back loses nothing.")
             }
             if isConversationEnabled {
+                Section {
+                    Toggle("Shell completions (tine)", isOn: $completesShell)
+                        .disabled(!tine.isAvailable)
+                } footer: {
+                    Text(tine.isUnsupported ? "Needs tine 0.1.48" : tine.isAvailable ? "Suggests commands, flags and paths while you type after \"!\". Tab accepts and Esc hides the list." : "Install and open tine to turn this on.")
+                }
                 Section("Text") {
                     Picker("Font", selection: $bodyFont) {
                         Text("System").tag(ConversationBodyFont.system)
@@ -75,7 +83,7 @@ struct ConversationSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: isConversationEnabled ? (bodyFont == .custom ? 720 : 670) : 230)
+        .frame(height: isConversationEnabled ? (bodyFont == .custom ? 810 : 760) : 230)
     }
 
     private func size(_ stored: Binding<Double>) -> Binding<Double> {

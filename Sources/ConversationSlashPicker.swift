@@ -67,52 +67,26 @@ struct ConversationSlashMenu: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let rowHeight = 32.0
-        let selected = matches.first { $0.name == picker.selectedName }?.name ?? matches.first?.name
-        let shape = RoundedRectangle(cornerRadius: 14)
-        let color = theme.chrome ?? Color(nsColor: .controlBackgroundColor)
-
-        ScrollViewReader { scroll in
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(matches, id: \.name) { command in
-                        Button {
-                            _ = picker.accept(command)
-                        } label: {
-                            HStack(spacing: 10) {
-                                Text(verbatim: command.name)
-                                    .font(.system(.callout, design: .monospaced).weight(.medium))
-                                    .foregroundStyle(theme.foreground)
-                                    .layoutPriority(1)
-                                Text(verbatim: command.summary)
-                                    .font(.callout)
-                                Spacer(minLength: 0)
-                                Text(verbatim: command.source)
-                                    .font(.caption)
-                            }
-                            .lineLimit(1)
-                            .foregroundStyle(theme.secondary)
-                            .padding(.horizontal, 10)
-                            .frame(height: rowHeight)
-                            .background(Color.accentColor.opacity(selected == command.name ? 0.15 : 0), in: .rect(cornerRadius: 8))
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(selected == command.name ? .isSelected : [])
-                        .help(command.argumentHint.map { "\(command.name) \($0)" } ?? command.summary)
-                    }
+        ConversationPickerMenu(
+            items: matches,
+            id: \.name,
+            selected: matches.first { $0.name == picker.selectedName }?.name,
+            label: "Slash commands",
+            help: { command in command.argumentHint.map { "\(command.name) \($0)" } ?? command.summary },
+            choose: { _ = picker.accept($0) },
+            row: { command in
+                HStack(spacing: 10) {
+                    Text(verbatim: command.name)
+                        .font(.system(.callout, design: .monospaced).weight(.medium))
+                        .foregroundStyle(theme.foreground)
+                        .layoutPriority(1)
+                    Text(verbatim: command.summary)
+                        .font(.callout)
+                    Spacer(minLength: 0)
+                    Text(verbatim: command.source)
+                        .font(.caption)
                 }
-                .padding(.horizontal, 4)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(height: rowHeight * Double(min(matches.count, 6)))
-            .onChange(of: selected) {
-                if let selected { scroll.scrollTo(selected) }
-            }
-        }
-        .padding(.vertical, 4)
-        .background(color.mix(with: .accentColor, by: 0.04), in: shape)
-        .overlay { shape.strokeBorder(theme.foreground.opacity(0.12)).allowsHitTesting(false) }
-        .accessibilityLabel("Slash commands")
+        )
     }
 }
