@@ -140,7 +140,16 @@ One JSON request line in, one response line out per connection (`ControlRequest`
 - `berth browser html [--tab <id>] [--selector <css>] [--json]` returns the formatted DOM for the document or the first matching element, with a truncation note at the 100000-character limit.
 - `berth browser snapshot [--tab <id>] [--json]` returns an accessibility-style outline with roles, names, values, states and refs that stay stable for the life of the page, with a truncation note at the 100000-character limit.
 
-Browser commands resolve the current Claude session the same way as `open-url` and only see tabs owned by that session. Pinned tabs and tabs owned by other sessions are excluded. `--tab` accepts a unique id prefix within that session. By default commands use the selected session browser tab or fall back to the last session browser tab. Screenshots, text, HTML and snapshots wait up to 15 seconds for navigation to finish. Interaction commands targeting snapshot refs and JavaScript evaluation are follow-ups.
+- `berth browser open [<url>] [--background] [--json]` shares the `open-url` path and can open a blank tab when the URL is omitted.
+- `berth browser click <target>`, `fill <target> <text>`, `type <text>`, `press <key>`, `select <target> <value>` and `hover <target>` send DOM events. Fill replaces the current value, type enters text at the caret, and select looks up an option by value and then by label.
+- `berth browser scroll (<target> | --to top|bottom | --by <px>)` scrolls an element into view or scrolls the page.
+- `berth browser wait (<selector> | --text <text> | --url <substring> | --load | --ms <n>) [--timeout <seconds>]` polls about every 100 ms across navigations. The default timeout is 10 seconds. The timeout error names the condition.
+- `berth browser back` and `berth browser forward` use the current tab’s history.
+- `berth browser eval <js>` runs an async function body in the page world and prints the JSON serialization of its return value. It returns `null` for `undefined` and errors when serialization fails or the result exceeds 100000 characters.
+
+Browser commands resolve the current Claude session the same way as `open-url` and only see tabs owned by that session. Pinned tabs and tabs owned by other sessions are excluded. `--tab <id>` accepts a unique id prefix within that session. By default commands use the selected session browser tab or fall back to the last session browser tab. The new commands accept `--json` and, except for `open`, `--tab <id>`. ControlService rechecks session ownership after asynchronous interaction steps.
+
+Targets are a snapshot ref such as `e12`, `text=<visible text>` (exact then partial, favoring interactive elements), or a CSS selector. Multiple matches use the first in document order and include a note. The interaction script shares the isolated `berth` WebKit world with snapshot refs and uses its native value setter for controlled inputs. Screenshots, text, HTML and snapshots wait up to 15 seconds for navigation to finish. Actions observe navigation for 300 ms, then wait up to 15 seconds for it to finish. The outcome includes the action, target, URL, title and whether the tab navigated.
 
 Agents use `show-pr` when the user asks to review or check out a PR in Berth. Use `open-session` for a separate working session when the user asks for one.
 

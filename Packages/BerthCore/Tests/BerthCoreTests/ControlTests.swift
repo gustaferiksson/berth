@@ -223,7 +223,68 @@ struct ControlTests {
         }
     }
 
+    @Test func browserInteractionsParseTheirOptions() throws {
+        let environment = ControlEnvironment.variables(socketPath: "/tmp/control.sock", token: "tok", tab: "me")
+        func parse(_ arguments: [String]) throws -> ControlCommand.Invocation {
+            try ControlCommand.parse(["browser"] + arguments, environment: environment, currentDirectory: "/")
+        }
+
+        let blank = try parse(["open", "--background", "--json"])
+        #expect(blank.request == ControlRequest(token: "tok", caller: "me", operation: .browserOpen, background: true))
+        #expect(blank.json)
+        let opened = try parse(["open", "http://localhost:3000"])
+        #expect(opened.request == ControlRequest(token: "tok", caller: "me", operation: .browserOpen, url: "http://localhost:3000"))
+
+        let actions: [([String], ControlOp, String?, String?)] = [
+            (["click", "e12"], .browserClick, "e12", nil),
+            (["fill", "#name", "Ada Lovelace"], .browserFill, "#name", "Ada Lovelace"),
+            (["type", "Ada"], .browserType, nil, "Ada"),
+            (["press", "Shift+Tab"], .browserPress, nil, "Shift+Tab"),
+            (["select", "select", ""], .browserSelect, "select", ""),
+            (["hover", "text=More info"], .browserHover, "text=More info", nil),
+            (["scroll", "#footer"], .browserScroll, "#footer", nil),
+            (["back"], .browserBack, nil, nil),
+            (["forward"], .browserForward, nil, nil),
+            (["eval", "return document.title"], .browserEval, nil, "return document.title"),
+        ]
+        for (arguments, operation, target, text) in actions {
+            let invocation = try parse(arguments + ["--tab", "abcd", "--json"])
+            #expect(invocation.request == ControlRequest(token: "tok", caller: "me", operation: operation, tab: "abcd", text: text, target: target))
+            #expect(invocation.json)
+        }
+
+        #expect(try parse(["scroll", "--to", "bottom"]).request.scrollTo == "bottom")
+        #expect(try parse(["scroll", "--by", "-125"]).request.scrollBy == -125)
+        #expect(try parse(["fill", "--", "#name", "--literal"]).request.text == "--literal")
+        #expect(try parse(["wait", "#ready"]).request.selector == "#ready")
+        #expect(try parse(["wait", "--text", "Done"]).request.text == "Done")
+        #expect(try parse(["wait", "--url", "/done"]).request.url == "/done")
+        #expect(try parse(["wait", "--load"]).request.load == true)
+        let wait = try parse(["wait", "--ms", "125", "--timeout", "0.5", "--tab", "abcd", "--json"])
+        #expect(wait.request == ControlRequest(token: "tok", caller: "me", operation: .browserWait, tab: "abcd", timeout: 0.5, milliseconds: 125))
+        #expect(wait.json)
+        #expect(try JSONDecoder().decode(ControlRequest.self, from: JSONEncoder().encode(wait.request)) == wait.request)
+    }
+
+    @Test func browserInteractionsRejectInvalidArguments() {
+        let environment = ControlEnvironment.variables(socketPath: "/tmp/control.sock", token: "tok", tab: "me")
+        let bad = [
+            ["open", "--tab", "abcd"], ["open", "file:///tmp/page"], ["open", "https://example.com", "https://example.org"],
+            ["click"], ["fill", "e7"], ["type"], ["press"], ["select", "select"], ["hover"],
+            ["scroll"], ["scroll", "#target", "--to", "top"], ["scroll", "--to", "bottom", "--by", "20"], ["scroll", "--to", "left"], ["scroll", "--by", "abc"],
+            ["wait"], ["wait", "main", "--text", "Ready"], ["wait", "--url", "/home", "--load"], ["wait", "--load", "--load"],
+            ["wait", "--ms"], ["wait", "--ms", "-1"], ["wait", "--ms", "0.1"],
+            ["wait", "--load", "--timeout"], ["wait", "--load", "--timeout", "-1"], ["wait", "--load", "--timeout", "inf"],
+            ["back", "extra"], ["forward", "extra"], ["eval"],
+        ]
+        for arguments in bad {
+            #expect(throws: ControlCommand.UsageError.self) { try ControlCommand.parse(["browser"] + arguments, environment: environment, currentDirectory: "/") }
+        }
+    }
+
     @Test func browserRepliesRenderTabsConsoleAndPageText() {
+        let outcome = #"{"action":"click","target":"button \"Save\"","url":"http://localhost:3000","title":"Preview","navigated":false}"#
+        #expect(ControlCommand.render(ControlResponse(text: outcome), json: false) == outcome)
         let tabs = [
             ControlBrowserTab(id: "abcd1234", title: "Preview", url: "http://localhost:3000", loading: true, active: true),
             ControlBrowserTab(id: "abcd5678", title: "New Tab", url: nil, loading: false, active: false),
@@ -319,6 +380,10 @@ struct ControlTests {
         #expect(ControlInstall.skill.contains(showSyntax))
         #expect(ControlInstall.skill.contains("If the user asks for a separate working session"))
         #expect(ControlInstall.hookCommand.contains("berth show-pr"))
+        #expect(ControlInstall.hookCommand.hasPrefix(#"[ -z "$BERTH_TAB_ID" ] || printf '"#))
+        #expect(!ControlInstall.hookCommand.contains("\n"))
+        #expect(ControlInstall.hookCommand.count(where: { $0 == "%" }) == 1 && ControlInstall.hookCommand.contains("%s"))
+        #expect(ControlInstall.hookCommand.count(where: { $0 == "'" }) == 2)
         #expect(ControlInstall.skill.contains(#"berth open-session --cwd <worktree> --background -- "<prompt>""#))
     }
 

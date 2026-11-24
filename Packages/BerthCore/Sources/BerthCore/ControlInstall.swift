@@ -5,12 +5,12 @@ public enum ControlInstall {
         public let message: String
     }
 
-    public static let hookCommand = #"[ -z "$BERTH_TAB_ID" ] || printf 'You are running inside Berth, tab %s. Use berth show-pr to show a GitHub PR in Review. Use berth open-url to open the dev server and berth browser snapshot to read the page. Browser commands see only the current session tabs and omit pinned tabs. See the berth skill for command syntax.\n' "$BERTH_TAB_ID""#
+    public static let hookCommand = #"[ -z "$BERTH_TAB_ID" ] || printf 'You are running inside Berth, tab %s. Use berth show-pr to show a GitHub PR in Review. Use berth browser open to open the dev server and berth browser snapshot to find elements to interact with. Browser commands see only the current session tabs and omit pinned tabs. See the berth skill for command syntax.\n' "$BERTH_TAB_ID""#
 
     public static let skill = """
     ---
     name: berth
-    description: Drive the Berth workspace this session runs in. Show a GitHub PR in Review or a folder in Berth, open and inspect web pages in the current session’s Browser pane, open Claude sessions, or run and manage dev servers and tests in background terminal tabs. Only applies when BERTH_TAB_ID is set.
+    description: Drive the Berth workspace this session runs in. Show a GitHub PR in Review or a folder in Berth, open and interact with pages in the current session’s Browser pane, open Claude sessions, or run and manage dev servers and tests in background terminal tabs. Only applies when BERTH_TAB_ID is set.
     ---
 
     # Berth
@@ -31,6 +31,18 @@ public enum ControlInstall {
     - `berth browser text [--tab <id>] [--json]` prints the page’s visible text, capped at 100000 characters.
     - `berth browser html [--tab <id>] [--selector <css>] [--json]` prints the formatted DOM for the page or the first matching element, capped at 100000 characters.
     - `berth browser snapshot [--tab <id>] [--json]` prints an accessibility-style outline with roles, names, states and element refs, capped at 100000 characters.
+    - `berth browser open [<url>] [--background] [--json]` opens an http or https URL like `berth open-url`. Omit the URL to open a blank tab and show the Browser pane. Use `--background` to keep the current pane and tab selected.
+    - `berth browser click <target> [--tab <id>] [--json]` clicks an element.
+    - `berth browser fill <target> <text> [--tab <id>] [--json]` replaces an editable element’s value.
+    - `berth browser type <text> [--tab <id>] [--json]` types into the focused element.
+    - `berth browser press <key> [--tab <id>] [--json]` sends Enter, Tab, Escape, Backspace, Delete, Space, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp, PageDown or a single character. Join modifiers with `+`, as in `Shift+Tab`, `Control+a`, `Meta+Enter` or `Alt+ArrowLeft`.
+    - `berth browser select <target> <value> [--tab <id>] [--json]` selects an option by value, falling back to its label.
+    - `berth browser hover <target> [--tab <id>] [--json]` sends pointer and mouse hover events.
+    - `berth browser scroll (<target> | --to top|bottom | --by <px>) [--tab <id>] [--json]` scrolls an element into view or scrolls the page to an edge or by a signed pixel offset. Choose one mode.
+    - `berth browser wait (<selector> | --text <text> | --url <substring> | --load | --ms <n>) [--timeout <seconds>] [--tab <id>] [--json]` waits for a visible CSS match, visible page text, a URL substring, page load or a duration in milliseconds. Choose one condition. The timeout defaults to 10 seconds.
+    - `berth browser back [--tab <id>] [--json]` goes back in the tab’s history.
+    - `berth browser forward [--tab <id>] [--json]` goes forward in the tab’s history.
+    - `berth browser eval <js> [--tab <id>] [--json]` runs an async JavaScript body in the page for cases the other commands do not cover. Use `return` to return a JSON value, for example `return document.title`. Results are limited to 100000 characters.
     - `berth show-pr <number|url> [--repo <path>] [--json]` expands a GitHub pull request in the current session’s Review panel and opens its first changed file. A number uses the origin of your current repo or `--repo`. For a URL such as `https://github.com/acme/api/pull/42`, Berth looks for a matching local clone. Use `--repo` if the clone is elsewhere.
     - `berth send <tab> <text> [--no-enter]`: types text into a tab you opened and presses Return.
     - `berth capture <tab>`: prints the tab's recent output. Works only for tabs running behind Berth's session host ("Keep sessions running when Berth quits" on); otherwise it reports that capture is unsupported.
@@ -39,7 +51,11 @@ public enum ControlInstall {
 
     When the user asks to review or check out a PR in Berth, use `berth show-pr` to show it in their current tab. If the user asks for a separate working session, open it with `berth open-session --cwd <worktree> --background -- "<prompt>"` so each session shows in the sidebar.
 
-    Open the dev server with `berth open-url`, read the page with `berth browser snapshot` (refs like `e12`), and check results with `berth browser screenshot`, `berth browser console` or `berth browser text`. Browser commands see only the current session’s tabs and omit pinned tabs. `--tab` accepts a unique id prefix. When omitted, Berth uses the selected session tab or falls back to the last session tab.
+    Run `berth browser open <dev server url>`, then `berth browser snapshot`. Act on the refs it reports with commands such as `berth browser click e12` or `berth browser fill e7 "text"`. Check the result with `berth browser screenshot` or `berth browser console`.
+
+    Targets accept a snapshot ref such as `e12`, `text=<visible text>` or a CSS selector. Text targets prefer exact matches, then partial matches, and favor interactive elements. Take a new snapshot if a ref is stale. When multiple elements match, the outcome reports that Berth used the first in document order.
+
+    Browser commands see only the current session’s tabs and omit pinned tabs. `--tab` accepts a unique id prefix. When omitted, Berth uses the selected session tab or falls back to the last session tab.
 
     You can only send to and close terminal and session tabs you opened. Close them when you are done with them. Output of a command that has exited is gone, so redirect it to a file if you need it.
     """

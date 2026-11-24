@@ -6,6 +6,9 @@ public enum ControlOp: String, Codable, Sendable {
     case browserTabs = "browser-tabs", browserScreenshot = "browser-screenshot", browserConsole = "browser-console", browserURL = "browser-url"
     case browserReload = "browser-reload", browserNavigate = "browser-navigate", browserText = "browser-text"
     case browserHTML = "browser-html", browserSnapshot = "browser-snapshot"
+    case browserOpen = "browser-open", browserClick = "browser-click", browserFill = "browser-fill", browserType = "browser-type", browserPress = "browser-press"
+    case browserSelect = "browser-select", browserHover = "browser-hover", browserScroll = "browser-scroll", browserWait = "browser-wait"
+    case browserBack = "browser-back", browserForward = "browser-forward", browserEval = "browser-eval"
 
     public var isBrowser: Bool { rawValue.hasPrefix("browser-") }
 }
@@ -29,8 +32,13 @@ public struct ControlRequest: Codable, Equatable, Sendable {
     public var fullPage: Bool?
     public var since: Int?
     public var selector: String?
+    public var target: String?
+    public var scrollTo: String?
+    public var scrollBy: Int?
+    public var milliseconds: Int?
+    public var load: Bool?
 
-    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil, pullRequest: Int? = nil, repository: String? = nil, repositoryPath: String? = nil, url: String? = nil, fullPage: Bool? = nil, since: Int? = nil, selector: String? = nil) {
+    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil, pullRequest: Int? = nil, repository: String? = nil, repositoryPath: String? = nil, url: String? = nil, fullPage: Bool? = nil, since: Int? = nil, selector: String? = nil, target: String? = nil, scrollTo: String? = nil, scrollBy: Int? = nil, milliseconds: Int? = nil, load: Bool? = nil) {
         self.token = token
         self.caller = caller
         self.operation = operation
@@ -49,6 +57,11 @@ public struct ControlRequest: Codable, Equatable, Sendable {
         self.fullPage = fullPage
         self.since = since
         self.selector = selector
+        self.target = target
+        self.scrollTo = scrollTo
+        self.scrollBy = scrollBy
+        self.milliseconds = milliseconds
+        self.load = load
     }
 }
 

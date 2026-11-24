@@ -1,6 +1,7 @@
 import BerthCore
 import Foundation
 import GhosttyTerminal
+import WebKit
 
 @Observable
 final class ControlService {
@@ -10,6 +11,7 @@ final class ControlService {
 
     private static let exitsDirectory = directory + "/exits"
     private static let noBrowserSession = "Only a Claude session tab, or a terminal it opened, has a browser"
+    private static let browserTabLeftSession = "The browser tab is no longer in this session"
 
     private(set) var failure: String?
     @ObservationIgnored private unowned let store: Store
@@ -64,7 +66,7 @@ final class ControlService {
 
         if request.operation == .openPath { return openPath(request, for: caller) }
 
-        if request.operation == .openURL { return openURL(request, for: caller) }
+        if request.operation == .openURL || request.operation == .browserOpen { return openURL(request, for: caller) }
 
         if request.operation.isBrowser { return await browser(request, for: caller) }
 
@@ -169,7 +171,8 @@ final class ControlService {
     }
 
     private func openURL(_ request: ControlRequest, for caller: UUID) -> ControlResponse {
-        guard let url = request.url.flatMap(URL.init(string:)), WebAddress.allows(url) else { return .failure("Pass one http or https URL") }
+        let url = request.url.flatMap(URL.init(string:))
+        guard url.map(WebAddress.allows) == true || (request.operation == .browserOpen && request.url == nil) else { return .failure("Pass one http or https URL") }
         guard let session = browserSession(for: caller) else { return .failure(Self.noBrowserSession) }
 
         store.browser.open(url, in: BrowserModel.key(of: session), selects: request.background != true)
@@ -177,7 +180,7 @@ final class ControlService {
             store.activate(.tab(session.id))
             store.showBrowserPane()
         }
-        return ControlResponse(text: "Opened \(url.absoluteString) in the session’s browser")
+        return ControlResponse(text: "Opened \(url?.absoluteString ?? "a blank tab") in the session’s browser")
     }
 
     private func browserSession(for caller: UUID) -> Tab? {
@@ -237,7 +240,7 @@ final class ControlService {
                 default: .text
                 }
                 let text = try await tab.pageContent(content)
-                guard browserSessionContains(tab, session: session.id, caller: caller) else { return .failure("The browser tab is no longer in this session") }
+                guard browserSessionContains(tab, session: session.id, caller: caller) else { return .failure(Self.browserTabLeftSession) }
 
                 return ControlResponse(text: text)
             } catch {
@@ -249,7 +252,7 @@ final class ControlService {
 
             do {
                 let png = try await tab.screenshot(fullPage: request.fullPage == true, fallbackSize: store.browser.lastPaneSize)
-                guard browserSessionContains(tab, session: session.id, caller: caller) else { return .failure("The browser tab is no longer in this session") }
+                guard browserSessionContains(tab, session: session.id, caller: caller) else { return .failure(Self.browserTabLeftSession) }
 
                 try png.write(to: URL(filePath: path), options: .atomic)
                 return ControlResponse(text: path)
@@ -257,7 +260,121 @@ final class ControlService {
                 return .failure(error.localizedDescription)
             }
 
+        case .browserClick, .browserFill, .browserType, .browserPress, .browserSelect, .browserHover, .browserScroll, .browserWait, .browserBack, .browserForward, .browserEval:
+            let response = await interact(request, with: tab) { self.browserSessionContains(tab, session: session.id, caller: caller) }
+            guard browserSessionContains(tab, session: session.id, caller: caller) else { return .failure(Self.browserTabLeftSession) }
+
+            return response
+
         default: return .failure("Unknown browser operation")
+        }
+    }
+
+    private func interact(_ request: ControlRequest, with tab: BrowserTab, isInSession: @escaping () -> Bool) async -> ControlResponse {
+        let view = tab.webView
+        if view.window == nil, view.frame.isEmpty { view.setFrameSize(store.browser.lastPaneSize) }
+
+        let canUseView = { isInSession() && view === tab.loadedWebView }
+        let action = String(request.operation.rawValue.dropFirst("browser-".count))
+        if request.operation == .browserWait {
+            let response = await waitForPage(request, in: tab, view: view, canUseView: canUseView)
+            return canUseView() ? response : .failure(Self.browserTabLeftSession)
+        }
+
+        await tab.waitForNavigation(in: view)
+        guard canUseView() else { return .failure(Self.browserTabLeftSession) }
+
+        let url = view.url
+        let historyItem = view.backForwardList.currentItem
+        let sequence = tab.navigationSequence
+        do {
+            if request.operation == .browserEval {
+                guard let script = request.text else { return .failure("Missing JavaScript body") }
+
+                let value = try await BrowserInteraction.evaluate(script, in: view)
+                guard canUseView() else { return .failure(Self.browserTabLeftSession) }
+
+                return ControlResponse(text: value)
+            }
+            let target: String?
+            let notes: [String]?
+            switch request.operation {
+            case .browserBack, .browserForward:
+                let back = request.operation == .browserBack
+                guard back ? view.canGoBack : view.canGoForward else { return .failure("No page to go \(action) to") }
+
+                _ = back ? view.goBack() : view.goForward()
+
+                target = nil
+                notes = nil
+
+            default:
+                let result = try await BrowserInteraction.perform(action, request: request, in: view)
+                guard canUseView() else { return .failure(Self.browserTabLeftSession) }
+
+                target = result.target
+                notes = result.notes
+            }
+            try await Task.sleep(for: .milliseconds(300))
+            guard canUseView() else { return .failure(Self.browserTabLeftSession) }
+
+            let navigating = tab.isNavigating
+            if navigating {
+                await tab.waitForNavigation(in: view)
+                guard canUseView() else { return .failure(Self.browserTabLeftSession) }
+            }
+            let navigated = navigating || tab.navigationSequence != sequence || view.url != url || view.backForwardList.currentItem !== historyItem
+            return try BrowserInteraction.outcome(action, target: target, in: view, navigated: navigated, notes: notes)
+        } catch {
+            guard canUseView() else { return .failure(Self.browserTabLeftSession) }
+
+            return .failure(error.localizedDescription)
+        }
+    }
+
+    private func waitForPage(_ request: ControlRequest, in tab: BrowserTab, view: WKWebView, canUseView: () -> Bool) async -> ControlResponse {
+        guard let condition = BrowserInteraction.Wait(request) else { return .failure("Pass one browser wait condition") }
+
+        let url = view.url
+        let sequence = tab.navigationSequence
+        let start = ProcessInfo.processInfo.systemUptime
+        let timeout = request.timeout ?? 10
+        guard timeout.isFinite, timeout >= 0 else { return .failure("Pass a nonnegative timeout in seconds") }
+
+        do {
+            while true {
+                let matched: Bool
+                switch condition {
+                case let .milliseconds(milliseconds):
+                    matched = ProcessInfo.processInfo.systemUptime - start >= Double(milliseconds) / 1000 && Double(milliseconds) / 1000 <= timeout
+
+                case let .url(substring):
+                    matched = view.url?.absoluteString.contains(substring) ?? (!tab.isNavigating && "about:blank".contains(substring))
+
+                case .load where tab.isNavigating: matched = false
+
+                default:
+                    matched = try await condition.matches(in: view, navigating: { tab.isNavigating })
+                    guard canUseView() else { return .failure(Self.browserTabLeftSession) }
+                }
+                if matched {
+                    return try BrowserInteraction.outcome("wait", target: condition.description, in: view, navigated: tab.navigationSequence != sequence || view.url != url)
+                }
+                let remaining = timeout - (ProcessInfo.processInfo.systemUptime - start)
+                guard remaining > 0 else { return .failure("Timed out waiting for \(condition.description)") }
+
+                let delay = if case let .milliseconds(milliseconds) = condition {
+                    min(0.1, remaining, max(0, Double(milliseconds) / 1000 - (ProcessInfo.processInfo.systemUptime - start)))
+                } else {
+                    min(0.1, remaining)
+                }
+                try await Task.sleep(for: .seconds(delay))
+                guard canUseView() else { return .failure(Self.browserTabLeftSession) }
+            }
+        } catch {
+            guard canUseView() else { return .failure(Self.browserTabLeftSession) }
+
+            return .failure(error.localizedDescription)
         }
     }
 

@@ -16,6 +16,18 @@ public enum ControlCommand {
            berth browser text [--tab <id>] [--json]
            berth browser html [--tab <id>] [--selector <css>] [--json]
            berth browser snapshot [--tab <id>] [--json]
+           berth browser open [<url>] [--background] [--json]
+           berth browser click <target> [--tab <id>] [--json]
+           berth browser fill <target> <text> [--tab <id>] [--json]
+           berth browser type <text> [--tab <id>] [--json]
+           berth browser press <key> [--tab <id>] [--json]
+           berth browser select <target> <value> [--tab <id>] [--json]
+           berth browser hover <target> [--tab <id>] [--json]
+           berth browser scroll (<target> | --to top|bottom | --by <px>) [--tab <id>] [--json]
+           berth browser wait (<selector> | --text <text> | --url <substring> | --load | --ms <n>) [--timeout <seconds>] [--tab <id>] [--json]
+           berth browser back [--tab <id>] [--json]
+           berth browser forward [--tab <id>] [--json]
+           berth browser eval <js> [--tab <id>] [--json]
            berth show-pr <number|url> [--repo <path>] [--json]
            berth send <tab> <text> [--no-enter]
            berth capture <tab>
@@ -54,7 +66,7 @@ public enum ControlCommand {
             operation = command
         }
 
-        let opensTab = operation == .open || operation == .openSession || operation == .openPath || operation == .openURL
+        let opensTab = operation == .open || operation == .openSession || operation == .openPath || operation == .openURL || operation == .browserOpen
         var request = ControlRequest(token: token, caller: caller, operation: operation)
         var json = false
         var follow = false
@@ -69,7 +81,7 @@ public enum ControlCommand {
 
             case "--background" where opensTab: request.background = true
 
-            case "--tab" where operation.isBrowser && operation != .browserTabs:
+            case "--tab" where operation.isBrowser && operation != .browserTabs && operation != .browserOpen:
                 guard let id = rest.first, !id.isEmpty, !id.hasPrefix("--") else { throw UsageError(message: "--tab needs a browser tab id") }
 
                 request.tab = id
@@ -109,10 +121,50 @@ public enum ControlCommand {
                 rest.removeFirst()
                 request.repositoryPath = URL(filePath: folder, relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
 
-            case "--timeout" where operation == .wait:
-                guard !rest.isEmpty, let seconds = Double(rest.removeFirst()), seconds >= 0 else { throw UsageError(message: "--timeout needs a number of seconds") }
+            case "--timeout" where operation == .wait || operation == .browserWait:
+                guard !rest.isEmpty, let seconds = Double(rest.removeFirst()), seconds.isFinite, seconds >= 0 else { throw UsageError(message: "--timeout needs a nonnegative number of seconds") }
 
                 request.timeout = seconds
+
+            case "--to" where operation == .browserScroll:
+                guard request.scrollTo == nil, let edge = rest.first, ["top", "bottom"].contains(edge) else { throw UsageError(message: "--to needs one of top or bottom") }
+
+                request.scrollTo = edge
+                rest.removeFirst()
+
+            case "--by" where operation == .browserScroll:
+                guard request.scrollBy == nil, let value = rest.first, let pixels = Int(value) else { throw UsageError(message: "--by needs one integer pixel offset") }
+
+                request.scrollBy = pixels
+                rest.removeFirst()
+
+            case let option where operation == .browserWait && ["--text", "--url"].contains(option):
+                guard let value = rest.first, !value.isEmpty, !value.hasPrefix("--") else { throw UsageError(message: "\(argument) needs a value") }
+                guard request.text == nil, request.url == nil else { throw UsageError(message: usage) }
+
+                if argument == "--text" {
+                    request.text = value
+                } else {
+                    request.url = value
+                }
+                rest.removeFirst()
+
+            case "--load" where operation == .browserWait:
+                guard request.load == nil else { throw UsageError(message: usage) }
+
+                request.load = true
+
+            case "--ms" where operation == .browserWait:
+                guard request.milliseconds == nil, let value = rest.first, let milliseconds = Int(value), milliseconds >= 0 else {
+                    throw UsageError(message: "--ms needs one nonnegative integer number of milliseconds")
+                }
+
+                request.milliseconds = milliseconds
+                rest.removeFirst()
+
+            case "--" where operation.isBrowser && operation != .browserOpen:
+                positional += rest
+                rest = []
 
             case "--" where operation == .open:
                 positional += rest
@@ -128,8 +180,13 @@ public enum ControlCommand {
                 positional.append(argument)
             }
         }
-        switch operation {
-        case .list, .openSession, .browserTabs, .browserConsole, .browserURL, .browserReload, .browserText, .browserHTML, .browserSnapshot:
+        try applyPositionals(positional, to: &request, currentDirectory: currentDirectory)
+        return Invocation(request: request, socketPath: socketPath, json: json, follow: follow)
+    }
+
+    private static func applyPositionals(_ positional: [String], to request: inout ControlRequest, currentDirectory: String) throws {
+        switch request.operation {
+        case .list, .openSession, .browserTabs, .browserConsole, .browserURL, .browserReload, .browserText, .browserHTML, .browserSnapshot, .browserBack, .browserForward:
             guard positional.isEmpty else { throw UsageError(message: usage) }
 
         case .browserScreenshot:
@@ -153,10 +210,42 @@ public enum ControlCommand {
 
             request.path = URL(filePath: positional[0], relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
 
-        case .openURL, .browserNavigate:
+        case .browserOpen where positional.isEmpty: break
+
+        case .openURL, .browserOpen, .browserNavigate:
             guard positional.count == 1, let url = URL(string: positional[0]), WebAddress.allows(url) else { throw UsageError(message: "Pass one http or https URL") }
 
             request.url = url.absoluteString
+
+        case .browserClick, .browserHover:
+            guard positional.count == 1, let target = positional.first, !target.isEmpty else { throw UsageError(message: usage) }
+
+            request.target = target
+
+        case .browserFill, .browserSelect:
+            guard positional.count == 2, !positional[0].isEmpty else { throw UsageError(message: usage) }
+
+            request.target = positional[0]
+            request.text = positional[1]
+
+        case .browserType, .browserPress, .browserEval:
+            guard positional.count == 1, request.operation != .browserPress || !positional[0].isEmpty else { throw UsageError(message: usage) }
+
+            request.text = positional[0]
+
+        case .browserScroll:
+            let modes = [request.scrollTo != nil, request.scrollBy != nil]
+            guard positional.count + modes.count(where: { $0 }) == 1, positional.first?.isEmpty != true else {
+                throw UsageError(message: usage)
+            }
+
+            request.target = positional.first
+
+        case .browserWait:
+            let conditions = [request.text != nil, request.url != nil, request.load == true, request.milliseconds != nil]
+            guard positional.count + conditions.count(where: { $0 }) == 1, positional.first?.isEmpty != true else { throw UsageError(message: usage) }
+
+            request.selector = positional.first
 
         case .showPullRequest:
             guard positional.count == 1, let target = positional.first else { throw UsageError(message: usage) }
@@ -175,7 +264,6 @@ public enum ControlCommand {
 
             request.tab = positional[0]
         }
-        return Invocation(request: request, socketPath: socketPath, json: json, follow: follow)
     }
 
     public static func render(_ response: ControlResponse, json: Bool) -> String {
