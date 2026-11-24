@@ -23,7 +23,6 @@ public struct PendingPrompt: Equatable, Sendable {
 public enum PendingPrompts {
     public static let grace: TimeInterval = 10
     public static var uploadPath: Regex<(Substring, Substring)> { /@\S*\/RemoteUploads\/[0-9A-Fa-f-]{36}\/(\S+)/ }
-    public static var imageToken: Regex<Substring> { /\[Image #\d+\]/ }
 
     public static func reconcile(_ pending: [PendingPrompt], entries: [RemoteEntry], queued: [String], now: Date) -> [PendingPrompt] {
         let sendOrder = pending.indices.filter { !pending[$0].isFailed }.sorted { pending[$0].sentAt < pending[$1].sentAt }
@@ -105,16 +104,15 @@ public enum PendingPrompts {
 
     private static func matches(_ entryText: String, text: String, attachmentCount: Int) -> Bool {
         let uploadPath = Self.uploadPath
-        let imageToken = Self.imageToken
         let uploads = entryText.matches(of: uploadPath)
-        let images = entryText.matches(of: imageToken)
+        let images = entryText.matches(of: PromptTextPart.imageToken)
         guard uploads.count + images.count == attachmentCount else { return false }
 
         return normalised(entryText) == text
     }
 
     static func normalised(_ text: String) -> String {
-        text.replacing(uploadPath, with: "").replacing(imageToken, with: "").replacing(/<[^>]*>/, with: " ")
+        text.replacing(uploadPath, with: "").replacing(PromptTextPart.imageToken, with: "").replacing(/<[^>]*>/, with: " ")
             .split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 }

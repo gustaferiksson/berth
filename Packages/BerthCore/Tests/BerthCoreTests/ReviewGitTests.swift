@@ -400,6 +400,65 @@ final class ReviewGitTests {
         #expect(changes.uncommitted.map(\.path) == ["keep.txt"])
     }
 
+    @Test func pullRequestFilesUseItsMergeBaseWithoutUpdatingTheCheckout() async throws {
+        let producer = try await repo("producer")
+        let fork = try await git(producer, "rev-parse", "HEAD")
+        try await git(producer, "checkout", "--quiet", "-b", "release")
+        try write(producer, "keep.txt", "one\ntwo\nrelease\n")
+        try await git(producer, "commit", "--quiet", "-am", "Release base")
+        let release = try await git(producer, "rev-parse", "HEAD")
+        try await git(producer, "checkout", "--quiet", "-b", "pr-fixture")
+        try write(producer, "keep.txt", "one\ntwo\nrelease\nproposed\n")
+        try await git(producer, "mv", "old.txt", "renamed.txt")
+        try await git(producer, "commit", "--quiet", "-am", "Proposed changes")
+        let head = try await git(producer, "rev-parse", "HEAD")
+        try await git(producer, "checkout", "--quiet", "main")
+        try write(producer, "keep.txt", "one\ntwo\nmain\n")
+        try await git(producer, "commit", "--quiet", "-am", "Main advances")
+
+        let origin = root.appending(path: "Acme/Billing.git")
+        try FileManager.default.createDirectory(at: origin.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try await git(root, "clone", "--quiet", "--bare", producer.path, origin.path)
+        try await git(origin, "update-ref", "refs/pull/7/head", head)
+        try await git(origin, "branch", "-D", "pr-fixture")
+        let checkout = root.appending(path: "checkout")
+        try await git(root, "clone", "--quiet", "--no-local", origin.path, checkout.path)
+        let github = "https://github.com/Acme/Billing.git"
+        try await git(checkout, "config", "remote.origin.url", github)
+        try await git(checkout, "config", "url.\(origin.path).insteadOf", github)
+        try await git(checkout, "config", "--add", "remote.origin.fetch", "+refs/pull/*:refs/remotes/origin/pull/*")
+        try write(checkout, "keep.txt", "staged\n")
+        try await git(checkout, "add", "keep.txt")
+        try write(checkout, "keep.txt", "working copy\n")
+        let changes = try await ReviewGit.changes(in: checkout.path)
+        let refs = try await git(checkout, "show-ref", "--head")
+        let index = try await git(checkout, "ls-files", "--stage")
+
+        let result = try await ReviewGit.pullRequestFiles(number: 7, repository: "acme/billing", base: "release", in: checkout.path)
+        let modified = ReviewFile(path: "keep.txt", oldPath: nil, status: .modified, additions: 1, deletions: 0)
+        let renamed = ReviewFile(path: "renamed.txt", oldPath: "old.txt", status: .renamed, additions: 0, deletions: 0)
+        #expect(result.base == release && result.head == head)
+        #expect(result.files == [modified, renamed])
+        let compare = ReviewCompare.range(base: result.base, head: result.head)
+        #expect(compare.isHistorical)
+        #expect(try await ReviewGit.contents(of: modified, compare: compare, in: changes) == ReviewContents(original: .text("one\ntwo\nrelease\n"), modified: .text("one\ntwo\nrelease\nproposed\n")))
+        let renamedText = ReviewText.text("a\nb\nc\nd\ne\nf\n")
+        #expect(try await ReviewGit.contents(of: renamed, compare: compare, in: changes) == ReviewContents(original: renamedText, modified: renamedText))
+        #expect(try await git(checkout, "show-ref", "--head") == refs)
+        #expect(try await git(checkout, "ls-files", "--stage") == index)
+        #expect(try ReviewGit.workingTreeText("keep.txt", in: checkout.path) == .text("working copy\n"))
+
+        let fallback = try await ReviewGit.pullRequestFiles(number: 7, repository: "acme/billing", base: "missing", in: checkout.path)
+        #expect(fallback.base == fork && fallback.head == head)
+        #expect(fallback.files.first?.additions == 2)
+        await #expect(throws: ReviewGitError.git(arguments: ["config", "--get", "remote.origin.url"], message: "Origin does not point to acme/other.")) {
+            try await ReviewGit.pullRequestFiles(number: 7, repository: "acme/other", base: nil, in: checkout.path)
+        }
+        await #expect(throws: ReviewGitError.git(arguments: ["rev-parse", "HEAD"], message: "Invalid commit SHA")) {
+            try await ReviewGit.contents(of: modified, compare: .range(base: fork, head: "HEAD"), in: changes)
+        }
+    }
+
     @Test func hungFetchIsKilledAfterTheTimeout() async throws {
         let repo = try await repo("hung")
         let ssh = root.appending(path: "fake-ssh")

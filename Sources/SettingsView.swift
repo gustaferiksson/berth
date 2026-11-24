@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable {
-    case general, sidebar, terminal, conversation, review, remote, about
+    case general, sidebar, terminal, conversation, review, github, remote, about
 }
 
 struct SettingsView: View {
@@ -14,6 +14,7 @@ struct SettingsView: View {
             SwiftUI.Tab("Terminal", systemImage: "terminal", value: .terminal) { TerminalSettings() }
             SwiftUI.Tab("Conversation", systemImage: "bubble.left.and.text.bubble.right", value: .conversation) { ConversationSettings() }
             SwiftUI.Tab("Review", systemImage: "plusminus.circle", value: .review) { ReviewSettings() }
+            SwiftUI.Tab("GitHub", systemImage: "checklist", value: .github) { GitHubSettings() }
             SwiftUI.Tab("Remote", systemImage: "iphone.gen3.radiowaves.left.and.right", value: .remote) { RemoteSettings() }
             SwiftUI.Tab("About", systemImage: "info.circle", value: .about) { AboutSettings() }
         }

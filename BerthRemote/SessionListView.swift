@@ -39,9 +39,9 @@ struct SessionListView: View {
                         }
                     }
                 }
-                if let usage = client.usage, query.isEmpty {
+                if client.usage != nil || client.codexUsage != nil, query.isEmpty {
                     Section {
-                        UsageSummary(usage: usage) { isShowingUsage = true }
+                        UsageSummary { isShowingUsage = true }
                     }
                 }
                 ForEach(groups) { group in
@@ -225,6 +225,7 @@ private struct SessionSummaryView: View {
     @ScaledMetric private var gutterWidth = 14
 
     var body: some View {
+        let gutterWidth = gutterWidth
         let isProminent = session.status != nil || session.isUnread == true
         let folder = URL(filePath: session.folder).lastPathComponent
         let isAccessibility = dynamicTypeSize.isAccessibilitySize
@@ -267,6 +268,11 @@ private struct SessionSummaryView: View {
                     }
                 }
                 location
+                if let watch = session.pullRequestWatch, session.status == "idle" {
+                    Label(watch.title, systemImage: "eye")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 if let pullRequest = session.pullRequest {
                     PullRequestTag(pullRequest: pullRequest)
                 }
@@ -289,7 +295,7 @@ private struct PullRequestTag: View {
 
         HStack(spacing: 3) {
             Image(systemName: icon)
-            Text("#\(String(pullRequest.number))")
+            Text(verbatim: "#\(pullRequest.number)")
                 .monospaced()
             if let checks = pullRequest.checks {
                 Image(systemName: ChecksStyle.symbol(checks))
@@ -300,6 +306,7 @@ private struct PullRequestTag: View {
         .font(.caption.weight(.medium))
         .foregroundStyle(color)
         .padding(.horizontal, 8)
+        // swiftlint:disable:next negative_padding - a background shape bleeding past the pill
         .background { RoundedRectangle(cornerRadius: 6).fill(color.opacity(0.15)).padding(.vertical, -2) }
         .fixedSize()
         .accessibilityElement(children: .ignore)

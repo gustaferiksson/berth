@@ -4,13 +4,24 @@ Offscreen snapshot and verification flags for Debug builds (`Sources/Snapshot.sw
 
 ## Basics, shell and Claude tabs
 
+Use `-snapshotGhosttyTheme "Atom One Light"` for light snapshots because the app derives its colours from the Ghostty theme.
+
 Snapshot without touching the screen (Debug build only): `.build/Build/Products/Debug/Berth.app/Contents/MacOS/Berth -snapshot /abs/out.png` plus `-AppleInterfaceStyle Dark`, `-snapshotShell YES` (two terminals in the Terminals group, the second showing a fake `npm run dev` title and working dots; add `-snapshotShellCd "<args>"` to type `cd <args>` into the first one), `-snapshotClaudeTab YES` (a shell-backed claude tab with no transcript yet), or `-snapshotClaude /abs/dir` (launches real `claude` without `-w` whatever the setting, shows its trust prompt), or `-snapshotResume <sessionId>` (the sidebar click path, `claude --resume`).
+
+Use `-windowBackground theme|glass|darker` to select the detail background through the argument domain. For example, pass `-windowBackground darker` to show the cards' theme background colour in the gaps. System glass requires an on-screen window to render.
 
 ## Sidebar fixtures
 
-`-snapshotSessionTerminals YES` opens a shell-backed Claude tab for a fixture session, two compact terminals indented under it, and one plain terminal in the Terminals group.
+`-snapshotBusySidebar YES` seeds 28 sessions in eight projects and two terminals. It includes all pull request and check states, live activity, unread and flagged sessions, pins, two tasks with members, Snoozed and Done. Use `-sidebarStyle slim` to capture Slim and `-sidebarStyle classic` for Classic. The fixture shows triage and expands Snoozed and Done by default. Use `-snapshotSidebarWidth <pt>` to change the leading sidebar’s ideal width from 300 pt.
 
-Add `-snapshotFakeStatus YES` to fake the top project's first three sessions as "needs you", "working" and "shell", `-snapshotSelectRow <n>` to select the top project's nth session, `-snapshotHover "<header or row title or branch>|..."` to force hover states, `-snapshotExpandedGroups "<group id>|..."` to open their Show More, `-snapshotPinned YES` to pin the first session of the last two groups, `-snapshotFlagged YES` to flag the top project's 1st and 3rd sessions, `-snapshotUnread YES` to mark its 2nd and 4th unread, `-snapshotMultiSelect "2|shift4|5|term1"` (opens shell-backed claude tabs for the named top-project rows, clicks the first, ⌘-clicks `<n>` and `term<n>`, ⇧-clicks `shift<n>`, saves `<out>.selected.png`, then runs the menu's Unload and Pin and the palette's Flag, printing selection, tabs, flags, menu and palette titles each step), `-snapshotLongNames YES` (fixture sessions with long project, branch and title names and every PR state), `-snapshotChecks "<state>|…"` (passed, failed, running or empty for each `-snapshotLongNames` fixture session in order, as its PR's check rollup), `-snapshotPlanUsage YES` (fake 42% Session and 81% Week plan usage, `-snapshotPlanUsageAhead YES` for 55% and 66% ahead of pace; pass `-showsPlanUsage YES` too, since the fetch never runs in snapshot mode), `-snapshotFakeContext YES` (the top group's first four sessions at 34%, 63%, 81% and 94% of a 200k window; claude tabs open for the 81% and 94% ones, the 94% one selected; add `-snapshotFakeStatus YES` so the 63% one is live without a tab), `-snapshotSidebarWidth <pt>` (default 300), and `-snapshotGhosttyTheme "<name>"` to replace the Ghostty config with just that theme, `-groupingMode project|repository|recent`, `-showsCustomGroups NO`, `-sidebarPosition right`, `-snapshotCustomGroups /abs/groups.json` (JSON `[CustomGroup]`; a JSON string can't be passed as an argument, NSArgumentDomain drops it).
+
+`-snapshotSessionTerminals YES` opens a shell-backed Claude tab for a fixture session, two compact terminals indented under it, and one plain terminal in the Terminals group. `-snapshotSelectNestedTerminal YES` selects the first nested one, `-snapshotCloseNested YES` calls `Store.close` on it and prints the tab counts. `-snapshotClickAt "x,y;x,y"` (any run, points from the window's top-left) sends each synthetic click through `window.sendEvent` before the capture and prints the tabs before and after (Buttons land, plain row taps do not).
+
+For PR pill layout, `-snapshotLongNames YES -snapshotLinkedPullRequests YES -snapshotChecks "running|passed|passed|passed" -snapshotFakeStatus YES -sidebarDensity compact|comfortable` gives a top-level row with a "+3" pill and the open, merged, draft and closed variants.
+
+Add `-snapshotFakeStatus YES` to fake the top project's first three sessions as "needs you", "working" and "shell", `-snapshotSelectRow <n>` to select the top project's nth session, `-snapshotHover "<header or row title or branch>|..."` to force hover states, `-snapshotExpandedGroups "<group id>|..."` to open their Show More, `-snapshotPinned YES` to pin the first session of the last two groups, `-snapshotFlagged YES` to flag the top project's 1st and 3rd sessions, `-snapshotUnread YES` to mark its 2nd and 4th unread, `-snapshotMultiSelect "2|shift4|5|term1"` (opens shell-backed claude tabs for the named top-project rows, clicks the first, ⌘-clicks `<n>` and `term<n>`, ⇧-clicks `shift<n>`, saves `<out>.selected.png`, then runs the menu's Unload and Pin and the palette's Flag, printing selection, tabs, flags, menu and palette titles each step), `-snapshotLongNames YES` (fixture sessions with long project, branch and title names and every PR state), `-snapshotChecks "<state>|…"` (passed, failed, running or empty for each `-snapshotLongNames` fixture session in order, as its PR's check rollup), `-snapshotPlanUsage YES` (fake 42% Session and 81% Week plan usage, `-snapshotPlanUsageAhead YES` for 55% and 66% ahead of pace; pass `-showsPlanUsage YES` too, since the fetch never runs in snapshot mode), `-snapshotCodexUsage YES` (fake Codex 18% Session and 47% Week beside it; needs `-codexEnabled YES`, `-snapshotCodexUsageStale YES` records it 3 hours ago, which dims it), `-snapshotFakeContext YES` (the top group's first four sessions at 34%, 63%, 81% and 94% of a 200k window; claude tabs open for the 81% and 94% ones, the 94% one selected; add `-snapshotFakeStatus YES` so the 63% one is live without a tab), `-snapshotSidebarWidth <pt>` (default 300), and `-snapshotGhosttyTheme "<name>"` to replace the Ghostty config with just that theme, `-groupingMode project|repository|recent`, `-showsCustomGroups NO`, `-sidebarPosition right`, `-snapshotCustomGroups /abs/groups.json` (JSON `[CustomGroup]`; a JSON string can't be passed as an argument, NSArgumentDomain drops it).
+
+Add `-snapshotItemPreview "pr|issue|pr-checks"` with one of the three values to render a standalone fixture card at 2×. The `pr-checks` variant expands the checks disclosure. With `-snapshot /abs/out.png`, the card is written to `/abs/out.png.preview-<value>.png`.
 
 ## Launcher, palette, search, stats and dialogs
 
@@ -20,7 +31,7 @@ Add `-snapshotFakeStatus YES` to fake the top project's first three sessions as 
 
 `-snapshotReview /abs/repo` opens a shell-backed claude tab (session `snapshot-review`) in that folder in a 1600×900 window (`-snapshotReviewWidth <pt>` changes the width), registers `reviewEnabled` in memory (`-reviewEnabled NO` tests the gate), shows Changes, opens the first Uncommitted file (else the first Committed one) in a preview tab, waits for its contents and prints, per side, whether the text view is still TextKit 2, its height, reserved comment space and inline views, whether the first unchanged line after each hunk and every unchanged pair sit at the same y on both sides, and whether each line sits at `top(ofRow:)`, and per side how many line views (`_NSTextViewportElementView`) are on screen and how many sit off their layout fragment's rendering frame (0 when lines are where the layout says).
 
-It also prints the mode: side by side, or unified with the right side's width and `minimumWidth`, whether its text equals the file (or the draft), and its height against `top(ofRow: rowCount)` (2 pt short in both modes, the last row's bottom padding; a row more for a file deleted without a trailing newline, whose absent side's one empty line is an added row nothing draws). `-snapshotReviewFile <path>` opens that path instead, Files-tab style (its Uncommitted compare when listed, else the plain file; `committed:<path>` opens its Committed compare), `-snapshotReviewHoverRow <path>` (Debug) forces the Open File overlay on that Changes row as if hovered, `-snapshotReviewNoFile YES` opens no file, so the diff column shows No File Open, `-snapshotReviewPullRequest "<branch>"` lists the review folder as a session on that branch with a fake PR (the panel's PR card), `-snapshotReviewPullRequestState open|draft|merged|closed|none` sets its state (`none` is a known no-PR, so the branch card shows "No pull request" and, with a commit ahead, Create Pull Request…; without `-snapshotReviewPullRequest` the PR is unknown and there is no pill), `-snapshotReviewChecks "<passed>:<failed>:<running>:<open threads>"` fakes its checks and threads through `PullRequestDetail.parse` (snapshot mode never calls `gh` for them; without it the card has no checks line).
+It also prints the mode: side by side, or unified with the right side's width and `minimumWidth`, whether its text equals the file (or the draft), and its height against `top(ofRow: rowCount)` (2 pt short in both modes, the last row's bottom padding; a row more for a file deleted without a trailing newline, whose absent side's one empty line is an added row nothing draws). `-snapshotReviewFile <path>` opens that path instead, Files-tab style (its Uncommitted compare when listed, else the plain file; `committed:<path>` opens its Committed compare), `-snapshotReviewHoverRow <path>` (Debug) forces the Open File overlay on that Changes row as if hovered, `-snapshotReviewChangedFiles "/abs/a,/abs/b"` opens no default file and instead runs the Conversation card's Review Changes action with those edited paths (the first one listed in Changes opens in the diff column; pair with `-snapshotReviewHidePanel YES` for the hidden panel start), `-snapshotReviewNoFile YES` opens no file, so the diff column shows No File Open, `-snapshotReviewPullRequest "<branch>"` lists the review folder as a session on that branch with a fake PR (the panel's PR card), `-snapshotReviewPullRequestState open|draft|merged|closed|none` sets its state (`none` is a known no-PR, so the branch card shows "No pull request" and, with a commit ahead, Create Pull Request…; without `-snapshotReviewPullRequest` the PR is unknown and there is no pill), `-snapshotReviewChecks "<passed>:<failed>:<running>:<open threads>"` fakes its checks and threads through `PullRequestDetail.parse` (snapshot mode never calls `gh` for them; without it the card has no checks line).
 
 `-snapshotReview /abs/repo -snapshotReviewThreads YES` uses the current branch for the fake PR, opens `README.md` and expands Review Threads. Use a repo with at least six lines in `README.md` to see the open thread at line 3 and the resolved thread at line 6. The panel also shows an outdated thread and an original-side thread on `docs/usage.md`. The `review threads` line prints total and resolved counts by file. Checks default to four passed, zero failed, and one running. With `-snapshotReviewChecks`, its counts override the defaults and its open threads are added to the four fixture threads.
 
@@ -32,9 +43,13 @@ It also prints each changed file per section, the file tree's top level and its 
 
 `-snapshotReviewPanelTab graph` expands the Graph pane. `-snapshotReviewGraphCommit <n>` selects the zero-based commit in graph order, loading more pages as needed, and opens its first changed file as a preview. This flag selects Graph by default. The `review selected` line reports the loaded graph count, selected commit SHA and tabs. Historical tabs appear as `commit <sha7>:<path>`.
 
+`-snapshotReviewSessionPullRequests YES` links open PR #1445 “Let Margo switch between approved reviewers” to the fixture session and opens the Session pull requests section in the slim panel (`-reviewSlimPanel YES`). The full panel shows the row under Other pull requests. Add `-snapshotReviewExpandPullRequest 1445` to expand that row and open its first changed file. For the expanded snapshot, use a checkout whose GitHub `origin` matches `acme/billing` (or the value of `-snapshotReviewRepository`) and serves `refs/pull/1445/head`. The local URL rewrite in the fixture recipe below lets Git fetch from a local repo. The PR uses `-snapshotReviewPullRequestBase <branch>` when supplied, or the repository’s default base. The `review selected` output reports the file count and shows the selected tab as `PR #1445:<path>`.
+
+Use `-snapshotReview /abs/api -snapshotReviewShowPullRequest /abs/billing -reviewSlimPanel YES -languageServersEnabled NO` to show fixture PR `acme/billing#1445` in the API session and open its first changed file. Add `-snapshotReviewShowPullRequestLauncher YES` for the launcher in Show in Review mode over that diff. Use the clone fixture recipe in the Agent control section.
+
 ## Review: edit, scroll, minimap, gutter and comments
 
-`-reviewWrapsLines YES` (argument domain, no snapshot flag) turns on line wrapping in any Review run; pair it with `-snapshotReviewWidth` and `-reviewDiffLayout inline|sideBySide`. `-snapshotReviewBlameLine <line>` places the caret on a one-based line in the working-tree editor, scrolls it into view and saves `<out>.blame.png`. Pair it with `-snapshotReviewFile <path>` to choose the file. Use a tracked file with a short line so the annotation fits in the editor.
+`-snapshotMarkdownRendered YES` shows a `.md` file open in Review (pair with `-snapshotReviewFile <path>`, a committed unmodified file, so it opens as a file and not a diff) as rendered Markdown; images load from paths inside the review folder. `-reviewWrapsLines YES` (argument domain, no snapshot flag) turns on line wrapping in any Review run; pair it with `-snapshotReviewWidth` and `-reviewDiffLayout inline|sideBySide`. `-snapshotReviewBlameLine <line>` places the caret on a one-based line in the working-tree editor, scrolls it into view and saves `<out>.blame.png`. Pair it with `-snapshotReviewFile <path>` to choose the file. Use a tracked file with a short line so the annotation fits in the editor.
 
 `-snapshotReviewEdit "<text>"` inserts text at the top of the right side (the draft and recompute path), `-snapshotReviewScroll <y>` scrolls the right side (the left follows), `-snapshotReviewWheel "<target>:<dy>"` sends a pixel scroll-wheel event to the view hit-tested at the centre of `left`, `right`, `gutter-left`, `minimap` or `ruler`, `-snapshotReviewMinimap "<y1>-<y2>"` drags the minimap and `-snapshotReviewRuler <y>` clicks the overview ruler (each prints both clip ys; the minimap also its render count).
 
@@ -72,7 +87,7 @@ Fixture: `Packages/BerthCore` with a scratch type error, or a copy of the packag
 
 `-snapshotPerf YES` (`SnapshotPerf.swift`) times, as main-thread ms and process CPU, window resizes (a sweep down to 900 pt and back, and across the 801 pt sidebar yield), the session sidebar toggle and the Review panel toggle; `-snapshotPerfRounds <n>` (toggle pairs, default 1), `-snapshotPerfSteps resize,sidebar,panel` (default all) and `-snapshotPerfSetup closeDiff,hidePanel,hideSessions` (run first). Release timing needs `SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG`.
 
-`-snapshotPerfSteps resize,scroll` adds an opt-in scroll step that times 40 equal steps from bottom to top and back in the window’s tallest scroll document (also available with `-snapshotConversation YES -snapshotPerf YES`).
+`-snapshotPerfSteps resize,scroll` adds an opt-in scroll step that times 40 steps from bottom to top and 40 back in the window’s tallest scroll document. The Conversation snapshot also accepts `-snapshotPerfSteps scroll`.
 
 ## Fixture homes, URLs and window state
 
@@ -104,7 +119,9 @@ It prints the window title, toolbar items, the File and View menus (Group By wit
 
 ## Settings snapshot
 
-Settings snapshot (rinse's pattern): `Berth -settingsSnapshot /abs/out.png -settingsTab general|sidebar|terminal|conversation|review|remote|about`, a stored `appearance` opens Sidebar (plus `-AppleInterfaceStyle Dark`). It opens Settings through the app menu's ⌘, item with window ordering swizzled so the window never touches a display and its saved frame isn't overwritten. `-settingsScroll <y>` scrolls the form to y before capture (420 shows General's Language Servers section with Review and language servers on).
+Settings snapshot (rinse's pattern): `Berth -settingsSnapshot /abs/out.png -settingsTab general|sidebar|terminal|conversation|review|github|remote|about`, a stored `appearance` opens Sidebar (plus `-AppleInterfaceStyle Dark`). It opens Settings through the app menu's ⌘, item with window ordering swizzled so the window never touches a display and its saved frame isn't overwritten. `-settingsScroll <y>` scrolls the form to y before capture (420 shows General's Language Servers section with Review and language servers on).
+
+`-snapshotProjects YES` enables GitHub Projects and installs two fixture boards without calling `gh` (`-snapshotProjectsLauncher YES` opens the launcher's Project scope, `-snapshotHover` shows the status on a fixture PR's hover card with `-snapshotLongNames YES`), and `-snapshotProjectsState needsScope|noCLI|failed` shows a notice in `-settingsTab github`.
 
 ## Snapshot window and activation policy
 
@@ -124,6 +141,8 @@ Berth Remote's DEBUG `-snapshotExpanded YES` and `-snapshotExpandedCalls YES` op
 
 More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those sheets), `-snapshotQuery "<text>"` (list search), `-snapshotTray YES` (quick reply tray), `-snapshotIntent "<spec>"` with `-snapshotIntentConnect "<url>|<token>"` (runs an intent against a Mac and prints the result).
 
+`-snapshotDemo YES` opens a sample session without a Mac server. Add `-snapshotDemoFocus YES` to focus the composer after 1.5 seconds.
+
 ### Glass (see docs/adr/0005)
 
 `-snapshotSidebarFilter "<q>|…"` prints the visible rows per query; `-snapshotKeys` ⌃⌥+arrow chords take the CGEvent path and its state line prints `right top line`.
@@ -134,11 +153,19 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 
 `-snapshotIssues "<query>"` opens Issues with fixture rows across several repos, including 0, 1 and 3 linked PRs, one long title and one older issue. Use an empty query for the full recent list. Add `-snapshotLauncherKeys "enter"` to probe opening the three linked PRs, or use the query `"rounding"` with Enter to probe a new Claude worktree session and its unsent prompt. Use `"bucket"` to see the missing checkout notice, or `"alt-enter"` as a key to probe opening the issue URL.
 
+Add `-snapshotLauncherLoading YES` to `-snapshotIssues ""` or `-snapshotPullRequests ""` to show the loading state for that scope.
+
 `-snapshotIssue "owner/repo#1"` opens Pull Requests with one fixture linked PR. `-snapshotIssue "acme/api#10"` shows four PRs across repositories, with three known checkouts and an unavailable row for `acme/infra`. The snapshot prints each row's status. Add `-snapshotLauncherKeys "enter"` to print the recorded `openClaude` calls and whether the launcher stays open. The issue lookup uses fixtures and session opens are recorded as probes.
+
+`-snapshotWatching YES` adds a **Watching #N** row to the sidebar fixtures and works with `-snapshotFakeStatus YES`. With `-snapshotConversation YES` and the empty fixture home used by Conversation snapshots, it writes an invented `/steward` record, defaults Claude to idle, and exercises transcript detection in the footer.
+
+`-snapshotPullRequestActions YES` opens the pull request launcher with invented inbox rows. It prints the menu title and renders the highlighted PR’s **Steward with Claude** context-menu item below the results for offscreen capture.
 
 ### Conversation view
 
 `-snapshotConversation YES` (needs an empty `CFFIXED_USER_HOME`; pass `-reviewEnabled NO`, `-conversationEnabled YES`; `-snapshotConversationStatus busy|waiting|idle`, `-snapshotConversationMode auto|plan|acceptEdits|default` (the permission mode the status bar shows; for the branch counts make `/private/tmp/berth-conversation-fixture` a git repo with an upstream), `-snapshotConversationExpanded YES`, `-snapshotConversationHeight <pt>`) seeds an invented transcript, saves `<out>.conversation.png` and `<out>.terminal.png` and prints the surface identity across toggles.
+
+Add `-snapshotConversationEmpty YES` to open a session with zero turns, and use `-snapshotConversationWidth <pt>` to set the capture width (1100 pt by default).
 
 The Claude fixture includes bash-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
 
@@ -147,6 +174,40 @@ The Claude fixture includes bash-mode stdout and stderr, and `-snapshotConversat
 With `-snapshotConversation YES -codexEnabled YES`, `-snapshotConversationCodexApproval YES` sets the Action Required title and shows an invented command, its justification, and the Allow, Always Allow, and Deny buttons. `-snapshotConversationCodexTasks YES` sets the Ready title and shows an invented running subagent and background terminal in the tasks pill. Use an empty `CFFIXED_USER_HOME` and leave `CODEX_HOME` unset or point it at that fixture home’s `.codex` directory.
 
 `-snapshotConversationRepeat <n>` repeats the fixture transcript with unique record, message and tool IDs and monotonic timestamps for longer conversation performance runs (try `16`, about 500 entries; the image is kept in the first repetition only, since the reader takes the last 256 KB).
+
+`-snapshotConversationHeavy <turns>` replaces the Claude fixture with an invented JSONL transcript. Try `440` for long Markdown replies with three fenced code blocks each, 5–15 tool calls and results per turn, and three image prompts near the end. The performance log prints the on-disk size and the model’s loaded turns, entries and images after `TranscriptTail` applies its normal byte window.
+
+With the heavy fixture, `-snapshotPerf YES` defaults to `-snapshotPerfSteps switch,stream,scroll`. The first switch is timed from Show Conversation to loaded turns and an offscreen display flush at the bottom. `switch` adds `-snapshotPerfRounds <n>` terminal-to-conversation reopens (default one). `stream` appends a prompt, three successively longer assistant blocks, a tool call and its result to the fixture JSONL. It times each write through file watching, model update and display flush. Wall times include the 5 ms polling interval and the display run-loop turn. Main-thread CPU times include work on that thread throughout each interval. `scroll` also reports the sweep’s wall time and main-thread CPU. The profile signpost category is `Conversation Performance`.
+
+If FSEvents cannot start, the DEBUG harness logs `explicit refresh (FSEvents unavailable)` and refreshes the model after each append. Those stream timings exclude file event delivery.
+
+```sh
+CONFIGURATION=Debug ./build.sh
+app="$PWD/.build/Build/Products/Debug/Berth.app/Contents/MacOS/Berth"
+out=$(mktemp -d /tmp/berth-conversation-perf.XXXXXX)
+for run in 1 2 3; do
+  fixture_home=$(mktemp -d "$out/home.XXXXXX")
+  env -i PATH=/usr/bin:/bin CFFIXED_USER_HOME="$fixture_home" "$app" \
+    -snapshot "$out/run-$run.png" -snapshotConversation YES \
+    -conversationEnabled YES -reviewEnabled NO -languageServersEnabled NO \
+    -snapshotConversationHeavy 440 -snapshotPerf YES \
+    -snapshotPerfSteps switch,stream,scroll -snapshotPerfRounds 3 > "$out/run-$run.log" 2>&1
+done
+
+fixture_home=$(mktemp -d "$out/home.XXXXXX")
+trace_home=$(mktemp -d "$out/trace-home.XXXXXX")
+CFFIXED_USER_HOME="$trace_home" xcrun xctrace record --template 'Time Profiler' \
+  --instrument os_signpost --time-limit 30s --output "$out/conversation.trace" --target-stdout "$out/profile.log" \
+  --launch -- /usr/bin/env -i PATH=/usr/bin:/bin CFFIXED_USER_HOME="$fixture_home" "$app" \
+  -snapshot "$out/profile.png" -snapshotConversation YES -conversationEnabled YES \
+  -reviewEnabled NO -languageServersEnabled NO -snapshotConversationHeavy 440 \
+  -snapshotPerf YES -snapshotPerfSteps switch,stream -snapshotPerfRounds 3
+CFFIXED_USER_HOME="$trace_home" xcrun xctrace export --input "$out/conversation.trace" \
+  --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' \
+  --output "$out/time-profile.xml"
+```
+
+`-snapshotConversationSelect YES` (with `-snapshotConversationHeight 1500`) selects from the first reply paragraph through its list, code block and table with the real selection API, saves `<out>.selection.png` and prints the string the copy path writes to a private pasteboard.
 
 `-snapshotConversationSubagent YES` opens the invented docs agent conversation directly, including its prompt, tool call and reply. Use with `-snapshotConversation YES`.
 
@@ -157,7 +218,34 @@ With `-snapshotConversation YES -codexEnabled YES`, `-snapshotConversationCodexA
 Snapshot mode never uses the session host (no hosted launch, reattach or hang-up, whatever `keepsSessionsRunning` says), so a snapshot can't spawn or touch the real hosts in Application Support; only `-snapshotHost` enables it, and that already requires a temp `CFFIXED_USER_HOME`.
 
 `-snapshotHost new|reattach|close -snapshotHostID <uuid> -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`; end with `close`).
-`-snapshotControl YES -controlEnabled YES -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`) runs the embedded `berth-cli` against the live control socket from a fake caller tab and prints `ls`, `open-terminal`, `wait` (exit status), `send`, `capture`, a refused send and close on the caller, a close, a wrong token and a missing environment.
+
+### Agent control
+
+`-snapshotControl YES -controlEnabled YES -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`) runs the embedded `berth-cli` against the live control socket from a fake caller tab and prints `ls`, `open-terminal`, `wait` (exit status), `send`, `capture`, a refused send and close on the caller, a close, a wrong token and a missing environment. It first plants a stale skill and hook in the temp home and prints whether launch refreshed them, and it runs `open` on a folder, a file, a missing path and no path.
+
+Add `-snapshotControlSessionClone "$fixture/api" -snapshotControlPullRequestClone "$fixture/billing" -reviewEnabled YES` to exercise `show-pr` via the embedded CLI. The probe sends a number from an owned terminal, opens a URL from another clone using `--repo`, checks the no-clone error, and repeats the URL with different capitalization. It verifies that the session tab stays the target, that each repository’s PR #1445 appears once and is expanded, and that the selected read-only diff comes from the billing clone.
+
+Create both fixture clones in the caller shell, before launching the snapshot with `env -i PATH=/usr/bin:/bin`. The URL rewrite keeps the fixture fetches local while the configured origins exercise GitHub repository matching.
+
+```sh
+fixture=$(mktemp -d /tmp/berth-pr.XXXXXX)
+for name in api billing; do
+  producer="$fixture/$name-origin"; clone="$fixture/$name"; github="https://github.com/acme/$name.git"
+  git init -q -b main "$producer"
+  printf 'Current behavior in %s\n' "$name" > "$producer/$name.txt"
+  git -C "$producer" add "$name.txt"
+  git -C "$producer" commit -q -m Base
+  git -C "$producer" switch -q -c proposal
+  printf 'Proposed behavior in %s\n' "$name" >> "$producer/$name.txt"
+  git -C "$producer" commit -q -am "Proposed change"
+  git -C "$producer" update-ref refs/pull/1445/head proposal
+  git -C "$producer" switch -q main
+  git -C "$producer" branch -q -D proposal
+  git clone -q "$producer" "$clone"
+  git -C "$clone" config remote.origin.url "$github"
+  git -C "$clone" config "url.$producer.insteadOf" "$github"
+done
+```
 
 It also runs `open-session --cwd <dir> --background -- "hello"` with the system temporary directory and a missing folder inside it. Expect exit 0 with an 8 hex tab id for the existing folder, exit 1 with `No folder` for the missing folder, and one `probeOpened` call for a new Claude session in the temporary directory. The DEBUG probe returns before launching Claude.
 
@@ -168,6 +256,10 @@ It also runs `open-session --cwd <dir> --background -- "hello"` with the system 
 ### Needs Attention
 
 `-snapshotChecks "passed|passed||failed"` fails the draft #12 fixture session's checks (marked as your own PR) so it enters Needs Attention; `-snapshotSidebarStatus` sets the status filter and `-snapshotSidebarFilter` also prints `attention`.
+
+### Session files
+
+`-snapshotSessionFiles "/abs/a:/abs/b"` (with `-snapshotReview /abs/folder`) sets the claude tab's edited files as if the transcript had listed them (nothing is filtered for existence), so Review shows Edited by Session; `-snapshotSessionFileOpen /abs/file` opens one in the diff column and prints its state. A non-git folder shows the section instead of No Git Repository. Run with `CFFIXED_USER_HOME=/abs/home` for `~` paths and `-reviewChangesAsTree YES|NO` for the two layouts.
 
 ### Tasks
 

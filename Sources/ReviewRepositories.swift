@@ -1,4 +1,5 @@
 import BerthCore
+import Foundation
 import SwiftUI
 
 struct ReviewTaskHeader: View {
@@ -136,33 +137,107 @@ struct ReviewRepoRows: View {
     }
 }
 
+struct ReviewPullRequestFailure: LocalizedError {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
+nonisolated struct ReviewPullRequestLocation: Hashable, Sendable {
+    let link: PullRequestLink
+    let root: String
+}
+
+struct ReviewPullRequest: Identifiable {
+    let location: ReviewPullRequestLocation
+    let pullRequest: PullRequest
+
+    var id: PullRequestLink { location.link }
+}
+
+nonisolated struct ReviewPullRequestFiles: Sendable {
+    let compare: ReviewCompare
+    let files: [ReviewFile]
+}
+
 struct ReviewOtherPullRequests: View {
-    let pullRequests: [PullRequest]
+    let entries: [ReviewPullRequest]
+    let model: ReviewModel
+    var showsHeading = true
+    var showsRepository = false
     @Environment(\.openURL) private var openURL
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        if !pullRequests.isEmpty {
+        if showsHeading, !entries.isEmpty {
             Text("Other pull requests")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.secondary)
                 .reviewRow(bottom: 6)
         }
-        ForEach(pullRequests, id: \.number) { pullRequest in
-            HStack(spacing: 8) {
-                Button { openURL(pullRequest.url) } label: {
-                    Text(pullRequest.title)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(.rect)
-                        .pointerStyle(.link)
+        ForEach(entries) { entry in
+            let link = entry.id
+            let pullRequest = entry.pullRequest
+            let isExpanded = model.expandedPullRequests.contains(link)
+            Button {
+                if isExpanded {
+                    model.expandedPullRequests.remove(link)
+                } else {
+                    Task { await model.expandPullRequest(entry) }
                 }
-                .buttonStyle(.plain)
-                .help(pullRequest.title)
-                PullRequestTag(pullRequest: pullRequest)
-                    .fixedSize()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondary)
+                        .frame(width: 10)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(pullRequest.title)
+                        if showsRepository {
+                            Text(link.repository)
+                                .font(.caption2)
+                                .foregroundStyle(theme.secondary)
+                        }
+                    }
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    PullRequestTag(pullRequest: pullRequest, opensOnGitHub: false)
+                        .fixedSize()
+                }
+                .padding(.vertical, 4)
+                .contentShape(.rect)
             }
-            .reviewRow(bottom: 6)
+            .buttonStyle(.plain)
+            .help(pullRequest.title)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            .contextMenu {
+                Button("Open on GitHub") { openURL(pullRequest.url) }
+                if [.open, .draft].contains(pullRequest.state) {
+                    StewardPullRequestButton(link: link, url: pullRequest.url)
+                }
+            }
+            .reviewRow()
+            if isExpanded {
+                if model.loadingPullRequests[entry.location] != nil {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Loading Changed Files")
+                        .frame(height: 24)
+                        .reviewRow(leading: ReviewInset.tree)
+                } else if let loaded = model.pullRequestFiles[entry.location], !loaded.files.isEmpty {
+                    ForEach(loaded.files, id: \.path) { file in
+                        let document = ReviewDocument(path: file.path, compare: loaded.compare, root: entry.location.root, pullRequestLink: link)
+                        ReviewHistoricalFileButton(file: file, document: document, model: model)
+                            .reviewRow(leading: ReviewInset.tree)
+                    }
+                } else {
+                    Text("No changed files")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
+                        .reviewRow(top: 4, bottom: 4, leading: ReviewInset.tree)
+                }
+            }
         }
     }
 }
@@ -221,7 +296,7 @@ enum ReviewInset {
     static let fill = 8.0
     static let content = 16.0
     static let listMargin = 8.0
-    static let tree = 16.0
+    static let tree = 18.0
 }
 
 extension View {

@@ -24,24 +24,43 @@ struct ReviewPathBar: View {
 
     private func bar(_ folders: [(name: String, children: [ReviewFileTree])]) -> some View {
         let name = (document.path as NSString).lastPathComponent
+        let title = document.pullRequestNumber.map { "PR #\($0) · \(name)" } ?? name
         return HStack(spacing: 4) {
-            segment((RepositoryRoot.checkout(model.changes?.root ?? model.folder) as NSString).lastPathComponent, children: model.tree)
-            ForEach(Array(folders.enumerated()), id: \.offset) { _, folder in
-                chevron
-                segment(folder.name, children: folder.children)
+            if let link = document.pullRequestLink {
+                Text(link.repository)
+                ForEach(Array(folders.enumerated()), id: \.offset) { _, folder in
+                    chevron
+                    Text(folder.name)
+                }
+            } else if model.isSessionFiles {
+                Text(sessionFolder)
+            } else {
+                segment((RepositoryRoot.checkout(model.changes?.root ?? model.folder) as NSString).lastPathComponent, children: model.tree)
+                ForEach(Array(folders.enumerated()), id: \.offset) { _, folder in
+                    chevron
+                    segment(folder.name, children: folder.children)
+                }
             }
             chevron
-            segment(name, children: children(of: (document.path as NSString).deletingLastPathComponent), icon: NSImage(size: NSSize(width: 13, height: 13), flipped: false) { NSWorkspace.shared.icon(for: UTType(filenameExtension: (name as NSString).pathExtension) ?? .data).draw(in: $0); return true })
+            segment(title, children: document.pullRequestLink == nil ? children(of: (document.path as NSString).deletingLastPathComponent) : [], icon: NSImage(size: NSSize(width: 13, height: 13), flipped: false) { NSWorkspace.shared.icon(for: UTType(filenameExtension: (name as NSString).pathExtension) ?? .data).draw(in: $0); return true })
             Spacer(minLength: 8)
             switch document.compare {
             case .uncommitted: Text("Uncommitted")
+
             case .committed: Text("Committed")
+
             case let .commit(sha): Text("Commit \(sha.prefix(7))")
-            case nil: EmptyView()
+
+            case .range, nil: EmptyView()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .clipped()
+    }
+
+    private var sessionFolder: String {
+        let folder = "/" + (document.path as NSString).deletingLastPathComponent
+        return folder.hasPrefix(Store.resolvedHome + "/") ? "~" + folder.dropFirst(Store.resolvedHome.count) : folder
     }
 
     private var chevron: some View {

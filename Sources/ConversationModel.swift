@@ -22,13 +22,13 @@ struct ConversationDraft {
         numbers[url].map { "[Image #\($0)]" } ?? "\0"
     }
 
-    mutating func attach(_ urls: [URL]) -> String {
+    mutating func attach(_ urls: [URL], afterImage lastSent: Int) -> String {
         var tokens: [String] = []
         for url in urls where !files.contains(url) {
             files.append(url)
             guard Self.isImage(url) else { continue }
 
-            numbers[url] = (numbers.values.max() ?? 0) + 1
+            numbers[url] = max(numbers.values.max() ?? 0, lastSent) + 1
             tokens.append(token(for: url))
         }
         return tokens.joined(separator: " ")
@@ -74,6 +74,7 @@ final class ConversationModel {
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var entries: [RemoteEntry] = []
     @ObservationIgnored private var url: URL?
+    @ObservationIgnored private var imageLines: [String: Range<Int>] = [:]
     @ObservationIgnored private var end: Int?
     @ObservationIgnored private var queue: [String] = []
     @ObservationIgnored private var activity = TranscriptActivity()
@@ -96,6 +97,19 @@ final class ConversationModel {
         return tab.agent.harness.summaryContext?(summary)
     }
 
+    var pullRequestWatch: PullRequestWatch? {
+        sessionID.flatMap(store.pullRequestWatch(for:))
+    }
+
+    func stopWatching() async {
+        guard let sessionID, !isSending else { return }
+
+        isSending = true
+        notice = nil
+        defer { isSending = false }
+        if case let .refused(message) = await store.stopWatching(sessionID) { notice = message }
+    }
+
     var tasks: [RemoteTask] {
         guard !shellTasks.isEmpty, let sessionID, let live = store.liveBySession[sessionID], live.status == "idle", live.reportsWaiting else { return transcriptTasks }
 
@@ -111,6 +125,10 @@ final class ConversationModel {
 
     var entryCount: Int { entries.count }
 
+    #if DEBUG
+    var isWatchingTranscript: Bool { watcher?.isRunning == true }
+    #endif
+
     private var sessionID: String? { store.tabs.first { $0.id == tabID }?.sessionID }
 
     var blocksSending: Bool { isTurnOpen && !(store.liveBySession[sessionID ?? ""]?.reportsWaiting ?? false) }
@@ -122,7 +140,8 @@ final class ConversationModel {
 
     func attach(_ urls: [URL]) -> String {
         var draft = draft
-        let tokens = draft.attach(urls)
+        let lastSent = turns.lazy.compactMap { $0.prompt?.imageNumbers?.max() }.max() ?? 0
+        let tokens = draft.attach(urls, afterImage: lastSent)
         self.draft = draft
         return tokens
     }
@@ -260,6 +279,12 @@ final class ConversationModel {
         notice = message
     }
 
+    func promptImage(entryID: String, index: Int) async -> Data? {
+        guard let url, let line = imageLines[TranscriptImages.promptImageID(entryID: entryID, index: index)] else { return nil }
+
+        return await Task.detached { TranscriptImages.promptImage(entryID: entryID, index: index, in: url, line: line) }.value
+    }
+
     func openAgent(agentID: String?, toolUseID: String?) {
         guard let tab = store.tabs.first(where: { $0.id == tabID }), let sessionID = tab.sessionID else { return }
 
@@ -274,6 +299,7 @@ final class ConversationModel {
     func start() {
         guard let tab = store.tabs.first(where: { $0.id == tabID }) else { return }
 
+        lastChange = .now
         let harness = tab.agent.harness
         watcher = FileWatcher(paths: [store.sessionIndex(for: tab.agent).root.path], latency: 0.3) { [weak self] paths in
             guard let self else { return }
@@ -297,6 +323,14 @@ final class ConversationModel {
         watcher = nil
         shellPolling?.cancel()
         shellPolling = nil
+        needsRead = false
+        openSubagent = nil
+        notice = nil
+        pending.removeAll()
+        shellTasks.removeAll()
+        pickedModel = nil
+        pickedEffort = nil
+        rolloutApproval = nil
     }
 
     private func refreshShellTasks() async {
@@ -392,6 +426,7 @@ final class ConversationModel {
         guard let chunk else { return }
 
         self.url = url
+        imageLines = (chunk.isContinuation ? imageLines : [:]).merging(chunk.imageLines) { $1 }
         end = chunk.end
         queue = chunk.queue
         if let result {
@@ -413,26 +448,39 @@ final class ConversationModel {
         }
         if queued != chunk.queuedPrompts { queued = chunk.queuedPrompts }
         if !chunk.isContinuation || !chunk.entries.isEmpty {
-            entries = (chunk.isContinuation ? entries : []) + chunk.entries
-            turns = Turn.turns(from: entries)
-            var currentDetails: [String: ToolCallDetails] = [:]
-            var currentCompleted: Set<String> = []
-            for turn in turns {
-                for part in turn.parts {
-                    let calls: [ToolCall] = switch part {
-                    case let .work(calls), let .cards(calls): calls
-                    case .reply: []
-                    }
-                    for call in calls {
-                        currentDetails[call.id] = if let cached = details[call.id], call.result == nil || completedCalls.contains(call.id) { cached } else { call.details }
-                        if call.result != nil { currentCompleted.insert(call.id) }
-                    }
-                }
+            if !chunk.isContinuation {
+                entries.removeAll()
+                details.removeAll()
+                completedCalls.removeAll()
             }
-            details = currentDetails
-            completedCalls = currentCompleted
+            entries.append(contentsOf: chunk.entries)
+            if chunk.isContinuation, let continued = Turn.continuing(turns, with: chunk.entries) {
+                turns = continued
+            } else {
+                rebuildTurns()
+            }
         }
         if entries.count > previousCount || isTurnOpen != wasTurnOpen { lastChange = .now }
         reconcilePending()
+    }
+
+    private func rebuildTurns() {
+        turns = Turn.turns(from: entries)
+        var currentDetails: [String: ToolCallDetails] = [:]
+        var currentCompleted: Set<String> = []
+        for turn in turns {
+            for part in turn.parts {
+                let calls: [ToolCall] = switch part {
+                case let .work(calls), let .cards(calls): calls
+                case .reply: []
+                }
+                for call in calls {
+                    currentDetails[call.id] = if let cached = details[call.id], call.result == nil || completedCalls.contains(call.id) { cached } else { call.details }
+                    if call.result != nil { currentCompleted.insert(call.id) }
+                }
+            }
+        }
+        details = currentDetails
+        completedCalls = currentCompleted
     }
 }

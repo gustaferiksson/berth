@@ -85,6 +85,16 @@ struct TranscriptActivityTests {
         #expect(ended.tasks(of: live, now: now) { _ in false }.isEmpty)
     }
 
+    @Test func notificationAbsorbedBeforeTheVirtualLaunchResultStillEndsTheShell() {
+        let notification = #"<task-notification>\n<task-id>bshell2</task-id>\n<status>completed</status>\n</task-notification>"#
+        let ended = activity([
+            #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:00:10.000Z","content":"\#(notification)"}"#,
+            #"{"type":"queue-operation","operation":"remove","timestamp":"2026-11-01T10:00:11.000Z","content":"\#(notification)","reason":"absorbed_mid_turn"}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:00:20.000Z","isVirtual":true,"turnCompanion":true,"message":{"content":[{"tool_use_id":"repl_9","type":"tool_result","content":""}]},"toolUseResult":{"backgroundTaskId":"bshell2","description":"Watch CI"}}"#,
+        ])
+        #expect(ended.tasks(of: live, now: now) { _ in false }.isEmpty)
+    }
+
     @Test func oneNotificationCanEndSeveralTasks() {
         let ended = activity(launches + [
             #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:10.000Z","content":"<task-notification>\n<task-id>bshell1</task-id>\n<task-id>agent1</task-id>\n<status>failed</status>\n</task-notification>"}"#,
