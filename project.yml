@@ -153,6 +153,7 @@ targets:
       - path: Packages/BerthCore/Sources/BerthCore/SlashCommands.swift
       - path: Packages/BerthCore/Sources/BerthCore/FuzzyMatch.swift
       - path: Packages/BerthCore/Sources/BerthCore/PlanUsage.swift
+      - path: Packages/BerthCore/Sources/BerthCore/UsageGroups.swift
       - path: Packages/BerthCore/Sources/BerthCore/Conversation.swift
       - path: Packages/BerthCore/Sources/BerthCore/PendingPrompts.swift
       - path: Packages/BerthCore/Sources/BerthCore/MarkdownBlock.swift

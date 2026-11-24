@@ -1,19 +1,8 @@
 import SwiftUI
 
-struct UsageGroup: Identifiable {
-    let name: String
-    let asset: String
-    let windows: [UsageWindow]
-    let staleSince: Date?
-
-    var id: String { name }
-}
-
 extension RemoteClient {
     func usageGroups(at now: Date) -> [UsageGroup] {
-        let claude = usage.map { UsageGroup(name: "Claude", asset: "HarnessClaude", windows: $0.current(at: now), staleSince: nil) }
-        let codex = codexUsage.map { UsageGroup(name: "Codex", asset: "HarnessCodex", windows: $0.usage.current(at: now), staleSince: $0.isStale(at: now) ? $0.recordedAt : nil) }
-        return [claude, codex].compactMap(\.self).filter { !$0.windows.isEmpty }
+        UsageGroup.groups(claude: usage, codex: codexUsage, at: now)
     }
 }
 
@@ -25,7 +14,7 @@ struct UsageCard: View {
         TimelineView(.everyMinute) { timeline in
             Button(action: open) {
                 HStack(spacing: 10) {
-                    Image(group.asset)
+                    Image(group.kind == .codex ? "HarnessCodex" : "HarnessClaude")
                         .resizable()
                         .scaledToFit()
                         .frame(width: 16, height: 16)
@@ -164,7 +153,7 @@ struct UsageSheet: View {
                 List {
                     ForEach(groups) { group in
                         ForEach(group.windows) { window in
-                            UsageWindowSection(group: group, window: window, now: timeline.date, showsHarness: groups.count > 1 || group.name == "Codex")
+                            UsageWindowSection(group: group, window: window, now: timeline.date, showsHarness: groups.count > 1 || group.kind == .codex)
                         }
                     }
                     Section {} footer: {

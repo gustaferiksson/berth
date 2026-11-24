@@ -448,13 +448,19 @@ final class RemoteClient {
     private func apply(_ message: RemoteServerMessage) {
         switch message {
         case let .sessions(groups, folders, features):
+            let previousFeatures = self.features
             sessionsReceived += 1
             self.groups = groups
             self.folders = folders
             self.features = features ?? []
             if !self.features.contains(RemoteUsageFeature.name) { usage = nil }
             if !self.features.contains(RemoteCodexUsageFeature.name) { codexUsage = nil }
-            guard state != .connected else { return }
+            guard state != .connected else {
+                if [RemoteUsageFeature.name, RemoteCodexUsageFeature.name].contains(where: { self.features.contains($0) && !previousFeatures.contains($0) }) {
+                    loadUsage()
+                }
+                return
+            }
 
             state = .connected
             failures = 0
@@ -499,13 +505,13 @@ final class RemoteClient {
             diffs[ChangeKey(sessionID: sessionID, path: path, isCommitted: isCommitted)] = diff.map(DiffLoad.loaded) ?? .failed
 
         case let .usage(usage):
-            self.usage = usage
+            if features.contains(RemoteUsageFeature.name) { self.usage = usage }
 
         case let .commands(sessionID, commands):
             slashCommands[sessionID] = commands.map { SlashCommand($0) }
 
         case let .codexUsage(usage):
-            codexUsage = usage
+            if features.contains(RemoteCodexUsageFeature.name) { codexUsage = usage }
 
         case .challenge:
             return
