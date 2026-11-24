@@ -196,16 +196,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store.lastKeyInput = .now
             let flags = event.modifierFlags.intersection([.command, .shift, .control, .option])
             let isTab = event.keyCode == 48
+            let isTabCycle = isTab && (flags == .control || flags == [.control, .shift])
+            let tabNumber = flags == .command ? event.charactersIgnoringModifiers.flatMap(Int.init).flatMap { (1...9).contains($0) ? $0 : nil } : nil
             if flags == [.command, .shift], event.keyCode == 30 || event.keyCode == 33 {
                 store.cycleTab(by: event.keyCode == 30 ? 1 : -1)
                 return nil
             }
-            if isTab, flags == .control || flags == [.control, .shift] {
+            let responder = event.window?.firstResponder as? NSView
+            let ancestors = responder.map { Array(sequence(first: $0, next: \.superview)) } ?? []
+            if store.shownPane == .browser, ancestors.contains(where: { $0 is NSHostingView<PaneHost> }) {
+                if isTabCycle {
+                    store.browser.selectTab(offset: flags.contains(.shift) ? -1 : 1)
+                    return nil
+                }
+                if let tabNumber {
+                    store.browser.selectTab(number: tabNumber)
+                    return nil
+                }
+            }
+            if isTabCycle {
                 store.cycleTab(by: flags.contains(.shift) ? -1 : 1)
                 return nil
             }
-            let responder = event.window?.firstResponder as? NSView
-            let ancestors = responder.map { Array(sequence(first: $0, next: \.superview)) } ?? []
             if flags == .command, let key = [33: "[", 30: "]"][event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key }), action.isAvailable(in: store) {
                 action.perform(on: store)
                 return nil
@@ -236,10 +248,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.focusedTerminal?.performBindingAction(flags.contains(.shift) ? "navigate_search:previous" : "navigate_search:next")
                 return nil
             }
-            guard flags == .command else { return event }
-
-            if let number = event.charactersIgnoringModifiers.flatMap(Int.init), (1...9).contains(number) {
-                store.selectTab(number: number)
+            if let tabNumber {
+                store.selectTab(number: tabNumber)
                 return nil
             }
             return event

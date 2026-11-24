@@ -22,10 +22,10 @@ extension Snapshot {
         <tr><td>INV-1046</td><td>Initech</td><td>€4 312,50</td><td>Paid</td></tr>
         <tr><td>INV-1045</td><td>Umbrella</td><td>€310,00</td><td>Overdue</td></tr>
         <tr><td>INV-1044</td><td>Hooli</td><td>€2 015,75</td><td>Open</td></tr></table>
-        <img src="https://example.com/tracker.png" width="1" height="1">
         """),
         ("api.html", "Export API", "#a371f7", "<h1>Export API</h1><p>Stream invoices as CSV from the billing service.</p><pre>GET /v1/invoices/export?format=csv</pre>"),
         ("pr.html", "Pull Request 418", "#f85149", "<h1>Export invoices as CSV</h1><p>feat/invoice-export into main</p>"),
+        ("release.html", "Release Checklist", "#39c5cf", "<h1>Release Checklist</h1><ul><li>Verify the CSV headers</li><li>Publish the export documentation</li></ul>"),
     ]
 
     static func captureBrowser(store: Store, window: NSWindow) async {
@@ -43,9 +43,10 @@ extension Snapshot {
         store.openShell(cwd: session.cwd, id: parent)
         store.tabs = store.tabs.map { $0.id == parent ? Tab(id: parent, kind: .claude, cwd: session.cwd, sessionID: session.id, terminal: $0.terminal) : $0 }
         store.activate(.tab(parent))
-        let urls = browserPages.map { folder.appending(path: $0.file) }
-        for url in urls.prefix(2) { store.browser.pin(store.browser.open(url, in: session.id)) }
-        for url in urls.dropFirst(2) { store.browser.open(url, in: session.id) }
+        for (index, page) in browserPages.enumerated() {
+            let tab = store.browser.open(folder.appending(path: page.file), in: session.id, title: page.title)
+            if index < 2 { store.browser.pin(tab) }
+        }
         if let invoices = store.browser.tabs(in: session.id).first { store.browser.select(invoices, in: session.id) }
         store.showBrowserPane()
         for tab in store.browser.pinned + store.browser.tabs(in: session.id) {
@@ -65,7 +66,11 @@ extension Snapshot {
             try? await Task.sleep(for: .seconds(1))
         }
         let shown = store.browser.shownTab
-        print("browser pane \(store.shownPane?.rawValue ?? "hidden"), pinned \(store.browser.pinned.map(\.displayTitle)), session \(store.browser.tabs(in: session.id).map(\.displayTitle)), favicons \((store.browser.pinned + store.browser.tabs(in: session.id)).count(where: { $0.favicon != nil })), shown \(shown?.displayTitle ?? "none") \(shown?.url?.lastPathComponent ?? "-") loading \(shown?.isLoading == true), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+        let pinned = store.browser.pinned
+        let sessionTabs = store.browser.tabs(in: session.id)
+        let all = pinned + sessionTabs
+        let hovered = all.map(\.displayTitle).filter { forcedHover.contains($0) }
+        print("browser pane \(store.shownPane?.rawValue ?? "hidden"), window width \(window.contentLayoutRect.width), pinned \(pinned.count) \(pinned.map(\.displayTitle)), session \(sessionTabs.count) \(sessionTabs.map(\.displayTitle)), favicons \(all.count(where: { $0.favicon != nil })), hovered \(hovered), shown \(shown?.displayTitle ?? "none") \(shown?.url?.lastPathComponent ?? "-") loading \(shown?.isLoading == true), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
     }
 }
 #endif

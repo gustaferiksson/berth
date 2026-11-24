@@ -35,6 +35,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     var progress = 0.0
     var canGoBack = false
     var canGoForward = false
+    @ObservationIgnored var needsPageFocus = false
     @ObservationIgnored private(set) var loadedWebView: WKWebView?
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private unowned let browser: BrowserModel
@@ -83,6 +84,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         loadedWebView?.stopLoading()
         loadedWebView?.removeFromSuperview()
         loadedWebView = nil
+        needsPageFocus = false
         isLoading = false
         progress = 0
     }
@@ -229,6 +231,25 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
 
     func select(_ tab: BrowserTab, in key: String) {
         selectedIDs[key] = tab.id
+    }
+
+    func selectTab(number: Int? = nil, offset: Int = 0) {
+        guard let key = sessionKey, let current = shownTab else { return }
+
+        let candidates = pinned + tabs(in: key)
+        let index: Int
+        if let number {
+            index = number == 9 ? candidates.count - 1 : number - 1
+        } else {
+            guard let currentIndex = candidates.firstIndex(where: { $0 === current }) else { return }
+
+            index = (currentIndex + offset + candidates.count) % candidates.count
+        }
+        guard candidates.indices.contains(index), candidates[index] !== current else { return }
+
+        let target = candidates[index]
+        target.needsPageFocus = target.url != nil
+        select(target, in: key)
     }
 
     func close(_ tab: BrowserTab, in key: String) {
