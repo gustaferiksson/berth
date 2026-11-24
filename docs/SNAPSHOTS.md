@@ -155,6 +155,8 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 
 `-snapshotDemo YES` opens a sample session without a Mac server. Add `-snapshotDemoImageOnly YES` to end the session with an image-only prompt. Add `-snapshotDemoList YES` to stay on the session list (with sample Claude and Codex usage cards). Add `-snapshotDemoFocus YES` to focus the composer after 1.5 seconds.
 
+Add `-snapshotDemoSlashCommands YES` to seed `/co` and sample project and user commands. Capture each appearance with `xcrun simctl io booted screenshot /abs/out.png` after setting it with `xcrun simctl ui booted appearance light|dark`.
+
 ### Glass (see docs/adr/0005)
 
 `-snapshotSidebarFilter "<q>|…"` prints the visible rows per query; `-snapshotKeys` ⌃⌥+arrow chords take the CGEvent path and its state line prints `right top line`.
@@ -178,6 +180,8 @@ Add `-snapshotLauncherLoading YES` to `-snapshotIssues ""` or `-snapshotPullRequ
 `-snapshotConversation YES` (needs an empty `CFFIXED_USER_HOME`; pass `-reviewEnabled NO`, `-conversationEnabled YES`; `-snapshotConversationStatus busy|waiting|idle`, `-snapshotConversationMode auto|plan|acceptEdits|default` (the permission mode the status bar shows; for the branch counts make `/private/tmp/berth-conversation-fixture` a git repo with an upstream), `-snapshotConversationExpanded YES`, `-snapshotConversationHeight <pt>`) seeds an invented transcript, saves `<out>.conversation.png` and `<out>.terminal.png` and prints the surface identity across toggles.
 
 Add `-snapshotConversationEmpty YES` to open a session with zero turns, and use `-snapshotConversationWidth <pt>` to set the capture width (1100 pt by default).
+
+Add `-snapshotConversationSlashCommands YES` to capture the Claude composer with `/co` and the picker open. The flag seeds a command in the fixture home.
 
 The Claude fixture includes bash-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
 

@@ -126,6 +126,7 @@ final class Store {
     }
 
     var conversationDrafts: [Tab.ID: ConversationDraft] = [:]
+    @ObservationIgnored var conversationSlashCommands: [ConversationSlashPicker.Scope: [SlashCommand]] = [:]
     private(set) var conversationModels: [Tab.ID: ConversationModel] = [:]
     @ObservationIgnored private var recentConversationModels: [Tab.ID: (model: ConversationModel, sessionID: String?, agent: Agent, shownAt: ContinuousClock.Instant)] = [:]
     var conversationFocusRequests = 0

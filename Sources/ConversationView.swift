@@ -139,8 +139,12 @@ struct ConversationView: View {
                     )
                 }
                 ForEach(pending, id: \.sentAt) { prompt in
-                    ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text))
-                        .opacity(0.6)
+                    if let command = prompt.shellCommand {
+                        ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: command, name: "bash", command: command), isShellRunning: true)
+                    } else {
+                        ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text))
+                            .opacity(0.6)
+                    }
                 }
             }
             .frame(maxWidth: theme.messageWidth, alignment: .leading)
@@ -256,7 +260,7 @@ struct ConversationTurnView: View {
 
         VStack(alignment: .leading, spacing: 14) {
             if let prompt = turn.prompt {
-                ConversationPrompt(entry: prompt, selectionID: "prompt:\(turn.id)")
+                ConversationPrompt(entry: prompt, selectionID: "prompt:\(turn.id)", isShellRunning: turn.parts.isEmpty)
             }
             ForEach(turn.parts) { part in
                 if case let .work(calls) = part, !turn.isInterrupted {
@@ -584,7 +588,7 @@ private struct ConversationBottomBar: View {
     }
 
     private var bar: some View {
-        let isShell = harness.supports(.bashMode) && model.draft.text.hasPrefix("!")
+        let isShell = tab.kind == .shell || harness.supports(.bashMode) && model.draft.text.hasPrefix("!")
 
         return VStack(spacing: 10) {
             if let approval, approval.isActionable || approval == .loading {
@@ -613,7 +617,7 @@ private struct ConversationBottomBar: View {
                 }
             }
             VStack(spacing: 2) {
-                ConversationComposer(model: model, harnessName: harness.name, canAttach: canAttach, isShell: isShell, isWorking: isWorking, waiting: denial, focusRequest: composerFocus)
+                ConversationComposer(model: model, folder: tab.folder, harness: harness, canAttach: canAttach, isShell: isShell, isWorking: isWorking, waiting: denial, focusRequest: composerFocus)
                 SessionStatusBar(model: model, tab: tab, harness: harness, isShell: isShell, isWorking: isWorking, isWaiting: waiting != nil, summary: branch)
             }
         }

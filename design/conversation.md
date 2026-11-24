@@ -16,6 +16,8 @@ Drops land on an AppKit `ConversationDropTarget` overlay over the card and compo
 
 Up in an empty composer pulls the queued prompts back (`ConversationModel.recallQueued`): while Claude is busy it sends Up to the pty, which makes Claude Code move every queued prompt into its input box (`popAll` records empty the queue), then Ctrl+U clears that box and the composer takes the prompts joined by newlines. Up does nothing special when nothing is queued.
 
+The Mac composer’s slash command catalog lives in [SlashCommands.swift](../Packages/BerthCore/Sources/BerthCore/SlashCommands.swift). The catalog cache and picker state live in memory.
+
 Agent cards and running-agent popover rows open a conversation-pane overlay with Back/Escape navigation, reading turns incrementally from the subagent JSONL through the harness and watching its directory for live transcript and metadata updates.
 
 Claude bash-mode commands appear as shell rows on Mac and Remote with stdout and stderr folded after four lines.

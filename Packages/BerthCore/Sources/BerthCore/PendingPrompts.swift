@@ -10,6 +10,13 @@ public struct PendingPrompt: Equatable, Sendable {
     public var wasQueued = false
     fileprivate var claimedEntryIDs: Set<String> = []
 
+    public var shellCommand: String? {
+        guard text.hasPrefix("!") else { return nil }
+
+        let command = text.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
+        return command.isEmpty ? nil : command
+    }
+
     public init(text: String, sentAt: Date, attachmentCount: Int = 0, baseline: Int? = nil, promptBaseline: Int? = nil, isFailed: Bool = false) {
         self.text = text
         self.sentAt = sentAt
@@ -38,7 +45,9 @@ public enum PendingPrompts {
             guard !text.isEmpty else { continue }
 
             let earliest = prompt.sentAt.addingTimeInterval(-1)
-            let match = if let baseline = prompt.baseline {
+            let match = if let command = prompt.shellCommand {
+                promptEntries.first { !claimedEntryIDs.contains($0.id) && $0.name == "bash" && $0.text == command && ($0.date ?? .distantPast) >= earliest }
+            } else if let baseline = prompt.baseline {
                 promptEntries.lazy.filter { matches($0.text, text: text, attachmentCount: prompt.attachmentCount) }
                     .dropFirst(baseline).first { !claimedEntryIDs.contains($0.id) }
             } else {
@@ -55,6 +64,11 @@ public enum PendingPrompts {
         let humanEntries = promptEntries.filter { $0.name != "bash" }
         for index in sendOrder {
             guard var prompt = remaining[index] else { continue }
+
+            if prompt.shellCommand != nil {
+                if now.timeIntervalSince(prompt.sentAt) > grace { remaining[index] = nil }
+                continue
+            }
 
             if isQueued(prompt, queued: queued) {
                 prompt.wasQueued = true

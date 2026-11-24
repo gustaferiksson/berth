@@ -235,24 +235,78 @@ private struct Composer: View {
     @State private var stops = 0
     @AppStorage("showsQuickReplies") private var showsReplies = true
     @AppStorage("quickReplies") private var replies = QuickReply.defaults
-    @State private var confirmedCommand: SlashCommand?
+    @State private var confirmedCommand: QuickSlashCommand?
     @State private var selection: TextSelection?
+    @State private var selectedSlashCommand: String?
+    @State private var dismissedSlashQuery: String?
     @FocusState private var isFocused: Bool
     @ScaledMetric(relativeTo: .body) private var plusGlyphSize = 18.0
 
     private let controlFill = Color.primary.opacity(0.06)
 
+    private var commands: [SlashCommand] {
+        client.slashCommands[sessionID] ?? (agent.asset == "HarnessCodex" ? SlashCommand.codexBuiltIns : SlashCommand.claudeBuiltIns)
+    }
+
+    private var slashQuery: String? {
+        guard draft.hasPrefix("/") else { return nil }
+
+        let word = draft.prefix { !$0.isWhitespace }
+        guard isFocused, let selection else { return word.endIndex == draft.endIndex ? String(word) : nil }
+        guard case let .selection(range) = selection.indices, range.isEmpty, range.lowerBound > word.startIndex,
+              range.lowerBound == word.endIndex || word.indices.contains(range.lowerBound) else { return nil }
+
+        return String(draft[..<range.lowerBound])
+    }
+
     var body: some View {
+        let query = slashQuery
+        let matches: [SlashCommand] = if let query, query != dismissedSlashQuery { SlashCommand.matching(query, in: commands) } else { [] }
+        let selected = matches.first { $0.name == selectedSlashCommand } ?? matches.first
+        let needsCommands = query != nil && client.state == .connected && client.features.contains(RemoteSlashCommand.feature)
+
+        VStack(spacing: 6) {
+            if let selected {
+                ComposerSlashMenu(matches: matches, selected: selected.name, pick: complete)
+            }
+            composer(matches: matches, selected: selected)
+        }
+        .disabled(client.state != .connected)
+        .task(id: needsCommands ? sessionID : nil) {
+            guard needsCommands else { return }
+
+            client.loadSlashCommands(for: sessionID)
+        }
+        .onChange(of: query) {
+            dismissedSlashQuery = nil
+            selectedSlashCommand = nil
+        }
+    }
+
+    private func composer(matches: [SlashCommand], selected: SlashCommand?) -> some View {
         let isExpanded = isFocused || !draft.isEmpty || !attachments.isEmpty
         let isShell = agent.canRunBash == true && draft.hasPrefix("!")
         let shape = isKeyboardUp ? AnyShape(.rect(cornerRadius: ComposerLayout.keyboardCornerRadius, style: .continuous)) : AnyShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)), isUniform: true))
 
-        ComposerLayout(isExpanded: isExpanded, hasAttachmentMenu: agent.canAttach) {
+        return ComposerLayout(isExpanded: isExpanded, hasAttachmentMenu: agent.canAttach) {
             TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, selection: $selection, axis: .vertical)
                 .font(isShell ? .body.monospaced() : .body)
                 .textFieldStyle(.plain)
                 .lineLimit(1...(isExpanded ? 6 : 1))
                 .focused($isFocused)
+                .onKeyPress(keys: [.upArrow, .downArrow, .tab, .return, .escape], phases: [.down, .repeat]) { press in
+                    guard press.modifiers.isEmpty, let selected, let index = matches.firstIndex(of: selected) else { return .ignored }
+
+                    if press.key == .escape {
+                        dismissedSlashQuery = slashQuery
+                    } else if press.key == .return || press.key == .tab {
+                        complete(selected)
+                    } else {
+                        let step = press.key == .upArrow ? -1 : 1
+                        selectedSlashCommand = matches[(index + step + matches.count) % matches.count].name
+                    }
+                    return .handled
+                }
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 0) {
                 if agent.canAttach {
@@ -285,7 +339,6 @@ private struct Composer: View {
         .overlay { shape.stroke(.pink.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0) }
         .animation(.smooth(duration: 0.2), value: isShell)
         .animation(.smooth(duration: 0.3), value: isExpanded)
-        .disabled(client.state != .connected)
         .onChange(of: draft) {
             attachments.removeAll { $0.number.map { !draft.contains("[Image #\($0)]") } ?? false }
         }
@@ -351,7 +404,7 @@ private struct Composer: View {
                 }
             }
             Section("Commands") {
-                ForEach(SlashCommand.all) { command in
+                ForEach(QuickSlashCommand.all) { command in
                     Button(command.name, systemImage: command.symbol, role: command.isDestructive ? .destructive : nil) { run(command) }
                 }
             }
@@ -578,7 +631,25 @@ private struct Composer: View {
         isFocused = true
     }
 
-    private func run(_ command: SlashCommand) {
+    private func complete(_ command: SlashCommand) {
+        guard draft.hasPrefix("/") else { return }
+
+        let suffix = draft.drop(while: { !$0.isWhitespace })
+        let arguments = suffix.hasPrefix(" ") ? suffix.dropFirst() : suffix
+        let prefix = command.name + " "
+        let completed = prefix + arguments
+        draft = completed
+        selection = nil
+        isFocused = true
+        Task {
+            await Task.yield()
+            guard draft == completed else { return }
+
+            selection = TextSelection(insertionPoint: draft.index(draft.startIndex, offsetBy: prefix.count))
+        }
+    }
+
+    private func run(_ command: QuickSlashCommand) {
         if command.isDestructive {
             confirmedCommand = command
             return
@@ -587,13 +658,15 @@ private struct Composer: View {
         sendCommand(command)
     }
 
-    private func sendCommand(_ command: SlashCommand) {
+    private func sendCommand(_ command: QuickSlashCommand) {
         guard client.send(.prompt(sessionID: sessionID, text: command.name, attachments: nil)) else { return }
 
         sends += 1
     }
 
     private func send() {
+        guard allowsSendingCommand() else { return }
+
         if let declining {
             Task { await decline(declining) }
             return
@@ -604,13 +677,21 @@ private struct Composer: View {
         sends += 1
     }
 
+    private func allowsSendingCommand() -> Bool {
+        let name = draft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard name.hasPrefix("/"), let command = commands.first(where: { $0.requiresArguments && $0.name.lowercased() == name }) else { return true }
+
+        client.notice = "\(command.name) needs an argument"
+        return false
+    }
+
     private func decline(_ waiting: RemoteSession) async {
         guard client.send(.key(sessionID: sessionID, key: .escape, waitingFor: waiting.waitingFor, waitingSince: waiting.waitingSince)) else { return }
 
         for _ in 0..<50 {
             try? await Task.sleep(for: .milliseconds(100))
             guard client.groups.lazy.flatMap(\.sessions).first(where: { $0.id == sessionID })?.status == "waiting" else {
-                if client.sendDraft(to: sessionID) { sends += 1 }
+                if allowsSendingCommand(), client.sendDraft(to: sessionID) { sends += 1 }
                 return
             }
         }
