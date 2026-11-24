@@ -1,19 +1,30 @@
 import SwiftUI
 
+extension EnvironmentValues {
+    @Entry var showsSidebarHeadersAsRows = false
+}
+
 struct SidebarSection<Content: View, Header: View>: View {
     let isExpanded: Binding<Bool>
     @ViewBuilder let content: () -> Content
     @ViewBuilder let header: (Binding<Bool>) -> Header
+    @Environment(\.showsSidebarHeadersAsRows) private var showsHeadersAsRows
 
     var body: some View {
-        Section {
+        let heading = header(isExpanded).listRowSeparator(.hidden)
+        if showsHeadersAsRows {
+            heading
+                .frame(minHeight: 28)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 2, trailing: 0))
             if isExpanded.wrappedValue { content() }
-        } header: {
-            header(isExpanded)
-                .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 2, trailing: 0))
-                .listRowSeparator(.hidden)
+        } else {
+            Section {
+                if isExpanded.wrappedValue { content() }
+            } header: {
+                heading.listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 2, trailing: 0))
+            }
+            .listSectionSeparator(.hidden)
         }
-        .listSectionSeparator(.hidden)
     }
 }
 

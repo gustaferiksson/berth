@@ -188,7 +188,6 @@ final class Store {
     var collapsedReviewRepositories: Set<String> = []
     var expandedReviewTasks: Set<String> = []
     var reviewRepoTabs: [String: String] = [:]
-    var changeSizes: [String: ChangeSize] = [:]
     var reviewModels: [String: ReviewModel] = [:] {
         didSet {
             for (id, model) in oldValue where reviewModels[id] !== model { model.language?.stop() }
@@ -1467,9 +1466,8 @@ final class Store {
         }
 
         shownReviewPullRequests[sessionID, default: [:]][link] = entry
-        model.slimExpansionOverrides["otherPullRequests"] = true
+        model.expansionOverrides["otherPullRequests"] = true
         model.expandedPullRequests.insert(link)
-        model.slimScopeOverride = .changes
         model.open(document, loaded: contents)
         return .success(link)
     }

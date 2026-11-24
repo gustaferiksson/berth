@@ -6,7 +6,10 @@ public struct ReviewFile: Sendable, Hashable {
         case added = "A"
         case modified = "M"
         case deleted = "D"
+        case untracked = "U"
         case renamed = "R"
+
+        public var hasOriginal: Bool { self != .added && self != .untracked }
     }
 
     public let path: String
@@ -354,7 +357,7 @@ public enum ReviewGit {
     }
 
     private static func contents(of file: ReviewFile, revisions: (original: String, modified: String?), in root: String) async throws -> ReviewContents {
-        let original = try await (file.status == .added ? nil : blob(revisions.original, path: file.oldPath ?? file.path, in: root))
+        let original = try await (file.status.hasOriginal ? blob(revisions.original, path: file.oldPath ?? file.path, in: root) : nil)
 
         if file.status == .deleted { return ReviewContents(original: original, modified: nil) }
         if let modified = revisions.modified { return try await ReviewContents(original: original, modified: blob(modified, path: file.path, in: root)) }
@@ -496,10 +499,10 @@ public enum ReviewGit {
         let added = untracked.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }.filter { !$0.hasSuffix("/") }.map { path in
             let data = try? Data(contentsOf: URL(filePath: root).appending(path: path), options: .alwaysMapped)
             let isCountable = data.map { $0.count <= maxBytes && !$0.prefix(binaryProbeBytes).contains(0) } ?? false
-            guard let data, isCountable else { return ReviewFile(path: path, oldPath: nil, status: .added, additions: nil, deletions: nil) }
+            guard let data, isCountable else { return ReviewFile(path: path, oldPath: nil, status: .untracked, additions: nil, deletions: nil) }
 
             let lines = data.reduce(0) { $1 == 10 ? $0 + 1 : $0 } + (data.last == nil || data.last == 10 ? 0 : 1)
-            return ReviewFile(path: path, oldPath: nil, status: .added, additions: lines, deletions: 0)
+            return ReviewFile(path: path, oldPath: nil, status: .untracked, additions: lines, deletions: 0)
         }
         return (changes(diff) + added).sorted { $0.path < $1.path }
     }

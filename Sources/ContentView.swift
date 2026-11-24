@@ -115,7 +115,7 @@ struct ContentView: View {
                     if reviewRequests > 0 {
                         ToolbarSpacer(.fixed, placement: .automatic)
                     }
-                    SessionToolbar(store: store, isReviewEnabled: isReviewEnabled)
+                    SessionToolbar(store: store)
                     if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
                         ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
@@ -159,11 +159,6 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in store.isAppActive = false }
-        .task(id: "\(selected?.sessionID ?? "")\n\(selected?.cwd ?? "")\(isReviewEnabled)") {
-            guard isReviewEnabled, let selected, selected.kind == .claude, let sessionID = selected.sessionID else { return }
-
-            await store.trackChangeSize(sessionID: sessionID, folder: selected.cwd)
-        }
         .task(id: reviewRoots) { await store.watchReview(reviewRoots) }
         .task(id: folderWithoutRepository) { store.watchForRepository(in: folderWithoutRepository) }
         .onChange(of: showsPanel) {

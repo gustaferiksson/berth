@@ -165,18 +165,13 @@ Built (slice 1b, review part). Decided from the mock: card `fold`, repos `stack`
 - Below it, one section per repo, in the same list: the session's own repo first, then the repos of the
   task's other members (newest member's folder per repo; worktrees merge into their repo, as in
   Grouping), then repos the session edited outside its own. A session in no task with edits elsewhere
-  gets the sections and no card; a session in no task and no outside edits shows the panel exactly as
-  before (pixel-identical, checked against `-snapshotReview`).
-- Each section is a `Section(isExpanded:)` under the sidebar's `GroupHeader`: the repo name, and on the
-  right the branch → base (not for the own repo, whose branch and base stay in the panel header) and one
-  `PullRequestTag` per PR with its checks. A repo's PRs are those of the task members in that repo plus
-  the section branch's (`Store.pullRequests(inRoot:of:branch:)`, deduped by number). Collapsed state is per
-  repo root, in memory. The own repo's section also carries today's full branch card (PR card, commits,
-  Create Pull Request, base picker in the header) as its first row; other repos get the compact header
-  only. Under each header, "Uncommitted" and "Committed" subheadings (count, +/-) over the existing rows,
-  list or tree. They do not collapse: a `List` section cannot nest, so collapse is per repo.
-- The Files outline stays the own repo's. A session whose own folder is in no repository but that edited
-  repos shows just the stack (no header, card or Files) instead of No Git Repository.
+  gets the repository sections. A session in no task and no outside edits shows the single-repo panel.
+- Each repository uses `SidebarSection` with its name and an always-visible accessory. Extra
+  repositories show branch → base. The header also shows the repository’s pull request tags, which
+  combine member and branch PRs (`Store.pullRequests(inRoot:of:branch:)`, deduped by number).
+  Collapse state is kept in memory by repository root. Expanded repositories show the branch card,
+  threads, and Uncommitted and Committed rows. The session’s own repository also shows Commits and
+  Files. A session outside Git that edited repositories shows the stack.
 - Edited repos: `TranscriptEdits` reads Edit, Write, MultiEdit and NotebookEdit paths (`file_path`, else
   `notebook_path`) from the selected session's transcript only (not its subagent files), the first time in
   full, then appended bytes, cached per open session (`Store.editedRepositories`) and refreshed on scan,
@@ -298,8 +293,8 @@ In Review, a session in a task gets a task header (above the repo picker) and on
 
 Every repo section starts with the single-repo panel's branch/PR card (an extra repo's PR detail is one `gh` query per shown PR, cached in its model; its Create Pull Request button is hidden), falling back to `ReviewBranchStatus.unknown` when the status failed; the header shows the repo name, `branch → base` for extra repos and chips only for PRs the card isn't showing. The task header (`ReviewTaskHeader`) leads with the issue state pill and `#n`, then the title, `owner/repo` and a caption "N sessions · N PRs · N repos" that toggles the member list (collapsed by default, `Store.expandedReviewTasks`, in memory; titles truncate only when the row can't also fit the repo name).
 
-It sits above the Changes `List` on the panel's 8 pt edges; header and repo picker share one subtle card (`ReviewRepoRows`: a row per repo with its name, `branch → base` and square PR tag, plus an All repos row; selection per task in memory in `Store.reviewRepoTabs`, falling back to the own repo when the picked one disappears, switched by opening a file in another repo; the List's `.id` includes the shown repo and the repo set). A single repo's tab shows its card outside the List and its rows without a section header or collapse.
+It sits above the Changes `List` on the panel's 8 pt edges; header and repo picker share one subtle card (`ReviewRepoRows`: a row per repo with its name, `branch → base` and square PR tag, plus an All repos row; selection per task in memory in `Store.reviewRepoTabs`, falling back to the own repo when the picked one disappears, switched by opening a file in another repo; the List's `.id` includes the shown repo and the repo set). A single repo’s tab shows the branch card and rows without the repository accordion.
 
 The repo's other PRs (linked from the task's sessions or found by branch) show under the card under an "Other pull requests" label, with a disclosure chevron, title and square state tag (`ReviewOtherPullRequests`). Expand a PR to see its changed files or use its context menu to open it on GitHub. A closed PR is dropped from a task's PR count and those rows unless its head is the member's current branch or it closes the task's issue (`PullRequestSelection.current`, used by `Store.currentPullRequests`). The repo header's PR chip fades (opacity only, width kept), its branch text never animates, and `ReviewBranchCard` is a `.geometryGroup()` so a section expand doesn't re-lay out its parts.
 
-`GroupHeader` lays its content out at the width it measured while not hovered, less a 25 pt trailing reserve, so the system chevron's hover width never moves or re-truncates it (no chevron measuring); `-snapshotHover "<title>"` forces the state, and synthetic `mouseMoved` events don't trigger SwiftUI `onHover` offscreen, so snapshots can't show the real chevron. Every row in Review's lists (headers, cards, subheadings, file and folder rows) has zero list-row insets and pads itself from `ReviewInset.content` (16 pt) plus 18 pt per tree level (`reviewRow`, `ReviewRepositories.swift`); the lists are `.plain` with separators hidden, and the plain list's own 8 pt edge is subtracted once as `ReviewInset.listMargin`.
+The repository headers use the sessions sidebar style. Review uses a plain list with hidden separators and 18 pt indentation per tree level.

@@ -146,7 +146,7 @@ final class ReviewGitTests {
         #expect(try await changes.mergeBase == git(repo, "rev-parse", "main"))
         #expect(changes.committed.map(\.path) == ["committed.txt", "logo.bin"])
         #expect(changes.uncommitted.map(\.path) == ["gone.txt", "image.bin", "keep.txt", "new.txt", "renamed file.txt"])
-        #expect(changes.uncommitted.map(\.status) == [.deleted, .added, .modified, .added, .renamed])
+        #expect(changes.uncommitted.map(\.status) == [.deleted, .untracked, .modified, .untracked, .renamed])
         #expect(changes.uncommitted.first { $0.path == "renamed file.txt" }?.oldPath == "old.txt")
         #expect(changes.uncommitted.first { $0.path == "keep.txt" }.map { [$0.additions, $0.deletions] } == [1, 0])
         #expect(changes.uncommitted.first { $0.path == "new.txt" }.map { [$0.additions, $0.deletions] } == [2, 0])
@@ -182,7 +182,7 @@ final class ReviewGitTests {
         #expect(changes.fetchedAt != nil && changes.fetchError == nil)
 
         #expect(changes.uncommitted.map(\.path) == ["gone.txt", "keep.txt", "notes.txt"])
-        #expect(changes.uncommitted.map(\.status) == [.deleted, .modified, .added])
+        #expect(changes.uncommitted.map(\.status) == [.deleted, .modified, .untracked])
         #expect(changes.uncommitted.map { [$0.additions, $0.deletions] } == [[0, 1], [1, 0], [1, 0]])
         #expect(changes.committed.map(\.path) == ["feature.txt", "keep.txt"])
         #expect(changes.committed.map(\.status) == [.added, .modified])

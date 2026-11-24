@@ -179,18 +179,11 @@ extension ReviewModel {
 struct ReviewOtherPullRequests: View {
     let entries: [ReviewPullRequest]
     let model: ReviewModel
-    var showsHeading = true
     var showsRepository = false
     @Environment(\.openURL) private var openURL
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        if showsHeading, !entries.isEmpty {
-            Text("Other pull requests")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.secondary)
-                .reviewRow(bottom: 6)
-        }
         ForEach(entries) { entry in
             let link = entry.id
             let pullRequest = entry.pullRequest
@@ -248,6 +241,7 @@ struct ReviewOtherPullRequests: View {
                         let local = model.changes?.root == entry.location.root ? (entry.location.root as NSString).appendingPathComponent(file.path) : nil
                         ReviewHistoricalFileButton(file: file, document: document, model: model, openFile: file.status == .deleted ? nil : open)
                             .reviewRow(leading: ReviewInset.tree)
+                            .id(document)
                             .contextMenu {
                                 if file.status != .deleted {
                                     Button("Open File", systemImage: "doc", action: open)
@@ -269,6 +263,32 @@ struct ReviewOtherPullRequests: View {
                 }
             }
         }
+    }
+}
+
+struct ReviewRepositoryHeader<Accessory: View>: View {
+    let title: String
+    let help: String
+    let isExpanded: Binding<Bool>
+    @ViewBuilder let accessory: () -> Accessory
+
+    var body: some View {
+        SidebarSectionHeader(title: title, help: help, count: nil, isExpanded: isExpanded, accessory: nil as EmptyView?, replacementTitle: titleButton)
+    }
+
+    private var titleButton: some View {
+        Button { isExpanded.wrappedValue.toggle() } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                accessory()
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityValue(isExpanded.wrappedValue ? "expanded" : "collapsed")
     }
 }
 
@@ -302,21 +322,19 @@ struct ReviewRepositoryAccessory: View {
 
 struct ReviewSubheading: View {
     let title: String
-    let files: [ReviewFile]
-    @Environment(\.ghosttyTheme) private var theme
+    let count: Int
 
     var body: some View {
         HStack(spacing: 4) {
             Text(title)
-                .fontWeight(.semibold)
-                .foregroundStyle(theme.secondary)
+                .lineLimit(1)
             Spacer(minLength: 4)
-            Text("^[\(files.count) file](inflect: true)")
-                .foregroundStyle(theme.secondary)
-            Text("+\(files.compactMap(\.additions).reduce(0, +)) −\(files.compactMap(\.deletions).reduce(0, +))")
-                .foregroundStyle(theme.secondary)
+            Text(count, format: .number)
+                .font(.caption.monospacedDigit())
+                .fixedSize()
         }
-        .font(.subheadline)
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(Color.secondary)
         .frame(height: 22)
         .reviewRow(top: 2)
     }
@@ -325,17 +343,41 @@ struct ReviewSubheading: View {
 enum ReviewInset {
     static let fill = 8.0
     static let content = 16.0
-    static let listMargin = 8.0
     static let tree = 18.0
 }
 
 extension View {
     func reviewRow(top: Double = 0, bottom: Double = 0, leading: Double = 0) -> some View {
-        padding(.leading, ReviewInset.content - ReviewInset.listMargin + leading)
-            .padding(.trailing, ReviewInset.content - ReviewInset.listMargin)
+        padding(.leading, leading)
             .padding(.top, top)
             .padding(.bottom, bottom)
-            .listRowInsets(EdgeInsets())
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8))
             .listRowSeparator(.hidden)
+    }
+}
+
+struct ReviewBranchCommitRow: View {
+    let commit: ReviewCommit
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(commit.isPushed ? theme.secondary : .clear)
+                .strokeBorder(commit.isPushed ? .clear : theme.needsYou, lineWidth: 1.25)
+                .frame(width: 7, height: 7)
+                .help(commit.isPushed ? "Pushed" : "Not pushed")
+            Text(commit.sha)
+                .font(.caption.monospaced())
+                .foregroundStyle(theme.secondary)
+            Text(commit.subject)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            Text(age(since: commit.date))
+                .font(.caption)
+                .foregroundStyle(theme.secondary)
+        }
+        .frame(height: 22)
+        .help(commit.subject)
     }
 }

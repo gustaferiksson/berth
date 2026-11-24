@@ -1,62 +1,23 @@
 import BerthCore
 import SwiftUI
 
-struct ReviewGraphView<Leading: View>: View {
+struct ReviewGraphRows: View {
     let model: ReviewModel
     let changes: ReviewChanges
-    let showsHistory: Bool?
-    @ViewBuilder let leading: Leading
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        Group {
-            if showsHistory == nil, isEmpty {
-                ContentUnavailableView("No Commits", systemImage: "point.3.connected.trianglepath.dotted")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollViewReader { proxy in
-                    List {
-                        leading
-                        if showsHistory != false {
-                            if isEmpty {
-                                Text("No Commits")
-                                    .font(.caption)
-                                    .foregroundStyle(theme.secondary)
-                                    .reviewRow(top: 6, bottom: 6)
-                            } else {
-                                graphRows
-                            }
-                        }
-                    }
-                    .listStyle(.plain)
-                    .environment(\.sidebarRowSize, .small)
-                    .scrollContentBackground(.hidden)
-                    .scrollEdgeEffectStyle(.soft, for: .top)
-                    .onChange(of: model.selectedCommit, initial: true) { _, sha in
-                        if showsHistory != false, let sha { proxy.scrollTo(sha) }
-                    }
-                }
-            }
-        }
-        .foregroundStyle(theme.foreground)
-        .task(id: showsHistory) {
-            guard showsHistory != false, !model.graphHasLoaded, model.graphError == nil else { return }
-
-            await model.loadGraph()
-        }
-    }
-
-    private var isEmpty: Bool {
-        model.graphHasLoaded && model.graphCommits.isEmpty && model.graphError == nil && !model.isLoadingGraph
-    }
-
-    @ViewBuilder private var graphRows: some View {
         let gutterWidth = CGFloat(min(model.graphRows.map(\.laneCount).max() ?? 1, 8)) * 12
         ForEach(Array(zip(model.graphCommits, model.graphRows)), id: \.0.sha) { commit, row in
             ReviewGraphCommitRow(commit: commit, row: row, gutterWidth: gutterWidth, model: model, changes: changes)
                 .id(commit.sha)
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
+                .reviewRow()
+        }
+        if model.graphHasLoaded, model.graphCommits.isEmpty, model.graphError == nil, !model.isLoadingGraph {
+            Text("No Commits")
+                .font(.caption)
+                .foregroundStyle(theme.secondary)
+                .reviewRow(top: 6, bottom: 6)
         }
         if let error = model.graphError, !model.isLoadingGraph {
             VStack(alignment: .leading, spacing: 4) {
@@ -64,15 +25,14 @@ struct ReviewGraphView<Leading: View>: View {
                 Text(error).font(.caption).foregroundStyle(theme.secondary).lineLimit(3)
                 Button("Try Again") { Task { await model.loadGraph() } }
             }
-            .padding(.vertical, 6)
-            .listRowSeparator(.hidden)
+            .reviewRow(top: 6, bottom: 6)
         }
         if !model.graphHasLoaded, model.graphError == nil || model.isLoadingGraph {
             ProgressView()
                 .controlSize(.small)
                 .accessibilityLabel("Loading Commits")
                 .frame(maxWidth: .infinity, minHeight: 36)
-                .listRowSeparator(.hidden)
+                .reviewRow()
         }
         if model.graphHasMore {
             Button("Load More") { Task { await model.loadGraph(more: true) } }
@@ -80,14 +40,8 @@ struct ReviewGraphView<Leading: View>: View {
                 .foregroundStyle(theme.secondary)
                 .frame(minHeight: 32)
                 .disabled(model.isLoadingGraph)
-                .listRowSeparator(.hidden)
+                .reviewRow()
         }
-    }
-}
-
-extension ReviewGraphView where Leading == EmptyView {
-    init(model: ReviewModel, changes: ReviewChanges) {
-        self.init(model: model, changes: changes, showsHistory: nil) { EmptyView() }
     }
 }
 
@@ -137,7 +91,6 @@ private struct ReviewGraphCommitRow: View {
                 }
                 .padding(.vertical, 3)
                 .padding(.leading, gutterWidth + 5)
-                .padding(.trailing, ReviewInset.content)
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
                 .contentShape(.rect)
             }
@@ -159,7 +112,6 @@ private struct ReviewGraphCommitRow: View {
                     }
                 }
                 .padding(.leading, gutterWidth + 5)
-                .padding(.trailing, ReviewInset.content)
             }
         }
         .overlay(alignment: .leading) {
@@ -171,7 +123,7 @@ private struct ReviewGraphCommitRow: View {
         }
         .contentShape(.rect)
         .onHover { isHovering = $0 }
-        .listRowBackground(RowFill(opacity: isSelected ? 0.1 : isHovering ? 0.05 : 0))
+        .listRowBackground(RowFill(opacity: isSelected ? 0.1 : isHovering ? 0.05 : 0, cornerRadius: 4))
         .help("\(commit.sha)\n\(commit.subject)")
     }
 
@@ -254,7 +206,7 @@ private struct ReviewGraphCommitRow: View {
 extension ReviewFile.Status {
     func color(in theme: GhosttyTheme) -> Color {
         switch self {
-        case .added: theme.working
+        case .added, .untracked: theme.working
         case .modified: theme.needsYou
         case .deleted: theme.closed
         case .renamed: theme.branch
@@ -272,7 +224,7 @@ struct ReviewHistoricalFileButton: View {
     var body: some View {
         let isSelected = model.selectedDocument == document && !model.isPreviewSelected
         let status = switch file.status {
-        case .added: "Added"
+        case .added, .untracked: "Added"
         case .modified: "Modified"
         case .deleted: "Deleted"
         case .renamed: "Renamed"
