@@ -165,10 +165,12 @@ private struct ConversationComposerLayout: Layout {
         let controlsInset = blend(Self.inset, Self.expandedInset)
         let controlsTop = bounds.maxY - controlsInset - Self.controlSize
         subviews[0].place(at: CGPoint(x: bounds.minX + controlsInset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
+        let fieldY = blend(bounds.midY - fieldHeight / 2, bounds.minY + Self.fieldTop)
+        let roomAboveControls = max(0, controlsTop - Self.fieldGap - fieldY)
         subviews[1].place(
-            at: CGPoint(x: bounds.minX + blend(collapsed.leading, expanded.leading), y: blend(bounds.midY - fieldHeight / 2, bounds.minY + Self.fieldTop)),
+            at: CGPoint(x: bounds.minX + blend(collapsed.leading, expanded.leading), y: fieldY),
             anchor: .topLeading,
-            proposal: ProposedViewSize(width: blend(collapsed.width, expanded.width), height: fieldHeight)
+            proposal: ProposedViewSize(width: blend(collapsed.width, expanded.width), height: progress > 0 && fieldHeight > Self.controlSize ? min(fieldHeight, roomAboveControls) : fieldHeight)
         )
         subviews[2].place(at: CGPoint(x: bounds.maxX - controlsInset, y: controlsTop), anchor: .topTrailing, proposal: .unspecified)
     }

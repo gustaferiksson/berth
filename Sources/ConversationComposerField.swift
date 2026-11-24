@@ -99,7 +99,7 @@ struct ConversationComposerField: NSViewRepresentable {
         if textView.selectedRange().location == (textView.string as NSString).length {
             nsView.contentView.scroll(to: NSPoint(x: 0, y: max(0, used - height)))
         }
-        return CGSize(width: proposal.width ?? width, height: height)
+        return CGSize(width: proposal.width ?? width, height: min(height, proposal.height ?? height))
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
