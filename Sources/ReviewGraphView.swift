@@ -149,7 +149,7 @@ private struct ReviewGraphCommitRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if let files = model.commitFiles[commit.sha] {
                         ForEach(files, id: \.path) { file in
-                            fileButton(file)
+                            ReviewHistoricalFileButton(file: file, document: ReviewDocument(path: file.path, compare: .commit(commit.sha)), model: model)
                         }
                     } else {
                         ProgressView()
@@ -203,49 +203,6 @@ private struct ReviewGraphCommitRow: View {
                 RoundedRectangle(cornerRadius: 4).strokeBorder(theme.secondary)
             }
         }
-    }
-
-    private func fileButton(_ file: ReviewFile) -> some View {
-        let document = ReviewDocument(path: file.path, compare: .commit(commit.sha))
-        let isSelected = model.selectedDocument == document && !model.isPreviewSelected
-        let status = switch file.status {
-        case .added: "Added"
-        case .modified: "Modified"
-        case .deleted: "Deleted"
-        case .renamed: "Renamed"
-        }
-        return Button {
-            model.open(document)
-            if NSApp.currentEvent?.clickCount == 2 { model.selectedTabID.map(model.keep) }
-        } label: {
-            HStack(spacing: 5) {
-                Text(file.status.rawValue)
-                    .font(.caption2.weight(.medium).monospaced())
-                    .foregroundStyle(file.status.color(in: theme))
-                    .frame(width: 12)
-                    .accessibilityLabel(status)
-                Text((file.path as NSString).lastPathComponent)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityLabel(file.path)
-                Spacer(minLength: 0)
-                if let additions = file.additions, additions > 0 {
-                    Text("+\(additions)").foregroundStyle(theme.working).accessibilityLabel("\(additions) additions")
-                }
-                if let deletions = file.deletions, deletions > 0 {
-                    Text("−\(deletions)").foregroundStyle(theme.closed).accessibilityLabel("\(deletions) deletions")
-                }
-            }
-            .font(.caption)
-            .monospacedDigit()
-            .padding(.horizontal, 4)
-            .frame(minHeight: 22)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .background(theme.foreground.opacity(isSelected ? 0.1 : 0), in: .rect(cornerRadius: 4))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 
     private var lanes: some View {
@@ -302,5 +259,54 @@ extension ReviewFile.Status {
         case .deleted: theme.closed
         case .renamed: theme.branch
         }
+    }
+}
+
+struct ReviewHistoricalFileButton: View {
+    let file: ReviewFile
+    let document: ReviewDocument
+    let model: ReviewModel
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        let isSelected = model.selectedDocument == document && !model.isPreviewSelected
+        let status = switch file.status {
+        case .added: "Added"
+        case .modified: "Modified"
+        case .deleted: "Deleted"
+        case .renamed: "Renamed"
+        }
+        return Button {
+            model.open(document)
+            if NSApp.currentEvent?.clickCount == 2 { model.selectedTabID.map(model.keep) }
+        } label: {
+            HStack(spacing: 5) {
+                Text(file.status.rawValue)
+                    .font(.caption2.weight(.medium).monospaced())
+                    .foregroundStyle(file.status.color(in: theme))
+                    .frame(width: 12)
+                    .accessibilityLabel(status)
+                Text((file.path as NSString).lastPathComponent)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityLabel(file.path)
+                Spacer(minLength: 0)
+                if let additions = file.additions, additions > 0 {
+                    Text("+\(additions)").foregroundStyle(theme.working).accessibilityLabel("\(additions) additions")
+                }
+                if let deletions = file.deletions, deletions > 0 {
+                    Text("−\(deletions)").foregroundStyle(theme.closed).accessibilityLabel("\(deletions) deletions")
+                }
+            }
+            .font(.caption)
+            .monospacedDigit()
+            .padding(.horizontal, 4)
+            .frame(minHeight: 22)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .background(theme.foreground.opacity(isSelected ? 0.1 : 0), in: .rect(cornerRadius: 4))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 }

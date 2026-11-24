@@ -28,11 +28,13 @@ public enum ReviewCompare: Sendable, Hashable {
     case uncommitted
     case committed
     case commit(String)
+    case range(base: String, head: String)
 
-    public var isCommit: Bool {
-        if case .commit = self { return true }
-
-        return false
+    public var isHistorical: Bool {
+        switch self {
+        case .commit, .range: true
+        case .uncommitted, .committed: false
+        }
     }
 }
 
@@ -121,7 +123,6 @@ public enum ReviewGitError: Error, Equatable {
 public enum ReviewGit {
     private static let maxBytes = 2 * 1024 * 1024
     private static let binaryProbeBytes = 8000
-    private static let fetches = FetchThrottle()
 
     @preconcurrency
     public static func changes(in folder: String, preferredBase: @Sendable (_ root: String, _ branch: String) -> (picked: String?, pullRequest: String?) = { _, _ in (nil, nil) }) async throws -> ReviewChanges {
@@ -144,7 +145,7 @@ public enum ReviewGit {
         let isDefaultBranch = configuredBase == branch || configuredBase == "origin/\(branch)"
         let baseRefspecs = configuredBase.map { $0.hasPrefix("origin/") ? ["+refs/heads/\($0.dropFirst("origin/".count)):refs/remotes/\($0)"] : [] } ?? []
 
-        let fetch = await (baseRefspecs.isEmpty ? nil : fetches.fetch(baseRefspecs, in: root))
+        let fetch = await (baseRefspecs.isEmpty ? nil : FetchThrottle.shared.fetch(baseRefspecs, in: root))
         let head = if let head = try? await line(["rev-parse", "--verify", "--quiet", "HEAD"], in: root) { head } else { try await line(["hash-object", "-t", "tree", "/dev/null"], in: root) }
         let comparableBase = isDefaultBranch ? nil : defaultBase
         var bases = if let comparableBase { await bases(of: head, branch: branch, defaultBase: comparableBase, in: root) } else { [ReviewBase]() }
@@ -166,7 +167,7 @@ public enum ReviewGit {
         let comparedBase = isDefaultBranch ? nil : base
         let mergeBase = if let comparedBase { try await line(["merge-base", comparedBase, head], in: root) } else { head }
 
-        let committed = try await changes(git(["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", "--no-color", mergeBase, head], in: root)).sorted { $0.path < $1.path }
+        let committed = try await changedFiles(from: mergeBase, to: head, in: root)
         let uncommitted = try await workingTreeChanges(from: head, in: root)
         let total = try await comparedBase == nil ? nil : workingTreeChanges(from: mergeBase, in: root).reduce((additions: 0, deletions: 0)) { ($0.additions + ($1.additions ?? 0), $0.deletions + ($1.deletions ?? 0)) }
         return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, defaultBase: defaultBase, base: base, baseReason: baseReason, bases: bases, head: head, mergeBase: mergeBase, uncommitted: uncommitted, committed: committed, total: total, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
@@ -182,10 +183,36 @@ public enum ReviewGit {
         try validateCommitSHA(sha)
         let revisions = try await line(["rev-list", "--parents", "--max-count=1", "\(sha)^{commit}", "--"], in: root).split(separator: " ")
         let parent = if revisions.count > 1 { String(revisions[1]) } else { try await line(["hash-object", "-t", "tree", "/dev/null"], in: root) }
-        return try await changes(git(["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", "--no-color", parent, sha, "--"], in: root)).sorted { $0.path < $1.path }
+        return try await changedFiles(from: parent, to: sha, in: root)
     }
 
-    private static func validateCommitSHA(_ sha: String) throws {
+    public static func pullRequestFiles(number: Int, repository: String, base: String?, in root: String) async throws -> (base: String, head: String, files: [ReviewFile]) {
+        let remoteArguments = ["config", "--get", "remote.origin.url"]
+        guard !repository.isEmpty, let origin = try? await line(remoteArguments, in: root), origin.lowercased().contains(repository.lowercased()) else {
+            throw ReviewGitError.git(arguments: remoteArguments, message: "Origin does not point to \(repository).")
+        }
+
+        let head = try await FetchThrottle.shared.pullRequestHead(number, in: root)
+        let remoteBase = base.map { "refs/remotes/origin/\($0)" }
+        let target: String
+        if let remoteBase, await (try? line(["rev-parse", "--verify", "--quiet", "\(remoteBase)^{commit}"], in: root)) != nil {
+            target = remoteBase
+        } else if let fallback = await defaultBranch(in: root) {
+            target = fallback
+        } else if let fallback = await Self.base(in: root) {
+            target = fallback
+        } else {
+            throw ReviewGitError.git(arguments: ["merge-base"], message: "No base branch found for PR #\(number).")
+        }
+        let mergeBase = try await line(["merge-base", "--", target, head], in: root)
+        return try await (mergeBase, head, changedFiles(from: mergeBase, to: head, in: root))
+    }
+
+    private static func changedFiles(from base: String, to head: String, in root: String) async throws -> [ReviewFile] {
+        try await changes(git(["diff", "--raw", "--numstat", "-z", "-M", "--no-ext-diff", "--no-color", base, head, "--"], in: root)).sorted { $0.path < $1.path }
+    }
+
+    fileprivate static func validateCommitSHA(_ sha: String) throws {
         guard (7...64).contains(sha.utf8.count), sha.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
             throw ReviewGitError.git(arguments: ["rev-parse", sha], message: "Invalid commit SHA")
         }
@@ -307,10 +334,17 @@ public enum ReviewGit {
         let revisions: (original: String, modified: String?)
         switch compare {
         case .uncommitted: revisions = (changes.head, nil)
+
         case .committed: revisions = (changes.mergeBase, changes.head)
+
         case let .commit(sha):
             try validateCommitSHA(sha)
             revisions = ("\(sha)^", sha)
+
+        case let .range(base, head):
+            try validateCommitSHA(base)
+            try validateCommitSHA(head)
+            revisions = (base, head)
         }
         let original = try await (file.status == .added ? nil : blob(revisions.original, path: file.oldPath ?? file.path, in: changes.root))
 
@@ -427,7 +461,7 @@ public enum ReviewGit {
         return data
     }
 
-    private static func line(_ arguments: [String], in root: String) async throws -> String {
+    fileprivate static func line(_ arguments: [String], in root: String) async throws -> String {
         try await String(decoding: git(arguments, in: root), as: UTF8.self).trimmingCharacters(in: .newlines)
     }
 
@@ -513,9 +547,33 @@ actor FetchThrottle {
         let error: String?
     }
 
+    static let shared = FetchThrottle()
     private static let interval: TimeInterval = 15
     private static let timeout: TimeInterval = 20
     private var outcomes: [String: Outcome] = [:]
+    private var pullRequestFetches: [String: Task<String, any Error>] = [:]
+
+    func pullRequestHead(_ number: Int, in root: String, timeout: TimeInterval = FetchThrottle.timeout) async throws -> String {
+        while let previous = pullRequestFetches[root] { _ = await previous.result }
+
+        let task = Task {
+            defer { pullRequestFetches[root] = nil }
+            let ref = "pull/\(number)/head"
+            let arguments = ["fetch", "--quiet", "--no-tags", "--no-auto-gc", "--no-prune", "--no-prune-tags", "--no-recurse-submodules", "--refmap=", "origin", ref]
+            _ = try await ReviewGit.git(arguments, in: root, timeout: timeout)
+            let head = try await ReviewGit.line(["rev-parse", "FETCH_HEAD"], in: root)
+            try ReviewGit.validateCommitSHA(head)
+            let path = try await ReviewGit.line(["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"], in: root)
+            let record = try String(contentsOf: URL(filePath: path), encoding: .utf8)
+            guard record.split(separator: "\n").contains(where: { $0.hasPrefix("\(head)\t\t'refs/\(ref)' of ") }) else {
+                throw ReviewGitError.git(arguments: arguments, message: "Another fetch replaced FETCH_HEAD. Try again.")
+            }
+
+            return head
+        }
+        pullRequestFetches[root] = task
+        return try await task.value
+    }
 
     func fetch(_ refspecs: [String], in root: String) async -> Outcome {
         let key = ([root] + refspecs).joined(separator: "\0")
@@ -526,7 +584,7 @@ actor FetchThrottle {
         outcomes[key] = Outcome(attemptedAt: now, fetchedAt: previous?.fetchedAt, error: previous?.error)
         let outcome: Outcome
         do {
-            _ = try await ReviewGit.git(["fetch", "--quiet", "--no-tags", "--no-auto-gc", "origin"] + refspecs, in: root, timeout: Self.timeout)
+            _ = try await ReviewGit.git(["fetch", "--quiet", "--no-tags", "--no-auto-gc", "--no-write-fetch-head", "origin"] + refspecs, in: root, timeout: Self.timeout)
             outcome = Outcome(attemptedAt: now, fetchedAt: .now, error: nil)
         } catch let ReviewGitError.git(_, message) {
             outcome = Outcome(attemptedAt: now, fetchedAt: previous?.fetchedAt, error: message)

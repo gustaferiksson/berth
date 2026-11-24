@@ -53,7 +53,7 @@ struct ReviewDiffPane: View {
             let original = if case let .text(text)? = contents.original { text } else { "" }
             let loaded = if case let .text(text)? = contents.modified { text } else { "" }
             let modified = draft ?? loaded
-            let language = compare?.isCommit == true || contents.modified == nil ? nil : language
+            let language = compare?.isHistorical == true || contents.modified == nil ? nil : language
             ReviewDiffViews(
                 path: path,
                 compare: compare,
@@ -617,7 +617,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         private func comment(on textView: ReviewTextView, lines: ClosedRange<Int>) {
-            guard let parent, parent.compare?.isCommit != true, parent.editor != nil || parent.compare != nil, let rows = textView.side?.rows, rows.indices.contains(lines.upperBound) else { return }
+            guard let parent, parent.compare?.isHistorical != true, parent.editor != nil || parent.compare != nil, let rows = textView.side?.rows, rows.indices.contains(lines.upperBound) else { return }
 
             let isRemoval = textView === left && lines.contains { left.side?.changedLines.contains($0) == true }
             let numbered = textView === left && !isRemoval ? right : textView

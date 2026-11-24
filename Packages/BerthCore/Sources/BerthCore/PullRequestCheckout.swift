@@ -83,8 +83,7 @@ public enum PullRequestCheckout {
         let sha: String
         do {
             _ = try await ReviewGit.git(["check-ref-format", "--branch", head.branch], in: root, timeout: 10)
-            _ = try await ReviewGit.git(["fetch", "origin", "pull/\(number)/head"], in: root, timeout: 120)
-            sha = try await line(["rev-parse", "FETCH_HEAD"], in: root)
+            sha = try await FetchThrottle.shared.pullRequestHead(number, in: root, timeout: 120)
         } catch {
             throw failure("Couldn’t fetch PR #\(number) from origin", error)
         }
@@ -110,7 +109,7 @@ public enum PullRequestCheckout {
             _ = try await ReviewGit.git(exists ? ["worktree", "add", path, branch] : ["worktree", "add", "-b", branch, path, sha], in: root, timeout: 120)
             if exists {
                 _ = try? await ReviewGit.git(["merge", "--ff-only", "--quiet", sha], in: path, timeout: 60)
-            } else if !head.isCrossRepository, await (try? ReviewGit.git(["fetch", "origin", branch], in: root, timeout: 60)) != nil {
+            } else if !head.isCrossRepository, await (try? ReviewGit.git(["fetch", "--no-write-fetch-head", "origin", branch], in: root, timeout: 60)) != nil {
                 _ = try? await ReviewGit.git(["branch", "--set-upstream-to=origin/\(branch)", branch], in: path, timeout: 10)
             }
             return path

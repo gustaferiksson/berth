@@ -6,6 +6,7 @@ struct ReviewDocument: Hashable {
     let path: String
     let compare: ReviewCompare?
     var root: String?
+    var pullRequestNumber: Int?
 }
 
 struct ReviewTab: Identifiable {
@@ -61,6 +62,9 @@ final class ReviewModel {
     private(set) var graphError: String?
     private(set) var selectedCommit: String?
     private(set) var commitFiles: [String: [ReviewFile]] = [:]
+    private(set) var pullRequestFiles: [Int: (compare: ReviewCompare, files: [ReviewFile])] = [:]
+    private(set) var loadingPullRequests: Set<Int> = []
+    var expandedPullRequests: Set<Int> = []
     var selectedTabID: UUID? {
         didSet { if selectedTabID != nil { isPreviewSelected = false } }
     }
@@ -92,6 +96,7 @@ final class ReviewModel {
     @ObservationIgnored private var queuedLoad: Task<Void, Never>?
     @ObservationIgnored private var graphLoading: Task<Void, Never>?
     @ObservationIgnored private var commitSelection = 0
+    @ObservationIgnored private var rangeFiles: [ReviewCompare: [ReviewFile]] = [:]
     @ObservationIgnored private(set) var loadCount = 0
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private var blameCache: [ReviewBlameKey: Task<ReviewBlameSnapshot?, Never>] = [:]
@@ -170,7 +175,7 @@ final class ReviewModel {
             contents = contents.filter { $0.key == selectedDocument }
 
             let existing = { (document: ReviewDocument) -> ReviewDocument? in
-                if document.compare?.isCommit == true || self.listedFile(for: document, in: changes) != nil { return document }
+                if document.compare?.isHistorical == true || self.listedFile(for: document, in: changes) != nil { return document }
                 return FileManager.default.fileExists(atPath: URL(filePath: changes.root).appending(path: document.path).path) ? ReviewDocument(path: document.path, compare: nil) : nil
             }
             tabs = tabs.compactMap { tab in
@@ -251,6 +256,22 @@ final class ReviewModel {
 
             selectedCommit = nil
             notice = "Couldn’t read commit \(sha.prefix(7)). \(Self.describe(error))"
+        }
+    }
+
+    func expandPullRequest(_ pullRequest: PullRequest, repository: String) async {
+        let number = pullRequest.number
+        guard let root = changes?.root, expandedPullRequests.insert(number).inserted, loadingPullRequests.insert(number).inserted else { return }
+
+        defer { loadingPullRequests.remove(number) }
+        pullRequestFiles[number] = nil
+        do {
+            let result = try await ReviewGit.pullRequestFiles(number: number, repository: repository, base: pullRequest.baseRefName, in: root)
+            let compare = ReviewCompare.range(base: result.base, head: result.head)
+            rangeFiles[compare] = result.files
+            pullRequestFiles[number] = (compare, result.files)
+        } catch {
+            notice = "Couldn’t read PR #\(number). \(Self.describe(error))"
         }
     }
 
@@ -419,6 +440,7 @@ final class ReviewModel {
         case .uncommitted: files = changes.uncommitted
         case .committed: files = changes.committed
         case let .commit(sha): files = commitFiles[sha] ?? []
+        case .range: files = document.compare.flatMap { rangeFiles[$0] } ?? []
         case nil: return nil
         }
         return files.first { $0.path == document.path }
@@ -426,7 +448,7 @@ final class ReviewModel {
 
     func isReadOnly(_ document: ReviewDocument) -> Bool {
         switch document.compare {
-        case .commit: true
+        case .commit, .range: true
         case .committed: changes?.uncommitted.contains { $0.path == document.path } != false
         case .uncommitted: false
         case nil: isSessionFiles
@@ -450,7 +472,7 @@ final class ReviewModel {
             if let listed = listedFile(for: document, in: changes), let compare = document.compare {
                 loaded = try await ReviewGit.contents(of: listed, compare: compare, in: changes)
             } else {
-                guard document.compare?.isCommit != true else { return }
+                guard document.compare?.isHistorical != true else { return }
 
                 let text = try ReviewGit.workingTreeText(document.path, in: changes.root)
                 loaded = ReviewContents(original: text, modified: text)
@@ -468,7 +490,7 @@ final class ReviewModel {
 
     func goToDefinition(_ location: LanguageServerLocation, from origin: LanguageServerRange) {
         let target = location.url.resolvingSymlinksInPath().path
-        guard let root = changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root), let current = tabs.firstIndex(where: { $0.id == selectedTabID }), tabs[current].document.compare?.isCommit != true else { return }
+        guard let root = changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path + "/" }), target.hasPrefix(root), let current = tabs.firstIndex(where: { $0.id == selectedTabID }), tabs[current].document.compare?.isHistorical != true else { return }
 
         let path = String(target.dropFirst(root.count))
         let isReadOnly = selectedDocument?.compare == .committed && changes?.uncommitted.contains { $0.path == path } != false
@@ -495,7 +517,7 @@ final class ReviewModel {
     }
 
     func save(_ text: String, to path: String) {
-        guard selectedDocument?.compare?.isCommit != true, let changes, changes.uncommitted.first(where: { $0.path == path })?.status != .deleted else {
+        guard selectedDocument?.compare?.isHistorical != true, let changes, changes.uncommitted.first(where: { $0.path == path })?.status != .deleted else {
             notice = "\(path) is read only here"
             return
         }
@@ -701,7 +723,7 @@ struct ReviewFileList: View {
 
     private func list(name: String = "", order: [ReviewDocument] = [], reveals: Bool = false, @ViewBuilder _ sections: () -> some View) -> some View {
         let content = sections()
-        let workingPath = model.selectedDocument.flatMap { $0.compare?.isCommit == true ? nil : $0.path }
+        let workingPath = model.selectedDocument.flatMap { $0.compare?.isHistorical == true ? nil : $0.path }
         let isSlimFilesScope = usesSlimPanel && reveals
         return ScrollViewReader { proxy in
             List { content }
@@ -751,7 +773,7 @@ struct ReviewFileList: View {
         guard !order.isEmpty else { return .ignored }
 
         let current = selection.flatMap { selected in
-            if followsFilePath, selected.compare?.isCommit != true {
+            if followsFilePath, selected.compare?.isHistorical != true {
                 return order.firstIndex(of: ReviewDocument(path: selected.path, compare: nil, root: selected.root))
             }
             return order.firstIndex(of: selected)
@@ -866,7 +888,7 @@ struct ReviewFileList: View {
             ForEach(files, id: \.path) { file in
                 let document = ReviewDocument(path: file.path, compare: compare, root: root)
                 ReviewChangeRow(file: file, model: model, isSlim: isSlim, showsFolder: true)
-                    .reviewRow(top: isSlim ? 3 : 5, bottom: isSlim ? 3 : 5)
+                    .reviewRow()
                     .modifier(ReviewRowChrome(document: document, model: model))
             }
         }
@@ -1002,9 +1024,11 @@ struct ReviewFileList: View {
         )
     }
 
-    private func otherPullRequests(root: String?, branch: String, shown: Int?) -> some View {
-        let repository = store.pullRequestBranch(inRoot: root ?? ownRoot, branch: branch)?.repository
-        return ReviewOtherPullRequests(pullRequests: store.pullRequests(inRoot: root, of: sessionID, branch: branch).filter { $0.number != shown }, repository: repository)
+    @ViewBuilder
+    private func otherPullRequests(in model: ReviewModel, root: String?, branch: String, shown: Int?) -> some View {
+        if let repository = store.pullRequestBranch(inRoot: root ?? ownRoot, branch: branch)?.repository {
+            ReviewOtherPullRequests(pullRequests: store.pullRequests(inRoot: root, of: sessionID, branch: branch).filter { $0.number != shown }, repository: repository, model: model)
+        }
     }
 
     private func extraCard(_ extra: (repository: ReviewRepository, model: ReviewModel), _ changes: ReviewChanges) -> some View {
@@ -1224,7 +1248,7 @@ struct ReviewFileList: View {
         .id(changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { [$0.uncommitted, $0.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) } } + [ReviewFileTree.compactNodes(sessionFiles).flatMap(\.folderPaths)] : nil)
         .id([shownRepo] + extras.map(\.repository.root))
         .onChange(of: (store.reviewModel ?? model).selectedDocument, initial: true) { _, document in
-            guard let document, let compare = document.compare, !compare.isCommit, let active = store.reviewModel else { return }
+            guard let document, let compare = document.compare, !compare.isHistorical, let active = store.reviewModel else { return }
 
             active.collapsedChangeFolders = active.collapsedChangeFolders.filter { $0.compare != compare || !document.path.hasPrefix($0.path + "/") }
         }
@@ -1238,7 +1262,7 @@ struct ReviewFileList: View {
             if expansion(of: "pullRequest").wrappedValue {
                 branchCard(changes, model.status ?? .unknown)
                     .reviewRow(bottom: 6)
-                otherPullRequests(root: nil, branch: changes.branch, shown: shown?.pullRequest?.number)
+                otherPullRequests(in: model, root: nil, branch: changes.branch, shown: shown?.pullRequest?.number)
             }
         } else if let shownRepo, let extra = extras.first(where: { $0.repository.root == shownRepo }), let changes = extra.model.changes {
             let shown = shownPullRequest(root: extra.repository.root, branch: changes.branch)
@@ -1246,7 +1270,7 @@ struct ReviewFileList: View {
             if expansion(of: "pullRequest").wrappedValue {
                 extraCard(extra, changes)
                     .reviewRow(bottom: 6)
-                otherPullRequests(root: extra.repository.root, branch: changes.branch, shown: shown?.pullRequest?.number)
+                otherPullRequests(in: extra.model, root: extra.repository.root, branch: changes.branch, shown: shown?.pullRequest?.number)
             }
         }
     }
@@ -1550,7 +1574,7 @@ private struct ReviewRowChrome: ViewModifier {
     func body(content: Content) -> some View {
         let isSelected = document.map { document in
             let matches = model.selectedDocument.map { selected in
-                selected.path == document.path && (selected.compare == document.compare || (followsFilePath && selected.compare?.isCommit != true))
+                selected.path == document.path && (selected.compare == document.compare || (followsFilePath && selected.compare?.isHistorical != true))
             } ?? false
             return (store.reviewModel.map { $0 === model } ?? true) && matches
         } ?? false
@@ -1662,6 +1686,7 @@ private struct ReviewChangeRow: View {
 
     var body: some View {
         row
+            .padding(.vertical, isSlim ? 4 : 6)
             .onHover { isHovering = $0 }
             .contextMenu {
                 if file.status != .deleted {
@@ -1744,7 +1769,7 @@ private struct ReviewFileNode: View {
                     label
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, isSlim ? 3 : 5)
+                .padding(.vertical, (isSlim ? 3.0 : 5.0) + (compare == nil ? 0 : 1))
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -1756,7 +1781,6 @@ private struct ReviewFileNode: View {
         } else if let compare, let file = (compare == .committed ? changes.committed : changes.uncommitted).first(where: { $0.path == node.path }) {
             let document = ReviewDocument(path: node.path, compare: compare, root: root)
             ReviewChangeRow(file: file, model: model, isSlim: isSlim)
-                .padding(.vertical, isSlim ? 3 : 5)
                 .reviewRow(leading: Double(depth + 1) * ReviewInset.tree)
                 .modifier(ReviewRowChrome(document: document, model: model))
         } else {
@@ -2173,7 +2197,7 @@ struct ReviewDiffColumn: View {
                                 model.keep(tab.id)
                             }),
                             comments: Bindable(model).comments,
-                            threads: detail?.threads.filter { $0.path == path && $0.line != nil && document.compare?.isCommit != true } ?? [],
+                            threads: detail?.threads.filter { $0.path == path && $0.line != nil && document.compare?.isHistorical != true } ?? [],
                             replyDrafts: Bindable(model).replyDrafts,
                             isWritingPullRequest: model.isWritingPullRequest,
                             style: style,
@@ -2361,10 +2385,11 @@ struct ReviewDiffColumn: View {
         case .committed: " (Committed)"
         case .uncommitted: " (Uncommitted)"
         case let .commit(sha): " (\(sha.prefix(7)))"
+        case .range: document.pullRequestNumber.map { " (PR #\($0))" } ?? ""
         case nil: ""
         }
-        let title = document.compare?.isCommit == true ? name + compare : name
-        let previewHint = if !tab.isPreview { "" } else if document.compare?.isCommit == true { ". Double-click to keep this preview tab." } else { ". Double-click or edit to keep this preview tab." }
+        let title = if let number = document.pullRequestNumber { "PR #\(number):\(name)" } else if document.compare?.isHistorical == true { name + compare } else { name }
+        let previewHint = if !tab.isPreview { "" } else if document.compare?.isHistorical == true { ". Double-click to keep this preview tab." } else { ". Double-click or edit to keep this preview tab." }
         return HStack(spacing: 6) {
             Image(systemName: document.compare == nil ? "doc" : "plus.forwardslash.minus")
                 .font(.caption)

@@ -182,7 +182,7 @@ enum AppAction: Hashable {
             Self.hideChanges.isAvailable(in: store) && UserDefaults.standard.bool(forKey: GeneralSettings.terminalBelowKey) == (self == .showClaudeBeside)
         case .showConversation: store.canShowConversation && !store.selectedShowsConversation
         case .showTerminal: store.canShowConversation && store.selectedShowsConversation
-        case .save: Self.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { $0.compare?.isCommit == true ? nil : model.drafts[$0.path] } } != nil
+        case .save: Self.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { $0.compare?.isHistorical == true ? nil : model.drafts[$0.path] } } != nil
         case .goBack, .goForward: store.isReviewTextFocused && store.reviewModel?.selectedTab.map { $0.history.indices.contains($0.index + (self == .goBack ? -1 : 1)) } == true
         case .previousChange, .nextChange: store.isReviewTextFocused && store.reviewModel?.selectedDocument?.compare != nil
         case .caret: store.isReviewTextFocused

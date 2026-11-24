@@ -138,9 +138,11 @@ struct ReviewRepoRows: View {
 
 struct ReviewOtherPullRequests: View {
     let pullRequests: [PullRequest]
-    let repository: String?
+    let repository: String
+    let model: ReviewModel
     var showsHeading = true
     @Environment(\.openURL) private var openURL
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         if showsHeading, !pullRequests.isEmpty {
@@ -150,26 +152,60 @@ struct ReviewOtherPullRequests: View {
                 .reviewRow(bottom: 6)
         }
         ForEach(pullRequests, id: \.number) { pullRequest in
-            HStack(spacing: 8) {
-                Button { openURL(pullRequest.url) } label: {
+            let number = pullRequest.number
+            let isExpanded = model.expandedPullRequests.contains(number)
+            Button {
+                if isExpanded {
+                    model.expandedPullRequests.remove(number)
+                } else {
+                    Task { await model.expandPullRequest(pullRequest, repository: repository) }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.secondary)
+                        .frame(width: 10)
+                        .accessibilityHidden(true)
                     Text(pullRequest.title)
-                        .foregroundStyle(.primary)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(.rect)
-                        .pointerStyle(.link)
+                    PullRequestTag(pullRequest: pullRequest, opensOnGitHub: false)
+                        .fixedSize()
                 }
-                .buttonStyle(.plain)
-                .help(pullRequest.title)
-                PullRequestTag(pullRequest: pullRequest)
-                    .fixedSize()
+                .padding(.vertical, 4)
+                .contentShape(.rect)
             }
+            .buttonStyle(.plain)
+            .help(pullRequest.title)
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             .contextMenu {
-                if let repository, [.open, .draft].contains(pullRequest.state) {
-                    StewardPullRequestButton(link: PullRequestLink(repository: repository, number: pullRequest.number), url: pullRequest.url)
+                Button("Open on GitHub") { openURL(pullRequest.url) }
+                if [.open, .draft].contains(pullRequest.state) {
+                    StewardPullRequestButton(link: PullRequestLink(repository: repository, number: number), url: pullRequest.url)
                 }
             }
-            .reviewRow(bottom: 6)
+            .reviewRow()
+            if isExpanded {
+                if model.loadingPullRequests.contains(number) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Loading Changed Files")
+                        .frame(height: 24)
+                        .reviewRow(leading: ReviewInset.tree)
+                } else if let loaded = model.pullRequestFiles[number], !loaded.files.isEmpty {
+                    ForEach(loaded.files, id: \.path) { file in
+                        let document = ReviewDocument(path: file.path, compare: loaded.compare, pullRequestNumber: number)
+                        ReviewHistoricalFileButton(file: file, document: document, model: model)
+                            .reviewRow(leading: ReviewInset.tree)
+                    }
+                } else {
+                    Text("No changed files")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondary)
+                        .reviewRow(top: 4, bottom: 4, leading: ReviewInset.tree)
+                }
+            }
         }
     }
 }
@@ -228,7 +264,7 @@ enum ReviewInset {
     static let fill = 8.0
     static let content = 16.0
     static let listMargin = 8.0
-    static let tree = 16.0
+    static let tree = 18.0
 }
 
 extension View {

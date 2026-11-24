@@ -84,6 +84,10 @@ This is the slim first version; the rest is listed under Later.
 - Graph: switch the bottom pane to Graph to browse the repository’s commit history with branch,
   remote and tag labels. Select a commit to expand its changed files and preview the first diff.
   Load More shows older commits. See `Sources/ReviewGraphView.swift`.
+- Each row in Session pull requests in the slim panel or Other pull requests in the full panel
+  expands to show that PR’s files. Berth fetches the PR head from the matching origin and lists
+  changes from its merge base. Selecting a file opens a read-only diff in the same viewer. Open
+  on GitHub is in the PR row’s context menu.
 - Hovering a file row (any section) shows an Open File button (`doc`) over the counts, which stay visible otherwise (selected rows too); it opens
   the working-tree file as the plain file, through the same `ReviewModel.open`. Deleted files
   have none.

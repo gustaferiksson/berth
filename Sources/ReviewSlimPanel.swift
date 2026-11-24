@@ -233,9 +233,9 @@ extension ReviewFileList {
                 let expanded = expansion(of: "otherPullRequests", defaultExpanded: false)
                 let help = branchNumber == nil ? "Pull requests linked to this session" : "Pull requests linked to this session other than the branch’s pull request"
                 ReviewSlimSectionHeader(title: "Session pull requests", count: other.count, expansion: expanded, help: help)
-                if expanded.wrappedValue {
-                    let repository = shown?.repository ?? store.pullRequestBranch(inRoot: store.repositoryRoot(ofSession: sessionID) ?? model.folder, branch: changes.branch)?.repository
-                    ReviewOtherPullRequests(pullRequests: other, repository: repository, showsHeading: false)
+                if expanded.wrappedValue,
+                   let repository = shown?.repository ?? store.pullRequestBranch(inRoot: store.repositoryRoot(ofSession: sessionID) ?? model.folder, branch: changes.branch)?.repository {
+                    ReviewOtherPullRequests(pullRequests: other, repository: repository, model: model, showsHeading: false)
                 }
             }
         }

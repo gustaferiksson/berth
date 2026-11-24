@@ -1944,55 +1944,60 @@ func tokenCount(_ tokens: Int) -> String {
 struct PullRequestTag: View {
     let pullRequest: PullRequest
     var more = 0
+    var opensOnGitHub = true
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @State private var isHovering = false
 
     var body: some View {
-        let color = pullRequest.state.color(in: theme)
         let checks = [.open, .draft].contains(pullRequest.state) ? pullRequest.checks : nil
-        Button {
-            openURL(pullRequest.url)
-        } label: {
-            HStack(spacing: 4) {
-                Label {
-                    Text(verbatim: "#\(pullRequest.number)")
-                } icon: {
-                    Image(systemName: "arrow.triangle.pull")
-                }
-                .labelStyle(CompactLabel())
-                if let checks {
-                    Rectangle()
-                        .fill(color.opacity(0.35))
-                        .frame(width: 1, height: 8)
-                    Group {
-                        if checks == .running {
-                            Circle().frame(width: 6, height: 6)
-                        } else {
-                            Image(systemName: checks == .passed ? "checkmark" : "xmark")
-                                .imageScale(.small)
-                                .fontWeight(.bold)
-                                .frame(width: 7)
-                        }
-                    }
-                    .foregroundStyle(checks == .passed ? theme.working : checks == .failed ? theme.closed : theme.needsYou)
-                    .accessibilityLabel("Checks \(checks.rawValue)")
-                }
-                if more > 0 {
-                    Text(verbatim: "+\(more)")
-                        .foregroundStyle(Color.secondary)
-                }
-            }
-            .font(.caption.monospaced())
-            .foregroundStyle(color)
-            .padding(.horizontal, 4)
-            .frame(height: 16)
-            .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
+        if opensOnGitHub {
+            Button { openURL(pullRequest.url) } label: { tag(checks: checks) }
+                .buttonStyle(.plain)
+                .onHover { isHovering = $0 }
+                .pointerStyle(.link)
+                .help("Open pull request #\(String(pullRequest.number))\(checks.map { ", checks \($0.rawValue)" } ?? "")\(more > 0 ? ", \(more) more on this session" : "")")
+        } else {
+            tag(checks: checks)
         }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .pointerStyle(.link)
-        .help("Open pull request #\(String(pullRequest.number))\(checks.map { ", checks \($0.rawValue)" } ?? "")\(more > 0 ? ", \(more) more on this session" : "")")
+    }
+
+    private func tag(checks: PullRequestChecks.State?) -> some View {
+        let color = pullRequest.state.color(in: theme)
+        return HStack(spacing: 4) {
+            Label {
+                Text(verbatim: "#\(pullRequest.number)")
+            } icon: {
+                Image(systemName: "arrow.triangle.pull")
+            }
+            .labelStyle(CompactLabel())
+            if let checks {
+                Rectangle()
+                    .fill(color.opacity(0.35))
+                    .frame(width: 1, height: 8)
+                Group {
+                    if checks == .running {
+                        Circle().frame(width: 6, height: 6)
+                    } else {
+                        Image(systemName: checks == .passed ? "checkmark" : "xmark")
+                            .imageScale(.small)
+                            .fontWeight(.bold)
+                            .frame(width: 7)
+                    }
+                }
+                .foregroundStyle(checks == .passed ? theme.working : checks == .failed ? theme.closed : theme.needsYou)
+                .accessibilityLabel("Checks \(checks.rawValue)")
+            }
+            if more > 0 {
+                Text(verbatim: "+\(more)")
+                    .foregroundStyle(Color.secondary)
+            }
+        }
+        .font(.caption.monospaced())
+        .foregroundStyle(color)
+        .padding(.horizontal, 4)
+        .frame(height: 16)
+        .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
     }
 }
 
