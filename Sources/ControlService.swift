@@ -25,20 +25,19 @@ final class ControlService {
         guard server == nil else { return }
 
         try? ControlInstall.refreshInstalled(skillFile: ControlInstaller.skillFile, settingsFile: ControlInstaller.settingsFile)
-        token = ControlEnvironment.makeToken()
-        try? FileManager.default.removeItem(atPath: Self.exitsDirectory)
-        let server = ControlServer(path: ControlEnvironment.socketPath(directory: Self.directory), token: token) { [weak self] request in
-            await self?.handle(request) ?? .failure("Berth is quitting")
-        }
         do {
+            let token = try ControlEnvironment.persistentToken(directory: Self.directory)
+            try? FileManager.default.removeItem(atPath: Self.exitsDirectory)
+            let server = ControlServer(path: ControlEnvironment.socketPath(directory: Self.directory), token: token) { [weak self] request in
+                await self?.handle(request) ?? .failure("Berth is quitting")
+            }
             try server.start()
+            self.token = token
+            self.server = server
+            failure = nil
         } catch {
             failure = "Couldn’t listen for the berth command: \(error)"
-            return
         }
-
-        failure = nil
-        self.server = server
     }
 
     func environment(for tab: UUID) -> [String: String] {
@@ -50,6 +49,7 @@ final class ControlService {
     private func stop() {
         server?.stop()
         server = nil
+        try? FileManager.default.removeItem(atPath: Self.directory + "/token")
         failure = nil
         openedBy = [:]
     }

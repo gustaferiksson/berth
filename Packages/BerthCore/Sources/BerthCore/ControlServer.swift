@@ -76,7 +76,7 @@ public final class ControlServer: @unchecked Sendable {
         guard let line = try? ControlSocket.readLine(from: connection, timeout: 5), let request = try? JSONDecoder().decode(ControlRequest.self, from: line) else {
             return .failure("Malformed request")
         }
-        guard request.token == token else { return .failure("Wrong token: this tab started before Berth's last launch or control is off") }
+        guard request.token == token else { return .failure("Wrong token: this tab holds an out-of-date Berth token (control was switched off and on, or the tab predates saved tokens). Open a new tab to use berth here.") }
 
         return await handler(request)
     }
