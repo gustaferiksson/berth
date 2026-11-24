@@ -88,16 +88,53 @@ struct ModeSwitcher: View {
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
 
     var body: some View {
-        ControlGroup {
-            ForEach(isReviewEnabled ? SessionPane.allCases : [.browser, .terminal], id: \.self) { mode in
-                let keys = mode == .changes ? "⇧⌘D" : mode == .browser ? "⇧⌘B" : "⌘J"
-                Toggle(mode.title, systemImage: mode.action.symbol, isOn: Binding(get: { store.shownPane == mode }, set: { isOn in
-                    if !isOn { store.hideSessionPanel() } else if mode == .terminal { store.showTerminalPane() } else if mode == .browser { store.showBrowserPane() } else { store.showChangesPane() }
-                }))
-                .help("\(mode.title) (\(keys))")
-            }
+        ModeSegments(modes: isReviewEnabled ? SessionPane.allCases : [.browser, .terminal], selected: store.shownPane) { mode in
+            if store.shownPane == mode { store.hideSessionPanel() } else if mode == .terminal { store.showTerminalPane() } else if mode == .browser { store.showBrowserPane() } else { store.showChangesPane() }
         }
-        .labelStyle(.iconOnly)
+        .fixedSize()
+    }
+}
+
+// A SwiftUI segmented Picker can't report a click on the selected segment, which hides the mode.
+private struct ModeSegments: NSViewRepresentable {
+    let modes: [SessionPane]
+    let selected: SessionPane?
+    let choose: (SessionPane) -> Void
+
+    final class Coordinator: NSObject {
+        var modes: [SessionPane] = []
+        var choose: (SessionPane) -> Void = { _ in }
+
+        @objc func pick(_ control: NSSegmentedControl) {
+            guard modes.indices.contains(control.selectedSegment) else { return }
+
+            choose(modes[control.selectedSegment])
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(labels: [], trackingMode: .selectOne, target: context.coordinator, action: #selector(Coordinator.pick))
+        control.segmentStyle = .automatic
+        control.selectedSegmentBezelColor = .controlAccentColor
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.modes = modes
+        context.coordinator.choose = choose
+        control.segmentCount = modes.count
+        for (index, mode) in modes.enumerated() {
+            let keys = mode == .changes ? "⇧⌘D" : mode == .browser ? "⇧⌘B" : "⌘J"
+            control.setImage(NSImage(systemSymbolName: mode.action.symbol, accessibilityDescription: mode.title), forSegment: index)
+            control.setToolTip("\(mode.title) (\(keys))", forSegment: index)
+            control.setWidth(32, forSegment: index)
+            control.setSelected(mode == selected, forSegment: index)
+        }
+        if selected == nil { control.selectedSegment = -1 }
     }
 }
 

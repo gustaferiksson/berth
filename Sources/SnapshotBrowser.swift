@@ -48,7 +48,7 @@ extension Snapshot {
         for url in urls.dropFirst(2) { store.browser.open(url, in: session.id) }
         if let invoices = store.browser.tabs(in: session.id).first { store.browser.select(invoices, in: session.id) }
         store.showBrowserPane()
-        for tab in store.browser.pinned + store.browser.tabs(in: session.id) { 
+        for tab in store.browser.pinned + store.browser.tabs(in: session.id) {
             let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
             print("browser occlusion SPI \(tab.webView.responds(to: selector))")
             if tab.webView.responds(to: selector) { tab.webView.perform(selector, with: nil) }
@@ -65,7 +65,7 @@ extension Snapshot {
             try? await Task.sleep(for: .seconds(1))
         }
         let shown = store.browser.shownTab
-        print("browser pane \(store.shownPane?.rawValue ?? "hidden"), pinned \(store.browser.pinned.map(\.displayTitle)), session \(store.browser.tabs(in: session.id).map(\.displayTitle)), favicons \((store.browser.pinned + store.browser.tabs(in: session.id)).filter { $0.favicon != nil }.count), shown \(shown?.displayTitle ?? "none") \(shown?.url?.lastPathComponent ?? "-") loading \(shown?.isLoading == true), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+        print("browser pane \(store.shownPane?.rawValue ?? "hidden"), pinned \(store.browser.pinned.map(\.displayTitle)), session \(store.browser.tabs(in: session.id).map(\.displayTitle)), favicons \((store.browser.pinned + store.browser.tabs(in: session.id)).count(where: { $0.favicon != nil })), shown \(shown?.displayTitle ?? "none") \(shown?.url?.lastPathComponent ?? "-") loading \(shown?.isLoading == true), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
     }
 }
 #endif

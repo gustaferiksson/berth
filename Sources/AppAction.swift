@@ -1,7 +1,6 @@
 import BerthCore
 import GhosttyTerminal
 import SwiftUI
-import WebKit
 
 enum AppAction: Hashable {
     case commandPalette, filterSidebar, newSession, pullRequests, showPullRequestInReview, searchSessions, newTerminal, newTerminalForSession, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
@@ -274,17 +273,7 @@ enum AppAction: Hashable {
 
         case .showBrowser: if store.shownPane == .browser { store.hideSessionPanel() } else { store.showBrowserPane() }
 
-        case .openLocation: store.browser.focusAddress()
-
-        case .newBrowserTab: if let key = store.browser.sessionKey { store.browser.open(nil, in: key) }
-
-        case .closeBrowserTab: if let key = store.browser.sessionKey, let tab = store.browser.shownTab { store.browser.close(tab, in: key) }
-
-        case .reloadPage: store.browser.shownTab?.loadedWebView?.reload()
-
-        case .browserBack: store.browser.shownTab?.loadedWebView?.goBack()
-
-        case .browserForward: store.browser.shownTab?.loadedWebView?.goForward()
+        case .openLocation, .newBrowserTab, .closeBrowserTab, .reloadPage, .browserBack, .browserForward: store.browser.perform(self)
 
         case .hideChanges: store.hideSessionPanel()
 

@@ -277,6 +277,22 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         }
     }
 
+    func perform(_ action: AppAction) {
+        if action == .openLocation { return focusAddress() }
+        guard let key = sessionKey else { return }
+
+        if action == .newBrowserTab {
+            open(nil, in: key)
+            return
+        }
+        guard let tab = shownTab else { return }
+
+        if action == .closeBrowserTab { return close(tab, in: key) }
+        if action == .reloadPage { tab.loadedWebView?.reload() }
+        if action == .browserBack { tab.loadedWebView?.goBack() }
+        if action == .browserForward { tab.loadedWebView?.goForward() }
+    }
+
     func openOutside(_ url: URL) {
         guard !isSnapshot else {
             print("snapshot openURL \(url.absoluteString)")
@@ -311,7 +327,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         if scheme == "data" || scheme == "file" { return (try? Data(contentsOf: url)).flatMap(NSImage.init(data:)) }
         guard !isSnapshot, scheme == "http" || scheme == "https" else { return nil }
 
-        return (try? await Self.faviconSession.data(from: url).0).flatMap(NSImage.init(data:))
+        return await (try? Self.faviconSession.data(from: url).0).flatMap(NSImage.init(data:))
     }
 
     func track(_ download: WKDownload) {
