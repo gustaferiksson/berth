@@ -13,6 +13,7 @@ extension Snapshot {
     private static var showsEmptyConversation: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationEmpty") }
     private static var showsCodexApproval: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexApproval") }
     private static var showsCodexTasks: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexTasks") }
+    private static var showsSlashCommands: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationSlashCommands") }
     private static var usesCodexConversation: Bool {
         showsCodexApproval || showsCodexTasks || UserDefaults.standard.string(forKey: "snapshotConversationAgent") == "codex"
     }
@@ -46,6 +47,11 @@ extension Snapshot {
         }
         let transcript = conversationTranscript
         let directory = transcript.deletingLastPathComponent()
+        if showsSlashCommands {
+            let commands = URL(filePath: fixtureHome).appending(path: ".claude/commands")
+            try? FileManager.default.createDirectory(at: commands, withIntermediateDirectories: true)
+            try? "---\ndescription: Compare two ledger exports\n---\nCompare the totals in both reports.".write(to: commands.appending(path: "compare-exports.md"), atomically: true, encoding: .utf8)
+        }
         if heavyConversationTurns > 0 {
             guard Store.claudeDirectory.resolvingSymlinksInPath().path == URL(filePath: fixtureHome).appending(path: ".claude").resolvingSymlinksInPath().path else {
                 conversationPerfFailure("heavy fixture requires the fixture home's .claude directory")
@@ -479,7 +485,7 @@ extension Snapshot {
 
             try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
         }
-        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? (showsEmptyConversation || showsWatching ? "idle" : "busy")
+        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? (showsEmptyConversation || showsWatching || showsSlashCommands ? "idle" : "busy")
         let rawLog = UserDefaults.standard.string(forKey: "snapshotConversationRawLog")
         let title = UserDefaults.standard.string(forKey: "snapshotTerminalTitle") ?? (showsCodexApproval ? "[ ! ] Action Required" : showsCodexTasks ? "Ready" : "")
         let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'printf \"\\033]0;\(title)\\007\"; echo the terminal is still running; sleep 600'"
@@ -518,6 +524,7 @@ extension Snapshot {
         while Date.now < deadline, store.conversationModels[tab.id].map({ showsEmptyConversation ? !$0.hasLoaded : $0.turns.isEmpty }) ?? true {
             try? await Task.sleep(for: .milliseconds(100))
         }
+        if showsSlashCommands { store.conversationModels[tab.id]?.setText("/co") }
         try? await Task.sleep(for: .seconds(2))
         surface("in conversation")
         print("switch visibility: toolbar button \(store.canShowConversation), footer \(store.selectedStatusBarIsReachable)")

@@ -1,10 +1,12 @@
 import AppKit
+import BerthCore
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct ConversationComposer: View {
     let model: ConversationModel
-    let harnessName: String
+    let folder: String
+    let harness: Harness
     let canAttach: Bool
     let isShell: Bool
     let isWorking: Bool
@@ -14,9 +16,11 @@ struct ConversationComposer: View {
     private static let tileSize = 56.0
 
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(Store.self) private var store
     @State private var isImporting = false
     @State private var width: CGFloat = 0
     @State private var settledHeight: CGFloat = 0
+    @State private var slashPicker = ConversationSlashPicker()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -33,7 +37,9 @@ struct ConversationComposer: View {
         let fieldHeight = ConversationComposerField.height(of: draft.text, font: font, width: fieldWidth)
         let animatesHeight = abs(fieldHeight - settledHeight) > controlSize * 1.5
         let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
-        let placeholder = model.blocksSending ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
+        let placeholder = model.blocksSending ? "Wait for \(harness.name) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harness.name)"
+        let slashScope = isShell || slashPicker.query == nil ? nil : ConversationSlashPicker.Scope(folder: folder, agent: harness.agent)
+        let matches = slashScope == nil ? [] : slashPicker.matches
 
         GlassEffectContainer(spacing: 8) {
             VStack(spacing: 8) {
@@ -46,8 +52,13 @@ struct ConversationComposer: View {
                         .glassEffect(.regular, in: .capsule)
                         .task(id: notice) {
                             try? await Task.sleep(for: .seconds(8))
+                            guard !Task.isCancelled else { return }
+
                             model.notice = nil
                         }
+                }
+                if !matches.isEmpty {
+                    ConversationSlashMenu(picker: slashPicker, matches: matches)
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     if !draft.files.isEmpty {
@@ -84,6 +95,7 @@ struct ConversationComposer: View {
                             promptColor: isShell ? NSColor(theme.shellAttached) : nil,
                             focusRequest: focusRequest,
                             layoutWidth: fieldWidth,
+                            slashPicker: isShell ? nil : slashPicker,
                             submit: send,
                             attach: { canAttach ? model.attach($0) : "" },
                             recall: recallQueued
@@ -103,7 +115,7 @@ struct ConversationComposer: View {
                         .buttonStyle(.plain)
                         .allowsHitTesting(canSend)
                         .accessibilityLabel(canSend ? (stops ? "Stop" : "Send") : "Send, unavailable")
-                        .help(stops ? "Stop \(harnessName)" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
+                        .help(stops ? "Stop \(harness.name)" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
                     }
                 }
                 .overlay { shape.strokeBorder(theme.shellAttached.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
@@ -113,6 +125,21 @@ struct ConversationComposer: View {
                 .onChange(of: fieldHeight) { settledHeight = fieldHeight }
                 .animation(.smooth(duration: 0.2), value: isShell)
             }
+        }
+        .task(id: slashScope) {
+            guard let slashScope else { return }
+
+            slashPicker.commands = store.conversationSlashCommands[slashScope] ?? SlashCommand.builtIns(for: harness)
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let folder = URL(filePath: slashScope.folder, directoryHint: .isDirectory)
+            let commands = await Task.detached { [harness] in SlashCommand.load(home: home, folder: folder, harness: harness) }.value
+            guard !Task.isCancelled else { return }
+
+            store.conversationSlashCommands[slashScope] = commands
+            slashPicker.commands = commands
+        }
+        .onChange(of: isShell) {
+            if isShell { slashPicker.update(query: nil) }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             model.append((try? result.get()) ?? [])

@@ -167,6 +167,8 @@ Add `-snapshotLauncherLoading YES` to `-snapshotIssues ""` or `-snapshotPullRequ
 
 Add `-snapshotConversationEmpty YES` to open a session with zero turns, and use `-snapshotConversationWidth <pt>` to set the capture width (1100 pt by default).
 
+Add `-snapshotConversationSlashCommands YES` to capture the Claude composer with `/co` and the picker open. The flag seeds a command in the fixture home.
+
 The Claude fixture includes bash-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
 
 `-snapshotConversationAgent codex` with `-codexEnabled YES` seeds an invented Codex rollout and opens a Codex conversation tab without fake live status. `-snapshotConversationStatus busy` leaves its final turn open; other statuses close it with task_complete. `-snapshotTerminalTitle "<text>"` sets the tab terminal's OSC title, so `[ ! ] Action Required`, `Thinking` or `Ready` drives the Codex live status. The fixture includes command output, updated and added files, a web search, a plan, a final reply, context usage and a pull request URL.

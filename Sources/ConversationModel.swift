@@ -168,7 +168,7 @@ final class ConversationModel {
 
     func send() async {
         let sent = draft
-        guard let sessionID, !sent.isEmpty, !isSending else { return }
+        guard let sessionID, !sent.isEmpty, !isSending, allowsSendingCommand(sent.text) else { return }
         guard !blocksSending else {
             let name = store.tabs.first { $0.id == tabID }?.agent.harness.name ?? "Agent"
             notice = "\(name) is working, so the message wasn’t sent. Stop it or wait for it to finish."
@@ -228,7 +228,7 @@ final class ConversationModel {
 
     func decline(waitingFor: String?, since: Double?) async {
         let sent = draft
-        guard let sessionID, !sent.isEmpty, !isSending else { return }
+        guard let sessionID, !sent.isEmpty, !isSending, allowsSendingCommand(sent.text) else { return }
 
         isSending = true
         notice = nil
@@ -253,6 +253,15 @@ final class ConversationModel {
         }
         let name = store.tab(forSession: sessionID)?.agent.harness.name ?? "Agent"
         notice = "\(name) is still waiting, so your message wasn’t sent"
+    }
+
+    private func allowsSendingCommand(_ text: String) -> Bool {
+        let name = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard name.hasPrefix("/"), let tab = store.tabs.first(where: { $0.id == tabID }), tab.kind != .shell,
+              let command = SlashCommand.builtIns(for: tab.agent.harness).first(where: { $0.requiresArguments && $0.name == name.lowercased() }) else { return true }
+
+        notice = "\(command.name) needs an argument"
+        return false
     }
 
     func choose(_ setting: RemoteSessionSetting) async {

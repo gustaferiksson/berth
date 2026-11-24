@@ -588,7 +588,7 @@ private struct ConversationBottomBar: View {
     }
 
     private var bar: some View {
-        let isShell = harness.supports(.bashMode) && model.draft.text.hasPrefix("!")
+        let isShell = tab.kind == .shell || harness.supports(.bashMode) && model.draft.text.hasPrefix("!")
 
         return VStack(spacing: 10) {
             if let approval, approval.isActionable || approval == .loading {
@@ -617,7 +617,7 @@ private struct ConversationBottomBar: View {
                 }
             }
             VStack(spacing: 2) {
-                ConversationComposer(model: model, harnessName: harness.name, canAttach: canAttach, isShell: isShell, isWorking: isWorking, waiting: denial, focusRequest: composerFocus)
+                ConversationComposer(model: model, folder: tab.folder, harness: harness, canAttach: canAttach, isShell: isShell, isWorking: isWorking, waiting: denial, focusRequest: composerFocus)
                 SessionStatusBar(model: model, tab: tab, harness: harness, isShell: isShell, isWorking: isWorking, isWaiting: waiting != nil, summary: branch)
             }
         }
