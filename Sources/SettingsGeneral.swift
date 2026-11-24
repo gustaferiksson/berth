@@ -148,7 +148,7 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 1180)
+        .frame(height: 1000)
     }
 }
 
