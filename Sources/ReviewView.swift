@@ -68,6 +68,7 @@ final class ReviewModel {
     private(set) var tabs: [ReviewTab] = []
     private(set) var graphCommits: [GraphCommit] = []
     private(set) var graphRows: [GraphRow] = []
+    private(set) var graphShown = 0
     private(set) var graphHasMore = false
     private(set) var graphHasLoaded = false
     private(set) var isLoadingGraph = false
@@ -106,6 +107,7 @@ final class ReviewModel {
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private var queuedLoad: Task<Void, Never>?
     @ObservationIgnored private var graphLoading: Task<Void, Never>?
+    @ObservationIgnored private var graphBranch: (name: String, isDefault: Bool)?
     @ObservationIgnored private var commitSelection = 0
     @ObservationIgnored var rangeFiles: [ReviewDocument: ReviewFile] = [:]
     @ObservationIgnored private(set) var loadCount = 0
@@ -220,8 +222,9 @@ final class ReviewModel {
 
     func loadGraph(more: Bool = false) async {
         if let graphLoading { return await graphLoading.value }
-        guard let root = changes?.root, !more || graphHasMore else { return }
+        guard let changes, !more || graphHasMore else { return }
 
+        let root = changes.root
         let skip = more ? graphCommits.count : 0
         let limit = more ? Self.graphPageSize : max(Self.graphPageSize, graphCommits.count)
         isLoadingGraph = true
@@ -242,6 +245,11 @@ final class ReviewModel {
                     graphHasMore = page.count == limit
                 }
                 graphRows = ReviewGraph.layout(graphCommits)
+                if !more, graphBranch?.name != changes.branch || graphBranch?.isDefault != changes.isDefaultBranch {
+                    let mergeBaseIndex = changes.isDefaultBranch ? nil : graphCommits.firstIndex { $0.sha == changes.mergeBase }
+                    graphShown = mergeBaseIndex.map { $0 + 1 } ?? 10
+                    graphBranch = (changes.branch, changes.isDefaultBranch)
+                }
                 if let selectedCommit, !graphCommits.contains(where: { $0.sha == selectedCommit }) { self.selectedCommit = nil }
                 graphHasLoaded = true
                 graphError = nil
@@ -251,6 +259,24 @@ final class ReviewModel {
         }
         graphLoading = load
         await load.value
+    }
+
+    func showMoreGraph() async {
+        guard let changes, !isLoadingGraph, graphBranch?.name == changes.branch, graphBranch?.isDefault == changes.isDefaultBranch else { return }
+
+        let shown = graphShown + 20
+        if shown > graphCommits.count, graphHasMore {
+            await loadGraph(more: true)
+            guard graphError == nil, self.changes?.branch == changes.branch, self.changes?.isDefaultBranch == changes.isDefaultBranch else { return }
+        }
+        graphShown = max(graphShown, shown)
+    }
+
+    func openGraphCommit(at index: Int) async {
+        guard graphCommits.indices.contains(index) else { return }
+
+        graphShown = max(graphShown, index + 1)
+        await openCommit(graphCommits[index].sha)
     }
 
     func openCommit(_ sha: String) async {
@@ -900,7 +926,8 @@ struct ReviewFileList: View {
     }
 
     private var graphFileOrder: [ReviewDocument] {
-        guard graphIsVisible, let sha = model.selectedCommit, let files = model.commitFiles[sha] else { return [] }
+        guard graphIsVisible, let sha = model.selectedCommit, let files = model.commitFiles[sha],
+              model.graphCommits.prefix(model.graphShown).contains(where: { $0.sha == sha }) else { return [] }
 
         return files.map { ReviewDocument(path: $0.path, compare: .commit(sha)) }
     }

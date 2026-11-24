@@ -7,8 +7,8 @@ struct ReviewGraphRows: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let gutterWidth = CGFloat(min(model.graphRows.map(\.laneCount).max() ?? 1, 8)) * 12
-        ForEach(Array(zip(model.graphCommits, model.graphRows)), id: \.0.sha) { commit, row in
+        let gutterWidth = CGFloat(min(model.graphRows.map(\.laneCount).max() ?? 1, 4)) * ReviewGraphCommitRow.laneWidth
+        ForEach(Array(zip(model.graphCommits.prefix(model.graphShown), model.graphRows)), id: \.0.sha) { commit, row in
             ReviewGraphCommitRow(commit: commit, row: row, gutterWidth: gutterWidth, model: model, changes: changes)
                 .id(commit.sha)
                 .reviewRow()
@@ -34,8 +34,8 @@ struct ReviewGraphRows: View {
                 .frame(maxWidth: .infinity, minHeight: 36)
                 .reviewRow()
         }
-        if model.graphHasMore {
-            Button("Load More") { Task { await model.loadGraph(more: true) } }
+        if model.graphShown < model.graphCommits.count || model.graphHasMore {
+            Button("Show More") { Task { await model.showMoreGraph() } }
                 .buttonStyle(.plain)
                 .foregroundStyle(theme.secondary)
                 .frame(minHeight: 32)
@@ -54,6 +54,7 @@ private struct ReviewGraphCommitRow: View {
     @Environment(\.ghosttyTheme) private var theme
     @State private var isHovering = false
 
+    static let laneWidth: CGFloat = 8
     private static let relativeDate: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
@@ -64,6 +65,8 @@ private struct ReviewGraphCommitRow: View {
     var body: some View {
         let isSelected = model.selectedCommit == commit.sha
         let refs = commit.refs.sorted { rank($0) < rank($1) }
+        let visibleRefs = refs.prefix(2).prefix { rank($0) < 2 }
+        let hiddenRefs = refs.dropFirst(visibleRefs.count)
         let byline = "\(commit.author), \(Self.relativeDate.localizedString(for: commit.date, relativeTo: .now))"
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -74,14 +77,15 @@ private struct ReviewGraphCommitRow: View {
                         Text(commit.subject)
                             .font(.callout)
                             .lineLimit(1)
-                        ForEach(Array(refs.prefix(3).enumerated()), id: \.offset) { _, ref in
+                        ForEach(Array(visibleRefs.enumerated()), id: \.offset) { _, ref in
                             tag(ref)
                         }
-                        if refs.count > 3 {
-                            Text("+\(refs.count - 3)")
+                        if !hiddenRefs.isEmpty {
+                            Text("+\(hiddenRefs.count)")
                                 .font(.caption2)
                                 .foregroundStyle(theme.secondary)
                                 .fixedSize()
+                                .help(hiddenRefs.map(\.name).joined(separator: "\n"))
                         }
                     }
                     Text(byline)
@@ -129,43 +133,40 @@ private struct ReviewGraphCommitRow: View {
 
     private func rank(_ ref: GraphRef) -> Int {
         if ref.kind == .head || ref.kind == .branch, ref.name == changes.branch { return 0 }
-        if ref.kind == .branch || ref.kind == .remote, ref.name == changes.base { return 1 }
+        if ref.kind == .tag { return 1 }
 
         return 2
     }
 
     private func tag(_ ref: GraphRef) -> some View {
-        let rank = rank(ref)
-        let symbol = rank == 1 ? "arrow.triangle.branch" : ref.kind == .tag ? "tag" : nil
+        let isCurrent = rank(ref) == 0
         return HStack(spacing: 2) {
-            if let symbol {
-                Image(systemName: symbol)
+            if ref.kind == .tag {
+                Image(systemName: "tag")
                     .accessibilityHidden(true)
             }
             Text(ref.name)
                 .lineLimit(1)
+                .frame(maxWidth: 90)
         }
+        .fixedSize()
         .font(.caption2.weight(.medium))
-        .foregroundStyle(rank == 0 ? Color.white : theme.foreground)
+        .foregroundStyle(isCurrent ? Color.white : theme.foreground)
         .padding(.horizontal, 4)
         .padding(.vertical, 1)
-        .background(rank == 0 ? Color.accentColor : rank == 1 ? Color.clear : theme.foreground.opacity(0.09), in: .rect(cornerRadius: 4))
-        .overlay {
-            if rank == 1 {
-                RoundedRectangle(cornerRadius: 4).strokeBorder(theme.secondary)
-            }
-        }
+        .background(isCurrent ? Color.accentColor : theme.foreground.opacity(0.09), in: .rect(cornerRadius: 4))
     }
 
     private var lanes: some View {
         Canvas { context, size in
             let y: CGFloat = 12
-            let center = CGPoint(x: CGFloat(row.lane) * 12 + 6, y: y)
-            let visible = Int(size.width / 12)
+            let laneWidth = Self.laneWidth
+            let center = CGPoint(x: (CGFloat(row.lane) + 0.5) * laneWidth, y: y)
+            let visible = Int(size.width / laneWidth)
             let palette = theme.series
 
             for lane in row.through where lane < visible {
-                let x = CGFloat(lane) * 12 + 6
+                let x = (CGFloat(lane) + 0.5) * laneWidth
                 let line = Path { path in
                     path.move(to: CGPoint(x: x, y: 0))
                     path.addLine(to: CGPoint(x: x, y: size.height))
@@ -175,7 +176,7 @@ private struct ReviewGraphCommitRow: View {
 
             let incoming = row.entersFromAbove ? [row.lane] + row.merges : row.merges
             for lane in incoming where min(lane, row.lane) < visible {
-                let x = CGFloat(lane) * 12 + 6
+                let x = (CGFloat(lane) + 0.5) * laneWidth
                 let line = Path { path in
                     path.move(to: CGPoint(x: x, y: 0))
                     path.addCurve(to: center, control1: CGPoint(x: x, y: y / 2), control2: CGPoint(x: center.x, y: y / 2))
@@ -184,7 +185,7 @@ private struct ReviewGraphCommitRow: View {
             }
 
             for lane in row.parentLanes where min(lane, row.lane) < visible {
-                let x = CGFloat(lane) * 12 + 6
+                let x = (CGFloat(lane) + 0.5) * laneWidth
                 let join = y + 16
                 let line = Path { path in
                     path.move(to: center)
@@ -197,7 +198,8 @@ private struct ReviewGraphCommitRow: View {
             }
 
             if row.lane < visible {
-                context.fill(Path(ellipseIn: CGRect(x: center.x - 4, y: y - 4, width: 8, height: 8)), with: .color(palette[row.lane % 6]))
+                let dotDiameter: CGFloat = 6
+                context.fill(Path(ellipseIn: CGRect(x: center.x - dotDiameter / 2, y: y - dotDiameter / 2, width: dotDiameter, height: dotDiameter)), with: .color(palette[row.lane % 6]))
             }
         }
     }

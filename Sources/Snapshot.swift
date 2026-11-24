@@ -993,9 +993,7 @@ enum Snapshot {
                 while Date.now < deadline, index >= model.graphCommits.count, model.graphHasMore, model.graphError == nil {
                     await model.loadGraph(more: true)
                 }
-                if model.graphCommits.indices.contains(index) {
-                    await model.openCommit(model.graphCommits[index].sha)
-                }
+                await model.openGraphCommit(at: index)
             }
             let changedFiles = UserDefaults.standard.string(forKey: "snapshotReviewChangedFiles")
             if let changedFiles { store.showChanges(opening: changedFiles.split(separator: ",").map(String.init)) }
