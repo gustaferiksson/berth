@@ -66,7 +66,9 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
+        #if DEBUG
         view.isInspectable = true
+        #endif
         observations = [
             view.observe(\.title) { [weak self] view, _ in MainActor.assumeIsolated { if let title = view.title, !title.isEmpty { self?.title = title } } },
             view.observe(\.url) { [weak self] view, _ in MainActor.assumeIsolated { if let url = view.url { self?.url = url } } },
@@ -276,6 +278,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     static let searchKey = "browserSearchEngine"
     static let persistentDataKey = "browserKeepsWebsiteData"
     static let linksKey = "conversationLinksOpenIn"
+    static let githubLinksKey = "githubLinksOpenInBerth"
     private static let pinnedKey = "browserPinnedTabs"
     private static let sessionTabsKey = "browserSessionTabs"
     private static let ephemeralStore = WKWebsiteDataStore.nonPersistent()

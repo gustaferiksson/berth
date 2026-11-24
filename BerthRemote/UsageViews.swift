@@ -10,14 +10,21 @@ struct UsageCard: View {
     let group: UsageGroup
     let open: () -> Void
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var statusWidth = SessionListLayout.statusWidth
+    @ScaledMetric(relativeTo: .footnote) private var titleWidth = 58.0
+    @ScaledMetric(relativeTo: .footnote) private var percentWidth = 40.0
+
     var body: some View {
+        let isAccessibility = dynamicTypeSize.isAccessibilitySize
+
         TimelineView(.everyMinute) { timeline in
             Button(action: open) {
-                HStack(spacing: 10) {
+                HStack(spacing: SessionListLayout.columnSpacing) {
                     Image(group.kind == .codex ? "HarnessCodex" : "HarnessClaude")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 16, height: 16)
+                        .frame(width: statusWidth, height: statusWidth)
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
                     VStack(spacing: 6) {
@@ -26,13 +33,15 @@ struct UsageCard: View {
                                 Text(window.title)
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
-                                    .frame(width: 58, alignment: .leading)
+                                    .frame(width: isAccessibility ? nil : titleWidth, alignment: .leading)
                                 UsageTrack(window: window, now: timeline.date)
+                                    .frame(minWidth: 12)
                                 Text("\(window.usedPercent)%")
                                     .font(.footnote)
                                     .monospacedDigit()
                                     .foregroundStyle(UsageTrack.aheadTint(window, now: timeline.date) ?? .secondary)
-                                    .frame(width: 40, alignment: .trailing)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .frame(width: isAccessibility ? nil : percentWidth, alignment: .trailing)
                             }
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel("\(group.name) \(window.title)")
@@ -46,6 +55,8 @@ struct UsageCard: View {
                         }
                     }
                 }
+                .padding(.vertical, 6)
+                .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .accessibilityHint("Shows plan usage")

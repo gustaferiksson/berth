@@ -38,6 +38,7 @@ struct PaneHost: View {
             if store.sessionPane == .browser { BrowserPane(store: store) }
         }
         .environment(store)
+        .environment(\.openURL, store.linkOpeningAction)
         .environment(\.ghosttyTheme, store.theme)
     }
 }

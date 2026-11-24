@@ -150,7 +150,7 @@ final class ItemPreviewPanel {
         hideSoon(owner: owner)
     }
 
-    func show(reference: ItemReference, owner: UUID, actions: @escaping (ItemPreview) -> ItemPreviewActions, beside anchor: Anchor, theme: GhosttyTheme, presentation: Presentation) {
+    func show(reference: ItemReference, owner: UUID, store: Store, beside anchor: Anchor, theme: GhosttyTheme, presentation: Presentation) {
         guard let placement = anchors[reference]?[owner]?.placement else { return }
 
         pendingHide?.cancel()
@@ -159,7 +159,7 @@ final class ItemPreviewPanel {
         pendingPreview?.cancel()
         let request = Request(reference: reference, owner: owner, placement: placement)
         self.request = request
-        if presentation == .immediate { display(nil, beside: anchor, theme: theme) }
+        if presentation == .immediate { display(nil, beside: anchor, theme: theme, store: store) }
         monitor = monitor ?? NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
 
@@ -172,7 +172,8 @@ final class ItemPreviewPanel {
                   let currentAnchor = Anchor(view: view, side: anchor.side)
             else { return hide() }
 
-            display(ItemPreviewView(preview: preview, actions: actions(preview)), beside: currentAnchor, theme: theme)
+            let actions = store.previewActions(for: preview, dismiss: hide)
+            display(ItemPreviewView(preview: preview, actions: actions), beside: currentAnchor, theme: theme, store: store)
         }
     }
 
@@ -182,9 +183,7 @@ final class ItemPreviewPanel {
               let view = row.value.view, let anchor = Anchor(view: view, side: .trailing)
         else { return hideInLauncher() }
 
-        show(reference: reference, owner: row.key, actions: { preview in
-            store.previewActions(for: preview, dismiss: self.hide)
-        }, beside: anchor, theme: theme, presentation: .immediate)
+        show(reference: reference, owner: row.key, store: store, beside: anchor, theme: theme, presentation: .immediate)
     }
 
     var showsLauncherPreview: Bool { isShowing && request?.placement == .launcher }
@@ -194,7 +193,7 @@ final class ItemPreviewPanel {
         if request?.placement == .launcher { hide() }
     }
 
-    private func display(_ card: ItemPreviewView?, beside anchor: Anchor, theme: GhosttyTheme) {
+    private func display(_ card: ItemPreviewView?, beside anchor: Anchor, theme: GhosttyTheme, store: Store) {
         guard let window = anchor.window, let screen = (window.screen ?? NSScreen.main)?.visibleFrame else { return hide() }
 
         let displayID = UUID()
@@ -217,7 +216,7 @@ final class ItemPreviewPanel {
                     panel.setFrame(Self.frame(size: size, beside: anchor, screen: screen), display: true)
                 }
             }
-        ))
+        ).environment(\.openURL, store.linkOpeningAction))
         host.sizingOptions = [.intrinsicContentSize]
         if let parent = panel.parent, parent !== window { parent.removeChildWindow(panel) }
         panel.appearance = NSAppearance(named: theme.isDark ? .darkAqua : .aqua)
@@ -366,9 +365,7 @@ struct ItemPreviewTrigger: ViewModifier {
             let side: ItemPreviewPanel.Side = placement == .launcher || sidebarPosition == .left ? .trailing : .leading
             guard !Task.isCancelled, let anchor, let position = ItemPreviewPanel.Anchor(view: anchor, side: side) else { return }
 
-            panel.show(reference: reference, owner: owner, actions: { preview in
-                store.previewActions(for: preview, dismiss: panel.hide)
-            }, beside: position, theme: theme, presentation: .hover)
+            panel.show(reference: reference, owner: owner, store: store, beside: position, theme: theme, presentation: .hover)
         }
     }
 }
@@ -419,10 +416,10 @@ extension Store {
             #if DEBUG
             if Snapshot.launcherKeys != nil { self.probeOpenedURLs.append(preview.url) }
             #endif
-            if Snapshot.output != nil || Snapshot.launcherKeys != nil {
+            if Snapshot.launcherKeys != nil {
                 print("snapshot openURL \(preview.url.absoluteString)")
             } else {
-                NSWorkspace.shared.open(preview.url)
+                self.openLink(preview.url)
             }
             dismiss()
         })

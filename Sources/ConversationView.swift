@@ -8,8 +8,6 @@ struct ConversationView: View {
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
-    @AppStorage(BrowserModel.linksKey) private var linkTarget = BrowserLinkTarget.defaultBrowser
-    @Environment(\.openURL) private var openURL
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
     @State private var isDropTargeted = false
@@ -112,13 +110,7 @@ struct ConversationView: View {
             .environment(\.openAgentConversation, OpenAgentConversation(open: model.openAgent))
             .environment(\.conversationFolder, tab.cwd)
             .environment(\.openURL, OpenURLAction { url in
-                guard linkTarget == .berth, WebAddress.allows(url), let session = store.tabs.first(where: { $0.id == tab.id && $0.kind == .claude }) else {
-                    openURL(url)
-                    return .handled
-                }
-
-                store.browser.open(url, in: BrowserModel.key(of: session))
-                store.showBrowserPane()
+                store.openLink(url, from: .conversation)
                 return .handled
             })
             .environment(\.promptImageLoader, PromptImageLoader { [model] entryID, index in await model.promptImage(entryID: entryID, index: index) })

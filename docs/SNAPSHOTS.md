@@ -165,7 +165,7 @@ Berth Remote's DEBUG `-snapshotExpanded YES` and `-snapshotExpandedCalls YES` op
 
 More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those sheets), `-snapshotQuery "<text>"` (list search), `-snapshotTray YES` (quick reply tray), `-snapshotIntent "<spec>"` with `-snapshotIntentConnect "<url>|<token>"` (runs an intent against a Mac and prints the result).
 
-`-snapshotDemo YES` opens a sample session without a Mac server. Add `-snapshotDemoImageOnly YES` to end the session with an image-only prompt. Add `-snapshotDemoList YES` to stay on the session list (with a Claude and a Codex usage row, the Codex one stale). Add `-snapshotDemoFocus YES` to focus the composer after 1.5 seconds.
+`-snapshotDemo YES` opens a sample session without a Mac server. Add `-snapshotDemoImageOnly YES` to end the session with an image-only prompt. Add `-snapshotDemoList YES` to stay on the session list with Needs You, Working and Unread triage sections, PR tags with running, passed and failed checks, long branches, and Claude and Codex usage rows with stale Codex data. Add `-snapshotDemoFocus YES` to focus the composer after 1.5 seconds.
 
 Add `-snapshotDemoSlashCommands YES` to seed `/co` and sample project and user commands. Capture each appearance with `xcrun simctl io booted screenshot /abs/out.png` after setting it with `xcrun simctl ui booted appearance light|dark`.
 

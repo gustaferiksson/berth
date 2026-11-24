@@ -21,3 +21,11 @@ Hovering a session tab reveals its close button. Dragging onto another tab reord
 - One global list would mix short-lived pages from unrelated sessions and make them harder to find again.
 - Vertical tabs in the mode sidebar took a full column from the web view in the layout the user tried. The open tabs usually fit in a single header row.
 - Putting the address field inside the selected tab changed tab widths on selection and moved the address field with the selected tab.
+
+## Password managers
+
+Safari extensions such as 1Password for Safari do not run in `WKWebView`. On macOS 15.4 and later, `WKWebExtensionController` can load WebExtensions supplied by the host app. 1Password's native messaging trusts only recognized browsers by default, so Berth does not host the extension.
+
+1Password Universal Autofill uses the Accessibility API (AX) and requires Accessibility permission for 1Password and a validly code-signed build of Berth. 1Password handles Command-Backslash independently of Berth's key monitor.
+
+Passkeys for arbitrary sites in `WKWebView` require `com.apple.developer.web-browser.public-key-credential`, which Apple grants only to apps acting as web browsers. Berth can use passkeys only for its own associated domains. Third-party credential provider AutoFill suggestions are not shown in embedded `WKWebView`. This behavior has yet to be verified by hand.
