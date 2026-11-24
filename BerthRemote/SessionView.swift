@@ -4,12 +4,14 @@ struct SessionView: View {
     let sessionID: String
 
     private static let controlsInset: CGFloat = 24
+    private static let keyboardInset: CGFloat = 8
 
     @Environment(RemoteClient.self) private var client
     @Environment(\.openURL) private var openURL
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
     @State private var hasNewMessages = false
+    @State private var isKeyboardUp = false
     @State private var isShowingRunning = UserDefaults.standard.bool(forKey: "snapshotRunning")
     @State private var isShowingContext = UserDefaults.standard.bool(forKey: "snapshotContext")
     @State private var isShowingPullRequest = UserDefaults.standard.bool(forKey: "snapshotPullRequest")
@@ -129,11 +131,15 @@ struct SessionView: View {
                     pendingCall: isWaitingForApproval ? turns.last?.openCall : nil,
                     approval: activity?.approval,
                     context: activity?.context,
-                    openContext: { isShowingContext = true }
+                    openContext: { isShowingContext = true },
+                    isKeyboardUp: isKeyboardUp
                 )
             }
-            .padding(.horizontal, Self.controlsInset)
-            .padding(.bottom, Self.controlsInset)
+            .padding(.horizontal, isKeyboardUp ? Self.keyboardInset : Self.controlsInset)
+            .padding(.bottom, isKeyboardUp ? Self.keyboardInset : Self.controlsInset)
+            .animation(.smooth(duration: 0.25), value: isKeyboardUp)
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in isKeyboardUp = true }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in isKeyboardUp = false }
         }
         .ignoresSafeArea(.container, edges: .bottom)
         .sheet(isPresented: $isShowingRunning) {

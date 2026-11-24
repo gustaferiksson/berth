@@ -13,6 +13,7 @@ struct SessionControls: View {
     let approval: RemoteApproval?
     let context: RemoteContext?
     let openContext: (() -> Void)?
+    let isKeyboardUp: Bool
 
     @Environment(RemoteClient.self) private var client
 
@@ -41,6 +42,7 @@ struct SessionControls: View {
                     },
                     context: context,
                     openContext: openContext,
+                    isKeyboardUp: isKeyboardUp,
                     draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
                     attachments: Binding { client.draftAttachments[sessionID, default: []] } set: { client.draftAttachments[sessionID] = $0 }
                 )
@@ -219,6 +221,7 @@ private struct Composer: View {
     let declining: RemoteSession?
     let context: RemoteContext?
     let openContext: (() -> Void)?
+    let isKeyboardUp: Bool
     @Binding var draft: String
     @Binding var attachments: [Attachment]
 
@@ -242,7 +245,7 @@ private struct Composer: View {
     var body: some View {
         let isExpanded = isFocused || !draft.isEmpty || !attachments.isEmpty
         let isShell = agent.canRunBash == true && draft.hasPrefix("!")
-        let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)), isUniform: true)
+        let shape = isKeyboardUp ? AnyShape(.rect(cornerRadius: ComposerLayout.keyboardCornerRadius, style: .continuous)) : AnyShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)), isUniform: true))
 
         ComposerLayout(isExpanded: isExpanded, hasAttachmentMenu: agent.canAttach) {
             TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, selection: $selection, axis: .vertical)
@@ -251,9 +254,12 @@ private struct Composer: View {
                 .lineLimit(1...(isExpanded ? 6 : 1))
                 .focused($isFocused)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            ZStack {
+            HStack(spacing: 0) {
                 if agent.canAttach {
                     attachmentMenu
+                }
+                if isExpanded, agent.canChangeSettings, let context, let openContext {
+                    modelMenu(context, openContext: openContext)
                 }
             }
             trailingControls(isExpanded: isExpanded)
@@ -274,6 +280,8 @@ private struct Composer: View {
         }
         .clipShape(shape)
         .glassEffect(.regular, in: shape)
+        .overlay { shape.stroke(.primary.opacity(0.08), lineWidth: 0.5) }
+        .shadow(color: .black.opacity(isExpanded ? 0.08 : 0), radius: 10, y: 2)
         .overlay { shape.stroke(.pink.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0) }
         .animation(.smooth(duration: 0.2), value: isShell)
         .animation(.smooth(duration: 0.3), value: isExpanded)
@@ -384,8 +392,6 @@ private struct Composer: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel(context.model)
                     .accessibilityHint("Shows context usage")
-                } else if isExpanded {
-                    modelMenu(context, openContext: openContext)
                 }
             }
             Button {
@@ -454,9 +460,8 @@ private struct Composer: View {
             }
             Button("Context", systemImage: "chart.pie", action: openContext)
         } label: {
-            Text([modelTitle, currentEffort?.title].compactMap(\.self).joined(separator: " "))
+            Text("\(Text(modelTitle))\(Text(currentEffort.map { " \($0.title)" } ?? "").foregroundStyle(.secondary))")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .padding(.horizontal, 14)
                 .frame(height: ComposerLayout.controlSize)
@@ -627,7 +632,8 @@ struct ComposerLayout: Layout {
     static let hitSize: CGFloat = 44
     static let compactInset: CGFloat = 8
     static let cornerRadius = controlSize / 2 + compactInset
-    static let expandedInset: CGFloat = 12
+    static let expandedInset: CGFloat = 14
+    static let keyboardCornerRadius: CGFloat = 30
     static let tileRadius = cornerRadius - expandedInset
 
     private static let textGap: CGFloat = 8
@@ -658,7 +664,7 @@ struct ComposerLayout: Layout {
     }
 
     private func measure(width: CGFloat, subviews: Subviews) -> (height: CGFloat, field: CGRect, trailing: CGSize, tilesHeight: CGFloat) {
-        let leadingWidth = hasAttachmentMenu ? Self.hitSize : 0
+        let leadingWidth = subviews[1].sizeThatFits(.unspecified).width
         let trailingWidth = max(Self.hitSize, width - leadingWidth - 2 * hitInset)
         let trailing = subviews[2].sizeThatFits(ProposedViewSize(width: trailingWidth, height: controlsHeight))
         let fieldLeading = isExpanded ? Self.expandedInset : hasAttachmentMenu ? controlsHeight : 14
