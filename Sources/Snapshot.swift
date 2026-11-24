@@ -649,19 +649,19 @@ enum Snapshot {
             let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, watch: store.pullRequestWatch(for: session.id), excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."), projectStatuses: store.projects.statusLabels(for: store.pullRequests(of: session)))
                 .environment(\.ghosttyTheme, store.theme)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
-                .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
                 .background(store.theme.background ?? .black, in: .rect(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(store.theme.foreground.opacity(0.15)))
-                .padding(8)
             // swiftlint:disable:next hosting_without_sizing_options - throwaway view measured for fittingSize, never shown
             let size = NSHostingView(rootView: card).fittingSize
             let screen = NSRect(x: 0, y: 0, width: 1800, height: 1100)
-            for trailing in [true, false] {
-                let column = trailing ? NSRect(x: 0, y: 0, width: 300, height: 1000) : NSRect(x: 1500, y: 0, width: 300, height: 1000)
-                let row = NSRect(x: column.minX + 8, y: 700, width: 284, height: 48)
-                print("hover frame \(trailing ? "left sidebar" : "right sidebar"): row \(row) column edge \(trailing ? column.maxX : column.minX) panel \(HoverCardPanel.frame(size: size, row: row, column: column, trailing: trailing, screen: screen))")
+            for position in [SidebarPosition.left, .right] {
+                let column = NSRect(x: position == .left ? 0 : 1500, y: 0, width: 300, height: 1000)
+                let row = NSRect(x: column.minX + 8, y: 700, width: 292, height: 28)
+                let edge = position == .left ? column.maxX : column.minX
+                let frame = HoverCardPanel.frame(size: size, row: row, column: column, position: position, screen: screen)
+                print("hover frame \(position.rawValue) sidebar: row \(row) column edge \(edge) panel \(frame)")
             }
-            let renderer = ImageRenderer(content: card)
+            let renderer = ImageRenderer(content: card.padding(8))
             renderer.scale = 2
             if let image = renderer.cgImage { try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(output.path).hover-\(session.id).png")) }
         }

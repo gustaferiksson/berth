@@ -6,8 +6,7 @@ struct SidebarSettings: View {
     @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
     @AppStorage("showsSessionUsageDivisions") private var showsSessionUsageDivisions = false
     @AppStorage("showsWeeklyUsageDivisions") private var showsWeeklyUsageDivisions = false
-    @AppStorage(SidebarStyle.key) private var style = SidebarStyle.classic
-    @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
+    @AppStorage("sidebarTwoLineRows") private var showsTwoLines = false
     @AppStorage(ItemPreviewSetting.key) private var richPreviews = false
 
     var body: some View {
@@ -18,26 +17,11 @@ struct SidebarSettings: View {
                     Text("Right").tag(SidebarPosition.right)
                 }
                 .pickerStyle(.segmented)
-                Picker("Style", selection: $style) {
-                    ForEach(SidebarStyle.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                if style == .classic {
-                    Picker("Density", selection: $density) {
-                        ForEach(SidebarDensity.allCases, id: \.self) { Text($0.title).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    SidebarDensityPreview(density: density)
-                }
+                Toggle("Two-line rows", isOn: $showsTwoLines)
             } header: {
                 Text("Layout")
             } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Slim puts each session on one line with the status glyph first, a small trailing pull request glyph, and actions on hover.")
-                    if style == .classic {
-                        Text("Compact shows one line per session, with the pull request beside the title.")
-                    }
-                }
+                Text("Session rows show status, pull request and age on one line. Turn on Two-line rows to show the repository and branch below the title.")
             }
             Section {
                 Toggle("Show plan usage", isOn: $showsPlanUsage)
@@ -59,44 +43,12 @@ struct SidebarSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 740)
+        .frame(height: 640)
         .onChange(of: showsPlanUsage) {
             Task {
                 await store.refreshPlanUsage()
                 await store.refreshCodexUsage()
             }
         }
-    }
-}
-
-private struct SidebarDensityPreview: View {
-    let density: SidebarDensity
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach([("Fix rounding in invoice totals", "#4821"), ("Add the usage export endpoint", "#4790"), ("Tidy the CI pipeline", "")], id: \.0) { title, pullRequest in
-                VStack(alignment: .leading, spacing: density.isCompact ? 0 : 4) {
-                    HStack {
-                        Text(title)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        if density.isCompact {
-                            Text(verbatim: pullRequest).font(.caption.monospaced())
-                        }
-                        Text(verbatim: "2m").font(.caption)
-                    }
-                    if !density.isCompact {
-                        Text(verbatim: "billing · fix/rounding")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, density.rowPadding)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 6))
-        .accessibilityHidden(true)
     }
 }

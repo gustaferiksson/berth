@@ -1,25 +1,8 @@
 import BerthCore
-import GhosttyTerminal
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum SidebarDensity: String, CaseIterable {
-    case comfortable, compact
-
-    static let key = "sidebarDensity"
-
-    var title: String { rawValue.capitalized }
-    var isCompact: Bool { self == .compact }
-    var rowPadding: CGFloat { self == .comfortable ? 8 : 5 }
-    var headerHeight: CGFloat { self == .comfortable ? 24 : 20 }
-    var headerTopPadding: CGFloat { self == .comfortable ? 4 : 1 }
-    var headerBottomInset: CGFloat { self == .comfortable ? 4 : 1 }
-    var showMoreInset: CGFloat { self == .comfortable ? 4 : 1 }
-    var suggestionBottomPadding: CGFloat { self == .comfortable ? 8 : 5 }
-}
-
 extension EnvironmentValues {
-    @Entry var sidebarDensity = SidebarDensity.comfortable
     @Entry var headerInset: Double?
 }
 
@@ -186,9 +169,6 @@ private struct SidebarList: View, Equatable {
     @AppStorage("collapsedGroups") private var collapsedGroups = ""
     @AppStorage("archivedExpanded") private var isArchiveExpanded = false
     @AppStorage("snoozedExpanded") private var isSnoozedExpanded = false
-    @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
-    @AppStorage(SidebarStyle.key) private var style = SidebarStyle.classic
-    @Environment(\.sidebarRowSize) private var rowSize
     @State private var expandedGroups = Snapshot.expandedGroups
     @State private var renaming: CustomGroup?
     @State private var renamingTask: SessionTask?
@@ -281,13 +261,11 @@ private struct SidebarList: View, Equatable {
                 terminalsSection
             }
             if !layout.attentionIDs.isEmpty {
-                sidebarSection(isExpanded: expansion(of: Sidebar.attentionID)) {
+                SidebarSection(title: layout.showsTriage ? "Needs You" : "Needs Attention", help: "Needs you or your PR has failing checks", count: layout.attentionIDs.count, tint: theme.needsYou, isExpanded: expansion(of: Sidebar.attentionID)) {
                     ForEach(layout.attentionIDs, id: \.self) { id in
                         SessionItem(id: id, place: .triage, select: select)
                             .id(SidebarItem.session(id))
                     }
-                } header: { expansion in
-                    GroupHeader(title: layout.showsTriage ? "Needs You" : "Needs Attention", help: "Needs you or your PR has failing checks", count: layout.attentionIDs.count, tint: theme.needsYou, isExpanded: expansion) { EmptyView() } accessory: { _ in EmptyView() }
                 }
             }
             if let active {
@@ -297,17 +275,15 @@ private struct SidebarList: View, Equatable {
                 caughtUp
             }
             triageSection(Sidebar.workingID, title: "Working", help: "Sessions that are working", ids: layout.workingIDs, tint: theme.working)
-            triageSection(Sidebar.unreadID, title: "Unread", help: "Sessions with replies you haven’t seen", ids: layout.unreadIDs, tint: style == .slim ? theme.unread : nil)
+            triageSection(Sidebar.unreadID, title: "Unread", help: "Sessions with replies you haven’t seen", ids: layout.unreadIDs, tint: theme.unread)
             if !layout.pinnedIDs.isEmpty {
-                sidebarSection(isExpanded: expansion(of: Self.pinnedID)) {
+                SidebarSection(title: "Pinned", help: "Pinned sessions", count: layout.pinnedIDs.count, isExpanded: expansion(of: Self.pinnedID)) {
                     ForEach(Array(layout.pinnedIDs.enumerated()), id: \.element) { index, id in
                         SessionItem(id: id, place: .pinned, select: select)
                             .id(SidebarItem.session(id))
                             .draggable(PinDrag(id: id))
                             .modifier(GroupDropTarget<PinDrag>(indicatorOffset: 0) { movePin($0, onto: index) })
                     }
-                } header: { expansion in
-                    GroupHeader(title: "Pinned", help: "Pinned sessions", count: layout.pinnedIDs.count, isExpanded: expansion) { EmptyView() } accessory: { _ in EmptyView() }
                 }
             }
             ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
@@ -321,29 +297,23 @@ private struct SidebarList: View, Equatable {
                     .accessibilityHidden(true)
             }
             if !layout.snoozedIDs.isEmpty {
-                sidebarSection(isExpanded: $isSnoozedExpanded) {
+                SidebarSection(title: "Snoozed", help: "Snoozed sessions", count: layout.snoozedIDs.count, isExpanded: $isSnoozedExpanded) {
                     ForEach(layout.snoozedIDs, id: \.self) { id in
                         SessionItem(id: id, place: .snoozed, select: select)
                             .id(SidebarItem.session(id))
                     }
-                } header: { expansion in
-                    GroupHeader(title: "Snoozed", help: "Snoozed sessions", count: layout.snoozedIDs.count, isExpanded: expansion) { EmptyView() } accessory: { _ in EmptyView() }
                 }
             }
             if !layout.archivedIDs.isEmpty {
-                sidebarSection(isExpanded: $isArchiveExpanded) {
+                SidebarSection(title: "Done", help: "Done sessions", count: layout.archivedIDs.count, isExpanded: $isArchiveExpanded) {
                     ForEach(layout.archivedIDs, id: \.self) { id in
                         SessionItem(id: id, place: .archived, select: select)
                             .id(SidebarItem.session(id))
                     }
-                } header: { expansion in
-                    GroupHeader(title: "Done", help: "Done sessions", count: layout.archivedIDs.count, isExpanded: expansion) { EmptyView() } accessory: { _ in EmptyView() }
                 }
             }
         }
-        .environment(\.sidebarStyle, style)
-        .environment(\.sidebarDensity, density)
-        .environment(\.sidebarRowSize, style == .slim || density.isCompact ? .small : rowSize)
+        .environment(\.sidebarRowSize, .small)
         .focusable()
         .focused($isFocused)
         .focusEffectDisabled()
@@ -408,13 +378,11 @@ private struct SidebarList: View, Equatable {
     @ViewBuilder
     private func triageSection(_ id: String, title: String, help: String, ids: [String], tint: Color?) -> some View {
         if !ids.isEmpty {
-            sidebarSection(isExpanded: expansion(of: id)) {
+            SidebarSection(title: title, help: help, count: ids.count, tint: tint, isExpanded: expansion(of: id)) {
                 ForEach(ids, id: \.self) { id in
                     SessionItem(id: id, place: .triage, select: select)
                         .id(SidebarItem.session(id))
                 }
-            } header: { expansion in
-                GroupHeader(title: title, help: help, count: ids.count, tint: tint, isExpanded: expansion) { EmptyView() } accessory: { _ in EmptyView() }
             }
         }
     }
@@ -556,39 +524,24 @@ private struct SidebarList: View, Equatable {
         return true
     }
 
-    @ViewBuilder
-    private func sidebarSection(isExpanded: Binding<Bool>, @ViewBuilder content: () -> some View, @ViewBuilder header: (Binding<Bool>?) -> some View) -> some View {
-        if style == .slim {
-            Section {
-                if isExpanded.wrappedValue { content() }
-            } header: {
-                header(isExpanded)
-            }
-            .listSectionSeparator(.hidden)
-        } else {
-            Section(isExpanded: isExpanded, content: content) { header(nil) }
-        }
-    }
-
     private var terminalsSection: some View {
-        sidebarSection(isExpanded: expansion(of: Sidebar.terminalsID)) {
+        SidebarSection(isExpanded: expansion(of: Sidebar.terminalsID)) {
             ForEach(layout.terminalIDs, id: \.self) { id in
                 TabItem(id: id, select: select)
-                    .environment(\.sidebarDensity, .compact)
                     .id(SidebarItem.tab(id))
             }
         } header: { expansion in
-            GroupHeader(title: "Terminals", help: "Terminals", count: layout.terminalIDs.count, isExpanded: expansion) { EmptyView() } accessory: { isHovering in
+            SidebarSectionHeader(title: "Terminals", help: "Terminals", count: layout.terminalIDs.count, isExpanded: expansion) {
                 Button("New Terminal", systemImage: "plus") { store.newTerminal() }
                     .help("New terminal (⌘T)")
                     .labelStyle(.iconOnly)
-                    .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
+                    .buttonStyle(HeaderButtonStyle())
             }
         }
     }
 
     private func section(_ group: Group, at index: Int, in groups: [Group]) -> some View {
-        sidebarSection(isExpanded: expansion(of: group.id)) {
+        SidebarSection(isExpanded: expansion(of: group.id)) {
             ForEach(group.layout.tabIDs, id: \.self) { id in
                 TabItem(id: id, select: select)
                     .id(SidebarItem.tab(id))
@@ -596,7 +549,7 @@ private struct SidebarList: View, Equatable {
             ForEach(rows(of: group.entries), id: \.self) { row in
                 switch row {
                 case let .session(id):
-                    SessionItem(id: id, place: .group(folder: group.layout.source.folder), select: select)
+                    SessionItem(id: id, place: .group, select: select)
                         .id(SidebarItem.session(id))
 
                 case let .task(id):
@@ -613,62 +566,65 @@ private struct SidebarList: View, Equatable {
                 let toggle = {
                     if isExpanded { expandedGroups.remove(group.id) } else { expandedGroups.insert(group.id) }
                 }
-                if style == .slim {
-                    SlimShowMore(isExpanded: isExpanded, hiddenCount: group.hiddenSessions, toggle: toggle)
-                } else {
-                    Button(isExpanded ? "Show Less" : "Show \(group.hiddenSessions) More", action: toggle)
-                        .buttonStyle(.plain)
-                        .font(.subheadline)
-                        .foregroundStyle(Color.secondary)
-                        .padding(.leading, 8)
-                        .listRowInsets(EdgeInsets(top: density.showMoreInset, leading: 8, bottom: density.showMoreInset, trailing: 8))
-                }
+                ShowMoreRow(isExpanded: isExpanded, hiddenCount: group.hiddenSessions, toggle: toggle)
             }
         } header: { expansion in
             header(group, at: index, in: groups, expansion: expansion)
         }
     }
 
-    private func header(_ group: Group, at index: Int, in groups: [Group], expansion: Binding<Bool>?) -> some View {
+    @ViewBuilder
+    private func header(_ group: Group, at index: Int, in groups: [Group], expansion: Binding<Bool>) -> some View {
         let source = group.layout.source
         let custom = source.custom
         let singleFolder = source.folder ?? custom.flatMap { $0.rules.count == 1 && !$0.rules[0].includesSubfolders ? $0.rules[0].path : nil }
-        return GroupHeader(
+        let rename = renaming.flatMap { group in
+            group.id == custom?.id ? GroupRenameField(group: group, renaming: $renaming) : nil
+        }
+        let header = SidebarSectionHeader(
             title: source.title,
             help: source.folder.map { ($0 as NSString).abbreviatingWithTildeInPath } ?? custom.map { $0.rules.map { ($0.path as NSString).abbreviatingWithTildeInPath }.joined(separator: ", ") } ?? source.title,
             count: group.count,
-            renaming: custom != nil && renaming?.id == custom?.id ? $renaming : nil,
-            commitRename: { store.save($0) },
-            dragID: custom.map { _ in source.id },
-            drop: { moveGroup($0, to: index, in: groups) },
             isExpanded: expansion,
-            menu: {
-                if let custom {
-                    customGroupMenu(custom, at: index, of: groups.count, singleFolder: singleFolder)
-                } else if let folder = source.folder {
-                    folderGroupMenu(group.layout.folders, root: folder, title: source.title)
-                }
-            },
-            accessory: { isHovering in
-                if let singleFolder {
-                    Button("New Session", systemImage: "plus") { store.openSession(cwd: singleFolder) }
-                        .help("New session in \(URL(filePath: singleFolder).lastPathComponent)")
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
-                } else if let custom {
-                    Menu {
-                        startItems(custom)
-                    } label: {
-                        Label("New Session", systemImage: "plus").labelStyle(.iconOnly)
-                    }
-                    .menuStyle(.button)
-                    .menuIndicator(.hidden)
-                    .buttonStyle(HeaderButtonStyle(isHeaderHovered: isHovering, theme: theme))
-                    .fixedSize()
-                    .help("New session in \(custom.name)")
-                }
-            }
+            accessory: singleFolder != nil || custom != nil ? newSessionAccessory(folder: singleFolder, custom: custom) : nil,
+            replacementTitle: rename
         )
+        .contextMenu {
+            if let custom {
+                customGroupMenu(custom, at: index, of: groups.count, singleFolder: singleFolder)
+            } else if let folder = source.folder {
+                folderGroupMenu(group.layout.folders, root: folder, title: source.title)
+            }
+        }
+        SwiftUI.Group {
+            if custom != nil, rename == nil {
+                header.draggable(GroupDrag(id: source.id))
+            } else {
+                header
+            }
+        }
+        .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 0) { moveGroup($0, to: index, in: groups) })
+    }
+
+    @ViewBuilder
+    private func newSessionAccessory(folder: String?, custom: CustomGroup?) -> some View {
+        if let folder {
+            Button("New Session", systemImage: "plus") { store.openSession(cwd: folder) }
+                .help("New session in \(URL(filePath: folder).lastPathComponent)")
+                .labelStyle(.iconOnly)
+                .buttonStyle(HeaderButtonStyle())
+        } else if let custom {
+            Menu {
+                startItems(custom)
+            } label: {
+                Label("New Session", systemImage: "plus").labelStyle(.iconOnly)
+            }
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .buttonStyle(HeaderButtonStyle())
+            .fixedSize()
+            .help("New session in \(custom.name)")
+        }
     }
 
     @ViewBuilder
@@ -749,12 +705,11 @@ private struct OwnedTerminalItems: View {
             ForEach(store.tabs.filter { $0.parentTabID == parent }) { tab in
                 TabRow(tab: tab, live: nil, terminal: tab.terminal)
                     .padding(.leading, indent)
-                    .modifier(RowChrome(item: .tab(tab.id), hoverID: tab.id.uuidString, isLocked: false, indent: indent, close: { store.close(tab.id) }, select: { select(.tab(tab.id)) }))
+                    .modifier(RowChrome(item: .tab(tab.id), hoverID: tab.id.uuidString, indent: indent, close: { store.close(tab.id) }, select: { select(.tab(tab.id)) }))
                     .help((tab.folder as NSString).abbreviatingWithTildeInPath)
                     .contextMenu {
                         Button("Close Terminal") { store.close(tab.id) }
                     }
-                    .environment(\.sidebarDensity, .compact)
                     .id(SidebarItem.tab(tab.id))
             }
         }
@@ -778,7 +733,7 @@ private struct TabItem: View {
                     TabRow(tab: tab, live: tab.sessionID.flatMap { store.liveBySession[$0] }, watch: watch, terminal: tab.terminal)
                 }
             }
-            .modifier(RowChrome(item: .tab(id), hoverID: id.uuidString, isLocked: false, close: tab?.kind == .shell ? { store.close(id) } : nil, select: { select(.tab(id)) }))
+            .modifier(RowChrome(item: .tab(id), hoverID: id.uuidString, close: tab?.kind == .shell ? { store.close(id) } : nil, select: { select(.tab(id)) }))
             .help(tab?.kind == .shell ? (tab?.folder as NSString?)?.abbreviatingWithTildeInPath ?? "" : "")
             .contextMenu {
                 if store.multiSelection.contains(.tab(id)) {
@@ -803,7 +758,7 @@ private struct SessionItem: View {
     enum Place: Equatable {
         case triage
         case pinned
-        case group(folder: String?)
+        case group
         case task
         case snoozed
         case archived
@@ -813,18 +768,15 @@ private struct SessionItem: View {
     let place: Place
     let select: (SidebarItem) -> Void
     @Environment(Store.self) private var store
-    @Environment(\.sidebarDensity) private var density
-    @Environment(\.sidebarStyle) private var style
 
-    private var taskIndent: Double { style == .slim ? 14 : 16 }
+    private let taskIndent = 14.0
 
     var body: some View {
         let session = store.sessionsByID[id]
         let tab = store.tab(forSession: id)
         let live = store.liveBySession[id]
         let isLocked = tab == nil && store.isLockedElsewhere(live)
-        let suggestion = store.taskSuggestions[id]
-        let suggestionLabel = suggestion.flatMap(suggestionText)
+        let suggestionLabel = store.taskSuggestions[id].flatMap(suggestionText)
         let pullRequests = session.map(store.pullRequests(of:)) ?? []
         let watch = store.pullRequestWatch(for: id)
         Group {
@@ -843,7 +795,7 @@ private struct SessionItem: View {
                         context: tab != nil || live != nil ? session.context : nil,
                         pullRequest: pullRequests.first.map { link in
                             var pullRequest = link.pullRequest
-                            if style == .classic, pullRequest.checks == .passed { pullRequest.checks = nil }
+                            if pullRequest.checks == .passed { pullRequest.checks = nil }
                             return pullRequest
                         },
                         morePullRequests: max(pullRequests.count - 1, 0),
@@ -855,16 +807,11 @@ private struct SessionItem: View {
                     )
                     .modifier(SessionHoverTrigger(session: session, pullRequests: pullRequests, context: tab != nil || live != nil ? session.context : nil, isNoticeShown: store.lockedSessionID == id, store: store))
                     .padding(.leading, place == .task ? taskIndent : 0)
-                    if let suggestion, let suggestionLabel, style == .classic, !density.isCompact {
-                        SuggestionLine(text: suggestionLabel, accept: { store.accept(suggestion) }, dismiss: { store.dismiss(suggestion) })
-                            .padding(.leading, place == .task ? taskIndent : 0)
-                    }
                 }
             }
-            .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, isLocked: isLocked, indent: place == .task ? taskIndent : 0) {
+            .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, indent: place == .task ? taskIndent : 0) {
                 select(.session(id))
             })
-            .opacity(style == .classic && place == .snoozed ? 0.6 : 1)
             .help(place == .snoozed ? snoozeHelp : "")
             .contextMenu {
                 if store.multiSelection.contains(.session(id)) {
@@ -887,8 +834,9 @@ private struct SessionItem: View {
     }
 
     private func projectName(for session: SessionSummary) -> String? {
-        let showsProject = style == .slim ? (place == .triage || place == .pinned) : place != .archived && place != .group(folder: session.checkout)
-        return showsProject ? URL(filePath: session.checkout).lastPathComponent : nil
+        guard place == .triage || place == .pinned else { return nil }
+
+        return URL(filePath: session.checkout).lastPathComponent
     }
 
     private func suggestionText(_ suggestion: TaskSuggestion) -> String? {
@@ -1020,54 +968,20 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
     let title: String
     let help: String
     let count: Int?
-    var tint: Color?
-    var renaming: Binding<CustomGroup?>?
-    var commitRename: (CustomGroup) -> Void = { _ in }
-    var dragID: String?
-    var drop: ((String) -> Bool)?
-    var isExpanded: Binding<Bool>?
+    let isExpanded: Binding<Bool>?
     @ViewBuilder let menu: () -> Menu
     @ViewBuilder let accessory: (Bool) -> Accessory
     @State private var isHovering = false
     @State private var restingWidth = 0.0
-    @State private var name = ""
-    @FocusState private var isNameFocused: Bool
-    @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.sidebarDensity) private var density
     @Environment(\.headerInset) private var inset
-    @Environment(\.sidebarStyle) private var style
 
     var body: some View {
-        if style == .slim, let isExpanded {
-            draggableLabel {
-                SlimGroupHeader(title: title, help: help, count: count, tint: tint, isExpanded: isExpanded, accessory: accessory, rename: renaming.map(renameField))
-                    .contextMenu(menuItems: menu)
-            }
-            .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 0, drop: drop))
-            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 2, trailing: 8))
-            .listRowSeparator(.hidden)
-        } else {
-            classic
-        }
-    }
-
-    @ViewBuilder
-    private func draggableLabel(@ViewBuilder _ label: () -> some View) -> some View {
-        if let dragID, renaming == nil {
-            label().draggable(GroupDrag(id: dragID))
-        } else {
-            label()
-        }
-    }
-
-    private var classic: some View {
-        draggableLabel { label }
+        label
             .font(.subheadline)
-            .padding(.top, density.headerTopPadding)
+            .padding(.top, 4)
             .padding(.leading, inset ?? -6)
             .padding(.trailing, inset ?? 6)
-            .modifier(GroupDropTarget<GroupDrag>(indicatorOffset: 0, drop: drop))
-            .listRowInsets(EdgeInsets(top: 0, leading: inset == nil ? 8 : 0, bottom: density.headerBottomInset, trailing: inset == nil ? 8 : 0))
+            .listRowInsets(EdgeInsets(top: 0, leading: inset == nil ? 8 : 0, bottom: 4, trailing: inset == nil ? 8 : 0))
             .listRowSeparator(inset == nil ? .automatic : .hidden)
             .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
                 if !isHovering || restingWidth == 0 { restingWidth = width }
@@ -1087,19 +1001,15 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
 
     private var row: some View {
         HStack(spacing: 4) {
-            if let renaming {
-                renameField(renaming)
-            } else {
-                Text(title)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(tint ?? Color.secondary)
-                    .lineLimit(1)
-                    .help(help)
-                if let count {
-                    Text(count, format: .number)
-                        .monospacedDigit()
-                        .foregroundStyle((tint ?? Color.secondary).opacity(0.6))
-                }
+            Text(title)
+                .fontWeight(.semibold)
+                .foregroundStyle(Color.secondary)
+                .lineLimit(1)
+                .help(help)
+            if let count {
+                Text(count, format: .number)
+                    .monospacedDigit()
+                    .foregroundStyle(Color.secondary.opacity(0.6))
             }
             Spacer(minLength: 4)
             accessory(isHovering)
@@ -1113,32 +1023,42 @@ struct GroupHeader<Menu: View, Accessory: View>: View {
         }
         .frame(width: isExpanded == nil && restingWidth > 0 ? restingWidth - 25 : nil, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: density.headerHeight)
+        .frame(height: 24)
         .contentShape([.interaction, .dragPreview], .rect(cornerRadius: 8))
         .contextMenu(menuItems: menu)
     }
+}
 
-    private func renameField(_ renaming: Binding<CustomGroup?>) -> some View {
+private struct GroupRenameField: View {
+    let group: CustomGroup
+    @Binding var renaming: CustomGroup?
+    @Environment(Store.self) private var store
+    @State private var name = ""
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
         TextField("Group Name", text: $name)
             .textFieldStyle(.plain)
             .fontWeight(.semibold)
-            .focused($isNameFocused)
+            .focused($isFocused)
             .onAppear {
-                name = title
-                isNameFocused = true
+                name = group.name
+                isFocused = true
             }
-            .onSubmit { commit(renaming) }
-            .onExitCommand { renaming.wrappedValue = nil }
-            .onChange(of: isNameFocused) { if !isNameFocused { commit(renaming) } }
+            .onSubmit(commit)
+            .onExitCommand { renaming = nil }
+            .onChange(of: isFocused) { if !isFocused { commit() } }
     }
 
-    private func commit(_ renaming: Binding<CustomGroup?>) {
+    private func commit() {
+        guard var group = renaming, group.id == self.group.id else { return }
+
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        if var group = renaming.wrappedValue, !trimmed.isEmpty {
+        if !trimmed.isEmpty {
             group.name = trimmed
-            commitRename(group)
+            store.save(group)
         }
-        renaming.wrappedValue = nil
+        renaming = nil
     }
 }
 
@@ -1160,7 +1080,7 @@ private struct PinDrag: Codable, Transferable, Identifiable {
 
 private struct GroupDropTarget<Drag: Transferable & Identifiable<String>>: ViewModifier {
     let indicatorOffset: Double
-    let drop: ((String) -> Bool)?
+    let drop: (String) -> Bool
     @State private var isTargeted = false
 
     func body(content: Content) -> some View {
@@ -1180,36 +1100,29 @@ private struct GroupDropTarget<Drag: Transferable & Identifiable<String>>: ViewM
                 }
             }
             .dropDestination(for: Drag.self) { drags, _ in
-                drags.first.flatMap { drop?($0.id) } ?? false
+                drags.first.map { drop($0.id) } ?? false
             } isTargeted: { targeted in
-                isTargeted = drop != nil && targeted
+                isTargeted = targeted
             }
     }
 }
 
 private struct HeaderButtonStyle: ButtonStyle {
-    let isHeaderHovered: Bool
-    let theme: GhosttyTheme
-
     func makeBody(configuration: Configuration) -> some View {
-        HeaderButton(configuration: configuration, isHeaderHovered: isHeaderHovered, theme: theme)
+        HeaderButton(configuration: configuration)
     }
 
     private struct HeaderButton: View {
         let configuration: ButtonStyleConfiguration
-        let isHeaderHovered: Bool
-        let theme: GhosttyTheme
         @State private var isHovering = false
-        @Environment(\.sidebarStyle) private var style
 
         var body: some View {
-            let size: CGFloat = style == .slim ? 20 : 24
             configuration.label
                 .font(.body.weight(.medium))
-                .foregroundStyle(Color.secondary.opacity(isHeaderHovered ? 1 : 0.6))
-                .frame(width: size, height: size)
-                .background(Color.primary.opacity(configuration.isPressed ? 0.12 : isHovering ? 0.06 : 0), in: style == .slim ? AnyShape(.rect(cornerRadius: 6)) : AnyShape(.circle))
-                .contentShape(style == .slim ? AnyShape(.rect) : AnyShape(.circle))
+                .foregroundStyle(Color.secondary)
+                .frame(width: 20, height: 20)
+                .background(Color.primary.opacity(configuration.isPressed ? 0.12 : isHovering ? 0.06 : 0), in: .rect(cornerRadius: 6))
+                .contentShape(.rect)
                 .onHover { isHovering = $0 }
         }
     }
@@ -1218,14 +1131,11 @@ private struct HeaderButtonStyle: ButtonStyle {
 private struct RowChrome: ViewModifier {
     let item: SidebarItem
     let hoverID: String
-    let isLocked: Bool
     var indent = 0.0
     var close: (() -> Void)?
     let select: () -> Void
     @State private var isHovering = false
     @Environment(Store.self) private var store
-    @Environment(\.sidebarStyle) private var style
-    private static let listMargin = 16.0
 
     private var isSelected: Bool {
         if !store.multiSelection.isEmpty { return store.multiSelection.contains(item) }
@@ -1237,18 +1147,17 @@ private struct RowChrome: ViewModifier {
     func body(content: Content) -> some View {
         let isSelected = isSelected
         let isHighlighted = isHovering || Snapshot.forcedHover.contains(hoverID)
-        let isSlim = style == .slim
-        let fill = isSelected ? (isSlim ? 0.18 : 0.1) : isHighlighted && (isSlim || !isLocked) ? (isSlim ? 0.06 : 0.05) : 0
+        let fill = isSelected ? 0.18 : isHighlighted ? 0.06 : 0
         content
-            .environment(\.showsSlimRowActions, isSlim && isHighlighted)
-            .padding(.horizontal, Self.listMargin)
+            .environment(\.showsRowActions, isHighlighted)
+            .padding(.horizontal, SidebarRowLayout.horizontalInset)
             .contentShape(.rect)
             .onTapGesture(perform: select)
             .onHover { isHovering = $0 }
             // swiftlint:disable:next negative_padding - widens the row's hit area back to the list edges, the close button is an overlay added after
-            .padding(.horizontal, -Self.listMargin)
+            .padding(.horizontal, -SidebarRowLayout.horizontalInset)
             .overlay(alignment: .trailing) {
-                if let close, !isSlim || isHighlighted || isSelected {
+                if let close, isHighlighted || isSelected {
                     Button("Close Terminal", systemImage: "xmark", action: close)
                         .labelStyle(.iconOnly)
                         .buttonStyle(.borderless)
@@ -1261,30 +1170,31 @@ private struct RowChrome: ViewModifier {
             }
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction(.default, select)
-            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: isSlim ? 0 : 8))
-            .listRowBackground(RowFill(opacity: fill, indent: indent, style: style, color: isSlim && isSelected ? .accentColor : .primary))
-            .listRowSeparator(isSlim ? .hidden : .automatic)
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 0))
+            .listRowBackground(RowFill(opacity: fill, indent: indent, color: isSelected ? .accentColor : .primary, cornerRadius: 6, verticalInset: 1))
+            .listRowSeparator(.hidden)
     }
 }
 
 struct RowFill: View {
     let opacity: Double
     var indent = 0.0
-    var style = SidebarStyle.classic
     var color = Color.primary
+    var cornerRadius = 10.0
+    var verticalInset = 2.0
 
     var body: some View {
-        RoundedRectangle(cornerRadius: style == .slim ? 6 : 10, style: .continuous)
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(color.opacity(opacity))
             .padding(.leading, 8 + indent)
             .padding(.trailing, 8)
-            .padding(.vertical, style == .slim ? 1 : 2)
+            .padding(.vertical, verticalInset)
             .background(alignment: .leading) {
                 if indent > 0 {
                     Rectangle()
                         .fill(Color.primary.opacity(0.12))
                         .frame(width: 1)
-                        .padding(.leading, style == .slim ? 14.5 : 19.5)
+                        .padding(.leading, 14.5)
                 }
             }
     }
@@ -1319,158 +1229,6 @@ private struct SidebarStopWatchingButton: View {
     }
 }
 
-private struct SidebarWatchLabel: View {
-    let watch: PullRequestWatch
-
-    var body: some View {
-        Label(watch.title, systemImage: "eye")
-            .labelStyle(CompactLabel())
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .fixedSize()
-    }
-}
-
-private struct SessionRow: View {
-    let session: SessionSummary
-    let projectName: String?
-    let live: LiveSession?
-    let watch: PullRequestWatch?
-    let isOpen: Bool
-    let isLocked: Bool
-    let hasBackgroundShell: Bool
-    let isUnread: Bool
-    let isFlagged: Bool
-    let context: SessionContext?
-    let pullRequest: PullRequest?
-    let morePullRequests: Int
-    let suggestion: String?
-    let issue: IssueRef?
-    let isArchived: Bool
-    let isSnoozed: Bool
-    @Binding var showsLockedNotice: Bool
-    @Environment(Store.self) private var store
-    @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.sidebarDensity) private var density
-    @Environment(\.sidebarStyle) private var style
-
-    var body: some View {
-        Group {
-            if style == .slim {
-                SlimSessionRow(
-                    session: session,
-                    projectName: projectName,
-                    status: StatusSlot(state: RowState(live: live), isUnread: isUnread, isOpen: isOpen, hasBackgroundShell: hasBackgroundShell),
-                    isLocked: isLocked,
-                    isFlagged: isFlagged,
-                    context: context,
-                    pullRequest: pullRequest,
-                    morePullRequests: morePullRequests,
-                    suggestion: suggestion,
-                    issue: issue,
-                    isArchived: isArchived,
-                    isSnoozed: isSnoozed,
-                    watch: RowState(live: live) == nil ? watch : nil
-                )
-            } else {
-                classic
-                    .help(isLocked ? "Running in another terminal" : "")
-                    .accessibilityElement(children: .combine)
-                    .accessibilityValue([session.agent.harness.isOptIn ? session.agent.harness.name : nil, isLocked ? "locked, running in another terminal" : nil].compactMap(\.self).joined(separator: ", "))
-            }
-        }
-        .popover(isPresented: $showsLockedNotice, arrowEdge: .trailing) {
-            Text("“\(session.title)” is running in another terminal. Quit it there to open it here, so the transcript isn’t written by two processes.")
-                .font(.callout)
-                .frame(width: 280)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(16)
-        }
-    }
-
-    @ViewBuilder private var classic: some View {
-        let activity = RowState(live: live)
-        let visibleWatch = activity == nil ? watch : nil
-        CardRow(
-            title: session.title,
-            state: activity,
-            isLocked: isLocked,
-            modified: session.lastPrompt,
-            isOpen: isOpen,
-            hasBackgroundShell: hasBackgroundShell,
-            isUnread: isUnread,
-            isFlagged: isFlagged,
-            context: context,
-            issue: issue,
-            detail: {
-                if density.isCompact {
-                    HStack(spacing: 6) {
-                        if let suggestion {
-                            Image(systemName: "sparkle")
-                                .font(.caption)
-                                .foregroundStyle(Color.secondary)
-                                .help(suggestion)
-                                .accessibilityLabel(suggestion)
-                        }
-                        if let visibleWatch {
-                            SidebarWatchLabel(watch: visibleWatch)
-                        } else if let pullRequest {
-                            PullRequestTag(pullRequest: pullRequest, more: morePullRequests)
-                                .fixedSize()
-                                .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .sidebar, store: store))
-                        }
-                    }
-                } else if pullRequest != nil || session.branch != nil || projectName != nil || visibleWatch != nil {
-                    let branch = session.branch
-                    HStack(spacing: 8) {
-                        HStack(spacing: 4) {
-                            if let projectName {
-                                HStack(spacing: 4) {
-                                    ViewThatFits(in: .horizontal) {
-                                        Text(projectName)
-                                        ZStack(alignment: .leading) {
-                                            Text(verbatim: projectName.count > 4 ? "\(projectName.prefix(4))…" : projectName)
-                                                .fixedSize()
-                                                .hidden()
-                                            Text(projectName)
-                                                .truncationMode(.tail)
-                                        }
-                                    }
-                                    .foregroundStyle(Color.secondary)
-                                    if branch != nil {
-                                        Text(verbatim: "·")
-                                            .foregroundStyle(Color.secondary.opacity(0.6))
-                                            .fixedSize()
-                                            .offset(y: -1)
-                                    }
-                                }
-                                .font(.caption)
-                                .layoutPriority(1)
-                            }
-                            if let branch {
-                                BranchText(branch: branch)
-                                    .frame(minWidth: 48, alignment: .leading)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        if let visibleWatch {
-                            SidebarWatchLabel(watch: visibleWatch)
-                        } else if let pullRequest {
-                            PullRequestTag(pullRequest: pullRequest, more: morePullRequests)
-                                .fixedSize()
-                                .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .sidebar, store: store))
-                        }
-                    }
-                } else {
-                    Text(verbatim: "–")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(Color.secondary)
-                }
-            }
-        )
-    }
-}
-
 private struct TaskItem: View {
     let id: String
     @Binding var isExpanded: Bool
@@ -1493,7 +1251,7 @@ private struct TaskItem: View {
                 )
             }
         }
-        .modifier(RowChrome(item: .task(id), hoverID: task?.title ?? id, isLocked: false) {
+        .modifier(RowChrome(item: .task(id), hoverID: task?.title ?? id) {
             isExpanded.toggle()
             if NSApp.currentEvent?.clickCount == 2 { store.activate(.task(id)) }
         })
@@ -1513,85 +1271,6 @@ private struct TaskItem: View {
     private func states(of task: SessionTask) -> RowState? {
         let states = task.sessions.compactMap { RowState(live: store.liveBySession[$0.id]) }
         return states.contains(.working) ? .working : states.first
-    }
-}
-
-private struct TaskRow: View {
-    let task: SessionTask
-    let isExpanded: Bool
-    let state: RowState?
-    let isUnread: Bool
-    @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.sidebarDensity) private var density
-    @Environment(\.sidebarStyle) private var style
-
-    var body: some View {
-        Group {
-            if style == .slim {
-                SlimTaskRow(task: task, isExpanded: isExpanded, state: state, isUnread: isUnread)
-            } else {
-                classic.help(task.title)
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityValue(isExpanded ? "expanded" : "collapsed")
-    }
-
-    private var classic: some View {
-        CardRow(
-            title: task.title,
-            state: isExpanded ? nil : state,
-            isLocked: false,
-            modified: task.sessions[0].lastPrompt,
-            isUnread: !isExpanded && isUnread,
-            chevron: isExpanded ? "chevron.down" : "chevron.right",
-            issue: task.issue
-        ) {
-            if density.isCompact {
-                Text(task.sessions.count, format: .number)
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(Color.secondary)
-                    .fixedSize()
-                    .help("^[\(task.sessions.count) session](inflect: true)")
-            } else {
-                Text("^[\(task.sessions.count) session](inflect: true)")
-                    .font(.caption)
-                    .foregroundStyle(Color.secondary)
-            }
-        }
-    }
-}
-
-struct IssueTag: View {
-    let issue: IssueRef
-    @Environment(Store.self) private var store
-    @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.openURL) private var openURL
-    @State private var isHovering = false
-
-    var body: some View {
-        let state = store.state(of: issue)
-        let color = state.color(in: theme)
-        Button {
-            if let url = issue.url { openURL(url) }
-        } label: {
-            Label {
-                Text(verbatim: "#\(issue.number)")
-            } icon: {
-                OcticonImage(Octicon(state))
-            }
-            .labelStyle(CompactLabel())
-            .font(.caption.monospaced())
-            .foregroundStyle(color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(isHovering ? 0.28 : 0.16), in: .capsule)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .pointerStyle(.link)
-        .help("Open issue \(issue.repository)#\(String(issue.number))")
     }
 }
 
@@ -1645,187 +1324,9 @@ extension IssueState? {
     }
 }
 
-private struct SuggestionLine: View {
-    let text: String
-    let accept: () -> Void
-    let dismiss: () -> Void
-    @State private var isHovering = false
-    @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.sidebarDensity) private var density
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-            Group {
-                Button("Accept", systemImage: "checkmark", action: accept)
-                    .help("Accept")
-                Button("Not Related", systemImage: "xmark", action: dismiss)
-                    .help("Not related")
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.plain)
-            .opacity(isHovering || Snapshot.forcedHover.contains(text) ? 1 : 0)
-            .allowsHitTesting(isHovering)
-        }
-        .font(.caption)
-        .foregroundStyle(Color.secondary)
-        .padding(.leading, 8)
-        // swiftlint:disable:next negative_padding - tucks the suggestion under the row above
-        .padding(.top, -4)
-        .padding(.bottom, density.suggestionBottomPadding)
-        .onHover { isHovering = $0 }
-    }
-}
-
-private struct TabRow: View {
-    let tab: Tab
-    let live: LiveSession?
-    var watch: PullRequestWatch?
-    @ObservedObject var terminal: TerminalViewState
-    @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.sidebarDensity) private var density
-    @Environment(\.sidebarStyle) private var style
-
-    var body: some View {
-        let title = tab.title(terminalTitle: terminal.title, sessionTitle: nil)
-        if style == .slim {
-            SlimTabRow(title: title, state: RowState(live: live), isTerminal: tab.kind == .shell, watch: RowState(live: live) == nil ? watch : nil)
-                .accessibilityValue(tab.agent.harness.isOptIn ? tab.agent.harness.name : "")
-        } else if tab.kind == .claude {
-            let activity = RowState(live: live)
-            CardRow(title: title, state: activity, isLocked: false, modified: nil, isOpen: true) {
-                if let watch, activity == nil {
-                    SidebarWatchLabel(watch: watch)
-                } else if !density.isCompact {
-                    Text(verbatim: "–").font(.caption.monospaced()).foregroundStyle(Color.secondary)
-                }
-            }
-            .accessibilityValue(tab.agent.harness.isOptIn ? tab.agent.harness.name : "")
-        } else {
-            CardRow(title: title, state: title == terminal.title ? .working : nil, isLocked: false, modified: nil, isTerminal: true, hasClose: true) {
-                let folder = (tab.folder as NSString).abbreviatingWithTildeInPath
-                if density.isCompact {
-                    ViewThatFits(in: .horizontal) {
-                        Text(folder).font(.caption).foregroundStyle(Color.secondary).fixedSize()
-                        Color.clear.frame(width: 0)
-                    }
-                } else {
-                    Text(folder)
-                        .font(.caption)
-                        .foregroundStyle(Color.secondary)
-                        .truncationMode(.middle)
-                }
-            }
-        }
-    }
-}
-
-private struct CardRow<Detail: View>: View {
-    let title: String
-    let state: RowState?
-    let isLocked: Bool
-    let modified: Date?
-    var isOpen = false
-    var hasBackgroundShell = false
-    var isUnread = false
-    var isFlagged = false
-    var isTerminal = false
-    var context: SessionContext?
-    var chevron: String?
-    var issue: IssueRef?
-    var hasClose = false
-    @ViewBuilder let detail: Detail
-    @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.sidebarDensity) private var density
-
-    var body: some View {
-        let isWorking = chevron != nil && state == .working
-        let hasMemberDot = chevron != nil && (state != nil || isUnread)
-        let ringWindow = context.flatMap { context in context.window.flatMap { context.tokens * 5 >= $0 * 4 && context.tokens <= $0 ? $0 : nil } }
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .center, spacing: 8) {
-                if let issue { IssueTag(issue: issue).fixedSize() }
-                Text(title)
-                    .font(.body)
-                    .fontWeight(isUnread ? .semibold : .regular)
-                    .foregroundStyle(Color.primary)
-                    .lineLimit(1)
-                    .layoutPriority(density.isCompact ? 1 : 0)
-                Spacer(minLength: 0)
-                if density.isCompact {
-                    detail
-                        .lineLimit(1)
-                }
-                if hasClose {
-                    Color.clear.frame(width: 22, height: 16)
-                }
-                if isLocked {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(Color.secondary)
-                        .help("Running in another terminal")
-                        .accessibilityHidden(true)
-                }
-                if isFlagged {
-                    Image(systemName: "flag.fill")
-                        .font(.system(size: 9))
-                        .frame(width: 8)
-                        .foregroundStyle(theme.closed)
-                        .help("Flagged")
-                        .accessibilityLabel("Flagged")
-                        .padding(.trailing, hasMemberDot || ringWindow != nil ? 0 : 10)
-                }
-                if let modified {
-                    HStack(spacing: 8) {
-                        if let context, let ringWindow {
-                            ContextRing(context: context, window: ringWindow)
-                                .padding(.trailing, hasMemberDot ? 0 : 10)
-                        }
-                        ZStack(alignment: .trailing) {
-                            Text(verbatim: "00m").hidden()
-                            Text(age(since: modified))
-                        }
-                        .font(.caption)
-                        .monospacedDigit()
-                        .fixedSize()
-                        .foregroundStyle(Color.secondary)
-                        .padding(.leading, isWorking ? 20 : hasMemberDot ? 10 : 0)
-                        .overlay(alignment: .leading) {
-                            if hasMemberDot {
-                                MemberDot(state: state)
-                            }
-                        }
-                    }
-                }
-            }
-            .frame(height: density.isCompact ? 16 : nil)
-            if !density.isCompact {
-                ZStack(alignment: .leading) {
-                    Color.clear
-                    detail
-                }
-                .lineLimit(1)
-                .frame(height: 16)
-            }
-        }
-        .opacity(isLocked && state == nil ? 0.55 : 1)
-        .padding(.leading, 8)
-        // swiftlint:disable:next negative_padding - row content only, the close button is an overlay on RowChrome
-        .padding(.trailing, -10)
-        .padding(.vertical, density.rowPadding)
-        .overlay(alignment: .topLeading) {
-            StatusSlot(state: state, isUnread: isUnread, isOpen: isOpen, hasBackgroundShell: hasBackgroundShell, isTerminal: isTerminal, chevron: chevron).offset(x: -8, y: density.rowPadding)
-        }
-    }
-}
-
 struct MemberDot: View {
     let state: RowState?
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.sidebarStyle) private var style
 
     var body: some View {
         if state == .working {
@@ -1834,7 +1335,7 @@ struct MemberDot: View {
             Circle()
                 .fill(theme.needsYou)
                 .frame(width: 6, height: 6)
-                .help("Needs you\(reason.map { style == .slim ? " · \($0)" : ": \($0)" } ?? "")")
+                .help("Needs you\(reason.map { " · \($0)" } ?? "")")
                 .accessibilityLabel("Needs you")
         } else {
             Circle()
@@ -1847,6 +1348,8 @@ struct MemberDot: View {
 }
 
 struct StatusSlot: View {
+    static let width = 14.0
+
     let state: RowState?
     let isUnread: Bool
     var isOpen = false
@@ -1854,7 +1357,6 @@ struct StatusSlot: View {
     var isTerminal = false
     var chevron: String?
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.sidebarStyle) private var style
 
     var body: some View {
         ZStack {
@@ -1863,18 +1365,21 @@ struct StatusSlot: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(Color.secondary)
                     .accessibilityHidden(true)
-            } else if style == .slim, isTerminal {
-                terminalGlyph
+            } else if isTerminal {
+                Image(systemName: "apple.terminal")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.secondary)
+                    .accessibilityHidden(true)
             } else if case let .needsYou(reason) = state {
                 Circle()
                     .fill(theme.needsYou)
-                    .frame(width: style == .slim ? 6 : 8, height: style == .slim ? 6 : 8)
-                    .help("Needs you\(reason.map { style == .slim ? " · \($0)" : ": \($0)" } ?? "")")
+                    .frame(width: 6, height: 6)
+                    .help("Needs you\(reason.map { " · \($0)" } ?? "")")
                     .accessibilityLabel("Needs you")
             } else if state == .working {
                 WorkingDots(label: "Working")
-                    .scaleEffect(style == .slim ? 0.875 : 1)
-            } else if hasBackgroundShell, style == .classic || !isUnread {
+                    .scaleEffect(0.875)
+            } else if hasBackgroundShell, !isUnread {
                 Circle()
                     .fill(theme.shellAttached)
                     .frame(width: 6, height: 6)
@@ -1883,27 +1388,18 @@ struct StatusSlot: View {
             } else if isUnread {
                 Circle()
                     .fill(theme.unread)
-                    .frame(width: style == .slim ? 6 : 8, height: style == .slim ? 6 : 8)
+                    .frame(width: 6, height: 6)
                     .help("Unread")
                     .accessibilityLabel("Unread")
             } else if isOpen {
                 Circle()
-                    .strokeBorder(Color.secondary.opacity(style == .slim ? 0.5 : 1), lineWidth: 1)
-                    .frame(width: style == .slim ? 5 : 6, height: style == .slim ? 5 : 6)
+                    .strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1)
+                    .frame(width: 5, height: 5)
                     .help("Open in a tab")
                     .accessibilityLabel("Open in a tab")
-            } else if isTerminal {
-                terminalGlyph
             }
         }
-        .frame(width: style == .slim ? 14 : 8, height: 16)
-    }
-
-    private var terminalGlyph: some View {
-        Image(systemName: "apple.terminal")
-            .font(.system(size: style == .slim ? 11 : 9))
-            .foregroundStyle(Color.secondary)
-            .accessibilityHidden(true)
+        .frame(width: Self.width, height: 16)
     }
 }
 
@@ -2001,43 +1497,6 @@ extension PullRequestState {
         if self == .merged { return theme.merged }
         if self == .closed { return theme.closed }
         return Color.secondary
-    }
-}
-
-private struct BranchText: View {
-    let branch: String
-    @Environment(\.ghosttyTheme) private var theme
-    @State private var isHovering = false
-    @State private var isCopied = false
-
-    var body: some View {
-        let isHighlighted = isHovering || Snapshot.forcedHover.contains(branch)
-        Button {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(branch, forType: .string)
-            isCopied = true
-        } label: {
-            Label(branch, systemImage: isCopied ? "checkmark" : "arrow.triangle.branch")
-                .labelStyle(CompactLabel())
-                .font(.caption.monospaced())
-                .foregroundStyle(theme.branch.opacity(0.8))
-                .truncationMode(.middle)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 2)
-                .background(Color.primary.opacity(isHighlighted ? 0.1 : 0), in: .rect(cornerRadius: 4))
-                // swiftlint:disable:next negative_padding - bleeds the highlight past the label, no controls inside
-                .padding(.horizontal, -4)
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .pointerStyle(.link)
-        .help("Copy branch name")
-        .task(id: isCopied) {
-            guard isCopied else { return }
-
-            try? await Task.sleep(for: .seconds(1))
-            isCopied = false
-        }
     }
 }
 
