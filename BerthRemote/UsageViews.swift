@@ -49,9 +49,14 @@ struct UsageCard: View {
                             .accessibilityLabel("\(group.name) \(window.title)")
                             .accessibilityValue(group.spoken(window, at: timeline.date))
                         }
+                        if let staleSince = group.staleSince {
+                            Text("Updated \(staleSince.formatted(.relative(presentation: .numeric, unitsStyle: .wide)))")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                 }
-                .opacity(group.staleSince == nil ? 1 : 0.5)
             }
             .buttonStyle(.plain)
             .accessibilityHint("Shows plan usage")

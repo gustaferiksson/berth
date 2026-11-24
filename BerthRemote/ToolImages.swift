@@ -1,16 +1,22 @@
 import SwiftUI
 import UIKit
 
+struct ViewerImage: Identifiable, Hashable {
+    let id: String
+    var data: Data?
+    var ref: RemoteImageRef?
+}
+
 struct ToolImageRow: View {
     let refs: [RemoteImageRef]
 
-    @State private var selection: RemoteImageRef?
+    @State private var selection: ViewerImage?
 
     var body: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(refs.enumerated(), id: \.element.id) { index, ref in
-                    Button { selection = ref } label: {
+                    Button { selection = ViewerImage(id: ref.id, ref: ref) } label: {
                         ImageThumbnail(ref: ref)
                     }
                     .buttonStyle(.plain)
@@ -20,7 +26,7 @@ struct ToolImageRow: View {
             }
         }
         .scrollIndicators(.hidden)
-        .fullScreenCover(item: $selection) { ImageViewer(refs: refs, start: $0) }
+        .fullScreenCover(item: $selection) { ImageViewer(images: refs.map { ViewerImage(id: $0.id, ref: $0) }, start: $0) }
     }
 }
 
@@ -54,34 +60,44 @@ private struct ImageThumbnail: View {
     }
 }
 
-private struct ImageViewer: View {
-    let refs: [RemoteImageRef]
+struct ImageViewer: View {
+    let images: [ViewerImage]
 
     @Environment(RemoteClient.self) private var client
     @Environment(\.dismiss) private var dismiss
-    @State private var current: RemoteImageRef
+    @State private var current: ViewerImage
+    @State private var isZoomed = false
 
-    init(refs: [RemoteImageRef], start: RemoteImageRef) {
-        self.refs = refs
+    init(images: [ViewerImage], start: ViewerImage) {
+        self.images = images
         _current = State(initialValue: start)
     }
 
     var body: some View {
         let full = image(for: current, variant: .full)
+        let dismissDrag = DragGesture().onEnded { drag in
+            guard !isZoomed, drag.translation.height > 120, drag.translation.height > 2 * abs(drag.translation.width) else { return }
+
+            dismiss()
+        }
 
         NavigationStack {
             TabView(selection: $current) {
-                ForEach(refs) { ref in
-                    ZoomableImage(image: image(for: ref, variant: .full) ?? image(for: ref, variant: .thumbnail))
-                        .overlay { if image(for: ref, variant: .full) == nil { ProgressView() } }
-                        .tag(ref)
-                        .task { client.loadImage(ref.id, variant: .full) }
+                ForEach(images) { item in
+                    let isLoadingFull = item.ref != nil && image(for: item, variant: .full) == nil
+
+                    ZoomableImage(image: image(for: item, variant: .full) ?? image(for: item, variant: .thumbnail), isZoomed: $isZoomed)
+                        .overlay { if isLoadingFull { ProgressView() } }
+                        .tag(item)
+                        .task { if let ref = item.ref { client.loadImage(ref.id, variant: .full) } }
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: refs.count > 1 ? .automatic : .never))
+            .tabViewStyle(.page(indexDisplayMode: images.count > 1 ? .automatic : .never))
             .background(Color(.systemBackground))
             .ignoresSafeArea()
+            .simultaneousGesture(dismissDrag)
             .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(.dark)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close", systemImage: "xmark") { dismiss() }
@@ -100,7 +116,8 @@ private struct ImageViewer: View {
         }
     }
 
-    private func image(for ref: RemoteImageRef, variant: RemoteImageVariant) -> UIImage? {
+    private func image(for item: ViewerImage, variant: RemoteImageVariant) -> UIImage? {
+        guard let ref = item.ref else { return variant == .full ? item.data.flatMap(UIImage.init(data:)) : nil }
         guard case let .loaded(data)? = client.images[.init(id: ref.id, variant: variant)] else { return nil }
 
         return UIImage(data: data)
@@ -109,8 +126,9 @@ private struct ImageViewer: View {
 
 private struct ZoomableImage: UIViewRepresentable {
     let image: UIImage?
+    @Binding var isZoomed: Bool
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeCoordinator() -> Coordinator { Coordinator(isZoomed: $isZoomed) }
 
     func makeUIView(context: Context) -> FittingScrollView {
         let scrollView = FittingScrollView()
@@ -148,6 +166,12 @@ private struct ZoomableImage: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UIScrollViewDelegate {
+        let isZoomed: Binding<Bool>
+
+        init(isZoomed: Binding<Bool>) { self.isZoomed = isZoomed }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) { isZoomed.wrappedValue = scrollView.zoomScale > 1 }
+
         func viewForZooming(in scrollView: UIScrollView) -> UIView? { (scrollView as? FittingScrollView)?.imageView }
 
         @objc func toggleZoom(_ gesture: UITapGestureRecognizer) {
