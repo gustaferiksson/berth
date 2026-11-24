@@ -102,7 +102,7 @@ final class ReviewModel {
     @ObservationIgnored private var commitSelection = 0
     @ObservationIgnored private var rangeFiles: [ReviewDocument: ReviewFile] = [:]
     @ObservationIgnored private(set) var loadCount = 0
-    @ObservationIgnored private var loadedTexts: [String: String] = [:]
+    var buffers: [String: ReviewEditBuffer] = [:]
     @ObservationIgnored private var blameCache: [ReviewBlameKey: Task<ReviewBlameSnapshot?, Never>] = [:]
     @ObservationIgnored private var pullRequestDetailsLoadedAt: [Int: (repository: String, date: Date)] = [:]
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
@@ -512,7 +512,7 @@ final class ReviewModel {
             contents[document] = loaded
             guard !isReadOnly(document) else { return }
 
-            if drafts[document.path] == nil { loadedTexts[document.path] = if case let .text(text)? = loaded.modified { text } else { nil } }
+            syncBuffer(of: document.path, with: loaded.modified)
             editors[document.path] = editors[document.path] ?? ReviewTextView(usingTextLayoutManager: true)
             setWorkingTreeText(loaded.modified, of: document.path)
         } catch {
@@ -553,10 +553,7 @@ final class ReviewModel {
             notice = "\(path) is read only here"
             return
         }
-        guard let expected = loadedTexts[path], (try? ReviewGit.workingTreeText(path, in: changes.root)) == .text(expected) else {
-            notice = "\(path) changed on disk; reload before saving"
-            return
-        }
+        guard isSafeToSave(text, to: path, in: changes.root) else { return }
 
         do {
             try ReviewGit.save(text, to: path, in: changes.root)
@@ -564,7 +561,7 @@ final class ReviewModel {
             notice = "Couldn’t save \(path): \(Self.describe(error))"
             return
         }
-        loadedTexts[path] = text
+        buffers[path] = ReviewEditBuffer(base: text)
         drafts[path] = nil
         if selectedDocument == ReviewDocument(path: path, compare: .committed) { savedFromCommitted.insert(path) }
         setWorkingTreeText(.text(text), of: path)
@@ -2237,6 +2234,7 @@ struct ReviewDiffColumn: View {
                     Divider()
                     ReviewPathBar(model: model, document: document, style: style)
                     Divider()
+                    if !isReadOnly, model.hasDiskConflict(path) { ReviewDiskChangeBar(model: model, path: path) }
                     if let contents = model.contents[document], isReadOnly || model.editors[path] != nil {
                         ReviewDiffPane(
                             path: path,
