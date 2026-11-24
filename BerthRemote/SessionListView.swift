@@ -46,8 +46,12 @@ struct SessionListView: View {
                             VStack(spacing: 8) {
                                 ForEach(usageGroups) { group in
                                     UsageCard(group: group) { isShowingUsage = true }
+                                        .padding(10)
+                                        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 14))
                                 }
                             }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets())
                         }
                     }
                 }
