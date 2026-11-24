@@ -19,6 +19,7 @@ struct ReviewMarkdownView: View {
 
     @Environment(\.openURL) private var openURL
     @State private var nodes: [MarkdownNode] = []
+    @State private var frontmatter: MarkdownFrontmatter?
 
     var body: some View {
         let root = context.root.resolvingSymlinksInPath()
@@ -26,6 +27,7 @@ struct ReviewMarkdownView: View {
         let markdown = MarkdownRenderStyle(style: style, source: .document(directory: directory, root: root))
         ScrollView {
             VStack(alignment: .leading, spacing: markdown.size) {
+                if let frontmatter { MarkdownFrontmatterView(content: frontmatter.content, markdown: markdown) }
                 ForEach(nodes.enumerated(), id: \.offset) { _, node in
                     MarkdownNodeView(node: node, markdown: markdown)
                 }
@@ -36,7 +38,14 @@ struct ReviewMarkdownView: View {
             .padding(.horizontal, 32)
             .padding(.vertical, 28)
         }
-        .task(id: text) { nodes = await Task.detached { MarkdownDocument.nodes(in: text) }.value }
+        .task(id: text) {
+            let parsed = await Task.detached {
+                let frontmatter = MarkdownFrontmatter.split(text)
+                return (frontmatter, MarkdownDocument.nodes(in: frontmatter?.body ?? text))
+            }.value
+            frontmatter = parsed.0
+            nodes = parsed.1
+        }
         .environment(\.openURL, OpenURLAction { url in
             guard url.scheme == nil else {
                 if ["http", "https", "mailto"].contains(url.scheme?.lowercased()) { openURL(url) }
@@ -207,6 +216,43 @@ struct MarkdownTable: View {
         .font(.system(size: markdown.size - 1))
         .foregroundStyle(markdown.foreground)
         .padding(12)
+    }
+}
+
+struct MarkdownFrontmatterView: View {
+    let content: MarkdownFrontmatter.Content
+    let markdown: MarkdownRenderStyle
+
+    var body: some View {
+        switch content {
+        case let .entries(entries) where entries.isEmpty:
+            EmptyView()
+
+        case let .entries(entries):
+            Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 4) {
+                ForEach(entries.enumerated(), id: \.offset) { _, entry in
+                    GridRow {
+                        Text(entry.key)
+                            .foregroundStyle(markdown.secondary)
+                        Text(entry.value)
+                            .font(entry.isNested ? Font(markdown.style.font) : nil)
+                            .foregroundStyle(markdown.foreground)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            .font(.system(size: markdown.size - 1))
+            .padding(12)
+            .background(markdown.foreground.opacity(0.05), in: .rect(cornerRadius: 10))
+
+        case let .raw(text):
+            Text(text)
+                .font(Font(markdown.style.font))
+                .foregroundStyle(markdown.foreground)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(markdown.foreground.opacity(0.05), in: .rect(cornerRadius: 10))
+        }
     }
 }
 
