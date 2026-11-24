@@ -23,12 +23,11 @@ struct SessionToolbar: ToolbarContent {
 
 struct ChangesToolbar: ToolbarContent {
     let store: Store
-    let isReviewEnabled: Bool
 
     var body: some ToolbarContent {
-        if isReviewEnabled, store.showsSessionToolbar {
+        if store.showsSessionToolbar {
             ToolbarSpacer(.flexible, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) { ChangesToggle(store: store) }
+            ToolbarItem(placement: .primaryAction) { ModeSwitcher(store: store) }
         }
     }
 }
@@ -44,20 +43,6 @@ private struct ConversationButton: View {
         }
         .accessibilityLabel(action.title)
         .help("\(action.title) (⌥⌘J)")
-    }
-}
-
-private struct ChangesToggle: View {
-    let store: Store
-
-    var body: some View {
-        let isShown = AppAction.hideChanges.isAvailable(in: store)
-        let action = isShown ? AppAction.hideChanges : .showChanges
-        Button { action.perform(on: store) } label: {
-            Image(systemName: action.symbol)
-        }
-        .accessibilityLabel(action.title)
-        .help("\(action.title) (⇧⌘R)")
     }
 }
 

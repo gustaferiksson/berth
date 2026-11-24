@@ -74,7 +74,7 @@ A PR diff tab uses `ReviewDocument.pullRequestLink` and the existing read-only c
 
 ## Closing tabs and find
 
-While the panel is shown, ⌘W from any focus in the main window (terminal included) closes the current diff tab and otherwise does nothing; it never closes a session or the window (Ghostty's `super+w` would run `close_surface` and close the tab, File ▸ Close would close the window and quit). With the panel hidden, it closes the current tab only while one is open and no terminal surface is focused (`Store.closeDiff(tab:)`, also each tab's ×; closing the last one leaves No File Open and focuses the terminal).
+While the panel is shown, ⌘W from any focus in the main window (terminal included, except an owned shell in the Terminal pane, where Ghostty closes that shell) closes the current diff tab and otherwise does nothing; it never closes a session or the window (Ghostty's `super+w` would run `close_surface` and close the tab, File ▸ Close would close the window and quit). With the panel hidden, it closes the current tab only while one is open and no terminal surface is focused (`Store.closeDiff(tab:)`, also each tab's ×; closing the last one leaves No File Open and focuses the terminal).
 
 Closing the current tab while others remain focuses the next tab's right side (`ReviewModel.focusesEditor` → the pane's `takesFocus` → `ReviewTextView.focusesInWindow`, applied once the view is in the window: a focus call on the next run-loop pass missed 1 in 5 runs); ⌘F anywhere in the diff column opens the focused side's find bar (the key monitor takes both). With a single-line selection, ⌘F first runs `NSTextFinder`'s `setSearchString` (like ⌘E), so the find field starts with the selection; an empty or multi-line selection keeps the last search.
 

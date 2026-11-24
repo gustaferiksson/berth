@@ -32,12 +32,12 @@ struct ContentView: View {
         let reviewRoots = showsPanel ? store.sessionReviewModels.compactMap { $0.changes?.root } : []
         let folderWithoutRepository: String? = if showsPanel, let model = store.primaryReviewModel, case ReviewGitError.notARepository? = model.error { model.folder } else { nil }
         let reviewRequests = store.inbox?.count { $0.role == .reviewRequested } ?? 0
-        NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanel ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
+        NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsColumn ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
-                ReviewPanel()
+                SessionPanel()
                     .glassSidebarTint(store.theme)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
-                    .toolbar { ChangesToolbar(store: store, isReviewEnabled: isReviewEnabled) }
+                    .toolbar { ChangesToolbar(store: store) }
                     .navigationSplitViewColumnWidth(min: 220, ideal: 272, max: 440)
             } else {
                 Sidebar()
@@ -45,8 +45,8 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
-            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel, isTerminalBelow: isTerminalBelow)
-                .background { SplitWidthSettled(isActive: showsPanel, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
+            PanedSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsColumn, isTerminalBelow: isTerminalBelow)
+                .background { SplitWidthSettled(isActive: showsColumn, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
                 .padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
                 .overlay {
                     if let mode = store.launcherMode {
@@ -125,7 +125,7 @@ struct ContentView: View {
                     }
                 }
         }
-        .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsPanel }, set: setInspector)) {
+        .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsColumn }, set: setInspector)) {
             if isTrailing {
                 Sidebar()
                     .listStyle(.sidebar)
@@ -135,11 +135,11 @@ struct ContentView: View {
                     .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
                     .toolbar { ToolbarItem(placement: .primaryAction) { sessionsToggle } }
             } else {
-                ReviewPanel()
+                SessionPanel()
                     .glassSidebarTint(store.theme)
                     .background(ScrollPocketSeparatorRemover())
                     .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
-                    .toolbar { ChangesToolbar(store: store, isReviewEnabled: isReviewEnabled) }
+                    .toolbar { ChangesToolbar(store: store) }
             }
         }
         .containerBackground(for: .window) { WindowBackdrop(chrome: store.theme.chrome, transparency: windowTransparency) }
@@ -162,10 +162,12 @@ struct ContentView: View {
         .task(id: reviewRoots) { await store.watchReview(reviewRoots) }
         .task(id: folderWithoutRepository) { store.watchForRepository(in: folderWithoutRepository) }
         .onChange(of: showsPanel) {
-            guard !showsPanel else {
-                Task { for model in store.sessionReviewModels { await model.load() } }
-                return
-            }
+            guard showsPanel else { return }
+
+            Task { for model in store.sessionReviewModels { await model.load() } }
+        }
+        .onChange(of: showsColumn) {
+            guard !showsColumn else { return }
 
             sidebarYieldsToDiff = false
             keepsSidebarForDiff = false
@@ -224,20 +226,24 @@ extension ContentView {
         isReviewEnabled && store.showsReviewPanel && !store.isHarborShown
     }
 
+    private var showsColumn: Bool {
+        store.shownPane != nil
+    }
+
     // The column and inspector echo programmatic changes and keep calling setters built for the other sidebar position, so these read live state and drop no-ops.
     private func setLeadingColumn(_ visibility: NavigationSplitViewVisibility) {
         if sidebarPosition == .left {
             if visibility != leadingSessions { setSessions(visibility) }
-        } else if (visibility != .detailOnly) != showsPanel, isReviewEnabled, !store.isHarborShown {
-            store.showsReviewPanel = visibility != .detailOnly
+        } else if (visibility != .detailOnly) != showsColumn, !store.isHarborShown {
+            if visibility == .detailOnly { store.hideSessionPanel() } else if isReviewEnabled { store.showsReviewPanel = true }
         }
     }
 
     private func setInspector(_ isPresented: Bool) {
         if sidebarPosition == .right {
             if isPresented != showsSessions { setSessions(isPresented ? .all : .detailOnly) }
-        } else if isPresented != showsPanel, isReviewEnabled, !store.isHarborShown {
-            store.showsReviewPanel = isPresented
+        } else if isPresented != showsColumn, !store.isHarborShown {
+            if !isPresented { store.hideSessionPanel() } else if isReviewEnabled { store.showsReviewPanel = true }
         }
     }
 
@@ -294,6 +300,21 @@ private struct SplitWidthSettled: View {
     }
 }
 
+private struct PanedSplit: View {
+    let store: Store
+    let isDiffLeading: Bool
+    let isDiffCollapsed: Bool
+    let isTerminalBelow: Bool
+    @State private var columnFrame = CGRect.zero
+
+    var body: some View {
+        TerminalSplit(store: store, isDiffLeading: isDiffLeading, isDiffCollapsed: isDiffCollapsed, isTerminalBelow: isTerminalBelow) { frame in
+            if columnFrame != frame { columnFrame = frame }
+        }
+        .overlay(alignment: .topLeading) { PaneTerminals(store: store, column: columnFrame) }
+    }
+}
+
 private struct TerminalSplit: NSViewControllerRepresentable {
     static let diffMinimum = 440.0
     static let terminalMinimum = 360.0
@@ -304,13 +325,15 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     let isDiffLeading: Bool
     let isDiffCollapsed: Bool
     let isTerminalBelow: Bool
+    let onColumnFrame: (CGRect) -> Void
 
     func makeNSViewController(context _: Context) -> TerminalSplitController {
         let split = TerminalSplitController()
+        split.onColumnFrame = onColumnFrame
         split.splitView = GapSplitView()
         split.splitView.identifier = NSUserInterfaceItemIdentifier("terminalSplit")
         let terminal = NSHostingController(rootView: TerminalArea(store: store))
-        let diff = NSHostingController(rootView: ReviewDiffColumn(store: store))
+        let diff = NSHostingController(rootView: PaneHost(store: store))
         terminal.sizingOptions = []
         diff.sizingOptions = []
         for card in [terminal.view, diff.view] {
@@ -333,6 +356,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     }
 
     func updateNSViewController(_ split: TerminalSplitController, context _: Context) {
+        split.onColumnFrame = onColumnFrame
         guard let diff = split.diff else { return }
 
         let leadsDiff = isDiffLeading || isTerminalBelow
@@ -369,13 +393,15 @@ private final class TerminalSplitController: NSSplitViewController {
     static let belowRatioDefault = 0.6
 
     var diff: NSSplitViewItem? {
-        splitViewItems.first { $0.viewController is NSHostingController<ReviewDiffColumn> }
+        splitViewItems.first { $0.viewController is NSHostingController<PaneHost> }
     }
 
+    var onColumnFrame: (CGRect) -> Void = { _ in }
     private var laidOutSize = CGSize.zero
 
     override func splitViewDidResizeSubviews(_ notification: Notification) {
         super.splitViewDidResizeSubviews(notification)
+        reportColumnFrame()
         guard !splitView.isVertical, NSApp.currentEvent?.type == .leftMouseDragged, let diff, !diff.isCollapsed else { return }
 
         UserDefaults.standard.set(diff.viewController.view.frame.height / (splitView.bounds.height - splitView.dividerThickness), forKey: Self.belowRatioKey)
@@ -383,6 +409,7 @@ private final class TerminalSplitController: NSSplitViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        reportColumnFrame()
         guard splitView.bounds.size != laidOutSize else { return }
 
         let preferred: CGFloat? = laidOutSize == .zero ? 760 : nil
@@ -392,6 +419,13 @@ private final class TerminalSplitController: NSSplitViewController {
 
     override func splitView(_ splitView: NSSplitView, constrainSplitPosition proposed: CGFloat, ofSubviewAt _: Int) -> CGFloat {
         splitView.isVertical ? proposed : min(max(proposed, TerminalSplit.belowMinimum), splitView.bounds.height - TerminalSplit.belowMinimum - splitView.dividerThickness)
+    }
+
+    private func reportColumnFrame() {
+        let column = diff.flatMap { $0.isCollapsed ? nil : $0.viewController.view }
+        let rect = column.map { $0.convert($0.bounds, to: view) } ?? .zero
+        let frame = view.isFlipped || rect.isEmpty ? rect : CGRect(x: rect.minX, y: view.bounds.height - rect.maxY, width: rect.width, height: rect.height)
+        DispatchQueue.main.async { [weak self] in self?.onColumnFrame(frame) }
     }
 
     func fitDiff(preferring preferred: CGFloat?) {
@@ -417,8 +451,8 @@ private struct TerminalArea: View {
 
     var body: some View {
         ZStack {
-            ForEach(store.tabs) { tab in
-                let isSelected = tab.id == store.selectedTabID && !store.isHarborShown
+            ForEach(store.tabs.filter { $0.parentTabID == nil }) { tab in
+                let isSelected = tab.id == store.mainTabID && !store.isHarborShown
                 let model = isSelected && isConversationEnabled ? store.conversationModels[tab.id] : nil
                 let showsSurface = isSelected && model == nil
                 TerminalSurfaceView(context: tab.terminal)
@@ -427,6 +461,7 @@ private struct TerminalArea: View {
                     .opacity(showsSurface ? 1 : 0)
                     .allowsHitTesting(showsSurface)
                     .onChange(of: showsSurface, initial: true) { tab.terminal.isSurfaceVisible = showsSurface }
+                    .background { SelectsOnFocus(store: store, id: tab.id, terminal: tab.terminal) }
                 if let model {
                     ConversationView(model: model, tab: tab)
                         .conversationTypography()
@@ -440,7 +475,7 @@ private struct TerminalArea: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topTrailing) {
-            if store.terminalSearch != nil {
+            if store.terminalSearch != nil, !store.isSearchingPaneTerminal {
                 TerminalFindBar()
                     .padding(12)
             }

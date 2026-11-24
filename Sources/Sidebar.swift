@@ -439,6 +439,7 @@ private struct SidebarList: View, Equatable {
         }
 
         store.selectedTabID = tab.id
+        if let parent = tab.parentTabID { store.sessionPanes[parent] = .terminal }
         store.isHarborShown = false
         return .handled
     }

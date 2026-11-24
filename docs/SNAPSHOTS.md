@@ -15,7 +15,7 @@ Use `-windowBackground theme|glass|darker` to select the detail background throu
 `-snapshotBusySidebar YES` seeds 28 sessions in eight projects and two terminals. It includes all pull request and check states, live activity, unread and flagged sessions, pins, two tasks with members, Snoozed and Done. Use `-sidebarTwoLineRows YES` to show the repository and branch under session titles. The fixture shows triage and expands Snoozed and Done by default. Use `-snapshotSidebarWidth <pt>` to change the leading sidebar’s ideal width from 300 pt.
 
 
-`-snapshotSessionTerminals YES` opens a shell-backed Claude tab for a fixture session, two terminals indented under it, and one plain terminal in the Terminals group. `-snapshotSelectNestedTerminal YES` selects the first nested one, `-snapshotCloseNested YES` calls `Store.close` on it and prints the tab counts. `-snapshotClickAt "x,y;x,y"` (any run, points from the window's top-left) sends each synthetic click through `window.sendEvent` before the capture and prints the tabs before and after (Buttons land, plain row taps do not).
+`-snapshotSessionTerminals YES` opens a shell-backed Claude tab for a fixture session, two terminals indented under it, and one plain terminal in the Terminals group. `-snapshotSelectNestedTerminal YES` selects the first nested one (Terminal mode: both nested terminals in the trailing list, the mode switcher in the toolbar), `-snapshotCloseNested YES` calls `Store.close` on it and prints the tab counts. `-snapshotClickAt "x,y;x,y"` (any run, points from the window's top-left) sends each synthetic click through `window.sendEvent` before the capture and prints the tabs before and after (Buttons land, plain row taps do not).
 
 For PR pill layout, `-snapshotLongNames YES -snapshotLinkedPullRequests YES -snapshotChecks "running|passed|passed|passed" -snapshotFakeStatus YES` gives a top-level row with a "+3" pill and the open, merged, draft and closed variants.
 
@@ -235,7 +235,7 @@ CFFIXED_USER_HOME="$trace_home" xcrun xctrace export --input "$out/conversation.
 
 Snapshot mode never uses the session host (no hosted launch, reattach or hang-up, whatever `keepsSessionsRunning` says), so a snapshot can't spawn or touch the real hosts in Application Support; only `-snapshotHost` enables it, and that already requires a temp `CFFIXED_USER_HOME`.
 
-`-snapshotHost new|reattach|close -snapshotHostID <uuid> -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`; end with `close`).
+`-snapshotHost new|reattach|close -snapshotHostID <uuid> -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`; end with `close`). Add `-snapshotHostNested YES` to open or reattach the hosted shell under a Claude tab; it then selects it and prints whether it is in the window, its frame and whether the Terminal pane shows it.
 
 ### Agent control
 

@@ -5,13 +5,13 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, filterSidebar, newSession, pullRequests, showPullRequestInReview, searchSessions, newTerminal, newTerminalForSession, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, wrapLines, showRenderedMarkdown, showMarkdownSource, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
+    case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showChangesPane, openPreview, showSideBySide, showInline, wrapLines, showRenderedMarkdown, showMarkdownSource, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
     case goBack, goForward, previousChange, nextChange
     case caret(CaretAction)
 
     static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .showPullRequestInReview, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
-        + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
+        + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showChangesPane, .openPreview, .showSideBySide, .showInline, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
     static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward, .previousChange, .nextChange]).filter { $0.shortcut != nil }
 
@@ -25,7 +25,7 @@ enum AppAction: Hashable {
         case .searchSessions: "Search Sessions…"
         case .newTerminal: "New Terminal"
         case .newTerminalForSession: "New Terminal for Session"
-        case .switchTerminal: "Switch Terminal / Claude"
+        case .switchTerminal: "Toggle Terminal"
         case .findInTerminal: "Find…"
         case .clearTerminal: "Clear Terminal"
         case .archiveCurrentSession: "Mark Current Session as Done"
@@ -41,6 +41,7 @@ enum AppAction: Hashable {
         case .harbor: "Harbor"
         case .showChanges: "Show Changes"
         case .hideChanges: "Hide Changes"
+        case .showChangesPane: "Show Changes Pane"
         case .openPreview: "Open Preview"
         case .showSideBySide: "Show Side by Side"
         case .showInline: "Show Inline"
@@ -70,7 +71,7 @@ enum AppAction: Hashable {
         case .filterSidebar: "search sessions tasks terminals narrow"
         case .searchSessions: "find transcripts"
         case .newTerminal, .newTerminalForSession: "shell tab"
-        case .switchTerminal: "shell toggle jump"
+        case .switchTerminal: "shell toggle jump pane session"
         case .findInTerminal: "search terminal scrollback text"
         case .clearTerminal: "screen scrollback"
         case .flagCurrentSession, .unflagCurrentSession: "follow up mark"
@@ -80,6 +81,7 @@ enum AppAction: Hashable {
         case .showStats: "usage tokens charts activity"
         case .harbor: "ambient boats piers overview"
         case .showChanges, .hideChanges: "review diff branch changes comments panel"
+        case .showChangesPane: "review diff pane column"
         case .openPreview: "browser web localhost dev server pick element review"
         case .showSideBySide, .showInline: "review diff layout split unified inline toggle"
         case .wrapLines: "review diff soft wrap long lines word wrap horizontal scroll"
@@ -114,7 +116,7 @@ enum AppAction: Hashable {
         case .expandAllGroups: "rectangle.expand.vertical"
         case .showStats: "chart.bar.xaxis"
         case .harbor: "sailboat"
-        case .showChanges, .hideChanges: "plus.forwardslash.minus"
+        case .showChanges, .hideChanges, .showChangesPane: "plus.forwardslash.minus"
         case .openPreview: "globe"
         case .showSideBySide: "rectangle.split.2x1"
         case .showInline: "rectangle"
@@ -150,6 +152,7 @@ enum AppAction: Hashable {
         case let .groupBy(mode): KeyboardShortcut(KeyEquivalent(Character("\((GroupingMode.allCases.firstIndex(of: mode) ?? 0) + 1)")), modifiers: [.control, .command])
         case .showStats: KeyboardShortcut("s", modifiers: [.command, .shift])
         case .showChanges, .hideChanges: KeyboardShortcut("r", modifiers: [.command, .shift])
+        case .showChangesPane: KeyboardShortcut("d", modifiers: [.command, .shift])
         case .wrapLines: KeyboardShortcut("z", modifiers: [.command, .option])
         case .showRenderedMarkdown, .showMarkdownSource: KeyboardShortcut("m", modifiers: [.command, .shift])
         case .showConversation, .showTerminal: KeyboardShortcut("j", modifiers: [.command, .option])
@@ -167,7 +170,7 @@ enum AppAction: Hashable {
     func isAvailable(in store: Store) -> Bool {
         switch self {
         case .showPullRequestInReview: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.selectedSessionID != nil
-        case .newTerminalForSession: store.tabs.contains { $0.id == store.selectedTabID && $0.kind == .claude }
+        case .newTerminalForSession: store.sessionTab != nil
         case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown && !store.selectedShowsConversation
         case .clearTerminal: store.focusedTerminal != nil
         case .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession: !sessionIDs(in: store).isEmpty
@@ -176,6 +179,7 @@ enum AppAction: Hashable {
         case .hideTriage: store.showsTriage
         case .showChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && (!store.showsReviewPanel || store.isHarborShown)
         case .hideChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.showsReviewPanel && !store.isHarborShown
+        case .showChangesPane: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.sessionTab != nil
         case .openPreview: Self.hideChanges.isAvailable(in: store) && store.reviewModel?.isPreviewSelected == false
         case .showSideBySide, .showInline:
             Self.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocumentHasBothSides == true && store.isReviewDiffUnified == (self == .showSideBySide)
@@ -214,7 +218,7 @@ enum AppAction: Hashable {
         case .newTerminal: store.newTerminal()
 
         case .newTerminalForSession:
-            if let id = store.selectedTabID { store.newTerminal(for: id) }
+            if let id = store.sessionTab?.id { store.newTerminal(for: id) }
 
         case .switchTerminal: store.switchTerminal()
 
@@ -242,11 +246,9 @@ enum AppAction: Hashable {
 
         case .harbor: store.isHarborShown.toggle()
 
-        case .showChanges:
-            store.showsReviewPanel = true
-            store.isHarborShown = false
+        case .showChanges, .showChangesPane: store.showChangesPane()
 
-        case .hideChanges: store.showsReviewPanel = false
+        case .hideChanges: store.hideSessionPanel()
 
         case .openPreview: store.reviewModel?.showPreview()
 

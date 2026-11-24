@@ -11,7 +11,7 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
   beside the terminal on the panel's side (`design/review-panel.md`, layer 1). Panel
   visibility is window state (`Store.showsReviewPanel`, persisted behind `persistsTabs`), not a
   mode: selecting another tab or session keeps it and the panel follows the selected Claude
-  tab; a terminal tab shows "Select a Claude Session". Harbor hides the panel and the diff. It
+  tab; an unowned terminal tab shows "Select a Claude Session" and an owned one shows its session. Harbor hides the panel and the diff. It
   is not a tab kind, so `Store.tabs` and `openTabs` persistence are untouched, and the
   terminal surfaces are never re-hosted (`-snapshotReviewSurfaces` proves it).
 - Two compares, both from `ReviewGit.changes(in:)`: Uncommitted (HEAD to the working tree,
@@ -100,8 +100,8 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
   both are gone; the notice clears if the session moves back.
 - The header's base menu lists candidates as "<ref> · N commits", marks the PR base and
   checks the current selection. Picking a base saves it and reloads the list.
-- Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal): open
-  whenever the panel shows, collapsed only while the panel is hidden or Harbor is shown, so the
+- Diff column (`ReviewDiffColumn`, the Changes pane of `PaneHost`, an `NSSplitViewController` item next to the terminal): open
+  whenever the panel shows (or the session's Terminal pane does), collapsed only while both are hidden or Harbor is shown, so the
   terminal's width doesn't change as files open and close. With no tab (or a terminal tab
   selected) it shows "No File Open" in secondary text under an empty tab strip row, like Xcode's
   "No Editor"; nothing opens by itself. It opens 760 pt wide (also on the first layout), less to
@@ -212,7 +212,15 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
 | Send N Comments | the panel | See Comments |
 | Create Pull Request… | the branch summary menu | See Create Pull Request |
 
-⌘J keeps its meaning (Switch Terminal / Claude).
+The panel and the diff column are one unit with modes (docs/adr/0010): a segmented icon control in
+the toolbar, where the Review toggle sat, switches both. Changes (⇧⌘D) is the Review list and diff;
+Terminal (⌘J) lists the session's terminals and shows one (design/flows-terminals.md); Files and
+Browser stay hidden until built. Clicking the active mode hides both. The mode is remembered per
+session in memory. ⇧⌘D (View ▸ Show Changes Pane, palette) and ⇧⌘R's Show Changes switch the
+session back to Changes and show the panel; Hide Changes hides whichever mode shows.
+
+The Review list belongs to Changes: in Terminal mode the sidebar lists terminals instead, and
+opening a Review file another way (`berth show-pr`, a notification) switches back to Changes.
 
 ## Comments
 
