@@ -2263,7 +2263,6 @@ struct ReviewDiffColumn: View {
                             }
                         }
                     }
-                    PaneMenu(store: store)
                 }
                 .padding(.leading, 6)
                 .padding(.trailing, 10)

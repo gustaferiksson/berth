@@ -13,9 +13,10 @@ the terminal area exactly like Claude tabs.
   most-recently-selected list. Closing a tab removes it from the list.
 - A shell tab's optional `parentTabID` links it to a Claude tab. Owned terminals open
   in the session's folder. `SavedTab.parentID` persists that link only behind `persistsTabs`.
-- Owned terminals show in their session's Terminal pane (the column beside the terminal
-  area, docs/adr/0010), never in the terminal area. Selecting one (row click, ↑/↓, ⌘1 to ⌘9,
-  ⌃⇥, the pane's tab strip, CLI `open-terminal` without `--background`) keeps the session's
+- Owned terminals show in their session's Terminal mode (docs/adr/0010): the trailing sidebar
+  lists them (title, folder, ×; + is New Terminal) and the column beside the terminal area shows
+  the selected one under a slim path bar (folder and title), never the terminal area. Selecting
+  one (row click, ↑/↓, ⌘1 to ⌘9, ⌃⇥, the Terminal list, CLI `open-terminal` without `--background`) keeps the session's
   Claude tab in the terminal area, switches the session's pane to Terminal and shows that
   shell there. `Store.mainTabID` is the tab the terminal area shows (the selected tab, or its
   parent) and `Store.sessionTab` the session Review, the conversation view and the pane follow.
@@ -48,7 +49,8 @@ the terminal area exactly like Claude tabs.
 | ⌘J | a Claude tab or one of its owned terminals | Toggles the session's Terminal pane. On: the most recently selected owned terminal is selected and focused; none open: a new one in the session folder. Off: the pane goes back to Changes (the column hides unless Review's panel shows) and the Claude tab is selected and focused |
 | ⌘J | Harbor or nothing selected | Most recently selected terminal, selected and focused; none open: a new one in the current folder |
 | ⌘J | an unowned terminal | Most recently selected Claude tab, selected and focused; none open: nothing happens |
-| New Terminal in the pane's strip | the Terminal pane | New owned terminal in the session folder, shown and focused |
+| + in the Terminal list | Terminal mode | New owned terminal in the session folder, shown and focused |
+| Terminal in the toolbar's mode switcher | a session | Terminal mode on, as ⌘J; clicking it again hides the sidebar and column |
 | ⌘W | a terminal | Ghostty closes the surface; the row goes away |
 
 Current folder: the selected terminal's folder, else the selected Claude tab's session
@@ -71,7 +73,7 @@ folder, else home.
   (terminal or Claude) and focuses it. An owned one selects the session's most recently
   selected remaining owned terminal, else the session. Closing a session's last owned
   terminal returns its pane to Changes. Closing a background terminal changes nothing.
-- Review off: the column still shows for the Terminal pane, and its + menu has only Terminal.
+- Review off: Terminal mode still shows its list and column, and the mode switcher offers only Terminal.
 - `--background` owned terminals start at once although their pane is hidden: owned surfaces
   float over the split with its size while the column is collapsed (docs/adr/0010).
 - Relaunch opens or reattaches an owned terminal with its parent already set, so its surface

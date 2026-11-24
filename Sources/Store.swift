@@ -1433,19 +1433,31 @@ final class Store {
         if let terminal = paneTerminal(of: session.id) { activate(.tab(terminal.id)) } else { newTerminal(for: session.id) }
     }
 
-    func showChangesPane() {
-        let wasInPaneTerminal = tabs.first { $0.id == selectedTabID }?.parentTabID != nil
-        showsReviewPanel = true
-        isHarborShown = false
-        if let sessionID = selectedSessionID { leaveTerminalPane(ofSession: sessionID) }
-        if wasInPaneTerminal { focusSelected() }
+    var shownPane: SessionPane? {
+        if isHarborShown { return nil }
+        if sessionPane == .terminal { return .terminal }
+        return UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && showsReviewPanel ? .changes : nil
     }
 
-    private func leaveTerminalPane(ofSession sessionID: String) {
-        guard let session = tab(forSession: sessionID), sessionPanes[session.id] != nil else { return }
+    func showChangesPane() {
+        showsReviewPanel = true
+        isHarborShown = false
+        leaveTerminalPane(of: sessionTab)
+    }
+
+    func hideSessionPanel() {
+        showsReviewPanel = false
+        leaveTerminalPane(of: sessionTab)
+    }
+
+    private func leaveTerminalPane(of session: Tab?) {
+        guard let session, sessionPanes[session.id] != nil else { return }
 
         sessionPanes[session.id] = nil
-        if tabs.first(where: { $0.id == selectedTabID })?.parentTabID == session.id { selectedTabID = session.id }
+        guard tabs.first(where: { $0.id == selectedTabID })?.parentTabID == session.id else { return }
+
+        selectedTabID = session.id
+        focusSelected()
     }
 
     var primaryReviewModel: ReviewModel? {
@@ -1610,7 +1622,7 @@ final class Store {
             let model = ReviewModel(folder: tab.cwd)
             model.onOpen = { [weak self] in
                 self?.activeReviewRoots[sessionID] = nil
-                self?.leaveTerminalPane(ofSession: sessionID)
+                self?.leaveTerminalPane(of: self?.tab(forSession: sessionID))
             }
             reviewModels[sessionID] = model
         }
@@ -1632,7 +1644,7 @@ final class Store {
             let model = ReviewModel(folder: repository.folder)
             model.onOpen = { [weak self] in
                 self?.activeReviewRoots[sessionID] = repository.root
-                self?.leaveTerminalPane(ofSession: sessionID)
+                self?.leaveTerminalPane(of: self?.tab(forSession: sessionID))
             }
             reviewModels[key] = model
             if activeReviewRoots[sessionID] == repository.root { activeReviewRoots[sessionID] = nil }

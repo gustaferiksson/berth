@@ -248,7 +248,7 @@ enum AppAction: Hashable {
 
         case .showChanges, .showChangesPane: store.showChangesPane()
 
-        case .hideChanges: store.showsReviewPanel = false
+        case .hideChanges: store.hideSessionPanel()
 
         case .openPreview: store.reviewModel?.showPreview()
 

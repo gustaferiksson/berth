@@ -212,15 +212,15 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
 | Send N Comments | the panel | See Comments |
 | Create Pull Request… | the branch summary menu | See Create Pull Request |
 
-The diff column is a pane host (docs/adr/0010): Changes is its default pane, and the + at the
-trailing end of the tab strip lists the built panes (Changes ⇧⌘D, Terminal ⌘J; Browser, Files,
-Side chat and Background tasks stay hidden until built). The pane is remembered per session in
-memory. ⇧⌘D (View ▸ Show Changes Pane, palette) and ⇧⌘R's Show Changes switch the session back
-to Changes and show the panel; ⌘J toggles the Terminal pane (design/flows-terminals.md).
+The panel and the diff column are one unit with modes (docs/adr/0010): a segmented icon control in
+the toolbar, where the Review toggle sat, switches both. Changes (⇧⌘D) is the Review list and diff;
+Terminal (⌘J) lists the session's terminals and shows one (design/flows-terminals.md); Files and
+Browser stay hidden until built. Clicking the active mode hides both. The mode is remembered per
+session in memory. ⇧⌘D (View ▸ Show Changes Pane, palette) and ⇧⌘R's Show Changes switch the
+session back to Changes and show the panel; Hide Changes hides whichever mode shows.
 
-The Review panel stays tied to Changes and is unchanged while the Terminal pane shows: it keeps
-listing the session's changes, and opening a file from it (or `berth show-pr`, a notification)
-switches the pane to Changes. Hide Changes with the Terminal pane showing hides only the panel.
+The Review list belongs to Changes: in Terminal mode the sidebar lists terminals instead, and
+opening a Review file another way (`berth show-pr`, a notification) switches back to Changes.
 
 ## Comments
 
