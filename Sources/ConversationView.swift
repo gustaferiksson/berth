@@ -540,16 +540,6 @@ private struct ConversationBottomBar: View {
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(theme.foreground)
                     .accessibilityAddTraits(.isHeader)
-                if let branch {
-                    Label {
-                        Text(verbatim: branch.branch)
-                    } icon: {
-                        Image(systemName: "arrow.triangle.branch")
-                            .foregroundStyle(theme.branch)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
-                }
             }
             .lineLimit(1)
             .padding(.horizontal, 18)
