@@ -384,7 +384,8 @@ extension Snapshot {
 
             print("  log: \(data.map { $0 == 0x1B ? "ESC" : $0 == 0x0D ? "CR" : $0 < 0x20 ? "^\($0)" : String(UnicodeScalar($0)) }.joined(separator: " ").replacing("E S C", with: "ESC"))")
         }
-        for step in script.split(separator: "|").map(String.init) {
+        let steps = script.split(separator: "|").map(String.init)
+        for (index, step) in steps.enumerated() {
             let (name, argument) = step.firstIndex(of: ":").map { (String(step[..<$0]), String(step[step.index(after: $0)...])) } ?? (step, "")
             print("step \(step)")
             switch name {
@@ -432,9 +433,16 @@ extension Snapshot {
 
             case "log": log()
 
+            case "burst":
+                let parts = argument.split(separator: ":").map(String.init)
+                for frame in 0..<(Int(parts[0]) ?? 8) {
+                    save(".\(parts[2])-\(frame).png")
+                    try? await Task.sleep(for: .milliseconds(Int(parts[1]) ?? 40))
+                }
+
             default: break
             }
-            try? await Task.sleep(for: .milliseconds(name == "wait" ? Int(argument) ?? 500 : 700))
+            try? await Task.sleep(for: .milliseconds(name == "wait" ? Int(argument) ?? 500 : name == "burst" || steps.dropFirst(index + 1).first?.hasPrefix("burst:") == true ? 0 : 700))
             state()
         }
         log()
