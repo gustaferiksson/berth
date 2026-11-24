@@ -943,6 +943,16 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         gutter?.needsDisplay = true
     }
 
+    func replaceContents(with text: String) {
+        guard let textStorage, textStorage.length > 0 else { return string = text }
+
+        let edit = TextEdit(from: string, to: text)
+        let selection = selectedRange()
+        textStorage.replaceCharacters(in: edit.range, with: edit.replacement)
+        let location = min(edit.mapped(selection.location), textStorage.length)
+        setSelectedRange(NSRange(location: location, length: min(edit.mapped(NSMaxRange(selection)) - location, textStorage.length - location)))
+    }
+
     private func countLines() {
         lineStarts = [0] + string.utf16.enumerated().compactMap { $0.element == 0x0A ? $0.offset + 1 : nil }
         let indents = lineStarts.indices.compactMap { indentColumns(ofLine: $0) }.filter { $0 > 0 }
