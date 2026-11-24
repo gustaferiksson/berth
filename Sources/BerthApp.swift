@@ -214,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 textView?.performTextFinderAction(showFindInterface)
                 return nil
             }
-            if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w", store.sessionPane == .changes, AppAction.hideChanges.isAvailable(in: store) || store.reviewModel?.selectedTab != nil && !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
+            if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w", !store.tabs.contains(where: { $0.parentTabID != nil && $0.terminal.attachedPlatformView === responder }), AppAction.hideChanges.isAvailable(in: store) || store.reviewModel?.selectedTab != nil && !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
                 store.closeDiff()
                 return nil
             }

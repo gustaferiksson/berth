@@ -100,8 +100,8 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
   both are gone; the notice clears if the session moves back.
 - The header's base menu lists candidates as "<ref> · N commits", marks the PR base and
   checks the current selection. Picking a base saves it and reloads the list.
-- Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal): open
-  whenever the panel shows, collapsed only while the panel is hidden or Harbor is shown, so the
+- Diff column (`ReviewDiffColumn`, the Changes pane of `PaneHost`, an `NSSplitViewController` item next to the terminal): open
+  whenever the panel shows (or the session's Terminal pane does), collapsed only while both are hidden or Harbor is shown, so the
   terminal's width doesn't change as files open and close. With no tab (or a terminal tab
   selected) it shows "No File Open" in secondary text under an empty tab strip row, like Xcode's
   "No Editor"; nothing opens by itself. It opens 760 pt wide (also on the first layout), less to

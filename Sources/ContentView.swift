@@ -22,7 +22,6 @@ struct ContentView: View {
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
     @State private var previousLauncherScope: LauncherMode?
-    @State private var columnFrame = CGRect.zero
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -46,88 +45,85 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
-            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsColumn, isTerminalBelow: isTerminalBelow) { frame in
-                if columnFrame != frame { columnFrame = frame }
-            }
-            .overlay(alignment: .topLeading) { PaneTerminals(store: store, column: columnFrame) }
-            .background { SplitWidthSettled(isActive: showsColumn, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
-            .padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
-            .overlay {
-                if let mode = store.launcherMode {
-                    ZStack(alignment: .top) {
-                        Color.clear
-                            .contentShape(.rect)
-                            .onTapGesture { store.launcherMode = nil }
-                        Launcher(mode: mode, query: store.launcherQuery, previousScope: $previousLauncherScope)
-                            .id(mode)
-                            .padding(.top, 120)
-                    }
-                }
-            }
-            .onChange(of: store.launcherMode) {
-                if store.launcherMode == nil { previousLauncherScope = nil }
-            }
-            .overlay(alignment: .top) {
-                if let restart = store.updater.pendingRestart {
-                    RestartBanner(version: restart.version, deadline: restart.deadline)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-            }
-            .overlay(alignment: .bottom) {
-                if !store.preparingPullRequests.isEmpty {
-                    PullRequestPreparingBanner(count: store.preparingPullRequests.count, number: store.preparingPullRequests.count == 1 ? store.preparingPullRequests.first?.number : nil)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .animation(.default, value: store.preparingPullRequests)
-            .animation(.default, value: store.updater.pendingRestart?.deadline)
-            .background {
-                if windowBackground == .theme, windowTransparency == 0 {
-                    (store.theme.chrome ?? .clear).ignoresSafeArea()
-                } else if windowBackground == .glass {
-                    // The oversized glass rim is clipped offscreen.
-                    Color.clear.glassEffect(.regular, in: .rect)
-                        .scaleEffect(x: 4, y: 1.2)
-                        .ignoresSafeArea()
-                } else if windowBackground == .darker {
-                    (store.theme.background ?? .clear)
-                        .opacity(windowTransparency > 0 ? 1 - windowTransparency : 1)
-                        .ignoresSafeArea()
-                }
-            }
-            .background {
-                if let selected, !store.isHarborShown {
-                    TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
-                } else {
-                    Color.clear.navigationTitle(store.isHarborShown ? "Harbor" : "Berth")
-                }
-            }
-            .toolbar {
-                if reviewRequests > 0 {
-                    ToolbarItem(placement: .automatic) {
-                        Button {
-                            store.launcherRole = .reviewRequested
-                            store.launcherMode = .pullRequests
-                        } label: {
-                            Label { Text("\(reviewRequests) to review") } icon: { OcticonImage(.pullRequest) }
-                                .labelStyle(.titleAndIcon)
-                                .foregroundStyle(store.theme.needsYou)
+            PanedSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsColumn, isTerminalBelow: isTerminalBelow)
+                .background { SplitWidthSettled(isActive: showsColumn, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
+                .padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
+                .overlay {
+                    if let mode = store.launcherMode {
+                        ZStack(alignment: .top) {
+                            Color.clear
+                                .contentShape(.rect)
+                                .onTapGesture { store.launcherMode = nil }
+                            Launcher(mode: mode, query: store.launcherQuery, previousScope: $previousLauncherScope)
+                                .id(mode)
+                                .padding(.top, 120)
                         }
-                        .help(Text("^[\(reviewRequests) pull request](inflect: true) waiting for your review"))
                     }
                 }
-                if reviewRequests > 0 {
-                    ToolbarSpacer(.fixed, placement: .automatic)
+                .onChange(of: store.launcherMode) {
+                    if store.launcherMode == nil { previousLauncherScope = nil }
                 }
-                SessionToolbar(store: store)
-                if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
-                    ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
+                .overlay(alignment: .top) {
+                    if let restart = store.updater.pendingRestart {
+                        RestartBanner(version: restart.version, deadline: restart.deadline)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                 }
-                if isTrailing, !showsSessions {
-                    if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
-                    ToolbarItem(placement: .primaryAction) { sessionsToggle }
+                .overlay(alignment: .bottom) {
+                    if !store.preparingPullRequests.isEmpty {
+                        PullRequestPreparingBanner(count: store.preparingPullRequests.count, number: store.preparingPullRequests.count == 1 ? store.preparingPullRequests.first?.number : nil)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                 }
-            }
+                .animation(.default, value: store.preparingPullRequests)
+                .animation(.default, value: store.updater.pendingRestart?.deadline)
+                .background {
+                    if windowBackground == .theme, windowTransparency == 0 {
+                        (store.theme.chrome ?? .clear).ignoresSafeArea()
+                    } else if windowBackground == .glass {
+                        // The oversized glass rim is clipped offscreen.
+                        Color.clear.glassEffect(.regular, in: .rect)
+                            .scaleEffect(x: 4, y: 1.2)
+                            .ignoresSafeArea()
+                    } else if windowBackground == .darker {
+                        (store.theme.background ?? .clear)
+                            .opacity(windowTransparency > 0 ? 1 - windowTransparency : 1)
+                            .ignoresSafeArea()
+                    }
+                }
+                .background {
+                    if let selected, !store.isHarborShown {
+                        TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
+                    } else {
+                        Color.clear.navigationTitle(store.isHarborShown ? "Harbor" : "Berth")
+                    }
+                }
+                .toolbar {
+                    if reviewRequests > 0 {
+                        ToolbarItem(placement: .automatic) {
+                            Button {
+                                store.launcherRole = .reviewRequested
+                                store.launcherMode = .pullRequests
+                            } label: {
+                                Label { Text("\(reviewRequests) to review") } icon: { OcticonImage(.pullRequest) }
+                                    .labelStyle(.titleAndIcon)
+                                    .foregroundStyle(store.theme.needsYou)
+                            }
+                            .help(Text("^[\(reviewRequests) pull request](inflect: true) waiting for your review"))
+                        }
+                    }
+                    if reviewRequests > 0 {
+                        ToolbarSpacer(.fixed, placement: .automatic)
+                    }
+                    SessionToolbar(store: store)
+                    if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
+                        ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
+                    }
+                    if isTrailing, !showsSessions {
+                        if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
+                        ToolbarItem(placement: .primaryAction) { sessionsToggle }
+                    }
+                }
         }
         .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsPanel }, set: setInspector)) {
             if isTrailing {
@@ -301,6 +297,21 @@ private struct SplitWidthSettled: View {
 
                 onSettle(width)
             }
+    }
+}
+
+private struct PanedSplit: View {
+    let store: Store
+    let isDiffLeading: Bool
+    let isDiffCollapsed: Bool
+    let isTerminalBelow: Bool
+    @State private var columnFrame = CGRect.zero
+
+    var body: some View {
+        TerminalSplit(store: store, isDiffLeading: isDiffLeading, isDiffCollapsed: isDiffCollapsed, isTerminalBelow: isTerminalBelow) { frame in
+            if columnFrame != frame { columnFrame = frame }
+        }
+        .overlay(alignment: .topLeading) { PaneTerminals(store: store, column: columnFrame) }
     }
 }
 

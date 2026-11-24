@@ -106,6 +106,7 @@ final class Store {
         didSet {
             if let oldValue { tabTouches[oldValue] = .now }
             if let oldValue, let sessionID = tabs.first(where: { $0.id == oldValue })?.sessionID { seenAt[sessionID] = .now }
+            if let selected = tabs.first(where: { $0.id == selectedTabID }), let parent = selected.parentTabID { paneTerminalIDs[parent] = selected.id }
             if selectedTabID != oldValue {
                 endTerminalSearch()
                 refreshEditedRepositories()
@@ -118,6 +119,7 @@ final class Store {
 
     var lockedSessionID: String?
     var sessionPanes: [Tab.ID: SessionPane] = [:]
+    var paneTerminalIDs: [Tab.ID: Tab.ID] = [:]
     var conversationTabIDs: Set<Tab.ID> = [] {
         didSet { syncConversations() }
     }
@@ -1420,7 +1422,7 @@ final class Store {
 
     func paneTerminal(of parent: Tab.ID) -> Tab? {
         let owned = tabs.filter { $0.parentTabID == parent }
-        return ([selectedTabID] + recentTabIDs).lazy.compactMap { id in owned.first { $0.id == id } }.first ?? owned.last
+        return owned.first { $0.id == paneTerminalIDs[parent] } ?? owned.last
     }
 
     func showTerminalPane() {
@@ -2151,6 +2153,7 @@ final class Store {
         conversationSuspended.remove(id)
         conversationDrafts[id] = nil
         sessionPanes[id] = nil
+        paneTerminalIDs[id] = nil
         tabs.removeAll { $0.id == id }
         if let parent, !tabs.contains(where: { $0.parentTabID == parent }) { sessionPanes[parent] = nil }
         pullRequestTabs = pullRequestTabs.filter { $0.value != id }
