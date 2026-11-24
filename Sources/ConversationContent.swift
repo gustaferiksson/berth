@@ -60,6 +60,7 @@ struct PromptImageLoader {
 
 struct ConversationPrompt: View {
     let entry: RemoteEntry
+    var selectionID: String?
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -82,10 +83,7 @@ struct ConversationPrompt: View {
                 }
             }
             if !entry.text.isEmpty {
-                promptText
-                    .font(theme.conversationFont())
-                    .foregroundStyle(theme.foreground)
-                    .textSelection(.enabled)
+                ConversationTextView(text: Self.attributed(entry.text, theme: theme, displayScale: displayScale), selectionID: selectionID, sizing: .hug)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .background(bubble.fill(theme.foreground.opacity(0.07)))
@@ -96,15 +94,29 @@ struct ConversationPrompt: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    private var promptText: Text {
-        let scale = theme.font.pointSize / NSFont.systemFontSize
-        return PromptTextPart.split(entry.text).reduce(Text(verbatim: "")) { result, part in
-            let text = switch part {
-            case let .text(value): Text(verbatim: String(value))
-            case let .image(token, number): ConversationImageTag(number: number, scale: scale).inlineText(token: token, displayScale: displayScale)
+    static func attributed(_ text: String, theme: GhosttyTheme, displayScale: CGFloat? = nil) -> NSAttributedString {
+        let font = theme.conversationNSFont()
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(theme.foreground)]
+        let scale = font.pointSize / NSFont.systemFontSize
+        let result = NSMutableAttributedString()
+        for part in PromptTextPart.split(text) {
+            switch part {
+            case let .text(value):
+                result.append(NSAttributedString(string: String(value), attributes: attributes))
+
+            case let .image(token, number):
+                let attachment = NSTextAttachment()
+                if let displayScale {
+                    let tag = ConversationImageTag(number: number, scale: scale)
+                    attachment.image = tag.image(displayScale: displayScale)
+                    attachment.bounds = NSRect(origin: NSPoint(x: 0, y: tag.baselineOffset), size: attachment.image?.size ?? .zero)
+                }
+                let tagText = NSMutableAttributedString(attachment: attachment)
+                tagText.addAttributes(attributes.merging([.conversationCopyText: String(token)]) { $1 }, range: NSRange(location: 0, length: tagText.length))
+                result.append(tagText)
             }
-            return Text("\(result)\(text)")
         }
+        return result
     }
 
     private var shell: some View {
@@ -213,6 +225,7 @@ final class ConversationImagePreview: NSObject, QLPreviewPanelDataSource {
 
 struct ConversationReply: View {
     let text: String
+    let selectionID: String
 
     @Environment(\.ghosttyTheme) private var theme
 
@@ -224,7 +237,7 @@ struct ConversationReply: View {
                 .padding(.top, theme.conversationNSFont().ascender - theme.conversationNSFont(-3).ascender)
                 .frame(width: markerWidth - 8, alignment: .leading)
                 .accessibilityHidden(true)
-            ConversationMarkdown(text: text)
+            ConversationMarkdown(text: text, selectionID: selectionID)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .contextMenu {
@@ -236,21 +249,27 @@ struct ConversationReply: View {
 
 struct ConversationMarkdown: View {
     let text: String
+    var selectionID: String?
 
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        ConversationProse(run: ConversationMarkdownCache.run(text: text, theme: theme))
+        ConversationProse(run: ConversationMarkdownCache.run(text: text, theme: theme), selectionID: selectionID)
+    }
+
+    static func rendered(_ text: String, theme: GhosttyTheme) -> NSAttributedString {
+        ConversationMarkdownCache.run(text: text, theme: theme).rendered
     }
 }
 
 private struct ConversationProse: View {
     let run: ConversationMarkdownCache.Run
+    let selectionID: String?
 
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        ConversationTextView(text: run.rendered)
+        ConversationTextView(text: run.rendered, selectionID: selectionID)
             .frame(maxWidth: .infinity, alignment: .leading)
             .task(id: ObjectIdentifier(run)) {
                 let pending = run.codeBlocks.filter { !$0.language.isEmpty && run.highlighted[MarkdownAttributedString.highlightKey(language: $0.language, code: $0.code)] == nil }
@@ -645,15 +664,24 @@ struct ConversationImageTag: View {
             .background(.black.opacity(0.6), in: .capsule)
     }
 
-    func inlineText(token: Substring, displayScale: CGFloat) -> Text {
+    var baselineOffset: CGFloat {
+        font.descender - 2 * scale
+    }
+
+    @MainActor
+    func image(displayScale: CGFloat) -> NSImage? {
+        let key = "\(number)@\(scale)@\(displayScale)" as NSString
+        if let cached = Self.images.object(forKey: key) { return cached }
+
         let renderer = ImageRenderer(content: self)
         renderer.scale = displayScale
-        guard let image = renderer.nsImage else { return Text(verbatim: String(token)) }
+        guard let image = renderer.nsImage else { return nil }
 
-        return Text(Image(nsImage: image).renderingMode(.original))
-            .baselineOffset(font.descender - 2 * scale)
-            .accessibilityLabel(Text("Image \(String(number))"))
+        Self.images.setObject(image, forKey: key)
+        return image
     }
+
+    @MainActor private static let images = NSCache<NSString, NSImage>()
 }
 
 private struct ConversationPromptImage: View {

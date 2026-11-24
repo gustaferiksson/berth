@@ -207,7 +207,7 @@ CFFIXED_USER_HOME="$trace_home" xcrun xctrace export --input "$out/conversation.
   --output "$out/time-profile.xml"
 ```
 
-`-snapshotConversationSelect YES` (with `-snapshotConversationHeight 1500`) selects from the first reply paragraph through its list, code block and table with the real selection API, saves `<out>.selection.png` and prints the string the copy path writes to a private pasteboard.
+`-snapshotConversationSelect YES` (with `-snapshotConversationHeight 1500`) tests transcript selection with synthesized mouse events sent to the window: a drag from the first reply across tool rows and a reply into the code block and table of the third, a click then Shift-click, and Select All, each copied through the responder chain to a private pasteboard (docs/adr/0009). It saves `<out>.selection.png`, prints `select: <case> PASS` or `FAIL` and exits non-zero on a failure. With `-snapshotConversationHeavy 440` (and the fixture home's `.claude`) it instead runs Select All from the last reply and checks the copy holds the first and last loaded turns, which `LazyVStack` has not all mounted.
 
 `-snapshotConversationQueued "<text>"` adds a queued prompt to the fixture (use with `-snapshotConversationStatus busy`; the fixture already runs a background shell and agent, so the agents pill shows), and `-snapshotConversationSubagent YES` opens the invented docs agent conversation directly, including its prompt, tool call and reply. Use with `-snapshotConversation YES`.
 
