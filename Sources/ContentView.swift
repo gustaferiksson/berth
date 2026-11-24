@@ -37,6 +37,7 @@ struct ContentView: View {
                 SessionPanel()
                     .glassSidebarTint(store.theme)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
+                    .toolbar { ChangesToolbar(store: store) }
                     .navigationSplitViewColumnWidth(min: 220, ideal: 272, max: 440)
             } else {
                 Sidebar()
@@ -118,7 +119,7 @@ struct ContentView: View {
                     if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
                         ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
-                    ChangesToolbar(store: store)
+                    if !showsPanelSidebar { ChangesToolbar(store: store) }
                     if isTrailing, !showsSessions {
                         if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
                         ToolbarItem(placement: .primaryAction) { sessionsToggle }
@@ -139,6 +140,7 @@ struct ContentView: View {
                     .glassSidebarTint(store.theme)
                     .background(ScrollPocketSeparatorRemover())
                     .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
+                    .toolbar { ChangesToolbar(store: store) }
             }
         }
         .containerBackground(for: .window) { WindowBackdrop(chrome: store.theme.chrome, transparency: windowTransparency) }
