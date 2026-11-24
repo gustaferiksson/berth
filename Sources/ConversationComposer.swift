@@ -16,7 +16,6 @@ struct ConversationComposer: View {
     @Environment(\.ghosttyTheme) private var theme
     @State private var isImporting = false
     @State private var width: CGFloat = 0
-    @State private var fieldHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -29,6 +28,8 @@ struct ConversationComposer: View {
         let animation = reduceMotion ? nil : Animation.smooth(duration: 0.25)
         let inset = ConversationComposerLayout.inset
         let controlSize = ConversationComposerLayout.controlSize
+        let fieldWidth = ConversationComposerLayout.fieldBounds(in: width, isExpanded: isExpanded, canAttach: canAttach).width
+        let fieldHeight = ConversationComposerField.height(of: draft.text, font: font, width: fieldWidth)
         let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
         let placeholder = model.blocksSending ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
 
@@ -80,12 +81,7 @@ struct ConversationComposer: View {
                             color: NSColor(theme.foreground),
                             promptColor: isShell ? NSColor(theme.shellAttached) : nil,
                             focusRequest: focusRequest,
-                            layoutWidth: ConversationComposerLayout.fieldBounds(in: width, isExpanded: isExpanded, canAttach: canAttach).width,
-                            reportHeight: { height in
-                                guard fieldHeight > 0 else { return fieldHeight = height }
-
-                                withAnimation(animation) { fieldHeight = height }
-                            },
+                            layoutWidth: fieldWidth,
                             submit: send,
                             attach: { canAttach ? model.attach($0) : "" }
                         )
@@ -111,6 +107,7 @@ struct ConversationComposer: View {
                 .glassEffect(.regular, in: shape)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                 .animation(animation, value: isExpanded)
+                .animation(animation, value: fieldHeight)
                 .animation(.smooth(duration: 0.2), value: isShell)
             }
         }
@@ -166,7 +163,7 @@ private struct ConversationComposerLayout: Layout {
         let collapsed = Self.fieldBounds(in: bounds.width, isExpanded: false, canAttach: canAttach)
         let expanded = Self.fieldBounds(in: bounds.width, isExpanded: true, canAttach: canAttach)
         let controlsInset = blend(Self.inset, Self.expandedInset)
-        let controlsTop = blend(bounds.midY - Self.controlSize / 2, bounds.maxY - Self.expandedInset - Self.controlSize)
+        let controlsTop = bounds.maxY - controlsInset - Self.controlSize
         subviews[0].place(at: CGPoint(x: bounds.minX + controlsInset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
         subviews[1].place(
             at: CGPoint(x: bounds.minX + blend(collapsed.leading, expanded.leading), y: blend(bounds.midY - fieldHeight / 2, bounds.minY + Self.fieldTop)),
