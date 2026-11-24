@@ -67,12 +67,14 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
             view.observe(\.canGoForward) { [weak self] view, _ in MainActor.assumeIsolated { self?.canGoForward = view.canGoForward } },
         ]
         loadedWebView = view
-        if let url { view.load(URLRequest(url: url)) }
+        if let url, browser.mayLoad { view.load(URLRequest(url: url)) }
         return view
     }
 
     func load(_ url: URL) {
         self.url = url
+        guard browser.mayLoad else { return }
+
         webView.load(URLRequest(url: url))
     }
 
@@ -95,7 +97,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         }
         if ["http", "https", "file", "about", "data", "blob", "javascript"].contains(scheme) { return (.allow, preferences) }
 
-        browser.openOutside(url)
+        if action.navigationType == .linkActivated { browser.openOutside(url) }
         return (.cancel, preferences)
     }
 
@@ -188,6 +190,10 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         selectedTab(in: sessionKey)
     }
 
+    var mayLoad: Bool {
+        !isSnapshot || snapshotRules != nil
+    }
+
     func configuration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = !isSnapshot && UserDefaults.standard.bool(forKey: Self.persistentDataKey) ? .default() : Self.ephemeralStore
@@ -201,6 +207,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         guard let data = try? JSONSerialization.data(withJSONObject: rules) else { return }
 
         snapshotRules = try? await WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "berth-browser-snapshot", encodedContentRuleList: String(decoding: data, as: UTF8.self))
+        print("snapshot browser rules \(snapshotRules == nil ? "failed, nothing loads" : "compiled")")
     }
 
     @discardableResult
@@ -263,6 +270,14 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         save()
     }
 
+    func rekey(from old: String, to new: String) {
+        guard old != new, let moved = sessionTabs.removeValue(forKey: old) else { return }
+
+        sessionTabs[new, default: []] += moved
+        selectedIDs[new] = selectedIDs.removeValue(forKey: old) ?? selectedIDs[new]
+        save()
+    }
+
     func release(_ key: String) {
         for tab in tabs(in: key) { tab.unload() }
     }
@@ -305,7 +320,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     func save() {
         guard store.persistsTabs else { return }
 
-        let encode = { (tabs: [BrowserTab]) in tabs.map { Saved(url: $0.url, title: $0.title) } }
+        let encode = { (tabs: [BrowserTab]) in tabs.compactMap { tab in tab.url.map { Saved(url: $0, title: tab.title) } } }
         UserDefaults.standard.set(try? JSONEncoder().encode(encode(pinned)), forKey: Self.pinnedKey)
         UserDefaults.standard.set(try? JSONEncoder().encode(sessionTabs.filter { !$0.value.isEmpty }.mapValues(encode)), forKey: Self.sessionTabsKey)
     }

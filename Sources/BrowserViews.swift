@@ -108,6 +108,7 @@ private struct BrowserAddressBar: View {
         .frame(height: 34)
         .onChange(of: url, initial: true) { if !isFocused { text = url?.absoluteString ?? "" } }
         .onChange(of: tab?.id) { text = tab?.url?.absoluteString ?? "" }
+        .onAppear { if tab?.url == nil { isFocused = true } }
         .onChange(of: browser.addressFocusRequests) {
             isFocused = true
             DispatchQueue.main.async { (NSApp.keyWindow?.firstResponder as? NSText)?.selectAll(nil) }

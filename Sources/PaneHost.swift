@@ -119,7 +119,6 @@ private struct ModeSegments: NSViewRepresentable {
     func makeNSView(context: Context) -> NSSegmentedControl {
         let control = NSSegmentedControl(labels: [], trackingMode: .selectOne, target: context.coordinator, action: #selector(Coordinator.pick))
         control.segmentStyle = .automatic
-        control.selectedSegmentBezelColor = .controlAccentColor
         return control
     }
 

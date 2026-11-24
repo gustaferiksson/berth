@@ -204,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let responder = event.window?.firstResponder as? NSView
             let ancestors = responder.map { Array(sequence(first: $0, next: \.superview)) } ?? []
-            if flags == .command, let key = event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key }), action.isAvailable(in: store) {
+            if flags == .command, let key = [33: "[", 30: "]"][event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key }), action.isAvailable(in: store) {
                 action.perform(on: store)
                 return nil
             }

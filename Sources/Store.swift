@@ -1008,6 +1008,7 @@ final class Store {
             for index in tabs.indices {
                 guard let target = tabs[index].sessionID.flatMap({ continued[$0] }) else { continue }
 
+                browser.rekey(from: BrowserModel.key(of: tabs[index]), to: target)
                 tabs[index].sessionID = target
             }
             let pins = pinnedIDs.map { continued[$0] ?? $0 }
@@ -1095,6 +1096,7 @@ final class Store {
                     && session.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) >= tab.opened } ?? false
             }), ProcessAncestry.isDescendant(session.pid, of: getpid()) else { continue }
 
+            browser.rekey(from: BrowserModel.key(of: tabs[position]), to: session.sessionId)
             tabs[position].sessionID = session.sessionId
         }
         let needsYou = NeedsYou.update(previous: waitingSessionIDs, live: Array(liveBySession.values), inBerth: Set(tabs.compactMap(\.sessionID)))
@@ -1952,6 +1954,7 @@ final class Store {
         for index in tabs.indices where tabs[index].sessionID == nil {
             guard let claim = tabs[index].agent.harness.claim, let session = claim(tabs[index].opened, tabs[index].cwd, summaries, claimed) else { continue }
 
+            browser.rekey(from: BrowserModel.key(of: tabs[index]), to: session.id)
             tabs[index].sessionID = session.id
             claimed.insert(session.id)
         }
