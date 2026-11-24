@@ -434,6 +434,7 @@ private struct TerminalArea: View {
                     .onChange(of: showsSurface, initial: true) { tab.terminal.isSurfaceVisible = showsSurface }
                 if let model {
                     ConversationView(model: model, tab: tab)
+                        .conversationTypography()
                 }
             }
             if store.isHarborShown {

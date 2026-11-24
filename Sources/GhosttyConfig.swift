@@ -169,7 +169,11 @@ struct GhosttyTheme: Equatable {
     let unread: Color
     let inlineCode: Color
     let series: [Color]
-    let font: NSFont
+    var font: NSFont
+    var codeFont: NSFont
+    var composerFont: NSFont
+    var lineHeightMultiple: CGFloat = 1
+    var messageWidth: CGFloat = 860
 
     init(values: [String: String]) {
         let background = values["background"].flatMap(RGB.init(hex:))
@@ -205,6 +209,8 @@ struct GhosttyTheme: Equatable {
             return [kCTFontOpenTypeFeatureTag as String: tag, kCTFontOpenTypeFeatureValue as String: enabled ? 1 : 0]
         }
         font = features.isEmpty ? base : NSFont(descriptor: base.fontDescriptor.addingAttributes([.featureSettings: features]), size: fontSize) ?? base
+        codeFont = font
+        composerFont = .systemFont(ofSize: fontSize)
     }
 }
 

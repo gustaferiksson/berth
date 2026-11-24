@@ -63,8 +63,9 @@ enum MarkdownAttributedString {
             if intent.contains(.stronglyEmphasized) { runTraits.insert(.bold) }
             if intent.contains(.emphasized) { runTraits.insert(.italic) }
 
+            let runFont = intent.contains(.code) ? theme.conversationCodeNSFont().withSize(font.pointSize) : font
             var attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont(descriptor: font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(runTraits)), size: font.pointSize) ?? font,
+                .font: NSFont(descriptor: runFont.fontDescriptor.withSymbolicTraits(runFont.fontDescriptor.symbolicTraits.union(runTraits)), size: font.pointSize) ?? runFont,
                 .foregroundColor: NSColor(theme.foreground),
             ]
             if intent.contains(.code) { attributes[.foregroundColor] = NSColor(theme.inlineCode) }
@@ -82,6 +83,7 @@ enum MarkdownAttributedString {
         let source = block.lines.joined(separator: "\n")
         let base = theme.conversationNSFont(0)
         let style = NSMutableParagraphStyle()
+        style.lineHeightMultiple = theme.lineHeightMultiple
         var content: NSMutableAttributedString
         var terminator: [NSAttributedString.Key: Any] = [.font: base]
         switch block.kind {
@@ -103,7 +105,7 @@ enum MarkdownAttributedString {
     }
 
     private static func codeUnits(_ code: String, language: String, theme: GhosttyTheme, highlighted: NSAttributedString?) -> [Unit] {
-        let font = theme.conversationNSFont(-1)
+        let font = theme.conversationCodeNSFont(-1)
         let whole = NSMutableAttributedString(string: code, attributes: [.font: font, .foregroundColor: NSColor(theme.foreground)])
         highlighted?.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: min(highlighted?.length ?? 0, whole.length))) { color, range, _ in
             if let color { whole.addAttribute(.foregroundColor, value: color, range: range) }
