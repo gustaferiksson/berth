@@ -114,7 +114,7 @@ One client at a time (a new attach sends `replaced`), a 256 KB scrollback ring r
 
 `Tab.isHosted` tabs don't count in `busySessionCount` or `Store.isIdle`. Orphaned hosts (no saved tab) aren't cleaned up.
 
-### Agent control (see docs/adr/0008)
+### Agent control
 
 Agent control (opt-in, Settings > General `controlEnabled`, off by default; #223): `ControlService` (owned by `Store`, started before tabs restore) runs a `ControlServer` on `~/Library/Application Support/<bundle id>/control/control.sock` (socket 0600, folder 0700, peer uid must equal ours, a path over 104 bytes is refused and shown in `failure`). The token is made once and saved in `control/token` (0600, `ControlEnvironment.persistentToken`), so it survives relaunches; switching control off deletes it. Tabs get `BERTH_SOCKET`, `BERTH_TAB_ID` (the full tab uuid) and `BERTH_TOKEN` through `Store.terminal(id:…)`, and hosted tabs reattached after a relaunch keep working. Only tabs that started before control was last switched off, or before the token was saved, are refused (the error says to open a new tab).
 
@@ -130,6 +130,15 @@ One JSON request line in, one response line out per connection (`ControlRequest`
 - `capture <tab>`: any tab. libghostty-spm exposes no screen read on a live surface, so it reads the session host's scrollback ring through `HostFrame.dump` (a request that doesn't attach, so the tab's client isn't replaced) and strips escapes with `TerminalText.plain`; tabs not behind a host report capture as unsupported.
 
 - `open-url <url> [--background] [--json]` opens an http or https page as a new tab in the caller's session browser (the Claude tab, or the parent of a terminal it opened) and switches that session to Browser mode unless `--background`.
+- `berth browser tabs [--json]` lists the session browser tabs with 8 hex ids, titles, URLs and loading states. A leading `*` marks the active session tab.
+- `berth browser screenshot [--tab <id>] [--out <path>] [--full-page] [--json]` writes a PNG via WebKit and prints the path. The CLI resolves relative paths against its working directory and uses a fresh temporary filename by default. Full-page captures are capped at 10000 points in height.
+- `berth browser console [--tab <id>] [--since <n>] [--follow] [--json]` reads the tab’s last 500 console messages, uncaught errors, unhandled promise rejections and network failures. Sequence numbers are per tab and survive eviction. `--since` returns sequences greater than `n`, and `--follow` polls every 500 ms and prints one JSON object per line with `--json`.
+- `berth browser url [--tab <id>] [--json]` prints the current URL.
+- `berth browser reload [--tab <id>] [--json]` reloads the page.
+- `berth browser navigate <url> [--tab <id>] [--json]` navigates to an http or https URL.
+- `berth browser text [--tab <id>] [--json]` returns `document.body.innerText` with a truncation note at the 100000-character limit.
+
+Browser commands resolve the current Claude session the same way as `open-url` and only see tabs owned by that session. Pinned tabs and tabs owned by other sessions are excluded. `--tab` accepts a unique id prefix within that session. By default commands use the selected session browser tab or fall back to the last session browser tab. Screenshots and text wait up to 15 seconds for navigation to finish. Arbitrary JavaScript evaluation is a possible follow-up.
 
 Agents use `show-pr` when the user asks to review or check out a PR in Berth. Use `open-session` for a separate working session when the user asks for one.
 

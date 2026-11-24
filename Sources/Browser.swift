@@ -26,7 +26,7 @@ enum BrowserLinkTarget: String {
 }
 
 @Observable
-final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
+final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     let id = UUID()
     var url: URL?
     var title: String
@@ -37,7 +37,12 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     var canGoForward = false
     @ObservationIgnored var needsPageFocus = false
     @ObservationIgnored private(set) var loadedWebView: WKWebView?
+    @ObservationIgnored var isTakingScreenshot = false
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
+    @ObservationIgnored private var pendingNavigation: WKNavigation?
+    @ObservationIgnored private var navigationWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    @ObservationIgnored private var consoleEntries: [ControlConsoleEntry] = []
+    @ObservationIgnored private var consoleSequence = 0
     @ObservationIgnored private unowned let browser: BrowserModel
 
     init(url: URL?, title: String = "", browser: BrowserModel) {
@@ -54,7 +59,10 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     var webView: WKWebView {
         if let loadedWebView { return loadedWebView }
 
-        let view = WKWebView(frame: .zero, configuration: browser.configuration())
+        let configuration = browser.configuration()
+        configuration.userContentController.addUserScript(WKUserScript(source: Self.consoleScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        configuration.userContentController.add(self, name: Self.consoleBridge)
+        let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
@@ -68,7 +76,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
             view.observe(\.canGoForward) { [weak self] view, _ in MainActor.assumeIsolated { self?.canGoForward = view.canGoForward } },
         ]
         loadedWebView = view
-        if let url, browser.mayLoad { view.load(URLRequest(url: url)) }
+        if let url, browser.mayLoad { pendingNavigation = view.load(URLRequest(url: url)) }
         return view
     }
 
@@ -76,17 +84,51 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         self.url = url
         guard browser.mayLoad else { return }
 
-        webView.load(URLRequest(url: url))
+        if let loadedWebView {
+            pendingNavigation = loadedWebView.load(URLRequest(url: url))
+        } else {
+            _ = webView
+        }
+    }
+
+    func reload() {
+        if let loadedWebView {
+            pendingNavigation = loadedWebView.reload()
+        } else {
+            _ = webView
+        }
     }
 
     func unload() {
         observations = []
+        loadedWebView?.configuration.userContentController.removeScriptMessageHandler(forName: Self.consoleBridge)
         loadedWebView?.stopLoading()
         loadedWebView?.removeFromSuperview()
         loadedWebView = nil
         needsPageFocus = false
         isLoading = false
         progress = 0
+        finishNavigation()
+    }
+
+    func waitForNavigation(in view: WKWebView) async {
+        guard pendingNavigation != nil || view.isLoading else { return }
+
+        let id = UUID()
+        let timeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            if !Task.isCancelled { self?.navigationWaiters.removeValue(forKey: id)?.resume() }
+        }
+        defer { timeout.cancel() }
+
+        await withCheckedContinuation { navigationWaiters[id] = $0 }
+    }
+
+    private func finishNavigation() {
+        pendingNavigation = nil
+        let waiters = navigationWaiters.values
+        navigationWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
     }
 
     func webView(_: WKWebView, decidePolicyFor action: WKNavigationAction, preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
@@ -115,15 +157,108 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         browser.track(download)
     }
 
-    func webView(_ webView: WKWebView, didFinish _: WKNavigation?) {
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
+        guard webView === loadedWebView else { return }
+
+        pendingNavigation = navigation
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
+        guard webView === loadedWebView else { return }
+
+        if navigation === pendingNavigation { finishNavigation() }
         browser.save()
         Task { favicon = await browser.favicon(of: webView) ?? favicon }
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation?, withError error: any Error) {
+        guard webView === loadedWebView else { return }
+
+        if navigation === pendingNavigation { finishNavigation() }
+        let failure = error as NSError
+        if failure.domain != NSURLErrorDomain || failure.code != NSURLErrorCancelled {
+            recordConsole(level: "error", text: "Navigation failed: \(failure.localizedDescription)")
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
+        self.webView(webView, didFail: navigation, withError: error)
+    }
+
+    func userContentController(_: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == Self.consoleBridge, message.frameInfo.isMainFrame, message.webView === loadedWebView,
+              let body = message.body as? [String: Any], body.count == 2, let level = body["level"] as? String,
+              ["log", "info", "warn", "error", "debug"].contains(level), let text = body["text"] as? String
+        else { return }
+
+        recordConsole(level: level, text: text)
+    }
+
+    func console(since: Int?) -> ControlResponse {
+        let start = max(since ?? 0, consoleSequence - consoleEntries.count)
+        // A JSON-escaped scalar can occupy six bytes on the control socket.
+        let end = start + min(64, max(0, consoleSequence - start))
+        let entries = (start..<end).map { consoleEntries[$0 % ControlConsoleEntry.bufferCapacity] }
+        return ControlResponse(tab: id.uuidString, console: entries, consoleHasMore: end < consoleSequence ? true : nil)
+    }
+
+    private func recordConsole(level: String, text: String) {
+        consoleSequence += 1
+        let entry = ControlConsoleEntry(sequence: consoleSequence, level: level, text: String(text.unicodeScalars.prefix(2000)), timestamp: .now)
+        if consoleEntries.count < ControlConsoleEntry.bufferCapacity {
+            consoleEntries.append(entry)
+        } else {
+            consoleEntries[(consoleSequence - 1) % ControlConsoleEntry.bufferCapacity] = entry
+        }
     }
 
     func webView(_: WKWebView, createWebViewWith _: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures _: WKWindowFeatures) -> WKWebView? {
         if let url = action.request.url { browser.openFromPage(url, opener: self) }
         return nil
     }
+
+    private static let consoleBridge = "berthConsole"
+    private static let consoleScript = #"""
+    (() => {
+      const handler = window.webkit.messageHandlers.berthConsole;
+      const post = handler.postMessage.bind(handler);
+      const send = (level, text) => {
+        try { post({ level, text: text.slice(0, 2000) }); } catch { return; }
+      };
+      const format = value => {
+        try { return value instanceof Error ? String(value) : typeof value === 'object' ? JSON.stringify(value) ?? String(value) : String(value); }
+        catch { return '[unprintable]'; }
+      };
+      for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
+        const original = console[level];
+        console[level] = function (...args) {
+          send(level, args.map(format).join(' '));
+          return Reflect.apply(original, this, args);
+        };
+      }
+      window.addEventListener('error', event => {
+        if (event instanceof ErrorEvent) send('error', event.message);
+      });
+      window.addEventListener('unhandledrejection', event => send('error', 'Unhandled promise rejection: ' + format(event.reason)));
+      const fetch = window.fetch;
+      window.fetch = function (...args) {
+        return Reflect.apply(fetch, this, args).then(response => {
+          if (response.status >= 400) send('error', 'Fetch HTTP ' + response.status + ' ' + response.url);
+          return response;
+        }, error => {
+          send('error', 'Fetch failed: ' + format(error));
+          throw error;
+        });
+      };
+      const sendXHR = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.send = function (...args) {
+        this.addEventListener('loadend', () => {
+          if (this.status >= 400) send('error', 'XHR HTTP ' + this.status + ' ' + this.responseURL);
+        }, { once: true });
+        return Reflect.apply(sendXHR, this, args);
+      };
+    })();
+    """#
 }
 
 @Observable
@@ -158,6 +293,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     var addressFocusRequests = 0
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var snapshotRules: WKContentRuleList?
+    @ObservationIgnored var lastPaneSize = NSSize(width: 1280, height: 800)
     @ObservationIgnored private var downloadsByTask: [ObjectIdentifier: BrowserDownload] = [:]
     @ObservationIgnored private var progressObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
 
@@ -324,7 +460,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         guard let tab = shownTab else { return }
 
         if action == .closeBrowserTab { return close(tab, in: key) }
-        if action == .reloadPage { tab.loadedWebView?.reload() }
+        if action == .reloadPage, tab.loadedWebView != nil { tab.reload() }
         if action == .browserBack { tab.loadedWebView?.goBack() }
         if action == .browserForward { tab.loadedWebView?.goForward() }
     }

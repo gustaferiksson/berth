@@ -65,7 +65,11 @@ public final class ControlServer: @unchecked Sendable {
             defer { close(connection) }
 
             let response = await Self.respond(on: connection, token: token, handler: handler)
-            _ = ControlSocket.writeLine(try? JSONEncoder().encode(response), to: connection)
+            let encoder = JSONEncoder()
+            guard let json = try? encoder.encode(response) else { return }
+
+            let reply = json.count < Self.maxRequest ? json : try? encoder.encode(ControlResponse.failure("The reply is too large"))
+            _ = ControlSocket.writeLine(reply, to: connection)
         }
     }
 

@@ -7,6 +7,13 @@ public enum ControlCommand {
            berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]
            berth open <path> [--background] [--json]
            berth open-url <url> [--background] [--json]
+           berth browser tabs [--json]
+           berth browser screenshot [--tab <id>] [--out <path>] [--full-page] [--json]
+           berth browser console [--tab <id>] [--since <n>] [--follow] [--json]
+           berth browser url [--tab <id>] [--json]
+           berth browser reload [--tab <id>] [--json]
+           berth browser navigate <url> [--tab <id>] [--json]
+           berth browser text [--tab <id>] [--json]
            berth show-pr <number|url> [--repo <path>] [--json]
            berth send <tab> <text> [--no-enter]
            berth capture <tab>
@@ -18,6 +25,7 @@ public enum ControlCommand {
         public let request: ControlRequest
         public let socketPath: String
         public let json: Bool
+        public let follow: Bool
     }
 
     public struct UsageError: Error, Equatable {
@@ -28,15 +36,28 @@ public enum ControlCommand {
         guard let socketPath = environment[ControlEnvironment.socket], let token = environment[ControlEnvironment.token], let caller = environment[ControlEnvironment.tab] else {
             throw UsageError(message: "Not inside a Berth tab, or Agent Control is off in Berth's Settings > General")
         }
-        guard let name = arguments.first, let operation = [ControlOp.list, .openSession, .openURL, .showPullRequest, .send, .capture, .close, .wait].first(where: { $0.rawValue == name }) ?? (name == "open-terminal" ? .open : name == "open" ? .openPath : nil) else {
-            throw UsageError(message: usage)
+
+        let operation: ControlOp
+        if arguments.first == "browser" {
+            guard arguments.count > 1, let browser = ControlOp(rawValue: "browser-" + arguments[1]) else {
+                throw UsageError(message: usage)
+            }
+
+            operation = browser
+        } else {
+            guard let name = arguments.first, let command = [ControlOp.list, .openSession, .openURL, .showPullRequest, .send, .capture, .close, .wait].first(where: { $0.rawValue == name }) ?? (name == "open-terminal" ? .open : name == "open" ? .openPath : nil) else {
+                throw UsageError(message: usage)
+            }
+
+            operation = command
         }
 
         let opensTab = operation == .open || operation == .openSession || operation == .openPath || operation == .openURL
         var request = ControlRequest(token: token, caller: caller, operation: operation)
         var json = false
+        var follow = false
         var positional: [String] = []
-        var rest = Array(arguments.dropFirst())
+        var rest = Array(arguments.dropFirst(operation.isBrowser ? 2 : 1))
         while let argument = rest.first {
             rest.removeFirst()
             switch argument {
@@ -45,6 +66,28 @@ public enum ControlCommand {
             case "--no-enter" where operation == .send: request.enter = false
 
             case "--background" where opensTab: request.background = true
+
+            case "--tab" where operation.isBrowser && operation != .browserTabs:
+                guard let id = rest.first, !id.isEmpty, !id.hasPrefix("--") else { throw UsageError(message: "--tab needs a browser tab id") }
+
+                request.tab = id
+                rest.removeFirst()
+
+            case "--out" where operation == .browserScreenshot:
+                guard let path = rest.first, !path.isEmpty, !path.hasPrefix("--") else { throw UsageError(message: "--out needs a path") }
+
+                request.path = URL(filePath: path, relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
+                rest.removeFirst()
+
+            case "--full-page" where operation == .browserScreenshot: request.fullPage = true
+
+            case "--since" where operation == .browserConsole:
+                guard let value = rest.first, let sequence = Int(value), sequence >= 0 else { throw UsageError(message: "--since needs a nonnegative sequence number") }
+
+                request.since = sequence
+                rest.removeFirst()
+
+            case "--follow" where operation == .browserConsole: follow = true
 
             case "--cwd" where operation == .open || operation == .openSession:
                 guard let folder = rest.first, operation == .open || !folder.hasPrefix("--") else { throw UsageError(message: "--cwd needs a folder") }
@@ -78,8 +121,15 @@ public enum ControlCommand {
             }
         }
         switch operation {
-        case .list, .openSession:
+        case .list, .openSession, .browserTabs, .browserConsole, .browserURL, .browserReload, .browserText:
             guard positional.isEmpty else { throw UsageError(message: usage) }
+
+        case .browserScreenshot:
+            guard positional.isEmpty else { throw UsageError(message: usage) }
+
+            if request.path == nil {
+                request.path = FileManager.default.temporaryDirectory.appending(path: "berth-screenshot-\(UUID().uuidString.lowercased().prefix(8)).png").path
+            }
 
         case .open:
             request.command = positional.count > 1 ? positional.map(shellQuoted).joined(separator: " ") : positional.first
@@ -95,7 +145,7 @@ public enum ControlCommand {
 
             request.path = URL(filePath: positional[0], relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
 
-        case .openURL:
+        case .openURL, .browserNavigate:
             guard positional.count == 1, let url = URL(string: positional[0]), WebAddress.allows(url) else { throw UsageError(message: "Pass one http or https URL") }
 
             request.url = url.absoluteString
@@ -117,19 +167,36 @@ public enum ControlCommand {
 
             request.tab = positional[0]
         }
-        return Invocation(request: request, socketPath: socketPath, json: json)
+        return Invocation(request: request, socketPath: socketPath, json: json, follow: follow)
     }
 
     public static func render(_ response: ControlResponse, json: Bool) -> String {
         if json {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-            return (try? String(decoding: encoder.encode(response), as: UTF8.self)) ?? ""
+            return encode(response)
         }
         if let tabs = response.tabs {
             return tabs.map { "\($0.openedByYou ? "*" : " ") \($0.id)  \($0.kind)  \($0.status ?? "-")  \($0.title)  \($0.cwd)" }.joined(separator: "\n")
         }
+        if let tabs = response.browserTabs {
+            return tabs.map { "\($0.active ? "*" : " ") \($0.id)  \($0.loading ? "loading" : "-")  \($0.title)  \($0.url ?? "-")" }.joined(separator: "\n")
+        }
+        if let entries = response.console {
+            return entries.map { render($0, json: false) }.joined(separator: "\n")
+        }
         return response.text ?? response.tab ?? ""
+    }
+
+    public static func render(_ entry: ControlConsoleEntry, json: Bool) -> String {
+        if json { return encode(entry) }
+
+        let text = entry.text.replacing("\r", with: "\\r").replacing("\n", with: "\\n")
+        return "\(entry.sequence) \(entry.level) \(text)"
+    }
+
+    private static func encode(_ value: some Encodable) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return (try? String(decoding: encoder.encode(value), as: UTF8.self)) ?? ""
     }
 
     private static func shellQuoted(_ text: String) -> String {

@@ -5,12 +5,12 @@ public enum ControlInstall {
         public let message: String
     }
 
-    public static let hookCommand = #"[ -z "$BERTH_TAB_ID" ] || printf 'You are running inside Berth, tab %s. The berth CLI (see the berth skill) can show a GitHub PR in Review with berth show-pr and manage terminal tabs.\n' "$BERTH_TAB_ID""#
+    public static let hookCommand = #"[ -z "$BERTH_TAB_ID" ] || printf 'You are running inside Berth, tab %s. Use berth show-pr to show a GitHub PR in Review. After editing web UI, use berth open-url to open the dev server, then berth browser screenshot, berth browser console or berth browser text to check it. Browser commands see only the current session tabs and omit pinned tabs. See the berth skill for command syntax.\n' "$BERTH_TAB_ID""#
 
     public static let skill = """
     ---
     name: berth
-    description: Drive the Berth workspace this session runs in. Show a GitHub PR in the current session’s Review panel, show a folder to the user in Berth, open a web page in the session’s browser, open Claude sessions or run a dev server or tests in a background terminal tab, watch its output, send it input, wait for it to finish, or close it. Only applies when BERTH_TAB_ID is set.
+    description: Drive the Berth workspace this session runs in. Show a GitHub PR in Review or a folder in Berth, open and inspect web pages in the current session’s Browser pane, open Claude sessions, or run and manage dev servers and tests in background terminal tabs. Only applies when BERTH_TAB_ID is set.
     ---
 
     # Berth
@@ -22,6 +22,13 @@ public enum ControlInstall {
     - `berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]` opens a Claude session in your folder or the folder given by `--cwd` and prints its tab id. The folder must already exist. Berth starts Claude directly in that folder using its existing checkout. Use `--background` to keep the current tab selected. Text after `--` is pasted into the session as a prompt.
     - `berth open <path> [--background] [--json]`: shows a folder to the user. Selects the Claude session tab already in that folder, or opens one there, and prints the tab id. The path must exist and be a folder, Berth cannot open a single file. Use it when the user asks you to open or show a project in Berth.
     - `berth open-url <url> [--background] [--json]`: opens an http or https page as a new tab in the current session’s Browser pane, so the user sees it next to the session (a dev server, a deploy preview, docs). `--background` adds the tab without switching the pane to Browser.
+    - `berth browser tabs [--json]` lists the current session’s browser tabs with their ids, titles, URLs and loading states. A leading `*` marks the active session tab.
+    - `berth browser screenshot [--tab <id>] [--out <path>] [--full-page] [--json]` saves a PNG and prints its path. Without `--out` it uses a new temporary file. Full-page screenshots are capped at 10000 points in height.
+    - `berth browser console [--tab <id>] [--since <n>] [--follow] [--json]` prints recent console messages, JS errors and network failures. `--since` returns only sequences after `n`. `--follow` polls for new entries and prints one JSON object per line with `--json`.
+    - `berth browser url [--tab <id>] [--json]` prints the current URL.
+    - `berth browser reload [--tab <id>] [--json]` reloads the current page.
+    - `berth browser navigate <url> [--tab <id>] [--json]` takes the tab to an http or https URL.
+    - `berth browser text [--tab <id>] [--json]` prints the page’s visible text, capped at 100000 characters.
     - `berth show-pr <number|url> [--repo <path>] [--json]` expands a GitHub pull request in the current session’s Review panel and opens its first changed file. A number uses the origin of your current repo or `--repo`. For a URL such as `https://github.com/acme/api/pull/42`, Berth looks for a matching local clone. Use `--repo` if the clone is elsewhere.
     - `berth send <tab> <text> [--no-enter]`: types text into a tab you opened and presses Return.
     - `berth capture <tab>`: prints the tab's recent output. Works only for tabs running behind Berth's session host ("Keep sessions running when Berth quits" on); otherwise it reports that capture is unsupported.
@@ -29,6 +36,8 @@ public enum ControlInstall {
     - `berth close <tab>`: closes a tab you opened.
 
     When the user asks to review or check out a PR in Berth, use `berth show-pr` to show it in their current tab. If the user asks for a separate working session, open it with `berth open-session --cwd <worktree> --background -- "<prompt>"` so each session shows in the sidebar.
+
+    After editing web UI, open the dev server first with `berth open-url`, then check it with `berth browser screenshot`, `berth browser console` and `berth browser text`. Browser commands see only the current session’s tabs and omit pinned tabs. `--tab` accepts a unique id prefix. When omitted, Berth uses the selected session tab or falls back to the last session tab.
 
     You can only send to and close terminal and session tabs you opened. Close them when you are done with them. Output of a command that has exited is gone, so redirect it to a file if you need it.
     """
