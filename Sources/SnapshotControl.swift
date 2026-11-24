@@ -100,7 +100,7 @@ extension Snapshot {
             guard api.hasPrefix("[0]"), billing.hasPrefix("[0]"), repeated.hasPrefix("[0]"),
                   missing.hasPrefix("[1]"), missing.contains("No local clone"), missing.contains("--repo <path>"),
                   store.showsReviewPanel, store.selectedTabID == sessionTab, store.tabs.count == before,
-                  repositories == ["acme/api", "acme/billing"], expanded, model?.slimExpansionOverrides["otherPullRequests"] == true,
+                  repositories == ["acme/api", "acme/billing"], expanded, model?.expansionOverrides["otherPullRequests"] == true,
                   let document, document.pullRequestLink?.repository == "acme/billing",
                   document.root == pullRequestClone, model?.isReadOnly(document) == true, model?.contents[document] != nil
             else {

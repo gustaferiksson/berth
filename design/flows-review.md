@@ -2,8 +2,6 @@
 
 Opt-in mode to review an agent's branch without leaving Berth, and to send line comments
 back into the same Claude session. Strictly native (SwiftUI and TextKit, no web view).
-This is the slim first version; the rest is listed under Later.
-
 ## Model
 
 - Opt-in: Settings > General toggle, off by default (`@AppStorage` `reviewEnabled`). Off
@@ -47,20 +45,16 @@ This is the slim first version; the rest is listed under Later.
 
 ## Layout
 
-- Settings > Review > New changes panel (preview) is off by default and gives non-stacked sessions full-height Changes, Commits and Files scopes with pull request details in the header.
-- Toolbar: a Show / Hide Changes button, `sidebar.left` next to the traffic lights when the
-  panel is on the left, `sidebar.right` at the trailing end when it is on the right.
-- Panel, 272 pt ideal (220–440), on the Ghostty theme like the sessions sidebar. Changes holds the
-  card and one list of collapsible sections above a resizable Files or Graph pane. The comments bar
-  below it lists the session's comments with a delete button each and Send N Comments.
-  Collapsed sections persist in `@AppStorage` `collapsedReviewSections` (comma-separated ids
-  `uncommitted`, `committed`). Reveal in Files expands the bottom pane and selects Files.
-- Uncommitted and Committed (count, summed +/-) sections, each only when it
-  has files. Rows: status letter A/M/D/R in the theme's working, needs-you, closed and branch
-  colours, file name, +/- counts. Each row opens its own compare. Nothing changed: "No
-  uncommitted changes on <branch>" on the default branch or without a base, else "No changes,
-  <branch> matches <base>".
-- Edited by Session, below Committed (collapse id `sessionFiles`, count, follows the Changes tree
+- The toolbar’s `plus.forwardslash.minus` icon toggles Review when enabled.
+- The panel header holds the branch, base menu, warnings, tree toggle and Refresh. One list of
+  accordion sections follows in this order. Pull Request (or the branch name), Review Threads,
+  Uncommitted, Committed, Commits, Files, Session pull requests, Edited by Session.
+  Counts show on collapsed sections. The comments bar sits below the list.
+- Uncommitted and Committed appear when they have files. Rows show a coloured status letter,
+  a monospaced file name and nonzero line counts at the right edge. Click to open the compare.
+  ⌘-click or use the hover Open File button to open the working-tree file. Deleted files only
+  open the compare.
+- Edited by Session (collapse id `sessionFiles`, count, follows the Changes tree
   or flat toggle, home-relative paths with `~`): the files the session wrote through Edit, Write,
   MultiEdit or NotebookEdit (`TranscriptEdits.existingFiles`, from the local transcript only,
   Claude sessions only, subagent lines skipped) that exist and that no loaded Uncommitted or
@@ -77,20 +71,15 @@ This is the slim first version; the rest is listed under Later.
   slash. There is no diff against HEAD: an unlisted file in a repository has none by
   construction (ignored, or equal to HEAD or the base). No comments or edits there; Remote is
   unchanged.
-- Files: the repository as an outline (`ReviewFileTree`, folders first), changed files in their
-  status colour (Uncommitted first). A file row opens its Uncommitted compare when it has one,
-  else the plain file. Folders only expand. The list highlights the current tab's row: its
-  compare's row, or the Files row for a plain file.
-- Graph: switch the bottom pane to Graph to browse the repository’s commit history with branch,
-  remote and tag labels. Select a commit to expand its changed files and preview the first diff.
-  Load More shows older commits. See `Sources/ReviewGraphView.swift`.
-- Each row in Session pull requests in the slim panel or Other pull requests in the full panel
-  expands to show that PR’s files. Berth fetches the PR head from the matching origin and lists
-  changes from its merge base. Selecting a file opens a read-only diff in the same viewer. Open
-  on GitHub is in the PR row’s context menu.
-- Hovering a file row (any section) shows an Open File button (`doc`) over the counts, which stay visible otherwise (selected rows too); it opens
-  the working-tree file as the plain file, through the same `ReviewModel.open`. Deleted files
-  have none.
+- Files shows the repository tree with folders first. A row opens its Uncommitted compare when
+  available, otherwise the plain file. Reveal in Files expands the section and parent folders
+  and scrolls to the row. When expanded, Files follows the working path.
+- Commits shows the branch’s commits and a History disclosure for the graph. On the default
+  branch, the graph appears directly. Select a commit to show its changed files and preview the
+  first diff. Load More fetches older commits. See `Sources/ReviewGraphView.swift`.
+- Rows in Session pull requests (Other pull requests in stacked repositories) expand to show
+  changed files. Berth fetches the PR head from the matching origin and compares it with its
+  merge base. Select a file to open a read-only diff. Open on GitHub is in the row’s context menu.
 - Refreshing: the panel reloads its lists on its own when the repository changes on disk. While
   the panel shows a model (not while hidden or under Harbor; showing it again reloads), one
   FSEvents watcher in `Store` covers the repository root and the common git dir (`git rev-parse

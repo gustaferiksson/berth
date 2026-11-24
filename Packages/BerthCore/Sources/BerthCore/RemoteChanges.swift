@@ -2,7 +2,7 @@ import Foundation
 
 public extension RemoteChanges {
     init(_ changes: ReviewChanges) {
-        let file = { (file: ReviewFile) in RemoteChangedFile(path: file.path, oldPath: file.oldPath, status: file.status.rawValue, additions: file.additions, deletions: file.deletions) }
+        let file = { (file: ReviewFile) in RemoteChangedFile(path: file.path, oldPath: file.oldPath, status: file.status == .untracked ? ReviewFile.Status.added.rawValue : file.status.rawValue, additions: file.additions, deletions: file.deletions) }
         self.init(
             branch: changes.branch,
             base: changes.isDefaultBranch ? nil : changes.base,

@@ -1,48 +1,15 @@
 import BerthCore
 import SwiftUI
 
-struct ChangeSize: Equatable {
-    let additions: Int
-    let deletions: Int
-
-    init(_ changes: ReviewChanges) {
-        let size = changes.total ?? changes.uncommitted.reduce((additions: 0, deletions: 0)) { ($0.additions + ($1.additions ?? 0), $0.deletions + ($1.deletions ?? 0)) }
-        additions = size.additions
-        deletions = size.deletions
-    }
-}
-
 extension Store {
     var showsSessionToolbar: Bool {
         !isHarborShown && selectedSessionID != nil
-    }
-
-    var selectedChangeSize: ChangeSize? {
-        guard let sessionID = selectedSessionID else { return nil }
-
-        let size = primaryReviewModel?.changes.map(ChangeSize.init) ?? changeSizes[sessionID]
-        guard let size, size.additions + size.deletions > 0 else { return nil }
-
-        return size
-    }
-
-    // The panel's model keeps its own changes live; this covers a session whose panel was never shown.
-    func trackChangeSize(sessionID: String, folder: String) async {
-        while !Task.isCancelled {
-            if primaryReviewModel?.changes == nil {
-                let picks = UserDefaults.standard.dictionary(forKey: ReviewModel.baseBranchesKey) as? [String: [String: String]] ?? [:]
-                let changes = try? await ReviewGit.changes(in: folder) { root, branch in (picks[root]?[branch], nil) }
-                changeSizes[sessionID] = changes.map(ChangeSize.init)
-            }
-            try? await Task.sleep(for: .seconds(60))
-        }
     }
 }
 
 // A toolbar-less inspector gets no tracking separator, so the window's trailing items would sit over it.
 struct SessionToolbar: ToolbarContent {
     let store: Store
-    let isReviewEnabled: Bool
 
     var body: some ToolbarContent {
         if store.showsSessionToolbar, let sessionID = store.selectedSessionID, !store.selectedStatusBarIsReachable {
@@ -59,15 +26,9 @@ struct ChangesToolbar: ToolbarContent {
     let isReviewEnabled: Bool
 
     var body: some ToolbarContent {
-        if store.showsSessionToolbar, let sessionID = store.selectedSessionID {
-            let pullRequests = store.sessionsByID[sessionID].map { store.pullRequests(of: $0) } ?? []
-            if isReviewEnabled || !pullRequests.isEmpty {
-                ToolbarSpacer(.flexible, placement: .primaryAction)
-                ToolbarItemGroup(placement: .primaryAction) {
-                    if let first = pullRequests.first { PullRequestButton(pullRequest: first.pullRequest) }
-                    if isReviewEnabled { ChangesToggle(store: store) }
-                }
-            }
+        if isReviewEnabled, store.showsSessionToolbar {
+            ToolbarSpacer(.flexible, placement: .primaryAction)
+            ToolbarItem(placement: .primaryAction) { ChangesToggle(store: store) }
         }
     }
 }
@@ -86,38 +47,14 @@ private struct ConversationButton: View {
     }
 }
 
-private struct PullRequestButton: View {
-    let pullRequest: PullRequest
-    @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        Button { openURL(pullRequest.url) } label: {
-            Label { Text(verbatim: "#\(pullRequest.number)") } icon: { OcticonImage(Octicon(pullRequest.state)) }
-                .labelStyle(.titleAndIcon)
-                .foregroundStyle(pullRequest.state.color(in: theme))
-        }
-        .help("Open pull request #\(String(pullRequest.number))")
-    }
-}
-
 private struct ChangesToggle: View {
     let store: Store
-    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         let isShown = AppAction.hideChanges.isAvailable(in: store)
         let action = isShown ? AppAction.hideChanges : .showChanges
         Button { action.perform(on: store) } label: {
-            if let size = store.selectedChangeSize {
-                HStack(spacing: 5) {
-                    Text(verbatim: "+\(size.additions)").foregroundStyle(theme.working)
-                    Text(verbatim: "−\(size.deletions)").foregroundStyle(theme.closed)
-                }
-                .monospacedDigit()
-            } else {
-                Image(systemName: action.symbol)
-            }
+            Image(systemName: action.symbol)
         }
         .accessibilityLabel(action.title)
         .help("\(action.title) (⇧⌘R)")

@@ -548,18 +548,24 @@ enum Snapshot {
         let graphCommitIndex = UserDefaults.standard.string(forKey: "snapshotReviewGraphCommit").flatMap(Int.init)
         let expandedPullRequestNumber = UserDefaults.standard.string(forKey: "snapshotReviewExpandPullRequest").flatMap(Int.init)
         let showsReviewThreads = UserDefaults.standard.bool(forKey: "snapshotReviewThreads")
-        let reviewPanelTab = UserDefaults.standard.string(forKey: "snapshotReviewPanelTab") ?? graphCommitIndex.map { _ in "graph" }
-        if showsReviewThreads || reviewPanelTab != nil || showsReviewSessionPullRequests || expandedPullRequestNumber != nil {
+        let reviewPanelTab = UserDefaults.standard.string(forKey: "snapshotReviewPanelTab")
+        let expandsCommits = UserDefaults.standard.bool(forKey: "snapshotReviewCommitsExpanded")
+        if showsReviewThreads || reviewPanelTab != nil || graphCommitIndex != nil || expandsCommits || showsReviewSessionPullRequests || expandedPullRequestNumber != nil {
             var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
-            arguments["reviewPanelTab"] = reviewPanelTab ?? "changes"
+            arguments["reviewPanelTab"] = (reviewPanelTab == "comments" || reviewPanelTab == "preview" ? reviewPanelTab : nil) ?? "changes"
             var sections = (UserDefaults.standard.string(forKey: "collapsedReviewSections") ?? "").split(separator: ",").map(String.init)
-            if showsReviewThreads {
-                sections.removeAll { $0 == "reviewThreads" || $0 == "pullRequest" }
+            var expandedSections: [String] = []
+            if showsReviewThreads { expandedSections += ["reviewThreads", "pullRequest"] }
+            if showsReviewSessionPullRequests || expandedPullRequestNumber != nil { expandedSections.append("otherPullRequests") }
+            if reviewPanelTab == "files" { expandedSections.append("files") }
+            if reviewPanelTab == "graph" || graphCommitIndex != nil {
+                expandedSections += ["commits", "history"]
+            } else if expandsCommits {
+                expandedSections.append("commits")
             }
-            if showsReviewSessionPullRequests || expandedPullRequestNumber != nil {
-                arguments["reviewSlimScope"] = ReviewSlimScope.changes.rawValue
-                sections.removeAll { $0 == "pullRequest" || $0 == "otherPullRequests" || $0 == "+otherPullRequests" }
-                sections.append("+otherPullRequests")
+            for section in expandedSections {
+                sections.removeAll { $0 == section || $0 == "+" + section }
+                sections.append("+" + section)
             }
             arguments["collapsedReviewSections"] = sections.joined(separator: ",")
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
@@ -886,7 +892,6 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotConversation") { await captureConversation(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { await captureTasksReview(store: store, window: window, output: output) }
         if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotMarkdownRendered") { store.rendersMarkdown = true }
-        if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotReviewCommitsExpanded") { store.reviewModels["snapshot-review"]?.showsCommits = true }
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30
             if let shownPullRequestClone, let tab = store.selectedTabID {
@@ -1881,7 +1886,7 @@ enum Snapshot {
                 let split = (descendantViews(window.contentView ?? NSView()).first { $0.identifier?.rawValue == "terminalSplit" } as? NSSplitView).map { split in split.arrangedSubviews.map { "\(Int($0.frame.width))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" } } ?? []
                 let layout = "layout \(UserDefaults.standard.string(forKey: ReviewDiffLayout.key) ?? "unset"), shown \((descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last?.unifiedOriginal).map { _ in "unified" } ?? "side by side"), offered \([AppAction.showSideBySide, .showInline].filter { $0.isAvailable(in: store) }.map(\.title))"
                 let review = store.reviewModel.map { "review \($0.folder) \($0.changes.map { "\($0.branch) uncommitted \($0.uncommitted.map { "\($0.path) +\($0.additions ?? 0) -\($0.deletions ?? 0)" }) committed \($0.committed.map(\.path))" } ?? "not loaded"), loads \($0.loadCount)\($0.error.map { ", error \($0)" } ?? "")\($0.movedFolder.map { ", movedFolder \($0)" } ?? "")" } ?? "no review"
-                return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), expanded folders \(store.reviewModel.map { $0.expandedFolders.sorted() } ?? []), collapsed change folders \(store.reviewModel.map { $0.collapsedChangeFolders.map { "\($0.compare.map { "\($0) " } ?? "")\($0.path)" }.sorted() } ?? []), collapsed sections \(UserDefaults.standard.string(forKey: "collapsedReviewSections") ?? "-"), files shown \(store.reviewModel?.showsFiles ?? false), unsaved \(store.reviewModels.values.contains(where: \.hasUnsavedEdits)), review text focused \(store.isReviewTextFocused), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { textView in ", text \(textView.string.prefix(16).debugDescription) (\(textView.string.count) characters), can undo \(textView.undoManager?.canUndo == true), can redo \(textView.undoManager?.canRedo == true), carets \(textView.carets.ranges.map { "\(textView.position(ofOffset: $0.location).line + 1):\(textView.position(ofOffset: $0.location).character + 1)+\($0.length)" }) primary #\(textView.carets.primary), layoutManager requests \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)" } ?? "") + ", occurrences \(descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.occurrences.count) on \($0.occurrenceRows.count) rows" })" + ", right top line \(descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last.flatMap { view in view.enclosingScrollView.flatMap { view.line(atY: $0.contentView.bounds.minY + 1) } }.map { $0 + 1 } ?? 0)" + ((window.firstResponder as? NSTextView).flatMap { $0 is ReviewTextView ? nil : ", find field \($0.string.debugDescription)" } ?? "")
+                return "split \(split), \(layout), \(review), tabs \(store.tabs.enumerated().map { "\($1.kind)#\($0)" }), selected \(store.tabs.firstIndex { $0.id == store.selectedTabID }.map { "#\($0)" } ?? "none"), focused \(focused), terminals \(store.terminals.count) in \(store.terminals.map { URL(filePath: $0.folder).lastPathComponent }), panel \(store.showsReviewPanel), diff \(store.reviewModel.map(describe) ?? "closed"), expanded folders \(store.reviewModel.map { $0.expandedFolders.sorted() } ?? []), collapsed change folders \(store.reviewModel.map { $0.collapsedChangeFolders.map { "\($0.compare.map { "\($0) " } ?? "")\($0.path)" }.sorted() } ?? []), collapsed sections \(UserDefaults.standard.string(forKey: "collapsedReviewSections") ?? "-"), files shown \((store.primaryReviewModel?.expansionOverrides["files"] ?? (UserDefaults.standard.string(forKey: "collapsedReviewSections") ?? "").split(separator: ",").contains("+files"))), unsaved \(store.reviewModels.values.contains(where: \.hasUnsavedEdits)), review text focused \(store.isReviewTextFocused), find \(store.terminalSearch.map { "open, total \($0.total.map(String.init) ?? "nil"), selected \($0.selected.map(String.init) ?? "nil")" } ?? "closed")" + ((window.firstResponder as? ReviewTextView).map { textView in ", text \(textView.string.prefix(16).debugDescription) (\(textView.string.count) characters), can undo \(textView.undoManager?.canUndo == true), can redo \(textView.undoManager?.canRedo == true), carets \(textView.carets.ranges.map { "\(textView.position(ofOffset: $0.location).line + 1):\(textView.position(ofOffset: $0.location).character + 1)+\($0.length)" }) primary #\(textView.carets.primary), layoutManager requests \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)" } ?? "") + ", occurrences \(descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.occurrences.count) on \($0.occurrenceRows.count) rows" })" + ", right top line \(descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last.flatMap { view in view.enclosingScrollView.flatMap { view.line(atY: $0.contentView.bounds.minY + 1) } }.map { $0 + 1 } ?? 0)" + ((window.firstResponder as? NSTextView).flatMap { $0 is ReviewTextView ? nil : ", find field \($0.string.debugDescription)" } ?? "")
             }
             // The argument domain shadows the stored value, so restoring what object(forKey:) read would persist a -reviewDiffLayout argument.
             let savedLayout = UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "")?[ReviewDiffLayout.key]

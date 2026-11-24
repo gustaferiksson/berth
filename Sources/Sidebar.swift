@@ -2,10 +2,6 @@ import BerthCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-extension EnvironmentValues {
-    @Entry var headerInset: Double?
-}
-
 struct SidebarLayout: Equatable {
     enum Entry: Equatable, Identifiable {
         case session(String)
@@ -961,71 +957,6 @@ struct GroupingMenuItems: View {
         Divider()
         Toggle("Show Custom Groups", isOn: $store.showsCustomGroups)
         Toggle("Show Triage", isOn: $store.showsTriage)
-    }
-}
-
-struct GroupHeader<Menu: View, Accessory: View>: View {
-    let title: String
-    let help: String
-    let count: Int?
-    let isExpanded: Binding<Bool>?
-    @ViewBuilder let menu: () -> Menu
-    @ViewBuilder let accessory: (Bool) -> Accessory
-    @State private var isHovering = false
-    @State private var restingWidth = 0.0
-    @Environment(\.headerInset) private var inset
-
-    var body: some View {
-        label
-            .font(.subheadline)
-            .padding(.top, 4)
-            .padding(.leading, inset ?? -6)
-            .padding(.trailing, inset ?? 6)
-            .listRowInsets(EdgeInsets(top: 0, leading: inset == nil ? 8 : 0, bottom: 4, trailing: inset == nil ? 8 : 0))
-            .listRowSeparator(inset == nil ? .automatic : .hidden)
-            .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
-                if !isHovering || restingWidth == 0 { restingWidth = width }
-            }
-            .onHover { isHovering = $0 }
-            .onAppear { isHovering = Snapshot.forcedHover.contains(title) }
-    }
-
-    @ViewBuilder private var label: some View {
-        if let isExpanded {
-            Button { isExpanded.wrappedValue.toggle() } label: { row }
-                .buttonStyle(.plain)
-        } else {
-            row
-        }
-    }
-
-    private var row: some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .fontWeight(.semibold)
-                .foregroundStyle(Color.secondary)
-                .lineLimit(1)
-                .help(help)
-            if let count {
-                Text(count, format: .number)
-                    .monospacedDigit()
-                    .foregroundStyle(Color.secondary.opacity(0.6))
-            }
-            Spacer(minLength: 4)
-            accessory(isHovering)
-            if let isExpanded {
-                Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color.secondary)
-                    .frame(width: 10)
-                    .accessibilityHidden(true)
-            }
-        }
-        .frame(width: isExpanded == nil && restingWidth > 0 ? restingWidth - 25 : nil, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 24)
-        .contentShape([.interaction, .dragPreview], .rect(cornerRadius: 8))
-        .contextMenu(menuItems: menu)
     }
 }
 

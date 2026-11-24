@@ -4,7 +4,6 @@ import SwiftUI
 struct ReviewSettings: View {
     @Environment(Store.self) private var store
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
-    @AppStorage(GeneralSettings.reviewSlimPanelKey) private var reviewSlimPanel = false
     @AppStorage(GeneralSettings.languageServersKey) private var areLanguageServersEnabled = false
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
     @State private var editedServer: LanguageServerEntry?
@@ -21,11 +20,10 @@ struct ReviewSettings: View {
         Form {
             Section {
                 Toggle("Review changes in Berth", isOn: $isReviewEnabled)
-                Toggle("New changes panel (preview)", isOn: $reviewSlimPanel)
             } header: {
                 Text("Review")
             } footer: {
-                Text("Experimental. Adds Review Changes (⇧⌘R) to Claude sessions: a diff of the session’s branch and uncommitted work, with line comments sent back to Claude. The new panel is a compact Changes, Commits and Files view for sessions outside stacked tasks.")
+                Text("Experimental. Adds Review Changes (⇧⌘R) to Claude sessions. Review the branch and uncommitted work and send line comments back to Claude.")
             }
             if isReviewEnabled {
                 Section {
