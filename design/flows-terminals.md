@@ -6,12 +6,21 @@ the terminal area exactly like Claude tabs.
 ## Model
 
 - One list of open tabs (`Store.tabs`), kind `claude` or `shell`, one `selectedTabID`.
-  Every surface stays mounted; only the selected one is visible (opacity 0 and
-  `isSurfaceVisible = false` for the rest).
+  Every surface stays mounted; only the shown ones are visible (opacity 0 and
+  `isSurfaceVisible = false` for the rest): the terminal area's tab and, with the Terminal
+  pane, one owned terminal of its session.
 - Selection history: every change of `selectedTabID` moves that id to the front of a
   most-recently-selected list. Closing a tab removes it from the list.
 - A shell tab's optional `parentTabID` links it to a Claude tab. Owned terminals open
   in the session's folder. `SavedTab.parentID` persists that link only behind `persistsTabs`.
+- Owned terminals show in their session's Terminal pane (the column beside the terminal
+  area, docs/adr/0010), never in the terminal area. Selecting one (row click, ↑/↓, ⌘1 to ⌘9,
+  ⌃⇥, the pane's tab strip, CLI `open-terminal` without `--background`) keeps the session's
+  Claude tab in the terminal area, switches the session's pane to Terminal and shows that
+  shell there. `Store.mainTabID` is the tab the terminal area shows (the selected tab, or its
+  parent) and `Store.sessionTab` the session Review, the conversation view and the pane follow.
+- Clicking into a visible surface selects its tab (`SelectsOnFocus`), so the sidebar
+  highlight, ⌘F and Clear Terminal follow focus between the Claude surface and a pane terminal.
 - A terminal's folder is its OSC 7 directory, else the folder it was opened in.
 - Terminals are restored on relaunch like the panel shells were (same `openTabs` entry,
   opened in the folder they started in).
@@ -36,8 +45,10 @@ the terminal area exactly like Claude tabs.
 |---|---|---|
 | ⌘T, + on the header | anywhere | New terminal in the current folder, added to Terminals, selected and focused |
 | New Terminal for Session, session row New Terminal | an open Claude tab | New owned terminal in the session folder, selected and focused; no shortcut |
-| ⌘J | a Claude tab, Harbor or nothing selected | Most recently selected terminal, selected and focused; none open: a new one in the current folder |
-| ⌘J | a terminal | Most recently selected Claude tab, selected and focused; none open: nothing happens |
+| ⌘J | a Claude tab or one of its owned terminals | Toggles the session's Terminal pane. On: the most recently selected owned terminal is selected and focused; none open: a new one in the session folder. Off: the pane goes back to Changes (the column hides unless Review's panel shows) and the Claude tab is selected and focused |
+| ⌘J | Harbor or nothing selected | Most recently selected terminal, selected and focused; none open: a new one in the current folder |
+| ⌘J | an unowned terminal | Most recently selected Claude tab, selected and focused; none open: nothing happens |
+| New Terminal in the pane's strip | the Terminal pane | New owned terminal in the session folder, shown and focused |
 | ⌘W | a terminal | Ghostty closes the surface; the row goes away |
 
 Current folder: the selected terminal's folder, else the selected Claude tab's session
@@ -57,7 +68,14 @@ folder, else home.
 - CLI `open-terminal` belongs to the caller's Claude tab, or an owned caller's parent.
   Other callers create plain terminals; an explicit `--cwd` still sets the folder.
 - Closing the selected terminal selects the most recently selected remaining tab
-  (terminal or Claude) and focuses it. Closing a background terminal changes nothing.
+  (terminal or Claude) and focuses it. An owned one selects the session's most recently
+  selected remaining owned terminal, else the session. Closing a session's last owned
+  terminal returns its pane to Changes. Closing a background terminal changes nothing.
+- Review off: the column still shows for the Terminal pane, and its + menu has only Terminal.
+- `--background` owned terminals start at once although their pane is hidden: owned surfaces
+  float over the split with its size while the column is collapsed (docs/adr/0010).
+- Relaunch opens or reattaches an owned terminal with its parent already set, so its surface
+  never moves between the terminal area and the pane.
 - Closing the last terminal: the Terminals group disappears and selection falls back as
   above; with no tabs left the terminal area shows "No Open Session".
 - ⌘J with no Claude tab while on a terminal: no-op, focus stays.
@@ -72,7 +90,7 @@ Moved from CLAUDE.md.
 
 ### Terminals and tabs
 
-Terminals (`design/flows-terminals.md`): plain shells and Claude tabs share `Store.tabs` (kind `shell` / `claude`) and `selectedTabID`. Unowned shells sit in a "Terminals" group at the very top (id `terminals`, hidden when empty, + is New Terminal, row menu Close Terminal); Claude tabs sit in their session's group (row menu New Terminal and Unload Session). Owned shells carry `Tab.parentTabID`, render compact and indented after their owner, and close with it. `SavedTab.parentID` restores the link across resumed or reattached tabs, falling back to plain when the parent is absent. `recentTabIDs` is the selection history, pushed only by `activate` and `openClaude`; closing the selected tab falls back to its first entry. ⌘J (View ▸ Switch Terminal / Claude, toolbar button) activates the most recent tab of the other kind, else the last one of that kind; from a Claude tab with no terminal it opens one, from a terminal with no Claude tab it does nothing.
+Terminals (`design/flows-terminals.md`): plain shells and Claude tabs share `Store.tabs` (kind `shell` / `claude`) and `selectedTabID`. Unowned shells sit in a "Terminals" group at the very top (id `terminals`, hidden when empty, + is New Terminal, row menu Close Terminal); Claude tabs sit in their session's group (row menu New Terminal and Unload Session). Owned shells carry `Tab.parentTabID`, render compact and indented after their owner, show in the owner's Terminal pane (`PaneHost`, `PaneTerminals`; docs/adr/0010) and close with it. `SavedTab.parentID` restores the link across resumed or reattached tabs, falling back to plain when the parent is absent. `recentTabIDs` is the selection history, pushed only by `activate` and `openClaude`; closing the selected tab falls back to its first entry. ⌘J (View ▸ Toggle Terminal) toggles the session's Terminal pane from a Claude tab or its owned terminal; from an unowned terminal, Harbor or nothing it activates the most recent tab of the other kind, else the last one of that kind, and from a terminal with no Claude tab it does nothing.
 
 ⌘T (File menu, the group's +) opens a terminal in `Store.currentCwd`: the selected tab's folder (a terminal's OSC 7 directory, `TerminalViewState .workingDirectory`, else the folder it opened in; a Claude tab's session folder), else home. libghostty injects its zsh integration via `ZDOTDIR` for plain shells (verified). Terminal rows show Ghostty's title and working dots while a command runs (the integration's OSC 2), else the folder's name; line 2 is the folder. Relaunch reopens terminals in their last folder and Claude tabs (skipping locked sessions and a missing resume folder) and reselects the saved `isSelected` tab.
 
@@ -80,9 +98,9 @@ Claude tabs run `claude … || exec /bin/zsh -il`: a clean exit closes the tab, 
 
 ### Shortcuts and the key monitor
 
-Every `AppAction` shortcut (`AppAction.routedPastTerminal`: ⌘K ⌘N ⇧⌘F ⌘T ⌘J ⌥⌘K ⌃⌘1–3 ⇧⌘S ⌘S ⌘, ⌃- ⌃⇧-; ⌘S only while Review's Save is available; Go Back ⌃- and Go Forward ⌃⇧- (View menu, not the palette, like the caret actions) only while `Store.isReviewTextFocused` and the selected tab has somewhere to go, so otherwise ⌃- reaches the terminal (readline undo); the monitor matches a shortcut's key against `charactersIgnoringModifiers` lowercased or `characters(byApplyingModifiers: [])` (⇧- arrives as `_` in the first, arrows only match the first); Settings opens via `Store.isSettingsRequested` → ContentView's `openSettings`), ⇧⌘[ ⇧⌘] ⌃⇥ ⌃⇧⇥ and ⌘1–⌘9 go through a local key monitor in `AppDelegate` (only for windows whose identifier starts with `main`; it also stamps `Store.lastKeyInput`), because a focused Ghostty surface can claim key equivalents before the menu sees them.
+Every `AppAction` shortcut (`AppAction.routedPastTerminal`: ⌘K ⌘N ⇧⌘F ⌘T ⌘J ⇧⌘D (Show Changes Pane, only while available) ⌥⌘K ⌃⌘1–3 ⇧⌘S ⌘S ⌘, ⌃- ⌃⇧-; ⌘S only while Review's Save is available; Go Back ⌃- and Go Forward ⌃⇧- (View menu, not the palette, like the caret actions) only while `Store.isReviewTextFocused` and the selected tab has somewhere to go, so otherwise ⌃- reaches the terminal (readline undo); the monitor matches a shortcut's key against `charactersIgnoringModifiers` lowercased or `characters(byApplyingModifiers: [])` (⇧- arrives as `_` in the first, arrows only match the first); Settings opens via `Store.isSettingsRequested` → ContentView's `openSettings`), ⇧⌘[ ⇧⌘] ⌃⇥ ⌃⇧⇥ and ⌘1–⌘9 go through a local key monitor in `AppDelegate` (only for windows whose identifier starts with `main`; it also stamps `Store.lastKeyInput`), because a focused Ghostty surface can claim key equivalents before the menu sees them.
 
-The generated Ghostty config unbinds Ghostty's defaults for app and tab shortcuts (⌘, ⇧⌘, ⌘N ⌘T ⌘K ⌘Q ⇧⌘F ⇧⌘W ⌥⌘W ⌘↩, ⌘1–⌘9, ⇧⌘[ ⇧⌘], ⌃⇥ ⌃⇧⇥). Tab cycling and ⌘1–⌘9 run over `Store.sidebarOrderedTabs`: terminals, pinned, then each group's tabs. Ghostty's ⌘K clear screen is Edit ▸ Clear Terminal (⌥⌘K, also in the palette), which runs the `clear_screen` binding action on `Store.focusedTerminal`. Copy, paste, font size and ⌘W stay with Ghostty, except that while Review's panel is shown the key monitor takes ⌘W (see design/review-implementation.md).
+The generated Ghostty config unbinds Ghostty's defaults for app and tab shortcuts (⌘, ⇧⌘, ⌘N ⌘T ⌘K ⌘Q ⇧⌘F ⇧⌘D ⇧⌘W ⌥⌘W ⌘↩, ⌘1–⌘9, ⇧⌘[ ⇧⌘], ⌃⇥ ⌃⇧⇥). Tab cycling and ⌘1–⌘9 run over `Store.sidebarOrderedTabs`: terminals, pinned, then each group's tabs. Ghostty's ⌘K clear screen is Edit ▸ Clear Terminal (⌥⌘K, also in the palette), which runs the `clear_screen` binding action on `Store.focusedTerminal`. Copy, paste, font size and ⌘W stay with Ghostty, except that while Review's panel shows the Changes pane the key monitor takes ⌘W (see design/review-implementation.md); with the Terminal pane ⌘W reaches Ghostty and closes the focused shell.
 
 Edit ▸ Find… (⌘F, `AppAction.findInTerminal`, Ghostty's `super+f` unbound) sends `start_search`; `TerminalFindBar` (top-right glass capsule) is driven by `Store.terminalSearch`, fed by `extension TerminalViewState: @retroactive TerminalSurfaceSearchDelegate` through `Store.shared` (the package's state never conformed, so counts went nowhere). Typing sends `search:<needle>`, ↩/⇧↩ and ⌘G/⇧⌘G navigate, Esc sends `end_search`; switching tabs and Harbor end it. ⌘F in a `ReviewTextView` opens its own find bar instead (the key monitor checks it first).
 

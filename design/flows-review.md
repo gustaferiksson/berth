@@ -11,7 +11,7 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
   beside the terminal on the panel's side (`design/review-panel.md`, layer 1). Panel
   visibility is window state (`Store.showsReviewPanel`, persisted behind `persistsTabs`), not a
   mode: selecting another tab or session keeps it and the panel follows the selected Claude
-  tab; a terminal tab shows "Select a Claude Session". Harbor hides the panel and the diff. It
+  tab; an unowned terminal tab shows "Select a Claude Session" and an owned one shows its session. Harbor hides the panel and the diff. It
   is not a tab kind, so `Store.tabs` and `openTabs` persistence are untouched, and the
   terminal surfaces are never re-hosted (`-snapshotReviewSurfaces` proves it).
 - Two compares, both from `ReviewGit.changes(in:)`: Uncommitted (HEAD to the working tree,
@@ -212,7 +212,15 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
 | Send N Comments | the panel | See Comments |
 | Create Pull Request… | the branch summary menu | See Create Pull Request |
 
-⌘J keeps its meaning (Switch Terminal / Claude).
+The diff column is a pane host (docs/adr/0010): Changes is its default pane, and the + at the
+trailing end of the tab strip lists the built panes (Changes ⇧⌘D, Terminal ⌘J; Browser, Files,
+Side chat and Background tasks stay hidden until built). The pane is remembered per session in
+memory. ⇧⌘D (View ▸ Show Changes Pane, palette) and ⇧⌘R's Show Changes switch the session back
+to Changes and show the panel; ⌘J toggles the Terminal pane (design/flows-terminals.md).
+
+The Review panel stays tied to Changes and is unchanged while the Terminal pane shows: it keeps
+listing the session's changes, and opening a file from it (or `berth show-pr`, a notification)
+switches the pane to Changes. Hide Changes with the Terminal pane showing hides only the panel.
 
 ## Comments
 

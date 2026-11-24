@@ -9,6 +9,7 @@ enum Snapshot {
     #if DEBUG
     static let showsWatching = UserDefaults.standard.bool(forKey: "snapshotWatching")
     static let showsPullRequestActions = UserDefaults.standard.bool(forKey: "snapshotPullRequestActions")
+    static let showsPaneMenu = UserDefaults.standard.bool(forKey: "snapshotPaneMenu")
     static let output = UserDefaults.standard.string(forKey: "snapshot").map { URL(filePath: $0) }
     #else
     static let output: URL? = nil

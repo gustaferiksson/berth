@@ -10,7 +10,7 @@ enum GhosttyConfig {
     static let configFiles = directories.flatMap { ["\($0)/config", "\($0)/config.ghostty"] }.filter { FileManager.default.fileExists(atPath: $0) }
     // App shortcuts the embedded surface would otherwise swallow (Settings, new, palette, find, search, quit, close window, fullscreen, tab switching).
     static let appKeybinds = (
-        ["super+comma", "super+shift+comma", "super+n", "super+t", "super+k", "super+q", "super+f", "super+shift+f", "super+shift+w", "super+alt+w", "super+enter"]
+        ["super+comma", "super+shift+comma", "super+n", "super+t", "super+k", "super+q", "super+f", "super+shift+f", "super+shift+d", "super+shift+w", "super+alt+w", "super+enter"]
             + ["super+9", "super+shift+[", "super+shift+]", "ctrl+tab", "ctrl+shift+tab"]
             + (1...8).flatMap { ["super+\($0)", "super+digit_\($0)"] }
     ).map { "keybind = \($0)=unbind" }

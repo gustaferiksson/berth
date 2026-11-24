@@ -117,6 +117,7 @@ final class Store {
     }
 
     var lockedSessionID: String?
+    var sessionPanes: [Tab.ID: SessionPane] = [:]
     var conversationTabIDs: Set<Tab.ID> = [] {
         didSet { syncConversations() }
     }
@@ -1197,6 +1198,7 @@ final class Store {
         guard selectsTab else { return true }
 
         selectedTabID = tabID
+        if let parent = tabs.first(where: { $0.id == tabID })?.parentTabID { sessionPanes[parent] = .terminal }
         recentTabIDs = [tabID] + recentTabIDs.filter { $0 != tabID }
         isHarborShown = false
         focusSelected()
@@ -1339,7 +1341,7 @@ final class Store {
     }
 
     func syncConversations() {
-        let shown = tabs.first { $0.id == selectedTabID && !isHarborShown && showsConversation($0) }
+        let shown = tabs.first { $0.id == mainTabID && !isHarborShown && showsConversation($0) }
         recentConversationModels = recentConversationModels.filter { id, recent in
             tabs.contains { $0.id == id && $0.sessionID == recent.sessionID && $0.agent == recent.agent }
         }
@@ -1396,7 +1398,52 @@ final class Store {
     }
 
     var selectedSessionID: String? {
-        tabs.first { $0.id == selectedTabID && $0.kind == .claude }?.sessionID
+        sessionTab?.sessionID
+    }
+
+    var mainTabID: Tab.ID? {
+        let selected = tabs.first { $0.id == selectedTabID }
+        return selected?.parentTabID ?? selected?.id
+    }
+
+    var sessionTab: Tab? {
+        tabs.first { $0.id == mainTabID && $0.kind == .claude }
+    }
+
+    var sessionPane: SessionPane {
+        sessionTab.flatMap { sessionPanes[$0.id] } ?? .changes
+    }
+
+    var isSearchingPaneTerminal: Bool {
+        tabs.contains { $0.parentTabID != nil && $0.terminal === terminalSearch?.terminal }
+    }
+
+    func paneTerminal(of parent: Tab.ID) -> Tab? {
+        let owned = tabs.filter { $0.parentTabID == parent }
+        return ([selectedTabID] + recentTabIDs).lazy.compactMap { id in owned.first { $0.id == id } }.first ?? owned.last
+    }
+
+    func showTerminalPane() {
+        guard let session = sessionTab else { return }
+
+        launcherMode = nil
+        isHarborShown = false
+        if let terminal = paneTerminal(of: session.id) { activate(.tab(terminal.id)) } else { newTerminal(for: session.id) }
+    }
+
+    func showChangesPane() {
+        let wasInPaneTerminal = tabs.first { $0.id == selectedTabID }?.parentTabID != nil
+        showsReviewPanel = true
+        isHarborShown = false
+        if let sessionID = selectedSessionID { leaveTerminalPane(ofSession: sessionID) }
+        if wasInPaneTerminal { focusSelected() }
+    }
+
+    private func leaveTerminalPane(ofSession sessionID: String) {
+        guard let session = tab(forSession: sessionID), sessionPanes[session.id] != nil else { return }
+
+        sessionPanes[session.id] = nil
+        if tabs.first(where: { $0.id == selectedTabID })?.parentTabID == session.id { selectedTabID = session.id }
     }
 
     var primaryReviewModel: ReviewModel? {
@@ -1550,7 +1597,7 @@ final class Store {
 
     func prepareReviewModel() {
         guard showsReviewPanel, UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey),
-              let tab = tabs.first(where: { $0.id == selectedTabID }), tab.kind == .claude,
+              let tab = sessionTab,
               let sessionID = tab.sessionID
         else { return }
 
@@ -1559,7 +1606,10 @@ final class Store {
             if model.movedFolder != moved { model.movedFolder = moved }
         } else {
             let model = ReviewModel(folder: tab.cwd)
-            model.onOpen = { [weak self] in self?.activeReviewRoots[sessionID] = nil }
+            model.onOpen = { [weak self] in
+                self?.activeReviewRoots[sessionID] = nil
+                self?.leaveTerminalPane(ofSession: sessionID)
+            }
             reviewModels[sessionID] = model
         }
         prepareRepositoryModels(of: sessionID, folder: tab.cwd)
@@ -1578,7 +1628,10 @@ final class Store {
             if let model = reviewModels[key], model.folder == repository.folder || model.hasUnsavedEdits || !model.comments.isEmpty { continue }
 
             let model = ReviewModel(folder: repository.folder)
-            model.onOpen = { [weak self] in self?.activeReviewRoots[sessionID] = repository.root }
+            model.onOpen = { [weak self] in
+                self?.activeReviewRoots[sessionID] = repository.root
+                self?.leaveTerminalPane(ofSession: sessionID)
+            }
             reviewModels[key] = model
             if activeReviewRoots[sessionID] == repository.root { activeReviewRoots[sessionID] = nil }
         }
@@ -1728,6 +1781,16 @@ final class Store {
 
     func switchTerminal() {
         launcherMode = nil
+        if !isHarborShown, let session = sessionTab {
+            if sessionPanes[session.id] == .terminal {
+                sessionPanes[session.id] = nil
+                activate(.tab(session.id))
+            } else {
+                showTerminalPane()
+            }
+            return
+        }
+
         let kind: Tab.Kind = !isHarborShown && tabs.first { $0.id == selectedTabID }?.kind == .shell ? .claude : .shell
         let recent = recentTabIDs.lazy.compactMap { id in self.tabs.first { $0.id == id && $0.kind == kind } }.first
         if let target = recent ?? tabs.last(where: { $0.kind == kind }) {
@@ -2063,6 +2126,7 @@ final class Store {
 
     func close(_ id: Tab.ID) {
         for terminal in tabs.filter({ $0.parentTabID == id }) { close(terminal.id) }
+        let parent = tabs.first { $0.id == id }?.parentTabID
         let processes = ProcessAncestry.descendants()
         let sessionID = tabs.first { $0.id == id }?.sessionID
         if !isTerminating, tabs.first(where: { $0.id == id })?.isHosted == true { hangUpHost(of: id) }
@@ -2086,13 +2150,16 @@ final class Store {
         conversationTabIDs.remove(id)
         conversationSuspended.remove(id)
         conversationDrafts[id] = nil
+        sessionPanes[id] = nil
         tabs.removeAll { $0.id == id }
+        if let parent, !tabs.contains(where: { $0.parentTabID == parent }) { sessionPanes[parent] = nil }
         pullRequestTabs = pullRequestTabs.filter { $0.value != id }
         recentTabIDs.removeAll { $0 == id }
         if multiSelection.contains(.tab(id)) { multiSelection.removeAll { $0 == .tab(id) } }
         guard selectedTabID == id else { return }
 
-        selectedTabID = recentTabIDs.first ?? tabs.last?.id
+        let sibling = parent.flatMap { owner in recentTabIDs.first { recent in tabs.contains { $0.id == recent && $0.parentTabID == owner } } }
+        selectedTabID = sibling ?? parent ?? recentTabIDs.first ?? tabs.last?.id
         guard !isHarborShown else { return }
 
         focusSelected()
@@ -2134,14 +2201,15 @@ final class Store {
         var selected: Tab.ID?
         var restored: [Tab.ID: Tab.ID] = [:]
         for tab in saved {
+            let parent = tab.parentID.flatMap { restored[$0] }.flatMap { id in tabs.contains { $0.id == id && $0.kind == .claude } ? id : nil }
             if let id = tab.id, let socket = hostSocket(of: id), SessionHost.probe(socketPath: socket) != nil {
-                reattach(id: id, kind: tab.kind, cwd: tab.cwd, sessionID: tab.sessionID, agent: tab.agent ?? .claude, parent: tab.parentID)
+                reattach(id: id, kind: tab.kind, cwd: tab.cwd, sessionID: tab.sessionID, agent: tab.agent ?? .claude, parent: parent)
                 if tabs.contains(where: { $0.id == id }) { restored[id] = id }
                 if tab.isSelected == true { selected = id }
                 continue
             }
             if tab.kind == .shell {
-                openShell(cwd: tab.cwd)
+                openShell(cwd: tab.cwd, parent: parent)
             } else {
                 guard let session = activeSessions.first(where: { $0.id == tab.sessionID && $0.agent == (tab.agent ?? .claude) }), !isLockedElsewhere(liveBySession[session.id]) else { continue }
 

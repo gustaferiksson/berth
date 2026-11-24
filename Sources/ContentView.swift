@@ -22,6 +22,7 @@ struct ContentView: View {
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
     @State private var previousLauncherScope: LauncherMode?
+    @State private var columnFrame = CGRect.zero
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
 
@@ -45,85 +46,88 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
-            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsPanel, isTerminalBelow: isTerminalBelow)
-                .background { SplitWidthSettled(isActive: showsPanel, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
-                .padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
-                .overlay {
-                    if let mode = store.launcherMode {
-                        ZStack(alignment: .top) {
-                            Color.clear
-                                .contentShape(.rect)
-                                .onTapGesture { store.launcherMode = nil }
-                            Launcher(mode: mode, query: store.launcherQuery, previousScope: $previousLauncherScope)
-                                .id(mode)
-                                .padding(.top, 120)
+            TerminalSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsColumn, isTerminalBelow: isTerminalBelow) { frame in
+                if columnFrame != frame { columnFrame = frame }
+            }
+            .overlay(alignment: .topLeading) { PaneTerminals(store: store, column: columnFrame) }
+            .background { SplitWidthSettled(isActive: showsColumn, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
+            .padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
+            .overlay {
+                if let mode = store.launcherMode {
+                    ZStack(alignment: .top) {
+                        Color.clear
+                            .contentShape(.rect)
+                            .onTapGesture { store.launcherMode = nil }
+                        Launcher(mode: mode, query: store.launcherQuery, previousScope: $previousLauncherScope)
+                            .id(mode)
+                            .padding(.top, 120)
+                    }
+                }
+            }
+            .onChange(of: store.launcherMode) {
+                if store.launcherMode == nil { previousLauncherScope = nil }
+            }
+            .overlay(alignment: .top) {
+                if let restart = store.updater.pendingRestart {
+                    RestartBanner(version: restart.version, deadline: restart.deadline)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if !store.preparingPullRequests.isEmpty {
+                    PullRequestPreparingBanner(count: store.preparingPullRequests.count, number: store.preparingPullRequests.count == 1 ? store.preparingPullRequests.first?.number : nil)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.default, value: store.preparingPullRequests)
+            .animation(.default, value: store.updater.pendingRestart?.deadline)
+            .background {
+                if windowBackground == .theme, windowTransparency == 0 {
+                    (store.theme.chrome ?? .clear).ignoresSafeArea()
+                } else if windowBackground == .glass {
+                    // The oversized glass rim is clipped offscreen.
+                    Color.clear.glassEffect(.regular, in: .rect)
+                        .scaleEffect(x: 4, y: 1.2)
+                        .ignoresSafeArea()
+                } else if windowBackground == .darker {
+                    (store.theme.background ?? .clear)
+                        .opacity(windowTransparency > 0 ? 1 - windowTransparency : 1)
+                        .ignoresSafeArea()
+                }
+            }
+            .background {
+                if let selected, !store.isHarborShown {
+                    TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
+                } else {
+                    Color.clear.navigationTitle(store.isHarborShown ? "Harbor" : "Berth")
+                }
+            }
+            .toolbar {
+                if reviewRequests > 0 {
+                    ToolbarItem(placement: .automatic) {
+                        Button {
+                            store.launcherRole = .reviewRequested
+                            store.launcherMode = .pullRequests
+                        } label: {
+                            Label { Text("\(reviewRequests) to review") } icon: { OcticonImage(.pullRequest) }
+                                .labelStyle(.titleAndIcon)
+                                .foregroundStyle(store.theme.needsYou)
                         }
+                        .help(Text("^[\(reviewRequests) pull request](inflect: true) waiting for your review"))
                     }
                 }
-                .onChange(of: store.launcherMode) {
-                    if store.launcherMode == nil { previousLauncherScope = nil }
+                if reviewRequests > 0 {
+                    ToolbarSpacer(.fixed, placement: .automatic)
                 }
-                .overlay(alignment: .top) {
-                    if let restart = store.updater.pendingRestart {
-                        RestartBanner(version: restart.version, deadline: restart.deadline)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
+                SessionToolbar(store: store)
+                if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
+                    ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                 }
-                .overlay(alignment: .bottom) {
-                    if !store.preparingPullRequests.isEmpty {
-                        PullRequestPreparingBanner(count: store.preparingPullRequests.count, number: store.preparingPullRequests.count == 1 ? store.preparingPullRequests.first?.number : nil)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
+                if isTrailing, !showsSessions {
+                    if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
+                    ToolbarItem(placement: .primaryAction) { sessionsToggle }
                 }
-                .animation(.default, value: store.preparingPullRequests)
-                .animation(.default, value: store.updater.pendingRestart?.deadline)
-                .background {
-                    if windowBackground == .theme, windowTransparency == 0 {
-                        (store.theme.chrome ?? .clear).ignoresSafeArea()
-                    } else if windowBackground == .glass {
-                        // The oversized glass rim is clipped offscreen.
-                        Color.clear.glassEffect(.regular, in: .rect)
-                            .scaleEffect(x: 4, y: 1.2)
-                            .ignoresSafeArea()
-                    } else if windowBackground == .darker {
-                        (store.theme.background ?? .clear)
-                            .opacity(windowTransparency > 0 ? 1 - windowTransparency : 1)
-                            .ignoresSafeArea()
-                    }
-                }
-                .background {
-                    if let selected, !store.isHarborShown {
-                        TabTitle(tab: selected, terminal: selected.terminal, sessionTitle: store.sessionTitle(of: selected))
-                    } else {
-                        Color.clear.navigationTitle(store.isHarborShown ? "Harbor" : "Berth")
-                    }
-                }
-                .toolbar {
-                    if reviewRequests > 0 {
-                        ToolbarItem(placement: .automatic) {
-                            Button {
-                                store.launcherRole = .reviewRequested
-                                store.launcherMode = .pullRequests
-                            } label: {
-                                Label { Text("\(reviewRequests) to review") } icon: { OcticonImage(.pullRequest) }
-                                    .labelStyle(.titleAndIcon)
-                                    .foregroundStyle(store.theme.needsYou)
-                            }
-                            .help(Text("^[\(reviewRequests) pull request](inflect: true) waiting for your review"))
-                        }
-                    }
-                    if reviewRequests > 0 {
-                        ToolbarSpacer(.fixed, placement: .automatic)
-                    }
-                    SessionToolbar(store: store)
-                    if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
-                        ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
-                    }
-                    if isTrailing, !showsSessions {
-                        if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
-                        ToolbarItem(placement: .primaryAction) { sessionsToggle }
-                    }
-                }
+            }
         }
         .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsPanel }, set: setInspector)) {
             if isTrailing {
@@ -162,10 +166,12 @@ struct ContentView: View {
         .task(id: reviewRoots) { await store.watchReview(reviewRoots) }
         .task(id: folderWithoutRepository) { store.watchForRepository(in: folderWithoutRepository) }
         .onChange(of: showsPanel) {
-            guard !showsPanel else {
-                Task { for model in store.sessionReviewModels { await model.load() } }
-                return
-            }
+            guard showsPanel else { return }
+
+            Task { for model in store.sessionReviewModels { await model.load() } }
+        }
+        .onChange(of: showsColumn) {
+            guard !showsColumn else { return }
 
             sidebarYieldsToDiff = false
             keepsSidebarForDiff = false
@@ -222,6 +228,10 @@ struct ContentView: View {
 extension ContentView {
     private var showsPanel: Bool {
         isReviewEnabled && store.showsReviewPanel && !store.isHarborShown
+    }
+
+    private var showsColumn: Bool {
+        showsPanel || !store.isHarborShown && store.sessionPane == .terminal
     }
 
     // The column and inspector echo programmatic changes and keep calling setters built for the other sidebar position, so these read live state and drop no-ops.
@@ -304,13 +314,15 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     let isDiffLeading: Bool
     let isDiffCollapsed: Bool
     let isTerminalBelow: Bool
+    let onColumnFrame: (CGRect) -> Void
 
     func makeNSViewController(context _: Context) -> TerminalSplitController {
         let split = TerminalSplitController()
+        split.onColumnFrame = onColumnFrame
         split.splitView = GapSplitView()
         split.splitView.identifier = NSUserInterfaceItemIdentifier("terminalSplit")
         let terminal = NSHostingController(rootView: TerminalArea(store: store))
-        let diff = NSHostingController(rootView: ReviewDiffColumn(store: store))
+        let diff = NSHostingController(rootView: PaneHost(store: store))
         terminal.sizingOptions = []
         diff.sizingOptions = []
         for card in [terminal.view, diff.view] {
@@ -333,6 +345,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     }
 
     func updateNSViewController(_ split: TerminalSplitController, context _: Context) {
+        split.onColumnFrame = onColumnFrame
         guard let diff = split.diff else { return }
 
         let leadsDiff = isDiffLeading || isTerminalBelow
@@ -369,13 +382,15 @@ private final class TerminalSplitController: NSSplitViewController {
     static let belowRatioDefault = 0.6
 
     var diff: NSSplitViewItem? {
-        splitViewItems.first { $0.viewController is NSHostingController<ReviewDiffColumn> }
+        splitViewItems.first { $0.viewController is NSHostingController<PaneHost> }
     }
 
+    var onColumnFrame: (CGRect) -> Void = { _ in }
     private var laidOutSize = CGSize.zero
 
     override func splitViewDidResizeSubviews(_ notification: Notification) {
         super.splitViewDidResizeSubviews(notification)
+        reportColumnFrame()
         guard !splitView.isVertical, NSApp.currentEvent?.type == .leftMouseDragged, let diff, !diff.isCollapsed else { return }
 
         UserDefaults.standard.set(diff.viewController.view.frame.height / (splitView.bounds.height - splitView.dividerThickness), forKey: Self.belowRatioKey)
@@ -383,6 +398,7 @@ private final class TerminalSplitController: NSSplitViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        reportColumnFrame()
         guard splitView.bounds.size != laidOutSize else { return }
 
         let preferred: CGFloat? = laidOutSize == .zero ? 760 : nil
@@ -392,6 +408,13 @@ private final class TerminalSplitController: NSSplitViewController {
 
     override func splitView(_ splitView: NSSplitView, constrainSplitPosition proposed: CGFloat, ofSubviewAt _: Int) -> CGFloat {
         splitView.isVertical ? proposed : min(max(proposed, TerminalSplit.belowMinimum), splitView.bounds.height - TerminalSplit.belowMinimum - splitView.dividerThickness)
+    }
+
+    private func reportColumnFrame() {
+        let column = diff.flatMap { $0.isCollapsed ? nil : $0.viewController.view }
+        let rect = column.map { $0.convert($0.bounds, to: view) } ?? .zero
+        let frame = view.isFlipped || rect.isEmpty ? rect : CGRect(x: rect.minX, y: view.bounds.height - rect.maxY, width: rect.width, height: rect.height)
+        DispatchQueue.main.async { [weak self] in self?.onColumnFrame(frame) }
     }
 
     func fitDiff(preferring preferred: CGFloat?) {
@@ -417,8 +440,8 @@ private struct TerminalArea: View {
 
     var body: some View {
         ZStack {
-            ForEach(store.tabs) { tab in
-                let isSelected = tab.id == store.selectedTabID && !store.isHarborShown
+            ForEach(store.tabs.filter { $0.parentTabID == nil }) { tab in
+                let isSelected = tab.id == store.mainTabID && !store.isHarborShown
                 let model = isSelected && isConversationEnabled ? store.conversationModels[tab.id] : nil
                 let showsSurface = isSelected && model == nil
                 TerminalSurfaceView(context: tab.terminal)
@@ -427,6 +450,7 @@ private struct TerminalArea: View {
                     .opacity(showsSurface ? 1 : 0)
                     .allowsHitTesting(showsSurface)
                     .onChange(of: showsSurface, initial: true) { tab.terminal.isSurfaceVisible = showsSurface }
+                    .background { SelectsOnFocus(store: store, id: tab.id, terminal: tab.terminal) }
                 if let model {
                     ConversationView(model: model, tab: tab)
                         .conversationTypography()
@@ -440,7 +464,7 @@ private struct TerminalArea: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .topTrailing) {
-            if store.terminalSearch != nil {
+            if store.terminalSearch != nil, !store.isSearchingPaneTerminal {
                 TerminalFindBar()
                     .padding(12)
             }
