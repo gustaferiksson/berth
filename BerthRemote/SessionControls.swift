@@ -233,6 +233,7 @@ private struct Composer: View {
     @AppStorage("showsQuickReplies") private var showsReplies = true
     @AppStorage("quickReplies") private var replies = QuickReply.defaults
     @State private var confirmedCommand: SlashCommand?
+    @State private var selection: TextSelection?
     @FocusState private var isFocused: Bool
     @ScaledMetric(relativeTo: .body) private var plusGlyphSize = 18.0
 
@@ -244,7 +245,7 @@ private struct Composer: View {
         let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)), isUniform: true)
 
         ComposerLayout(isExpanded: isExpanded, hasAttachmentMenu: agent.canAttach) {
-            TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, axis: .vertical)
+            TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, selection: $selection, axis: .vertical)
                 .font(isShell ? .body.monospaced() : .body)
                 .textFieldStyle(.plain)
                 .lineLimit(1...(isExpanded ? 6 : 1))
@@ -260,13 +261,11 @@ private struct Composer: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: 8) {
                         ForEach(attachments) { attachment in
-                            AttachmentTile(attachment: attachment, state: client.uploads[attachment.id]) {
-                                attachments.removeAll { $0.id == attachment.id }
-                            }
+                            AttachmentTile(attachment: attachment, state: client.uploads[attachment.id]) { remove(attachment) }
                         }
                     }
-                    .padding(.horizontal, ComposerLayout.compactInset)
-                    .padding(.top, ComposerLayout.compactInset)
+                    .padding(.horizontal, ComposerLayout.expandedInset)
+                    .padding(.top, ComposerLayout.expandedInset)
                 }
                 .scrollIndicators(.hidden)
                 .scrollClipDisabled()
@@ -279,6 +278,9 @@ private struct Composer: View {
         .animation(.smooth(duration: 0.2), value: isShell)
         .animation(.smooth(duration: 0.3), value: isExpanded)
         .disabled(client.state != .connected)
+        .onChange(of: draft) {
+            attachments.removeAll { $0.number.map { !draft.contains("[Image #\($0)]") } ?? false }
+        }
         .onChange(of: context) { old, new in
             if old?.model != new?.model || old?.date != new?.date { pickedModel = nil }
             if old?.effort != new?.effort { pickedEffort = nil }
@@ -511,7 +513,15 @@ private struct Composer: View {
             return
         }
 
-        attachments.append(prepared.attachment)
+        var attachment = prepared.attachment
+        if isImage {
+            let sent = client.entries[sessionID, default: []].lazy.compactMap { $0.imageNumbers?.max() }.max() ?? 0
+            let pending = client.pendingAttachments[sessionID, default: [:]].values.joined().lazy.compactMap(\.number).max() ?? 0
+            let number = max(attachments.lazy.compactMap(\.number).max() ?? 0, sent, pending) + 1
+            attachment.number = number
+            insertAtCaret("[Image #\(number)]")
+        }
+        attachments.append(attachment)
         await client.upload(prepared.data, id: prepared.attachment.id, name: prepared.attachment.name)
     }
 
@@ -527,13 +537,32 @@ private struct Composer: View {
         }
         guard let text = UserDefaults.standard.string(forKey: "snapshotDraft") else { return }
 
-        draft = text
+        draft += text
         guard UserDefaults.standard.bool(forKey: "snapshotSend") else { return }
 
         while !attachments.allSatisfy({ client.uploads[$0.id] == .done }) { try? await Task.sleep(for: .milliseconds(200)) }
         send()
     }
     #endif
+
+    private func insertAtCaret(_ token: String) {
+        var caret = draft.endIndex
+        if case let .selection(range)? = selection?.indices, draft.indices.contains(range.upperBound) || range.upperBound == draft.endIndex {
+            caret = range.upperBound
+        }
+        let before = draft[..<caret]
+        let leading = before.isEmpty || before.last?.isWhitespace == true ? "" : " "
+        let after = draft[caret...]
+        let trailing = after.first?.isWhitespace == true ? "" : " "
+        draft.insert(contentsOf: leading + token + trailing, at: caret)
+    }
+
+    private func remove(_ attachment: Attachment) {
+        attachments.removeAll { $0.id == attachment.id }
+        guard let number = attachment.number else { return }
+
+        draft = draft.replacing("[Image #\(number)]", with: "")
+    }
 
     private func insert(_ text: String) {
         draft = draft.isEmpty || draft.last?.isWhitespace == true ? draft + text : draft + " " + text
@@ -598,12 +627,13 @@ struct ComposerLayout: Layout {
     static let hitSize: CGFloat = 44
     static let compactInset: CGFloat = 8
     static let cornerRadius = controlSize / 2 + compactInset
-    static let tileRadius = cornerRadius - compactInset
+    static let expandedInset: CGFloat = 12
+    static let tileRadius = cornerRadius - expandedInset
 
-    private static let textInset: CGFloat = 14
+    private static let textGap: CGFloat = 8
     private static let hitPadding = (hitSize - controlSize) / 2
 
-    private var controlInset: CGFloat { isExpanded ? 12 : Self.compactInset }
+    private var controlInset: CGFloat { isExpanded ? Self.expandedInset : Self.compactInset }
     private var controlsHeight: CGFloat { Self.controlSize + 2 * controlInset }
     private var hitInset: CGFloat { controlInset - Self.hitPadding }
 
@@ -631,8 +661,8 @@ struct ComposerLayout: Layout {
         let leadingWidth = hasAttachmentMenu ? Self.hitSize : 0
         let trailingWidth = max(Self.hitSize, width - leadingWidth - 2 * hitInset)
         let trailing = subviews[2].sizeThatFits(ProposedViewSize(width: trailingWidth, height: controlsHeight))
-        let fieldLeading = isExpanded ? 20 : hasAttachmentMenu ? controlsHeight : 14
-        let fieldTrailing = isExpanded ? 20 : trailing.width + 2 * hitInset
+        let fieldLeading = isExpanded ? Self.expandedInset : hasAttachmentMenu ? controlsHeight : 14
+        let fieldTrailing = isExpanded ? Self.expandedInset : trailing.width + 2 * hitInset
         let fieldWidth = max(0, width - fieldLeading - fieldTrailing)
         let fieldHeight = max(22, subviews[0].sizeThatFits(ProposedViewSize(width: fieldWidth, height: nil)).height)
 
@@ -643,7 +673,7 @@ struct ComposerLayout: Layout {
         }
 
         let tilesHeight = subviews.count > 3 ? subviews[3].sizeThatFits(ProposedViewSize(width: width, height: nil)).height : 0
-        let field = CGRect(x: fieldLeading, y: tilesHeight > 0 ? tilesHeight + Self.compactInset : Self.textInset, width: fieldWidth, height: fieldHeight)
-        return (field.maxY + Self.textInset - controlInset + controlsHeight, field, trailing, tilesHeight)
+        let field = CGRect(x: fieldLeading, y: tilesHeight > 0 ? tilesHeight + Self.textGap : Self.expandedInset, width: fieldWidth, height: fieldHeight)
+        return (field.maxY + Self.textGap + Self.controlSize + controlInset, field, trailing, tilesHeight)
     }
 }
