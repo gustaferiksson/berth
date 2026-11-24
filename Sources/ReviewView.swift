@@ -1703,6 +1703,7 @@ private struct SessionFileNode: View {
     private var label: some View {
         Label {
             Text(node.name)
+                .monospaced()
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .fontWeight(.regular)
@@ -1757,6 +1758,7 @@ private struct ReviewChangeRow: View {
     private var legacyRow: some View {
         HStack(spacing: 6) {
             Text((file.path as NSString).lastPathComponent)
+                .monospaced()
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .fontWeight(.regular)
@@ -1780,17 +1782,15 @@ private struct ReviewChangeRow: View {
         .monospacedDigit()
     }
 
-    private var openFileSlot: some View {
-        Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .foregroundStyle(theme.secondary)
-            .help("Open File")
-            .frame(width: 16)
-            .opacity(showsOpenFile ? 1 : 0)
-            .allowsHitTesting(showsOpenFile)
-            .accessibilityHidden(!showsOpenFile)
-            .animation(.easeOut(duration: 0.12), value: showsOpenFile)
+    @ViewBuilder private var openFileSlot: some View {
+        if showsOpenFile {
+            Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .foregroundStyle(theme.secondary)
+                .help("Open File")
+                .fixedSize()
+        }
     }
 }
 
@@ -1851,6 +1851,7 @@ private struct ReviewFileNode: View {
         let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
         return Label {
             Text(node.name)
+                .monospaced()
                 .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -2444,6 +2445,7 @@ struct ReviewDiffColumn: View {
                 .font(.caption)
                 .accessibilityHidden(true)
             Text(title)
+                .monospaced()
                 .italic(tab.isPreview)
                 .lineLimit(1)
             if !parents.isEmpty {

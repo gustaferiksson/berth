@@ -386,7 +386,7 @@ struct ReviewSlimChangeColumns<Counts: View>: View {
                 .frame(width: 12)
                 .accessibilityLabel(status)
             Text(path.lastPathComponent)
-                .font(.callout)
+                .font(.callout.monospaced())
                 .truncationMode(.middle)
             if showsFolder, !path.deletingLastPathComponent.isEmpty {
                 Text(path.deletingLastPathComponent)
@@ -409,14 +409,18 @@ struct ReviewSlimLineCounts: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(additions.map { "+\($0)" } ?? "")
-                .foregroundStyle(additions == 0 ? theme.secondary : theme.working)
-                .frame(width: 32, alignment: .trailing)
-                .accessibilityLabel(additions.map { "\($0) additions" } ?? "")
-            Text(deletions.map { "−\($0)" } ?? "")
-                .foregroundStyle(deletions == 0 ? theme.secondary : theme.closed)
-                .frame(width: 32, alignment: .trailing)
-                .accessibilityLabel(deletions.map { "\($0) deletions" } ?? "")
+            if let additions {
+                Text("+\(additions)")
+                    .foregroundStyle(additions == 0 ? theme.secondary : theme.working)
+                    .frame(minWidth: 32, alignment: .trailing)
+                    .accessibilityLabel("\(additions) additions")
+            }
+            if let deletions {
+                Text("−\(deletions)")
+                    .foregroundStyle(deletions == 0 ? theme.secondary : theme.closed)
+                    .frame(minWidth: 32, alignment: .trailing)
+                    .accessibilityLabel("\(deletions) deletions")
+            }
         }
         .font(.caption2)
         .monospacedDigit()
