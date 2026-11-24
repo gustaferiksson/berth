@@ -318,6 +318,32 @@ enum ReviewInset {
     static let tree = 18.0
 }
 
+struct ReviewFileStats: View {
+    let file: ReviewFile
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        let additions = file.additions.flatMap { $0 > 0 ? $0 : nil }
+        let deletions = file.deletions.flatMap { $0 > 0 ? $0 : nil }
+        var text = AttributedString()
+        if let additions {
+            var part = AttributedString("+\(additions)")
+            part.foregroundColor = theme.working
+            text += part
+        }
+        if additions != nil, deletions != nil { text += AttributedString(" ") }
+        if let deletions {
+            var part = AttributedString("−\(deletions)")
+            part.foregroundColor = theme.closed
+            text += part
+        }
+        return Text(text)
+            .monospacedDigit()
+            .fixedSize()
+            .accessibilityLabel([additions.map { "\($0) additions" }, deletions.map { "\($0) deletions" }].compactMap(\.self).joined(separator: ", "))
+    }
+}
+
 extension View {
     func reviewRow(top: Double = 0, bottom: Double = 0, leading: Double = 0) -> some View {
         padding(.leading, leading)
