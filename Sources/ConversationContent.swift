@@ -70,7 +70,7 @@ struct ConversationPrompt: View {
     }
 
     private var promptBubble: some View {
-        let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 4, topTrailingRadius: 10, style: .continuous)
+        let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 2, topTrailingRadius: 10, style: .continuous)
 
         return VStack(alignment: .trailing, spacing: 6) {
             if let images = entry.images {
