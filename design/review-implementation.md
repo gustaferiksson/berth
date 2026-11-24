@@ -66,9 +66,11 @@ While the shown model is `notARepository`, `Store.watchForRepository` watches it
 
 Save (File ▸ Save, ⌘S, the tab strip's Save: `AppAction.save`, routed past the terminal by the key monitor) is available while the selected document's path has a draft and writes that path's editor text at that moment through `ReviewGit.save`, refused when the file changed on disk since it was loaded. Esc in a `ReviewTextView` only dismisses the hover card (`cancelOperation`; NSTextView's default runs word completion). Send pastes `ReviewComment.prompt` into the session's tab without Return, only while Claude is live there.
 
-The branch card's Create Pull Request… (only for a known no-PR, `(repository, nil)`, on a non-default branch with a base and at least 1 commit ahead) pastes "Push this branch and open a pull request for it with gh." the same way and focuses the terminal; it is disabled with a tooltip while Claude isn't live in the tab. The new PR appears with the sidebar's next lookup (activation or the 5 min poll, at most once a minute), or at once on the panel's Refresh, which looks up the panel's branch in its repository through `Store.fetchPullRequests` (unthrottled) whenever the card knows its PR state.
+Create Pull Request… in the empty branch summary calls `Store.createPullRequest`. It pastes the prompt into the live Claude terminal and focuses it. Panel Refresh also refreshes the branch PR lookup.
 
-Below the panel header sits a PR or branch card (`design/flows-review.md`): `ReviewModel.changes` + `status` (`branchStatus`, loaded with the lists; the default-branch title says "No uncommitted changes on <branch>" with a clean tree) and `pullRequestDetails` (per PR number, `PullRequestStatus.detail`: one `gh api graphql` for the panel's PR only, never in the sidebar's batch). `Store.pullRequest(in:branch:)` returns nil while unknown and `(repository, nil)` for a known no-PR, which alone shows the "No pull request" pill.
+The issue card and PR details tab use `ItemPreviewCache` and `ItemPreviewQuery`. The branch card's check counts and review threads use `PullRequestDetail`. The model also refreshes the stack with one GraphQL request for parent and child PRs and caches the result by repository, head and base.
+
+A PR diff tab uses `ReviewDocument.pullRequestLink` and the existing read-only changed-file loader. The loader fetches a missing PR base from origin without updating tracking refs. The path bar switches files within the tab. A details document uses the same `ReviewTab` history and preview behavior.
 
 ## Closing tabs and find
 

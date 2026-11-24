@@ -15,6 +15,7 @@ nonisolated struct PullRequest: Sendable, Hashable {
     var viewerDidAuthor = false
     var headSHA: String?
     var closedAt: Date?
+    var commentCount = 0
 }
 
 nonisolated enum IssueState: Sendable {
@@ -41,6 +42,17 @@ nonisolated struct SessionPullRequest: PullRequestCandidate, Hashable {
 nonisolated struct PullRequestBranch: Sendable, Hashable {
     let repository: String
     let branch: String
+}
+
+nonisolated struct ReviewPullRequestStackKey: Hashable, Sendable {
+    let repository: String
+    let head: String
+    let base: String
+}
+
+nonisolated struct ReviewPullRequestStack: Sendable {
+    let parent: PullRequest?
+    let children: [PullRequest]
 }
 
 nonisolated enum PullRequestStatus {
@@ -99,6 +111,10 @@ nonisolated enum PullRequestStatus {
                 let nodes: [Issue]
             }
 
+            struct Comments: Decodable {
+                let totalCount: Int
+            }
+
             let number: Int
             let url: URL
             let title: String
@@ -113,6 +129,7 @@ nonisolated enum PullRequestStatus {
             let headRefOid: String?
             let closedAt: String?
             let closingIssuesReferences: Closing?
+            let comments: Comments?
         }
 
         let data: Payload?
@@ -134,7 +151,30 @@ nonisolated enum PullRequestStatus {
         }
     }
 
-    private static let nodeFields = "number url title state isDraft baseRefName headRefName headRepository { nameWithOwner } statusCheckRollup { state } reviewDecision viewerDidAuthor headRefOid closedAt closingIssuesReferences(first: 5) { nodes { number title state stateReason repository { nameWithOwner } } }"
+    private static let nodeFields = "number url title state isDraft baseRefName headRefName headRepository { nameWithOwner } statusCheckRollup { state } reviewDecision viewerDidAuthor headRefOid closedAt comments { totalCount } closingIssuesReferences(first: 5) { nodes { number title state stateReason repository { nameWithOwner } } }"
+
+    static func stack(_ key: ReviewPullRequestStackKey) -> ReviewPullRequestStack? {
+        let parts = key.repository.split(separator: "/", omittingEmptySubsequences: false)
+        guard let gh, parts.count == 2 else { return nil }
+
+        let query = """
+        query($owner: String!, $name: String!, $head: String!, $base: String!) {
+          info: repository(owner: $owner, name: $name) { nameWithOwner defaultBranchRef { name } }
+          branches: repository(owner: $owner, name: $name) {
+            parent: pullRequests(headRefName: $base, states: [OPEN], first: 10, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { \(nodeFields) } }
+            children: pullRequests(baseRefName: $head, states: [OPEN], first: 100) { nodes { \(nodeFields) } }
+          }
+        }
+        """
+        let arguments = ["api", "graphql", "-f", "query=\(query)", "-f", "owner=\(parts[0])", "-f", "name=\(parts[1])", "-f", "head=\(key.head)", "-f", "base=\(key.base)"]
+        guard let output = run(gh, arguments: arguments, requireSuccess: true),
+              let payload = (try? JSONDecoder().decode(Response.self, from: output))?.data,
+              let info = payload.info, let branches = payload.branches
+        else { return nil }
+
+        let parent = key.base == info.defaultBranchRef?.name ? nil : (branches["parent"] ?? nil)?.nodes.first { $0.headRepository?.nameWithOwner == info.nameWithOwner }
+        return ReviewPullRequestStack(parent: parent.map(pullRequest), children: (branches["children"] ?? nil)?.nodes.map(pullRequest) ?? [])
+    }
 
     private static func fetch(branches: [String], numbers: [Int], in repository: String, gh: String) -> (branches: [PullRequestBranch: PullRequest?], linked: [PullRequestLink: PullRequest]) {
         let parts = repository.split(separator: "/").map(String.init)
@@ -168,7 +208,7 @@ nonisolated enum PullRequestStatus {
 
     private static func pullRequest(_ node: Response.Node) -> PullRequest {
         let state: PullRequestState = node.state == "MERGED" ? .merged : node.state == "CLOSED" ? .closed : node.isDraft ? .draft : .open
-        return PullRequest(number: node.number, url: node.url, title: node.title, state: state, baseRefName: node.baseRefName, headRefName: node.headRefName, checks: node.statusCheckRollup.map { PullRequestChecks.State($0.state) }, closingIssues: node.closingIssuesReferences?.nodes.map { ClosingIssue(ref: IssueRef(repository: $0.repository.nameWithOwner, number: $0.number), title: $0.title, state: IssueState(state: $0.state, reason: $0.stateReason)) } ?? [], reviewDecision: node.reviewDecision.flatMap(InboxPullRequest.ReviewDecision.init(rawValue:)), viewerDidAuthor: node.viewerDidAuthor ?? false, headSHA: node.headRefOid, closedAt: node.closedAt.flatMap { try? Date.ISO8601FormatStyle().parse($0) })
+        return PullRequest(number: node.number, url: node.url, title: node.title, state: state, baseRefName: node.baseRefName, headRefName: node.headRefName, checks: node.statusCheckRollup.map { PullRequestChecks.State($0.state) }, closingIssues: node.closingIssuesReferences?.nodes.map { ClosingIssue(ref: IssueRef(repository: $0.repository.nameWithOwner, number: $0.number), title: $0.title, state: IssueState(state: $0.state, reason: $0.stateReason)) } ?? [], reviewDecision: node.reviewDecision.flatMap(InboxPullRequest.ReviewDecision.init(rawValue:)), viewerDidAuthor: node.viewerDidAuthor ?? false, headSHA: node.headRefOid, closedAt: node.closedAt.flatMap { try? Date.ISO8601FormatStyle().parse($0) }, commentCount: node.comments?.totalCount ?? 0)
     }
 
     static func inbox() -> [InboxPullRequest]? {

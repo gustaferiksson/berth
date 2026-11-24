@@ -3,10 +3,15 @@ import GhosttyTerminal
 import SwiftUI
 
 struct ReviewDocument: Hashable {
+    enum PullRequestTab {
+        case diff, details
+    }
+
     let path: String
     let compare: ReviewCompare?
     var root: String?
     var pullRequestLink: PullRequestLink?
+    var pullRequestTab: PullRequestTab?
 
     var pullRequestNumber: Int? { pullRequestLink?.number }
 }
@@ -50,6 +55,8 @@ final class ReviewModel {
     private(set) var status: ReviewBranchStatus?
     private(set) var tree: [ReviewFileTree] = []
     private(set) var pullRequestDetails: [Int: PullRequestDetail] = [:]
+    private(set) var pullRequestStacks: [ReviewPullRequestStackKey: ReviewPullRequestStack] = [:]
+    private(set) var pullRequestsForDetails: [PullRequestLink: PullRequest] = [:]
     private(set) var error: (any Error)?
     private(set) var isLoading = false
     private(set) var contents: [ReviewDocument: ReviewContents] = [:]
@@ -102,6 +109,9 @@ final class ReviewModel {
     var buffers: [String: ReviewEditBuffer] = [:]
     @ObservationIgnored private var blameCache: [ReviewBlameKey: Task<ReviewBlameSnapshot?, Never>] = [:]
     @ObservationIgnored private var pullRequestDetailsLoadedAt: [Int: (repository: String, date: Date)] = [:]
+    @ObservationIgnored private var loadingPullRequestStacks: Set<ReviewPullRequestStackKey> = []
+    @ObservationIgnored private var pullRequestStackDates: [ReviewPullRequestStackKey: Date] = [:]
+    @ObservationIgnored private var pullRequestDiffSelection = UUID()
     @ObservationIgnored private(set) var editors: [String: ReviewTextView] = [:]
     @ObservationIgnored private var savedFromCommitted: Set<String> = []
 
@@ -176,7 +186,7 @@ final class ReviewModel {
             contents = contents.filter { $0.key == selectedDocument }
 
             let existing = { (document: ReviewDocument) -> ReviewDocument? in
-                if document.compare?.isHistorical == true || self.listedFile(for: document) != nil { return document }
+                if document.pullRequestTab != nil || document.compare?.isHistorical == true || self.listedFile(for: document) != nil { return document }
                 return FileManager.default.fileExists(atPath: URL(filePath: changes.root).appending(path: document.path).path) ? ReviewDocument(path: document.path, compare: nil) : nil
             }
             tabs = tabs.compactMap { tab in
@@ -267,6 +277,12 @@ final class ReviewModel {
 
         let task = Task {
             defer { loadingPullRequests[location] = nil }
+            #if DEBUG
+            if Snapshot.output != nil, Snapshot.reviewSelectedPullRequestNumber == link.number {
+                pullRequestFiles[location] = Snapshot.reviewDiffFixture
+                return Snapshot.reviewDiffFixture
+            }
+            #endif
             let result = try await ReviewGit.pullRequestFiles(number: link.number, repository: link.repository, base: entry.pullRequest.baseRefName, in: location.root)
             let loaded = ReviewPullRequestFiles(compare: .range(base: result.base, head: result.head), files: result.files)
             for file in loaded.files {
@@ -290,8 +306,48 @@ final class ReviewModel {
         }
     }
 
+    func openPullRequestDiff(_ entry: ReviewPullRequest) async {
+        let link = entry.id
+        let selection = UUID()
+        pullRequestDiffSelection = selection
+        if let tab = tabs.first(where: { $0.document.pullRequestTab == .diff && $0.document.pullRequestLink == link }) {
+            open(tab.document)
+            return
+        }
+
+        let previous = selectedDocument
+        do {
+            let loaded = try await loadPullRequestFiles(entry)
+            guard selection == pullRequestDiffSelection, previous == selectedDocument, !Task.isCancelled else { return }
+
+            open(ReviewDocument(path: loaded.files.first?.path ?? "", compare: loaded.compare, root: entry.location.root, pullRequestLink: link, pullRequestTab: .diff))
+        } catch {
+            guard selection == pullRequestDiffSelection, previous == selectedDocument, !Task.isCancelled else { return }
+
+            notice = "Couldn’t read PR #\(link.number). \(Self.describe(error))"
+        }
+    }
+
+    func selectPullRequestFile(_ file: ReviewFile, in document: ReviewDocument) {
+        guard document == selectedDocument, let index = tabs.firstIndex(where: { $0.id == selectedTabID }) else { return }
+
+        let fileDocument = ReviewDocument(path: file.path, compare: document.compare, root: document.root, pullRequestLink: document.pullRequestLink, pullRequestTab: .diff)
+        tabs[index].history[tabs[index].index] = (fileDocument, nil)
+        reveal = nil
+        revealLine = nil
+    }
+
+    func openPullRequestDetails(_ entry: ReviewPullRequest) {
+        pullRequestsForDetails[entry.id] = entry.pullRequest
+        open(ReviewDocument(path: "", compare: nil, pullRequestLink: entry.id, pullRequestTab: .details))
+    }
+
     func pullRequestContents(_ document: ReviewDocument) async throws -> ReviewContents {
-        guard let file = rangeFiles[document], let root = document.root, case let .range(base, head) = document.compare else {
+        #if DEBUG
+        if Snapshot.output != nil, document.compare == Snapshot.reviewDiffFixture.compare { return Snapshot.reviewDiffContents }
+
+        #endif
+        guard let file = listedFile(for: document), let root = document.root, case let .range(base, head) = document.compare else {
             throw ReviewGitError.notARepository
         }
 
@@ -377,10 +433,11 @@ final class ReviewModel {
         revealLine = thread.line.map { (document, $0, thread.side) }
     }
 
-    func loadPullRequestDetail(repository: String, number: Int, throttled: Bool = false) async {
+    func loadPullRequestDetail(repository: String, number: Int, throttled: Bool = false, stack: ReviewPullRequestStackKey? = nil) async {
+        async let stackRefresh: Void = loadPullRequestStack(stack, throttled: throttled)
         let lastLoad = pullRequestDetailsLoadedAt[number]
         if let lastLoad, lastLoad.repository == repository {
-            guard !throttled || lastLoad.date.timeIntervalSinceNow <= -60 else { return }
+            guard !throttled || lastLoad.date.timeIntervalSinceNow <= -60 else { return await stackRefresh }
         } else {
             pullRequestDetails[number] = nil
         }
@@ -391,6 +448,19 @@ final class ReviewModel {
         if let detail, pullRequestDetailsLoadedAt[number]?.date == started, pullRequestDetailsLoadedAt[number]?.repository == repository {
             pullRequestDetails[number] = detail
             pullRequestDetailsLoadedAt[number] = (repository, .now)
+        }
+        await stackRefresh
+    }
+
+    private func loadPullRequestStack(_ key: ReviewPullRequestStackKey?, throttled: Bool) async {
+        guard let key, !loadingPullRequestStacks.contains(key), !throttled || (pullRequestStackDates[key]?.timeIntervalSinceNow ?? -.infinity) <= -60 else { return }
+
+        loadingPullRequestStacks.insert(key)
+        defer { loadingPullRequestStacks.remove(key) }
+        let stack = Snapshot.output != nil ? Snapshot.reviewStackFixture : await Task.detached { PullRequestStatus.stack(key) }.value
+        if let stack {
+            pullRequestStacks[key] = stack
+            pullRequestStackDates[key] = .now
         }
     }
 
@@ -462,16 +532,25 @@ final class ReviewModel {
         let files: [ReviewFile]
         switch document.compare {
         case .uncommitted: files = changes?.uncommitted ?? []
+
         case .committed: files = changes?.committed ?? []
+
         case let .commit(sha): files = commitFiles[sha] ?? []
-        case .range: return rangeFiles[document]
+
+        case .range:
+            var file = document
+            file.pullRequestTab = nil
+            return rangeFiles[file]
+
         case nil: return nil
         }
         return files.first { $0.path == document.path }
     }
 
     func isReadOnly(_ document: ReviewDocument) -> Bool {
-        switch document.compare {
+        if document.pullRequestTab != nil { return true }
+
+        return switch document.compare {
         case .commit, .range: true
         case .committed: changes?.uncommitted.contains { $0.path == document.path } != false
         case .uncommitted: false
@@ -480,6 +559,8 @@ final class ReviewModel {
     }
 
     private func loadContents(of document: ReviewDocument) async {
+        guard document.pullRequestTab != .details, !document.path.isEmpty else { return }
+
         if isSessionFiles {
             do {
                 let text = try ReviewGit.plainText(at: URL(filePath: "/" + document.path))
@@ -637,6 +718,7 @@ struct ReviewFileList: View {
     @State private var keyboardNavigation: (row: ReviewDocument, selection: ReviewDocument?)?
 
     var body: some View {
+        let shown = model.changes.flatMap { shownPullRequest(root: nil, branch: $0.branch) }
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .task { await model.load() }
@@ -656,7 +738,7 @@ struct ReviewFileList: View {
             .onChange(of: owners.contains { $0.model.hasUnsavedEdits || !$0.model.comments.isEmpty }) { store.prepareReviewModel() }
             .task(id: selection) { await (store.reviewModel ?? model).loadSelectedContents() }
             .task(id: extraStates) { for extra in extras { await prepare(extra.repository, extra.model) } }
-            .task(id: model.changes.flatMap { shownPullRequest(root: nil, branch: $0.branch)?.pullRequest?.number }) { await loadPullRequestDetail() }
+            .task(id: [shown?.repository, shown?.pullRequest?.number.formatted(), branchStackKey?.head, branchStackKey?.base]) { await loadPullRequestDetail() }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 Task {
                     for owner in owners {
@@ -665,7 +747,7 @@ struct ReviewFileList: View {
                               let number = shown.pullRequest?.number
                         else { continue }
 
-                        await owner.model.loadPullRequestDetail(repository: shown.repository, number: number, throttled: true)
+                        await owner.model.loadPullRequestDetail(repository: shown.repository, number: number, throttled: true, stack: owner.model === model ? branchStackKey : nil)
                     }
                 }
             }
@@ -825,7 +907,7 @@ struct ReviewFileList: View {
                 return loaded.files.map { ReviewDocument(path: $0.path, compare: loaded.compare, root: entry.location.root, pullRequestLink: entry.id) }
             }
         } : []
-        return (isStacked ? pullRequestFiles + ownAndExtraFiles : ownAndExtraFiles + pullRequestFiles) + sessionFileOrder
+        return pullRequestFiles + ownAndExtraFiles + sessionFileOrder
     }
 
     private func repositoryOrder(_ changes: ReviewChanges?) -> [ReviewDocument] {
@@ -934,7 +1016,7 @@ struct ReviewFileList: View {
     private func branchCard(_ changes: ReviewChanges, _ status: ReviewBranchStatus) -> some View {
         let shown = shownPullRequest(root: nil, branch: changes.branch)
         let detail = shown?.pullRequest.flatMap { model.pullRequestDetails[$0.number] }
-        return ReviewBranchCard(changes: changes, status: status, pullRequest: shown.map(\.pullRequest), repository: shown?.repository, detail: detail, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: createPullRequest, showThreads: { showThreadSection(ownRoot, detail: detail) })
+        return ReviewBranchCard(changes: changes, status: status, pullRequest: shown.map(\.pullRequest), repository: shown?.repository, detail: detail, isClaudeLive: store.liveBySession[sessionID] != nil, createPullRequest: { store.createPullRequest(sessionID: sessionID, model: model) }, showThreads: { showThreadSection(ownRoot, detail: detail) })
     }
 
     private var allExtras: [(repository: ReviewRepository, model: ReviewModel)] {
@@ -1224,8 +1306,8 @@ struct ReviewFileList: View {
             [changes.uncommitted, changes.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) }
         } + [ReviewFileTree.compactNodes(sessionFiles).flatMap(\.folderPaths)] : nil
         return list(name: "review", order: changeOrder(changes)) {
-            pullRequestSection(changes)
             if isStacked {
+                pullRequestSection(changes)
                 if shownRepo != nil || !store.shownReviewPullRequests[sessionID, default: [:]].isEmpty {
                     sessionPullRequestSection(changes)
                 }
@@ -1239,13 +1321,18 @@ struct ReviewFileList: View {
                     stackedSections(changes)
                 }
             } else {
+                if let issue = reviewIssue {
+                    ReviewIssueCard(issue: issue)
+                        .reviewRow(bottom: 6)
+                }
+                if let changes { branchPullRequestArea(changes) }
+                sessionPullRequestSection(changes)
                 if let changes {
                     threadSection(in: model, root: nil)
                     changeSections(changes, in: model, root: nil)
                     commitsSection(changes)
                     filesSection(changes)
                 }
-                sessionPullRequestSection(changes)
             }
             sessionFilesSection
         }
@@ -1259,9 +1346,39 @@ struct ReviewFileList: View {
         }
     }
 
+    private var reviewIssue: ClosingIssue? {
+        if let issue = pullRequest?.pullRequest?.closingIssues.first { return issue }
+        guard let issue = store.task(containing: sessionID)?.issue
+            ?? store.tasks.tasks.first(where: { $0.sessionIDs == [sessionID] })?.issue
+            ?? store.sessionsByID[sessionID]?.issueRefs.first
+        else { return nil }
+
+        return ClosingIssue(ref: issue, title: "", state: store.state(of: issue))
+    }
+
+    @ViewBuilder
+    private func branchPullRequestArea(_ changes: ReviewChanges) -> some View {
+        if let shown = pullRequest, let pullRequest = shown.pullRequest {
+            let entry = ReviewPullRequest(pullRequest: pullRequest, repository: shown.repository, root: changes.root)
+            let detail = model.pullRequestDetails[pullRequest.number]
+            ReviewPullRequestCard(entry: entry, model: model, branch: pullRequest.headRefName ?? changes.branch, base: pullRequest.baseRefName ?? changes.base, detail: detail) {
+                showThreadSection(ownRoot, detail: detail)
+            }
+            .reviewRow(bottom: 6)
+            if let key = branchStackKey, let stack = model.pullRequestStacks[key], stack.parent != nil || !stack.children.isEmpty {
+                SidebarSection(title: "Stack", help: "Pull requests based on each other", count: 1 + (stack.parent == nil ? 0 : 1) + stack.children.count, isExpanded: expansion(of: "stack")) {
+                    ReviewPullRequestStackRows(branch: entry, stack: stack, model: model)
+                }
+            }
+        } else {
+            ReviewPullRequestEmpty(changes: changes, status: model.status ?? .unknown, sessionID: sessionID, model: model)
+                .reviewRow(bottom: 6)
+        }
+    }
+
     @ViewBuilder
     private func pullRequestSection(_ changes: ReviewChanges?) -> some View {
-        if !isStacked || shownRepo == ownRoot, let changes {
+        if shownRepo == ownRoot, let changes {
             let shown = shownPullRequest(root: nil, branch: changes.branch)
             SidebarSection(title: shown?.pullRequest == nil ? changes.branch : "Pull Request", help: "The branch’s pull request and checks", isExpanded: expansion(of: "pullRequest")) {
                 branchCard(changes, model.status ?? .unknown)
@@ -1321,7 +1438,7 @@ struct ReviewFileList: View {
         let count = groups.reduce(0) { $0 + $1.entries.count }
         return SidebarSection(isExpanded: count == 0 ? .constant(false) : expansion(of: "otherPullRequests", defaultExpanded: false)) {
             ForEach(groups, id: \.root) { group in
-                ReviewOtherPullRequests(entries: group.entries, model: group.model, showsRepository: group.root == nil && !store.shownReviewPullRequests[sessionID, default: [:]].isEmpty)
+                ReviewOtherPullRequests(entries: group.entries, model: group.model)
             }
         } header: { expansion in
             SidebarSectionHeader(title: "Session pull requests", help: "Pull requests linked to this session or added to Review", count: count == 0 ? nil : count, isExpanded: expansion) {
@@ -1477,13 +1594,26 @@ struct ReviewFileList: View {
     }
 
     private var pullRequest: (repository: String, pullRequest: PullRequest?)? {
-        model.changes.flatMap { store.pullRequest(in: store.sessionsByID[sessionID]?.checkout ?? model.folder, branch: $0.branch) }
+        guard let changes = model.changes else { return nil }
+
+        if !isStacked { return shownPullRequest(root: nil, branch: changes.branch) }
+
+        return store.pullRequest(in: store.sessionsByID[sessionID]?.checkout ?? model.folder, branch: changes.branch)
+    }
+
+    private var branchStackKey: ReviewPullRequestStackKey? {
+        guard !isStacked, let shown = pullRequest, let pullRequest = shown.pullRequest,
+              let head = pullRequest.headRefName ?? model.changes?.branch,
+              let base = pullRequest.baseRefName ?? model.changes?.defaultBase
+        else { return nil }
+
+        return ReviewPullRequestStackKey(repository: shown.repository, head: head, base: base.hasPrefix("origin/") ? String(base.dropFirst("origin/".count)) : base)
     }
 
     private func loadPullRequestDetail() async {
         guard let pullRequest = model.changes.flatMap({ shownPullRequest(root: nil, branch: $0.branch) }), let number = pullRequest.pullRequest?.number else { return }
 
-        await model.loadPullRequestDetail(repository: pullRequest.repository, number: number)
+        await model.loadPullRequestDetail(repository: pullRequest.repository, number: number, stack: branchStackKey)
     }
 
     private func header(_ changes: ReviewChanges) -> some View {
@@ -1593,11 +1723,13 @@ struct ReviewFileList: View {
 
         for owner in owners { owner.model.comments = [] }
     }
+}
 
-    private func createPullRequest() {
+extension Store {
+    func createPullRequest(sessionID: String, model: ReviewModel) {
         let base = model.changes.flatMap { $0.base == $0.defaultBase ? nil : $0.base }.map { $0.hasPrefix("origin/") ? String($0.dropFirst("origin/".count)) : $0 }
         let prompt = base.map { "Push this branch and open a pull request for it against \($0) with gh (--base \($0))." } ?? "Push this branch and open a pull request for it with gh."
-        guard store.liveBySession[sessionID] != nil, let terminal = store.tab(forSession: sessionID)?.terminal, terminal.paste(text: prompt) else {
+        guard liveBySession[sessionID] != nil, let terminal = tab(forSession: sessionID)?.terminal, terminal.paste(text: prompt) else {
             model.notice = "Claude isn’t running in this tab"
             return
         }
@@ -1868,269 +2000,32 @@ private struct ReviewFileNode: View {
 
 struct PullRequestStatePill: View {
     let pullRequest: PullRequest
+    var opensOnGitHub = true
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @State private var isHovering = false
 
     var body: some View {
+        if opensOnGitHub {
+            Button { openURL(pullRequest.url) } label: { pill }
+                .buttonStyle(.plain)
+                .onHover { isHovering = $0 }
+                .pointerStyle(.link)
+                .help("Open pull request #\(String(pullRequest.number)) on GitHub")
+        } else {
+            pill
+        }
+    }
+
+    private var pill: some View {
         let color = pullRequest.state.color(in: theme)
-        Button { openURL(pullRequest.url) } label: {
-            Label { Text(pullRequest.state.rawValue) } icon: { OcticonImage(Octicon(pullRequest.state)) }
-                .labelStyle(CompactLabel())
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(color)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .pointerStyle(.link)
-        .help("Open pull request #\(String(pullRequest.number)) on GitHub")
-    }
-}
-
-private struct ReviewBranchCard: View {
-    let changes: ReviewChanges
-    let status: ReviewBranchStatus
-    let pullRequest: PullRequest??
-    let repository: String?
-    let detail: PullRequestDetail?
-    let isClaudeLive: Bool
-    let createPullRequest: (() -> Void)?
-    let showThreads: () -> Void
-    @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.openURL) private var openURL
-
-    var body: some View {
-        let found = pullRequest ?? nil
-        let decision = detail?.reviewDecision.flatMap(InboxPullRequest.ReviewDecision.init(rawValue:)) ?? found?.reviewDecision
-        VStack(alignment: .leading, spacing: 10) {
-            if found == nil, changes.isDefaultBranch || changes.base == nil {
-                Text(changes.uncommitted.isEmpty ? "No uncommitted changes on \(changes.branch)" : "Uncommitted changes on \(changes.branch)")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                pushState
-                    .font(.caption)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                headline(found)
-                Text(verbatim: "\(found?.headRefName ?? changes.branch) → \(found?.baseRefName ?? changes.base ?? "")")
-                    .font(.caption)
-                    .foregroundStyle(Color.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                if found != nil {
-                    if detail != nil || decision != nil {
-                        ViewThatFits(in: .horizontal) {
-                            HStack(spacing: 8) { reviewStatus(decision) }
-                            VStack(alignment: .leading, spacing: 4) { reviewStatus(decision) }
-                        }
-                        .font(.caption)
-                    }
-                    checksRow
-                } else {
-                    ViewThatFits(in: .horizontal) {
-                        facts
-                        VStack(alignment: .leading, spacing: 2) { facts }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(Color.secondary)
-                }
-            }
-            actions(found)
-        }
-        .lineLimit(1)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .geometryGroup()
-    }
-
-    private func headline(_ found: PullRequest?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if pullRequest != nil {
-                HStack(spacing: 8) {
-                    if let found {
-                        PullRequestStatePill(pullRequest: found)
-                        Text(verbatim: "#\(found.number)")
-                            .font(.caption.weight(.medium))
-                            .monospacedDigit()
-                            .foregroundStyle(Color.secondary)
-                    } else {
-                        Label("No pull request", systemImage: "arrow.triangle.branch")
-                            .labelStyle(CompactLabel())
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.secondary.opacity(0.16), in: .rect(cornerRadius: 4))
-                    }
-                    Spacer(minLength: 0)
-                    if let found { moreMenu(found) }
-                }
-            }
-            if let found {
-                Text(found.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .help(found.title)
-                    .contextMenu { stewardAction(found) }
-            } else {
-                Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits")")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-            }
-        }
-    }
-
-    @ViewBuilder private var facts: some View {
-        if status.behind > 0 {
-            Label("\(status.behind) behind", systemImage: "arrow.down")
-                .help("\(status.behind) behind \(changes.base ?? "")")
-        }
-        if let total = changes.total {
-            Text("+\(total.additions) −\(total.deletions)")
-                .monospacedDigit()
-                .help("Changes against \(changes.base ?? ""), uncommitted included")
-        }
-        if status.ahead > 0 {
-            pushState
-        }
-    }
-
-    @ViewBuilder
-    private func reviewStatus(_ decision: InboxPullRequest.ReviewDecision?) -> some View {
-        if let decision {
-            let tag: (String, Color) = switch decision {
-            case .approved: ("Approved", theme.working)
-            case .changesRequested: ("Changes requested", theme.closed)
-            case .reviewRequired: ("Review required", theme.needsYou)
-            }
-            Text(tag.0)
-                .fontWeight(.semibold)
-                .foregroundStyle(tag.1)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(tag.1.opacity(0.16), in: .rect(cornerRadius: 4))
-        }
-        if let detail {
-            let open = detail.unresolvedThreads
-            Button(action: showThreads) {
-                Label(open == 0 ? "All resolved" : "\(open) open", systemImage: open == 0 ? "checkmark" : "bubble.left")
-                    .labelStyle(CompactLabel())
-                    .monospacedDigit()
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(open == 0 ? theme.working : theme.foreground)
-            .disabled(detail.threads.isEmpty)
-            .help(detail.threads.isEmpty ? "No review threads" : "Show Review Threads")
-        }
-    }
-
-    @ViewBuilder private var checksRow: some View {
-        if detail?.checks != nil || detail?.changedFiles != nil || detail?.commits != nil || changes.total != nil {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) { pullRequestFacts }
-                VStack(alignment: .leading, spacing: 4) { pullRequestFacts }
-            }
-        }
-    }
-
-    @ViewBuilder private var pullRequestFacts: some View {
-        if let checks = detail?.checks {
-            HStack(spacing: 8) {
-                if checks.passed > 0 {
-                    Label("\(checks.passed)", systemImage: "checkmark.circle.fill").foregroundStyle(theme.working)
-                }
-                if checks.failed > 0 {
-                    Label("\(checks.failed)", systemImage: "xmark.circle.fill").foregroundStyle(theme.closed)
-                }
-                if checks.running > 0 {
-                    Label("\(checks.running)", systemImage: "clock.fill").foregroundStyle(theme.needsYou)
-                }
-            }
+        return Label { Text(pullRequest.state.rawValue) } icon: { OcticonImage(Octicon(pullRequest.state)) }
             .labelStyle(CompactLabel())
-            .font(.callout.weight(.medium))
-            .fixedSize()
-            .help("Checks · \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running")
-        }
-        HStack(spacing: 6) {
-            if let files = detail?.changedFiles { Text("\(files) \(files == 1 ? "file" : "files")") }
-            if let commits = detail?.commits { Text("\(commits) \(commits == 1 ? "commit" : "commits")") }
-            if let total = changes.total {
-                Text("+\(total.additions) −\(total.deletions)")
-                    .help("Changes against \(changes.base ?? ""), uncommitted included")
-            }
-        }
-        .font(.caption)
-        .monospacedDigit()
-        .foregroundStyle(Color.secondary)
-    }
-
-    @ViewBuilder
-    private func actions(_ found: PullRequest?) -> some View {
-        if let createPullRequest, pullRequest != nil, found == nil, !changes.isDefaultBranch, changes.base != nil, status.ahead > 0 {
-            Button(action: createPullRequest) {
-                Text("Create Pull Request…").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.glassProminent)
-            .controlSize(.large)
-            .disabled(!isClaudeLive)
-            .help(isClaudeLive ? "Paste a prompt asking Claude to push this branch and open a pull request" : "Claude isn’t running in this tab")
-        }
-    }
-
-    @ViewBuilder
-    private func stewardAction(_ found: PullRequest) -> some View {
-        if let repository, [.open, .draft].contains(found.state) {
-            StewardPullRequestButton(link: PullRequestLink(repository: repository, number: found.number), url: found.url)
-        }
-    }
-
-    private func moreMenu(_ found: PullRequest) -> some View {
-        Menu {
-            Button("Open on GitHub", systemImage: "arrow.up.right.square") { openURL(found.url) }
-            stewardAction(found)
-            Button("Copy Link", systemImage: "link") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(found.url.absoluteString, forType: .string)
-            }
-            Button("Copy Number", systemImage: "number") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString("#\(found.number)", forType: .string)
-            }
-        } label: {
-            Image(systemName: "ellipsis")
-                .accessibilityLabel("More")
-        }
-        .menuIndicator(.hidden)
-        .foregroundStyle(theme.secondary)
-        .frame(width: 20, alignment: .trailing)
-        .padding(.trailing, 2)
-    }
-
-    private var pushState: some View {
-        Group {
-            if let upstream = status.upstream, upstream.ahead > 0 {
-                Label("\(upstream.ahead) not pushed", systemImage: "arrow.up")
-                    .foregroundStyle(theme.needsYou)
-                    .help("\(upstream.ahead) \(upstream.ahead == 1 ? "commit" : "commits") not pushed to \(upstream.name)")
-            } else if let upstream = status.upstream, upstream.behind > 0 {
-                Label("\(upstream.behind) behind \(upstream.name)", systemImage: "arrow.down")
-                    .foregroundStyle(theme.needsYou)
-            } else if let upstream = status.upstream {
-                Label("Up to date with \(upstream.name)", systemImage: "checkmark")
-                    .foregroundStyle(theme.working)
-            } else {
-                Label(changes.isDefaultBranch || changes.base == nil ? "No upstream" : "Not pushed", systemImage: "arrow.up")
-                    .foregroundStyle(theme.needsYou)
-                    .help("\(changes.branch) has no upstream branch")
-            }
-        }
-        .labelStyle(CompactLabel())
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
     }
 }
 
@@ -2182,6 +2077,20 @@ struct ReviewDiffColumn: View {
                     strip(model, tab: nil, style: style)
                     Divider()
                     ReviewPreviewView(model: model, rootPID: store.selectedSessionID.flatMap { store.liveBySession[$0]?.pid })
+                }
+            } else if let model = store.reviewModel, let tab = model.selectedTab, tab.document.pullRequestTab == .details,
+                      let link = tab.document.pullRequestLink, let pullRequest = model.pullRequestsForDetails[link] {
+                VStack(spacing: 0) {
+                    strip(model, tab: tab, style: style)
+                    Divider()
+                    ReviewPullRequestDetails(pullRequest: pullRequest)
+                        .id(link)
+                }
+            } else if let model = store.reviewModel, let tab = model.selectedTab, tab.document.pullRequestTab == .diff, tab.document.path.isEmpty {
+                VStack(spacing: 0) {
+                    strip(model, tab: tab, style: style)
+                    Divider()
+                    ContentUnavailableView("No changed files", systemImage: "doc")
                 }
             } else if let model = store.reviewModel, let tab = model.selectedTab {
                 let document = tab.document
@@ -2329,15 +2238,15 @@ struct ReviewDiffColumn: View {
                     .padding(.leading, 6)
                 }
                 HStack(spacing: 6) {
-                    if tab != nil {
+                    if let tab, !tab.document.path.isEmpty {
                         GlassCapsule {
-                            if tab?.document.isMarkdown == true {
+                            if tab.document.isMarkdown {
                                 let action = store.rendersMarkdown ? AppAction.showMarkdownSource : .showRenderedMarkdown
                                 Button(action.title, systemImage: action.symbol) { action.perform(on: store) }
                                     .foregroundStyle(store.rendersMarkdown ? Color.accentColor : Color(nsColor: style.secondary))
                                     .help("\(action.title) (⇧⌘M)")
                             }
-                            if tab?.document.isMarkdown != true || !store.rendersMarkdown {
+                            if !tab.document.isMarkdown || !store.rendersMarkdown {
                                 Button("Wrap Lines", systemImage: "arrow.turn.down.left") { wrapsLines.toggle() }
                                     .foregroundStyle(wrapsLines ? Color.accentColor : Color(nsColor: style.secondary))
                                     .help("Wrap Lines")
@@ -2402,8 +2311,18 @@ struct ReviewDiffColumn: View {
         case .range: document.pullRequestNumber.map { " (PR #\($0))" } ?? ""
         case nil: ""
         }
-        let title = if let number = document.pullRequestNumber { "PR #\(number) · \(name)" } else if document.compare?.isHistorical == true { name + compare } else { name }
-        let previewHint = if !tab.isPreview { "" } else if document.compare?.isHistorical == true { ". Double-click to keep this preview tab." } else { ". Double-click or edit to keep this preview tab." }
+        let title = if let number = document.pullRequestNumber {
+            switch document.pullRequestTab {
+            case .details: "PR #\(number) details"
+            case .diff: "PR #\(number)"
+            case nil: "PR #\(number) · \(name)"
+            }
+        } else if document.compare?.isHistorical == true {
+            name + compare
+        } else {
+            name
+        }
+        let previewHint = if !tab.isPreview { "" } else if model.isReadOnly(document) { ". Double-click to keep this preview tab." } else { ". Double-click or edit to keep this preview tab." }
         return HStack(spacing: 6) {
             Image(systemName: document.compare == nil ? "doc" : "plus.forwardslash.minus")
                 .font(.caption)
@@ -2430,25 +2349,27 @@ struct ReviewDiffColumn: View {
         .contentShape(.rect)
         .onTapGesture { model.selectedTabID = tab.id }
         .simultaneousGesture(TapGesture(count: 2).onEnded { model.keep(tab.id) })
-        .help("\(document.path)\(compare)\(previewHint)")
+        .help("\(document.path.isEmpty ? title : document.path + compare)\(previewHint)")
         .contextMenu {
-            let absolute = (document.root ?? model.changes?.root).map { ($0 as NSString).appendingPathComponent(document.path) }
-            if let absolute {
-                Button("Copy Path") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(absolute, forType: .string)
+            if !document.path.isEmpty {
+                let absolute = (document.root ?? model.changes?.root).map { ($0 as NSString).appendingPathComponent(document.path) }
+                if let absolute {
+                    Button("Copy Path") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(absolute, forType: .string)
+                    }
                 }
+                Button("Copy Relative Path") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(document.path, forType: .string)
+                }
+                Button("Reveal in Files") {
+                    model.selectedTabID = tab.id
+                    model.filesReveal = document.path
+                }
+                .disabled(document.pullRequestLink != nil || model !== store.primaryReviewModel || !FileManager.default.fileExists(atPath: absolute ?? ""))
+                Divider()
             }
-            Button("Copy Relative Path") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(document.path, forType: .string)
-            }
-            Button("Reveal in Files") {
-                model.selectedTabID = tab.id
-                model.filesReveal = document.path
-            }
-            .disabled(document.pullRequestLink != nil || model !== store.primaryReviewModel || !FileManager.default.fileExists(atPath: absolute ?? ""))
-            Divider()
             Button("Close") { store.closeDiff(tab: tab.id) }
             Button("Close Others") {
                 model.selectedTabID = tab.id

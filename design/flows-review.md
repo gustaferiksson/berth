@@ -46,10 +46,11 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
 ## Layout
 
 - The toolbar’s `plus.forwardslash.minus` icon toggles Review when enabled.
-- The panel header holds the branch, base menu, warnings, tree toggle and Refresh. One list of
-  accordion sections follows in this order. Pull Request (or the branch name), Review Threads,
-  Uncommitted, Committed, Commits, Files, Session pull requests, Edited by Session.
-  Counts show on collapsed sections. The comments bar sits below the list.
+- The panel header holds the branch, base menu, warnings, tree toggle and Refresh. In a
+  non-stacked session, the list starts with the linked issue, the branch PR or its empty state,
+  Stack when present, then Session pull requests. Review Threads, Uncommitted, Committed,
+  Commits, Files and Edited by Session follow. Counts show on collapsed sections. The comments
+  bar sits below the list. Stacked sessions keep their per-repository cards.
 - Uncommitted and Committed appear when they have files. Rows show a coloured status letter,
   a monospaced file name and nonzero line counts at the right edge. Click to open the compare.
   ⌘-click or use the hover Open File button to open the working-tree file. Deleted files only
@@ -77,9 +78,6 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
 - Commits shows the branch’s commits and a History disclosure for the graph. On the default
   branch, the graph appears directly. Select a commit to show its changed files and preview the
   first diff. Load More fetches older commits. See `Sources/ReviewGraphView.swift`.
-- Rows in Session pull requests (Other pull requests in stacked repositories) expand to show
-  changed files. Berth fetches the PR head from the matching origin and compares it with its
-  merge base. Select a file to open a read-only diff. Open on GitHub is in the row’s context menu.
 - Refreshing: the panel reloads its lists on its own when the repository changes on disk. While
   the panel shows a model (not while hidden or under Harbor; showing it again reloads), one
   FSEvents watcher in `Store` covers the repository root and the common git dir (`git rev-parse
@@ -100,33 +98,8 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
   has unsaved drafts or comments it stays, with "This session moved to <folder>. Save or undo
   your edits and send or delete your comments to follow it." under the header, and swaps once
   both are gone; the notice clears if the session moves back.
-- Panel header: branch → base ("<branch>, uncommitted only" on the default branch or without a
-  base), a fetch warning when the fetch failed, Refresh. "→ base" is a pull-down menu (Compare
-  against…) listing the candidates as "<ref> · N commits", the PR's base marked "PR base" and the
-  current one checked; picking one stores it and reloads. Below it the PR or branch card
-  (`design/review-panel.md`), from `ReviewGit.changes(in:)` and `branchStatus(of:)`, loaded with
-  the lists; if the status fails there is no card. Which card, first match wins:
-  - On the default branch, or with no base: "Uncommitted changes on <branch>" ("No uncommitted
-    changes on <branch>" with a clean tree), its upstream
-    state ("N not pushed", "N behind <upstream>", "Up to date with <upstream>" or "No
-    upstream") and its last two commits.
-  - With a PR (the sidebar's data, `Store.pullRequest(in:branch:)`): a state pill (Open, Draft,
-    Merged, Closed in the sidebar tag's colours), `#number`, Open on GitHub, the title (two
-    lines), then the branch total (below), checks, review decision, file and commit counts,
-    and a button for the unresolved thread count. Checks and threads are one `gh api graphql`
-    call (`PullRequestDetail`) for this PR only, off the main thread, when the panel shows the
-    session, when the PR first appears and on Refresh; kept per PR number, so a failed call
-    keeps the last result. Without `gh` only the total is left on the line. The branch's commits follow, as below.
-  - Otherwise: a "No pull request" pill (only once the sidebar's lookup answered no PR; without
-    `gh` or a GitHub remote there is no pill), "N commits ahead of <base>" ("No commits yet" at
-    0), ↑ahead ↓behind the base, the branch total, the upstream state ("Not pushed, no
-    upstream" without one), and the branch's commits, at most 5 then "N more": short SHA, subject, age, and a dot,
-    filled when pushed to the upstream, hollow in the needs-you colour when not. With the pill and
-    at least 1 commit ahead, a Create Pull Request… button ends the card (see Create Pull Request).
-  - The branch total (`ReviewChanges.total`) is `+N −M` of the working tree against the merge
-    base (what the PR would hold with everything committed), untracked files included and binary
-    files as 0, so a committed line reverted in the working tree counts nowhere, unlike the sum of
-    both sections. None on the default branch or without a base.
+- The header's base menu lists candidates as "<ref> · N commits", marks the PR base and
+  checks the current selection. Picking a base saves it and reloads the list.
 - Diff column (`ReviewDiffColumn`, an `NSSplitViewController` item next to the terminal): open
   whenever the panel shows, collapsed only while the panel is hidden or Harbor is shown, so the
   terminal's width doesn't change as files open and close. With no tab (or a terminal tab
@@ -237,7 +210,7 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
 | ⌘F | the diff | The focused side's find bar |
 | ⌘-click | an identifier on the right side, language servers on | Goes to its definition |
 | Send N Comments | the panel | See Comments |
-| Create Pull Request… | the branch card | See Create Pull Request |
+| Create Pull Request… | the branch summary menu | See Create Pull Request |
 
 ⌘J keeps its meaning (Switch Terminal / Claude).
 
@@ -267,18 +240,35 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
 - Send to Claude pastes the thread into the current session's prompt for the user to read and
   submit, using the same flow as Send N Comments.
 
-The open or draft PR card offers **Steward with Claude** in its title context menu and More menu. It uses the launcher’s PR session and worktree flow to paste `/steward <PR URL>` for the user to submit.
+## Pull requests and issues
+
+- The issue card shows the first issue the branch PR closes, or the session's task issue.
+  It shows state, repository and title. The cached GitHub preview adds the assignee and labels.
+  Click to open the issue. The context menu also offers Copy Link.
+- The branch PR card shows its state, number, repository, title and head → base. The footer
+  shows check counts, review decision and unresolved threads. Click the thread count to expand
+  and scroll to Review Threads. Issue and PR cards show project status when available.
+- With no PR, a short summary shows commits ahead of the comparison base and push status.
+  The branch menu offers **Create Pull Request…** and **Add Existing Pull Request…**. The
+  default branch shows a one-line uncommitted and upstream summary.
+- Stack shows the open or draft parent PR above this branch, with open or draft children below.
+  Stack and session PR rows show a combined check and review indicator and the comment count.
+  Session PR chevrons expand the changed files. Click a file to see its read-only diff or
+  ⌘-click to open the file.
+- Click a PR card or row to open a read-only PR #N diff tab. It starts at the first changed
+  file. Use the path bar to switch files. The menu also offers Show Diff in Review,
+  Show Details, Open on GitHub, Steward with Claude for open or draft PRs,
+  Move To Status for editable project items, and Copy Link.
+- Show Details opens a PR #N details tab with the linked issue, selectable Markdown description,
+  reviewers, latest comments and named checks. It uses the same preview, keep, history and close
+  controls as a diff tab. Opening the same details again focuses its existing tab.
 
 ## Create Pull Request
 
-- The button does nothing outward itself: like Send, it pastes a prompt ("Push this branch and
-  open a pull request for it with gh.", or "… against <base> with gh (--base <base>)." when the base
-  isn't the default branch, without `origin/`) into the session's claude prompt without submitting it and
-  focuses the terminal, so the user reads it and presses Return. Claude's own instructions decide
-  the PR's wording. It is disabled, with a tooltip saying so, while Claude isn't running in the tab.
-- The new PR shows up through the sidebar's lookup (app activation or the 5 min poll, at most once a
-  minute), or at once on the panel's Refresh, which looks up the panel's branch in its repository
-  (`Store.fetchPullRequests`, unthrottled) whenever the card knows its PR state.
+- Create Pull Request… pastes a prompt into the Claude session and focuses the terminal.
+  It includes the comparison base when it differs from the default branch. Press Return
+  to submit it. The menu item requires a live Claude session.
+- Berth picks up the new PR on its next branch lookup or when the panel is refreshed.
 
 ## Language servers
 

@@ -200,6 +200,8 @@ public enum ReviewGit {
         let target: String
         if let remoteBase, await (try? line(["rev-parse", "--verify", "--quiet", "\(remoteBase)^{commit}"], in: root)) != nil {
             target = remoteBase
+        } else if let base, let fetched = try? await FetchThrottle.shared.fetchHead("refs/heads/\(base)", record: "branch '\(base)'", in: root) {
+            target = fetched
         } else if let fallback = await defaultBranch(in: root) {
             target = fallback
         } else if let fallback = await Self.base(in: root) {
@@ -565,18 +567,23 @@ actor FetchThrottle {
     private var pullRequestFetches: [String: Task<String, any Error>] = [:]
 
     func pullRequestHead(_ number: Int, in root: String, timeout: TimeInterval = FetchThrottle.timeout) async throws -> String {
+        let ref = "refs/pull/\(number)/head"
+        return try await fetchHead(ref, record: "'\(ref)'", in: root, timeout: timeout)
+    }
+
+    func fetchHead(_ ref: String, record: String, in root: String, timeout: TimeInterval = FetchThrottle.timeout) async throws -> String {
+        _ = try await ReviewGit.git(["check-ref-format", ref], in: root)
         while let previous = pullRequestFetches[root] { _ = await previous.result }
 
         let task = Task {
             defer { pullRequestFetches[root] = nil }
-            let ref = "pull/\(number)/head"
             let arguments = ["fetch", "--quiet", "--no-tags", "--no-auto-gc", "--no-prune", "--no-prune-tags", "--no-recurse-submodules", "--refmap=", "origin", ref]
             _ = try await ReviewGit.git(arguments, in: root, timeout: timeout)
             let head = try await ReviewGit.line(["rev-parse", "FETCH_HEAD"], in: root)
             try ReviewGit.validateCommitSHA(head)
             let path = try await ReviewGit.line(["rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD"], in: root)
-            let record = try String(contentsOf: URL(filePath: path), encoding: .utf8)
-            guard record.split(separator: "\n").contains(where: { $0.hasPrefix("\(head)\t\t'refs/\(ref)' of ") }) else {
+            let entries = try String(contentsOf: URL(filePath: path), encoding: .utf8)
+            guard entries.split(separator: "\n").contains(where: { $0.hasPrefix("\(head)\t\t\(record) of ") }) else {
                 throw ReviewGitError.git(arguments: arguments, message: "Another fetch replaced FETCH_HEAD. Try again.")
             }
 

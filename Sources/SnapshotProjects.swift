@@ -5,7 +5,7 @@ import Foundation
 extension Snapshot {
     static func projectsFixture() -> (list: ProjectList, boards: [String: ProjectBoard], state: ProjectsModel.State)? {
         let defaults = UserDefaults.standard
-        guard output != nil || SettingsSnapshot.output != nil, defaults.bool(forKey: "snapshotProjects") else { return nil }
+        guard output != nil || SettingsSnapshot.output != nil, defaults.bool(forKey: "snapshotProjects") || Self.showsReviewIssue && defaults.bool(forKey: ProjectsModel.enabledKey) else { return nil }
 
         let listJSON = """
         {"data":{"viewer":{"login":"sam","projectsV2":{"nodes":[
@@ -17,7 +17,7 @@ extension Snapshot {
         guard case let .success(list) = ProjectQueries.parseList(Data(listJSON.utf8)) else { return nil }
 
         typealias Row = (reference: String?, title: String, kind: String, status: Int?, assignees: [String])
-        let rows: [[Row]] = [
+        var rows: [[Row]] = [
             [
                 ("acme/web#21", "Let billing administrators download usage reports for any closed billing period from the dashboard", "Issue", 0, ["sam"]),
                 ("acme/billing#4821", "Reconcile ledger entries", "PullRequest", 2, ["sam", "lee"]),
@@ -37,7 +37,11 @@ extension Snapshot {
                 (nil, "Plan the next usage export format", "DraftIssue", 0, ["sam"]),
             ],
         ]
-        let names = ["Todo", "In Progress", "In Review", "Done"]
+        if Self.showsReviewIssue {
+            let issue = Self.reviewIssueFixture
+            rows[0].append(("\(issue.ref.repository)#\(issue.ref.number)", issue.title, "Issue", 1, ["mara"]))
+        }
+        let names = ["Todo", Self.showsReviewIssue ? "In progress" : "In Progress", "In Review", "Done"]
         let options = names.enumerated().map { index, name in
             #"{"id":"status-\#(index)","name":"\#(name)"}"#
         }.joined(separator: ",")

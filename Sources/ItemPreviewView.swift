@@ -217,13 +217,7 @@ struct ItemPreviewView: View {
             ItemPreviewAvatar(login: login, size: 15)
             Text(login).lineLimit(1)
             if let reviewState {
-                let appearance: (icon: String, label: String, color: Color) = switch reviewState {
-                case .approved: ("checkmark.circle.fill", "Approved", theme.working)
-                case .changesRequested: ("exclamationmark.circle.fill", "Changes requested", theme.needsYou)
-                case .commented: ("text.bubble", "Commented", .secondary)
-                case .requested: ("clock", "Review requested", .secondary)
-                case .dismissed: ("minus.circle", "Dismissed", .secondary)
-                }
+                let appearance = reviewState.appearance(in: theme)
                 Image(systemName: appearance.icon)
                     .foregroundStyle(appearance.color)
                     .accessibilityLabel(appearance.label)
@@ -260,11 +254,12 @@ struct ItemPreviewView: View {
             checks.failed > 0 ? "\(checks.failed) failed" : nil,
             checks.running > 0 ? "\(checks.running) running" : nil,
         ].compactMap(\.self).joined(separator: ", ")
-        let appearance = checkAppearance(checks.failed > 0 ? .failed : checks.running > 0 ? .running : checks.passed > 0 ? .passed : .skipped)
+        let outcome: ItemChecks.Check.Outcome = checks.failed > 0 ? .failed : checks.running > 0 ? .running : checks.passed > 0 ? .passed : .skipped
+        let appearance = outcome.appearance(in: theme)
         return DisclosureGroup(isExpanded: $checksExpanded) {
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(ordered.prefix(12).enumerated(), id: \.offset) { _, check in
-                    let appearance = checkAppearance(check.outcome)
+                    let appearance = check.outcome.appearance(in: theme)
                     HStack(spacing: 6) {
                         Image(systemName: appearance.icon)
                             .foregroundStyle(appearance.color)
@@ -295,15 +290,6 @@ struct ItemPreviewView: View {
         .font(.caption)
         .padding(8)
         .background(theme.foreground.opacity(0.06), in: .rect(cornerRadius: 7))
-    }
-
-    private func checkAppearance(_ outcome: ItemChecks.Check.Outcome) -> (icon: String, label: String, color: Color) {
-        switch outcome {
-        case .passed: ("checkmark.circle.fill", "Passed", theme.working)
-        case .failed: ("xmark.circle.fill", "Failed", theme.closed)
-        case .running: ("clock", "Running", theme.needsYou)
-        case .skipped: ("minus.circle", "Skipped", .secondary)
-        }
     }
 
     private var related: some View {
@@ -557,5 +543,28 @@ private struct ItemPreviewDescriptionLayout: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
         subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+    }
+}
+
+extension ItemChecks.Check.Outcome {
+    func appearance(in theme: GhosttyTheme) -> (icon: String, label: String, color: Color) {
+        switch self {
+        case .passed: ("checkmark.circle.fill", "Passed", theme.working)
+        case .failed: ("xmark.circle.fill", "Failed", theme.closed)
+        case .running: ("clock", "Running", theme.needsYou)
+        case .skipped: ("minus.circle", "Skipped", .secondary)
+        }
+    }
+}
+
+extension ItemPreview.Reviewer.State {
+    func appearance(in theme: GhosttyTheme) -> (icon: String, label: String, color: Color) {
+        switch self {
+        case .approved: ("checkmark.circle.fill", "Approved", theme.working)
+        case .changesRequested: ("exclamationmark.circle.fill", "Changes requested", theme.needsYou)
+        case .commented: ("text.bubble", "Commented", .secondary)
+        case .requested: ("clock", "Review requested", .secondary)
+        case .dismissed: ("minus.circle", "Dismissed", .secondary)
+        }
     }
 }
