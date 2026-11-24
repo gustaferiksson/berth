@@ -275,6 +275,7 @@ private struct PromptBubble: View {
             let text = switch part {
             case let .text(value): Text(verbatim: String(value))
             case let .image(token, number): inlineImageTag(token: token, number: number)
+            case let .pasted(value): Text(verbatim: String(value)).font(.subheadline.monospaced()).foregroundStyle(.secondary)
             }
             return Text("\(result)\(text)")
         }

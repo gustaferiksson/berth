@@ -29,6 +29,26 @@ struct TranscriptTailTests {
         #expect(entries.map(\.text) == ["Sketch the island"])
     }
 
+    @Test(arguments: [#"</pasted_content id="p1">"#, "</pasted_content>"]) func unwrapsAPromptRecordedAsOnePastedBlock(closing: String) {
+        let text = "\\n\\n<pasted_content id=\\\"p1\\\">\\nrename the lantern\\nand light it" + closing.replacing("\"", with: "\\\"")
+        let line = #"{"type":"user","uuid":"u1","message":{"content":[{"type":"text","text":"\#(text)"}]}}"#
+        let entries = TranscriptTail.entries(in: Data((line + "\n").utf8), dropFirst: false, queue: []).entries
+
+        #expect(entries.map(\.text) == ["rename the lantern\nand light it"])
+    }
+
+    @Test func splitsAPastedBlockInsideTypedText() {
+        let parts = PromptTextPart.split("regarding this\n<pasted_content id=\"p2\">\nlamps: string[]\n</pasted_content id=\"p2\">\n\nis it fine?")
+
+        guard parts.count == 3, case let .text(before) = parts[0], case let .pasted(block) = parts[1], case let .text(after) = parts[2] else {
+            Issue.record("unexpected parts \(parts)")
+            return
+        }
+
+        #expect(before == "regarding this\n" && block == "lamps: string[]" && after == "\n\nis it fine?")
+        #expect(PromptTextPart.plain("a <pasted_content>b</pasted_content> c") == "a b c")
+    }
+
     @Test func joinsAllPromptTextBlocksInOrder() {
         let lines = [
             #"{"type":"user","uuid":"u1","message":{"content":[{"type":"text","text":"Sketch the island"},{"type":"text","text":"<system-reminder>Omit this banner</system-reminder>"},{"type":"text","text":"Add four trees"}]}}"#,
