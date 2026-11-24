@@ -18,6 +18,12 @@ extension Snapshot {
     }
 
     private static var conversationStart: Date { Date.now.addingTimeInterval(-420) }
+    static var heavyConversationTurns: Int { UserDefaults.standard.integer(forKey: "snapshotConversationHeavy") }
+
+    static var conversationTranscript: URL {
+        let slug = conversationFolder.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? String($0) : "-" }.joined()
+        return Store.claudeDirectory.appending(path: "projects/\(slug)/\(conversationSession).jsonl")
+    }
 
     static func seedConversationFixture() {
         guard UserDefaults.standard.bool(forKey: "snapshotConversation") else { return }
@@ -38,8 +44,23 @@ extension Snapshot {
             seedCodexConversationFixture()
             return
         }
-        let slug = conversationFolder.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? String($0) : "-" }.joined()
-        let directory = Store.claudeDirectory.appending(path: "projects/\(slug)")
+        let transcript = conversationTranscript
+        let directory = transcript.deletingLastPathComponent()
+        if heavyConversationTurns > 0 {
+            guard Store.claudeDirectory.resolvingSymlinksInPath().path == URL(filePath: fixtureHome).appending(path: ".claude").resolvingSymlinksInPath().path else {
+                conversationPerfFailure("heavy fixture requires the fixture home's .claude directory")
+            }
+
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let data = try heavyConversationFixture(turns: heavyConversationTurns)
+                try data.write(to: transcript, options: .atomic)
+                print("perf conversation fixture: generated \(heavyConversationTurns) turns, \(data.count) bytes")
+            } catch {
+                conversationPerfFailure("could not seed fixture: \(error)")
+            }
+            return
+        }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let effort = UserDefaults.standard.string(forKey: "snapshotConversationEffort").map { [#"{"type":"api-request","querySource":"repl_main_thread","params":{"model":"claude-sonnet-4-5","output_config":{"effort":"\#($0)"}}}"#] } ?? []
         let mode = UserDefaults.standard.string(forKey: "snapshotConversationMode") ?? "auto"
@@ -49,7 +70,7 @@ extension Snapshot {
             let timestamp = Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
             lines.append(#"{"type":"user","uuid":"steward-fixture","sessionId":"\#(conversationSession)","cwd":"\#(conversationFolder)","timestamp":"\#(timestamp)","message":{"role":"user","content":"<command-name>/steward</command-name>\n<command-args>https://github.com/acme/billing/pull/4821</command-args>"}}"#)
         }
-        try? (lines.joined(separator: "\n") + "\n").write(to: directory.appending(path: "\(conversationSession).jsonl"), atomically: true, encoding: .utf8)
+        try? (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
         guard !showsEmptyConversation else { return }
 
         let subagents = directory.appending(path: "\(conversationSession)/subagents")
@@ -62,6 +83,97 @@ extension Snapshot {
         ]
         try? (subagentLines.joined(separator: "\n") + "\n").write(to: subagents.appending(path: "agent-agent-docs.jsonl"), atomically: true, encoding: .utf8)
         try? #"{"agentType":"general-purpose","description":"Review the docs for the export column","toolUseId":"t8"}"#.write(to: subagents.appending(path: "agent-agent-docs.meta.json"), atomically: true, encoding: .utf8)
+    }
+
+    static func conversationRecord(id: String, type: String, date: Date, blocks: [[String: Any]]) throws -> Data {
+        let message: [String: Any] = ["role": type, "id": "msg-\(id)", "content": blocks, "model": "claude-sonnet-4-5"]
+        let record: [String: Any] = [
+            "type": type, "uuid": id, "timestamp": date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)),
+            "sessionId": conversationSession, "cwd": conversationFolder, "gitBranch": "fixture-ledger", "message": message,
+        ]
+        var line = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys, .withoutEscapingSlashes])
+        line.append(10)
+        return line
+    }
+
+    private static func heavyConversationFixture(turns: Int) throws -> Data {
+        let image: [String: Any] = ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": fixtureImage(format: .jpeg).base64EncodedString()]]
+        let finished = Date.now.addingTimeInterval(-30)
+        var data = Data()
+        for turn in 1...turns {
+            let id = "heavy-\(turn)"
+            let start = finished.addingTimeInterval(-Double(turns - turn + 1) * 45)
+            var prompt: [[String: Any]] = [["type": "text", "text": "Check the invented ledger export for batch \(turn) and show the Swift, Python and JSON examples."]]
+            if (turns - turn).isMultiple(of: 6), turns - turn < 18 { prompt.append(image) }
+            try data.append(conversationRecord(id: "\(id)-prompt", type: "user", date: start, blocks: prompt))
+            for index in 0..<(5 + turn % 11) {
+                let call = "\(id)-tool-\(index)"
+                let (name, input, output) = heavyConversationTool(turn: turn, index: index)
+                let date = start.addingTimeInterval(Double(2 * index + 1))
+                try data.append(conversationRecord(id: call, type: "assistant", date: date, blocks: [["type": "tool_use", "id": call, "name": name, "input": input]]))
+                try data.append(conversationRecord(id: "\(call)-result", type: "user", date: date.addingTimeInterval(1), blocks: [["type": "tool_result", "tool_use_id": call, "content": output]]))
+            }
+            try data.append(conversationRecord(id: "\(id)-reply", type: "assistant", date: start.addingTimeInterval(35), blocks: [["type": "text", "text": heavyConversationReply(turn: turn)]]))
+        }
+        return data
+    }
+
+    private static func heavyConversationTool(turn: Int, index: Int) -> (String, [String: String], String) {
+        let file = "\(conversationFolder)/Sources/Batch\(turn)/Ledger\(index).swift"
+        switch index % 4 {
+        case 0: return ("Read", ["file_path": file], (1...12).map { "\($0)\tlet row\($0) = ledger.rows[\($0 - 1)]" }.joined(separator: "\n"))
+        case 1: return ("Edit", ["file_path": file, "old_string": "let rows = ledger.rows", "new_string": "let rows = ledger.rows.sorted(by: byDate)"], "Updated the row order in \(file).")
+        case 2: return ("Bash", ["command": "swift test --filter LedgerBatch\(turn)Tests", "description": "Verify the export"], "Building fixtures…\nTest Case 'testBatch\(turn)' passed\nExecuted 12 tests, with 0 failures.")
+        default: return ("Grep", ["pattern": "ledger.rows", "path": "Sources/Batch\(turn)"], "\(file):12:let rows = ledger.rows")
+        }
+    }
+
+    static func heavyConversationReply(turn: Int) -> String {
+        let swift = (1...28).map { "    static let row\($0) = \(turn * 10 + $0)" }.joined(separator: "\n")
+        let python = (1...24).map { "    rows.append((\($0), amount + \($0)))" }.joined(separator: "\n")
+        let json = (1...20).map { "  \"row_\($0)\": \(turn + $0)\($0 == 20 ? "" : ",")" }.joined(separator: "\n")
+        return """
+        ## Ledger batch \(turn)
+
+        I checked the **daily ledger export** against the sample input. The formatter can use a fixed date boundary and keep each `batch_id` intact through the conversion. An empty ledger still produces the header so downstream readers have a stable schema.
+
+        The parser reads amounts as decimals before sorting the rows by date. Tied dates retain their input order, which makes each run reproducible. The examples use invented row values so they can be checked without a database.
+
+        When you fold the totals by day, keep the original currency code on every row. That lets a reader distinguish a missing value from a zero amount and avoids silently mixing two currencies into the same total.
+
+        ### Verification
+
+        - Preserve the **input row count** and retain the first record's date.
+        - Round once, after accumulating the daily sum.
+        - Keep the JSON keys stable for export consumers.
+
+        | Check | Input | Result |
+        | --- | --- | --- |
+        | Ordering | Dates with ties | Stable |
+        | Empty export | Zero rows | Header only |
+        | Precision | Decimal amounts | Exact |
+
+        ```swift
+        struct Batch\(turn) {
+        \(swift)
+        }
+        ```
+
+        ```python
+        def export_rows(amount):
+            rows = []
+        \(python)
+            return rows
+        ```
+
+        ```json
+        {
+        \(json)
+        }
+        ```
+
+        The last fixture confirms the same totals in both implementations. Record the batch number alongside the export so a later check can find the exact input.
+        """
     }
 
     private static func seedCodexConversationFixture() {
@@ -220,12 +332,12 @@ extension Snapshot {
         }
     }
 
-    private static func fixtureImage() -> Data {
+    private static func fixtureImage(format: NSBitmapImageRep.FileType = .png) -> Data {
         let image = NSImage(size: NSSize(width: 240, height: 160), flipped: false) { rect in
             NSGradient(colors: [.systemTeal, .systemIndigo])?.draw(in: rect, angle: 35)
             return true
         }
-        return image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: .png, properties: [:]) } ?? Data()
+        return image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: format, properties: [:]) } ?? Data()
     }
 
     private static func pendingRecords(assistant: (TimeInterval, [[String: Any]]) -> [String: Any], use: (String, String, [String: Any]) -> [String: Any], result: (String, String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
@@ -376,6 +488,12 @@ extension Snapshot {
         try? await Task.sleep(for: .seconds(1))
         surface("before")
         print("switch visibility: toolbar button \(store.canShowConversation), footer \(store.selectedStatusBarIsReachable)")
+        if UserDefaults.standard.bool(forKey: "snapshotPerf") {
+            await measureConversationPerformance(store: store, tab: tab, window: window, canStream: !usesCodexConversation)
+            ProcessAncestry.hangUpDescendants()
+            print("conversation performance complete")
+            exit(0)
+        }
         AppAction.showConversation.perform(on: store)
         let deadline = Date.now + 20
         while Date.now < deadline, store.conversationModels[tab.id].map({ showsEmptyConversation ? !$0.hasLoaded : $0.turns.isEmpty }) ?? true {
@@ -384,12 +502,6 @@ extension Snapshot {
         try? await Task.sleep(for: .seconds(2))
         surface("in conversation")
         print("switch visibility: toolbar button \(store.canShowConversation), footer \(store.selectedStatusBarIsReachable)")
-        if UserDefaults.standard.bool(forKey: "snapshotPerf") {
-            await measurePerformance(window: window, store: store)
-            ProcessAncestry.hangUpDescendants()
-            print("conversation performance complete")
-            exit(0)
-        }
         if let model = store.conversationModels[tab.id] {
             if showsWatching { print("conversation watch \(model.pullRequestWatch?.title ?? "none")") }
             print("conversation shows \(model.entryCount) entries in \(model.turns.count) turns, \(model.tasks.count) running tasks, queued \(model.queued.count), context \(model.context.map { "\($0.model) \($0.tokens ?? 0) tokens" } ?? "none")")

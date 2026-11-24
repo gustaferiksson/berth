@@ -252,6 +252,20 @@ public struct Turn: Identifiable, Sendable {
         let hiddenScripts = scriptsWithInnerCalls(in: entries)
         let results = Dictionary(entries.filter { $0.kind == .toolResult }.compactMap { entry in entry.toolID.map { ($0, entry) } }) { _, last in last }
         var turns: [Self] = []
+        append(entries, to: &turns, hiddenScripts: hiddenScripts, results: results)
+        return turns
+    }
+
+    public static func continuing(_ turns: [Self], with entries: [RemoteEntry]) -> [Self]? {
+        // Tool records can change earlier turns by resolving a result or revealing a script's inner calls.
+        guard entries.allSatisfy({ $0.kind == .prompt || $0.kind == .reply }) else { return nil }
+
+        var turns = turns
+        append(entries, to: &turns, hiddenScripts: [], results: [:])
+        return turns
+    }
+
+    private static func append(_ entries: [RemoteEntry], to turns: inout [Self], hiddenScripts: Set<String>, results: [String: RemoteEntry]) {
         for entry in entries {
             if entry.kind == .toolResult, entry.name == "bash-output" {
                 guard let last = turns.indices.last, var prompt = turns[last].prompt, prompt.name == "bash" else { continue }
@@ -285,6 +299,5 @@ public struct Turn: Identifiable, Sendable {
                 turns[last].parts.append(call.isCard ? .cards([call]) : .work([call]))
             }
         }
-        return turns
     }
 }
