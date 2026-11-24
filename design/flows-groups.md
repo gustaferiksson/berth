@@ -14,7 +14,7 @@ Approved: sheets 7 (G1, G2, G4, G5, G6, L1), 8 (C1, C2, C3) and 9 (N1, N4, N5).
   the custom group before it, so new groups land under the last one.
 - Modes: Project (one group per folder), Repository (one group per git root; worktrees
   and subfolders merge into it), Recent (Today, Yesterday, This Week, Older), Recent (One List) (one newest-first group, 15 rows before Show More).
-- Both Recent modes also have an Active section (id `recent:active`) between Terminals and Pinned, as in Berth Remote:
+- Both Recent modes also have an Active section (id `recent:active`) between Terminals and Pinned:
   every session with a live status (waiting, busy, shell, then idle, newest activity first) plus open Claude tabs
   without a transcript. They leave Pinned, custom groups and the date buckets; no Show More. A task keeps only
   its not-live members, so live sessions sit flat in Active. Reorders wait for the pointer to leave the sidebar.
