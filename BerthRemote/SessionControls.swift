@@ -240,9 +240,10 @@ private struct Composer: View {
     @State private var selectedSlashCommand: String?
     @State private var dismissedSlashQuery: String?
     @FocusState private var isFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var plusGlyphSize = 18.0
 
-    private let controlFill = Color.primary.opacity(0.06)
+    private let controlFill = Color.primary.opacity(0.14)
 
     private var commands: [SlashCommand] {
         client.slashCommands[sessionID] ?? (agent.asset == "HarnessCodex" ? SlashCommand.codexBuiltIns : SlashCommand.claudeBuiltIns)
@@ -333,7 +334,7 @@ private struct Composer: View {
             }
         }
         .clipShape(shape)
-        .glassEffect(.regular, in: shape)
+        .glassEffect(.regular.tint(colorScheme == .dark ? Color.black.opacity(0.55) : nil), in: shape)
         .overlay { shape.stroke(.primary.opacity(0.08), lineWidth: 0.5) }
         .shadow(color: .black.opacity(isExpanded ? 0.08 : 0), radius: 10, y: 2)
         .overlay { shape.stroke(.pink.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0) }
@@ -459,9 +460,9 @@ private struct Composer: View {
                     .font(.body.weight(.semibold))
                     .contentTransition(.symbolEffect(.replace))
                     .accessibilityHidden(true)
-                    .foregroundStyle(isAvailable ? Color.white : Color.secondary)
+                    .foregroundStyle(isAvailable ? Color.white : Color.white.opacity(0.85))
                     .frame(width: ComposerLayout.controlSize, height: ComposerLayout.controlSize)
-                    .background(isAvailable ? Color.accentColor : controlFill, in: .circle)
+                    .background(isAvailable ? Color.accentColor : Color.accentColor.opacity(0.4), in: .circle)
                     .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
                     .contentShape(.rect)
             }
