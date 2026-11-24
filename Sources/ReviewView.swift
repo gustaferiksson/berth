@@ -30,6 +30,9 @@ nonisolated struct ReviewBlameSnapshot: Sendable {
     let root: String
     let entries: [Int: ReviewBlame]
     let lineCount: Int
+    var currentUser: String?
+    var repository: String?
+    var openCommit: (@MainActor (String) -> Void)?
 }
 
 private struct ReviewBlameKey: Hashable {
@@ -517,12 +520,22 @@ final class ReviewModel {
         guard revision == blameRevision, !Task.isCancelled else { return nil }
 
         let key = ReviewBlameKey(root: changes.root, path: path, head: changes.head, contentHash: contentHash)
+        let snapshot = await cachedBlame(for: key, text: text, changes: changes)
+        guard var snapshot else { return nil }
+
+        snapshot.openCommit = { [weak self] sha in Task { await self?.openCommit(sha) } }
+        return snapshot
+    }
+
+    private func cachedBlame(for key: ReviewBlameKey, text: String, changes: ReviewChanges) async -> ReviewBlameSnapshot? {
         if let cached = blameCache[key] { return await cached.value }
 
         let task = Task.detached(priority: .utility) { () -> ReviewBlameSnapshot? in
-            guard let blame = await ReviewGit.blame(path, at: changes.head, text: text, in: changes.root) else { return nil }
+            guard let blame = await ReviewGit.blame(key.path, at: changes.head, text: text, in: changes.root) else { return nil }
 
-            return ReviewBlameSnapshot(root: changes.root, entries: blame.entries, lineCount: blame.lineCount)
+            async let user = ReviewGit.userName(in: changes.root)
+            async let repository = RepositoryRoot.gitHubRepository(at: changes.root)
+            return await ReviewBlameSnapshot(root: changes.root, entries: blame.entries, lineCount: blame.lineCount, currentUser: user, repository: repository)
         }
         blameCache[key] = task
         return await task.value

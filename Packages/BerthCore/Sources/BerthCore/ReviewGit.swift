@@ -420,6 +420,14 @@ public enum ReviewGit {
         }
     }
 
+    public static func userName(in root: String) async -> String? {
+        // swiftlint:disable:next git_identity_override - reads the configured name for "You", never writes it
+        guard let data = try? await git(["config", "user.name"], in: root, timeout: 5) else { return nil }
+
+        let name = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
     public static func blameMessage(_ hash: String, in root: String) async -> String? {
         guard (try? validateCommitSHA(hash)) != nil, let data = try? await git(["show", "-s", "--format=%B", "--encoding=UTF-8", hash, "--"], in: root, timeout: 5) else { return nil }
 
