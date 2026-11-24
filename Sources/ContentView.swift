@@ -32,12 +32,11 @@ struct ContentView: View {
         let reviewRoots = showsPanel ? store.sessionReviewModels.compactMap { $0.changes?.root } : []
         let folderWithoutRepository: String? = if showsPanel, let model = store.primaryReviewModel, case ReviewGitError.notARepository? = model.error { model.folder } else { nil }
         let reviewRequests = store.inbox?.count { $0.role == .reviewRequested } ?? 0
-        NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsColumn ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
+        NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanelSidebar ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
                 SessionPanel()
                     .glassSidebarTint(store.theme)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
-                    .toolbar { ChangesToolbar(store: store) }
                     .navigationSplitViewColumnWidth(min: 220, ideal: 272, max: 440)
             } else {
                 Sidebar()
@@ -119,13 +118,14 @@ struct ContentView: View {
                     if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
                         ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
+                    ChangesToolbar(store: store)
                     if isTrailing, !showsSessions {
                         if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
                         ToolbarItem(placement: .primaryAction) { sessionsToggle }
                     }
                 }
         }
-        .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsColumn }, set: setInspector)) {
+        .inspector(isPresented: Binding(get: { isTrailing ? showsSessions : showsPanelSidebar }, set: setInspector)) {
             if isTrailing {
                 Sidebar()
                     .listStyle(.sidebar)
@@ -139,7 +139,6 @@ struct ContentView: View {
                     .glassSidebarTint(store.theme)
                     .background(ScrollPocketSeparatorRemover())
                     .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
-                    .toolbar { ChangesToolbar(store: store) }
             }
         }
         .containerBackground(for: .window) { WindowBackdrop(chrome: store.theme.chrome, transparency: windowTransparency) }
@@ -230,11 +229,15 @@ extension ContentView {
         store.shownPane != nil
     }
 
+    private var showsPanelSidebar: Bool {
+        showsColumn && store.shownPane != .browser
+    }
+
     // The column and inspector echo programmatic changes and keep calling setters built for the other sidebar position, so these read live state and drop no-ops.
     private func setLeadingColumn(_ visibility: NavigationSplitViewVisibility) {
         if sidebarPosition == .left {
             if visibility != leadingSessions { setSessions(visibility) }
-        } else if (visibility != .detailOnly) != showsColumn, !store.isHarborShown {
+        } else if (visibility != .detailOnly) != showsPanelSidebar, store.shownPane != .browser, !store.isHarborShown {
             if visibility == .detailOnly { store.hideSessionPanel() } else if isReviewEnabled { store.showsReviewPanel = true }
         }
     }
@@ -242,7 +245,7 @@ extension ContentView {
     private func setInspector(_ isPresented: Bool) {
         if sidebarPosition == .right {
             if isPresented != showsSessions { setSessions(isPresented ? .all : .detailOnly) }
-        } else if isPresented != showsColumn, !store.isHarborShown {
+        } else if isPresented != showsPanelSidebar, store.shownPane != .browser, !store.isHarborShown {
             if !isPresented { store.hideSessionPanel() } else if isReviewEnabled { store.showsReviewPanel = true }
         }
     }

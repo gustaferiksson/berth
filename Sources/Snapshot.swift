@@ -947,7 +947,9 @@ enum Snapshot {
         hosting.sceneBridgingOptions = .all
         let window = UnconstrainedWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        window.setContentSize(editedGroup != nil || editedServer != nil ? hosting.view.fittingSize : showsStats ? NSSize(width: 960, height: 800) : reviewFolder != nil || UserDefaults.standard.bool(forKey: "snapshotTasksReview") ? NSSize(width: UserDefaults.standard.object(forKey: "snapshotReviewWidth") == nil ? 1600 : UserDefaults.standard.double(forKey: "snapshotReviewWidth"), height: 900) : NSSize(width: 1200, height: 760))
+        let contentSize = editedGroup != nil || editedServer != nil ? hosting.view.fittingSize : showsStats ? NSSize(width: 960, height: 800) : reviewFolder != nil || UserDefaults.standard.bool(forKey: "snapshotTasksReview") ? NSSize(width: UserDefaults.standard.object(forKey: "snapshotReviewWidth") == nil ? 1600 : UserDefaults.standard.double(forKey: "snapshotReviewWidth"), height: 900) : NSSize(width: 1200, height: 760)
+        let windowWidth = UserDefaults.standard.double(forKey: "snapshotWindowWidth")
+        window.setContentSize(NSSize(width: windowWidth > 0 ? windowWidth : contentSize.width, height: contentSize.height))
         window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
         window.orderFrontRegardless()
         if UserDefaults.standard.bool(forKey: "snapshotControl") { await captureControl(store: store, window: window, output: output) }

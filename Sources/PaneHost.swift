@@ -76,8 +76,6 @@ struct SessionPanel: View {
     var body: some View {
         if store.sessionPane == .terminal {
             TerminalList()
-        } else if store.sessionPane == .browser {
-            BrowserTabList()
         } else if store.sessionPane == .files {
             FilesPanel()
         } else {
