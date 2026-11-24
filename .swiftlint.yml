@@ -251,7 +251,7 @@ custom_rules:
     name: Colour Component Literal
     regex: '\b(Color|NSColor|UIColor)\((red|srgbRed|calibratedRed|deviceRed|displayP3Red|white|hue):'
     message: 'Colours come from the theme (GhosttyTheme, ReviewStyle) or semantic system colours, so Dark Mode and Increase Contrast work.'
-    excluded: 'Sources/(GhosttyConfig|ReviewStyle)\.swift|BerthRemote/SyntaxPalette\.swift'
+    excluded: 'Sources/(GhosttyConfig|ReviewStyle|VSCodeTheme)\.swift|BerthRemote/SyntaxPalette\.swift'
 
   # Accessibility (BerthRemote only: macOS has no Dynamic Type, and its tap-gesture rows are deliberate)
   fixed_font_size_in_remote:

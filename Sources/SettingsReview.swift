@@ -8,6 +8,7 @@ struct ReviewSettings: View {
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
     @State private var editedServer: LanguageServerEntry?
     @AppStorage(ReviewStyle.colorSchemeKey) private var reviewColorScheme = ReviewColorScheme.terminal
+    @AppStorage(ReviewStyle.syntaxColorsKey) private var syntaxColors = SyntaxColorSource.terminal
     @AppStorage(ReviewStyle.fontFamilyKey) private var reviewFontFamily = ""
     @AppStorage(ReviewStyle.fontSizeKey) private var reviewFontSize = 0.0
     @AppStorage(ReviewStyle.lineHeightKey) private var reviewLineHeight = 1.3
@@ -15,7 +16,7 @@ struct ReviewSettings: View {
     @AppStorage(ReviewStyle.showsBlameKey) private var reviewShowsBlame = true
 
     var body: some View {
-        let style = ReviewStyle(scheme: reviewColorScheme, fontFamily: reviewFontFamily, fontSize: reviewFontSize, lineHeightMultiple: reviewLineHeight, ghostty: store.theme)
+        let style = ReviewStyle(scheme: reviewColorScheme, fontFamily: reviewFontFamily, fontSize: reviewFontSize, lineHeightMultiple: reviewLineHeight, ghostty: store.theme).withSyntaxColors(syntaxColors)
         Form {
             Section {
                 Toggle("Review changes in Berth", isOn: $isReviewEnabled)
@@ -28,6 +29,12 @@ struct ReviewSettings: View {
                 Section {
                     Picker("Color Scheme", selection: $reviewColorScheme) {
                         ForEach(ReviewColorScheme.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    Picker(selection: $syntaxColors) {
+                        ForEach(SyntaxColorSource.allCases, id: \.self) { Text($0.title).tag($0) }
+                    } label: {
+                        Text("Syntax Colors")
+                        Text("Read from your active VS Code theme when Berth launches. Falls back to the terminal theme if it can’t be read or is light where the review is dark.")
                     }
                     Picker("Font", selection: $reviewFontFamily) {
                         Text("Terminal Font").tag("")
