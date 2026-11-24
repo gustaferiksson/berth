@@ -216,6 +216,7 @@ private struct PromptBubble: View {
         let text = (attachments == nil ? entry.text.replacing(uploads, with: "") : entry.text).trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = PromptTextPart.split(text)
         let numbers = imageNumbers(parts: parts, count: images.count)
+        let showsText = !text.isEmpty && !(!images.isEmpty && text.replacing(PromptTextPart.imageToken, with: "").allSatisfy(\.isWhitespace))
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 4, topTrailingRadius: 20, style: .continuous)
 
         return VStack(alignment: .trailing, spacing: 6) {
@@ -246,7 +247,7 @@ private struct PromptBubble: View {
                     .padding(.vertical, 8)
                     .background { RoundedRectangle(cornerRadius: 14).fill(.fill.tertiary) }
             }
-            if !text.isEmpty {
+            if showsText {
                 promptText(parts)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)

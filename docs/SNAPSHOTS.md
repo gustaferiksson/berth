@@ -141,7 +141,7 @@ Berth Remote's DEBUG `-snapshotExpanded YES` and `-snapshotExpandedCalls YES` op
 
 More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those sheets), `-snapshotQuery "<text>"` (list search), `-snapshotTray YES` (quick reply tray), `-snapshotIntent "<spec>"` with `-snapshotIntentConnect "<url>|<token>"` (runs an intent against a Mac and prints the result).
 
-`-snapshotDemo YES` opens a sample session without a Mac server. Add `-snapshotDemoList YES` to stay on the session list (with sample Claude and Codex usage cards). Add `-snapshotDemoFocus YES` to focus the composer after 1.5 seconds.
+`-snapshotDemo YES` opens a sample session without a Mac server. Add `-snapshotDemoImageOnly YES` to end the session with an image-only prompt. Add `-snapshotDemoList YES` to stay on the session list (with sample Claude and Codex usage cards). Add `-snapshotDemoFocus YES` to focus the composer after 1.5 seconds.
 
 ### Glass (see docs/adr/0005)
 
@@ -209,7 +209,7 @@ CFFIXED_USER_HOME="$trace_home" xcrun xctrace export --input "$out/conversation.
 
 `-snapshotConversationSelect YES` (with `-snapshotConversationHeight 1500`) tests transcript selection with synthesized mouse events sent to the window: a drag from the first reply across tool rows and a reply into the code block and table of the third, a drag across the next turn's shell prompts and image prompt, a click then Shift-click (again after Show Terminal and Show Conversation), Select All and a link click, each copy going through the responder chain to a private pasteboard (docs/adr/0009). It saves `<out>.selection.png`, prints `select: <case> PASS` or `FAIL` and exits non-zero on a failure. With `-snapshotConversationHeavy 440` (and the fixture home's `.claude`) it instead runs Select All from the last reply and checks the copy holds the first and last loaded turns, which `LazyVStack` has not all mounted, then drags from the last reply to above the transcript, holds for autoscroll and checks the copy spans the previous turn.
 
-`-snapshotConversationQueued "<text>"` adds a queued prompt to the fixture (use with `-snapshotConversationStatus busy`; the fixture already runs a background shell and agent, so the agents pill shows), and `-snapshotConversationSubagent YES` opens the invented docs agent conversation directly, including its prompt, tool call and reply. Use with `-snapshotConversation YES`.
+`-snapshotConversationImageOnly YES` appends a prompt that is only an image, so no text bubble shows. `-snapshotConversationQueued "<text>"` adds a queued prompt to the fixture (use with `-snapshotConversationStatus busy`; the fixture already runs a background shell and agent, so the agents pill shows), and `-snapshotConversationSubagent YES` opens the invented docs agent conversation directly, including its prompt, tool call and reply. Use with `-snapshotConversation YES`.
 
 `-snapshotConversationDrive "<step>|…"` (type:, attach:, remove:, send:, decline:, stop, show, allow, deny, choose:<n>, status:<s>[/<waitingFor>], restamp, drop, wait:<ms>, snap:<name>, log), `-snapshotConversationWaitingFor`, `-snapshotConversationPending bash|edit|question|plan` and `-snapshotConversationRawLog /abs/file` (raw-mode pty logger, so Esc and digits reach the file) prove what reaches the pty.
 
