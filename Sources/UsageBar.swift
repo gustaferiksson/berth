@@ -2,38 +2,22 @@ import BerthCore
 import SwiftUI
 
 struct UsageBar: View {
-    private struct UsageGroup: Identifiable {
-        let harness: Harness
-        let windows: [UsageWindow]
-        let staleSince: Date?
-
-        var id: String { harness.name }
-    }
-
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
     @AppStorage(GeneralSettings.codexKey) private var isCodexEnabled = false
 
-    private func groups(at now: Date) -> [UsageGroup] {
-        let claude = store.planUsage.map { UsageGroup(harness: .claude, windows: Array($0.current(at: now).prefix(2)), staleSince: nil) }
-        let codex = (isCodexEnabled ? store.codexUsage : nil).map { codexUsage in
-            UsageGroup(harness: .codex, windows: Array(codexUsage.usage.current(at: now).prefix(2)), staleSince: codexUsage.isStale(at: now) ? codexUsage.recordedAt : nil)
-        }
-        return [claude, codex].compactMap(\.self).filter { !$0.windows.isEmpty }
-    }
-
     var body: some View {
         if showsPlanUsage {
             TimelineView(.everyMinute) { timeline in
-                let groups = groups(at: timeline.date)
+                let groups = UsageGroup.groups(claude: store.planUsage, codex: isCodexEnabled ? store.codexUsage : nil, at: timeline.date)
                 if !groups.isEmpty {
                     VStack(spacing: 8) {
                         ForEach(groups) { group in
                             Button { store.isStatsRequested = true } label: {
                                 HStack(spacing: 8) {
-                                    if groups.count > 1 || group.harness.agent == .codex {
-                                        Image(group.harness.asset)
+                                    if groups.count > 1 || group.kind == .codex {
+                                        Image(group.kind == .codex ? Harness.codex.asset : Harness.claude.asset)
                                             .resizable()
                                             .scaledToFit()
                                             .frame(width: 12, height: 12)
@@ -41,8 +25,8 @@ struct UsageBar: View {
                                             .accessibilityHidden(true)
                                     }
                                     VStack(spacing: 5) {
-                                        ForEach(group.windows) { window in
-                                            UsageWindowRow(window: window, now: timeline.date, harness: group.harness.name, staleSince: group.staleSince)
+                                        ForEach(group.windows.prefix(2)) { window in
+                                            UsageWindowRow(window: window, now: timeline.date, harness: group.name, staleSince: group.staleSince)
                                         }
                                     }
                                 }

@@ -30,6 +30,7 @@ final class RemoteServer {
         var isReading = false
         var needsRead = false
         var searchQuery: String?
+        var wantsPlanUsage = false
         var wantsCodexUsage = false
     }
 
@@ -43,12 +44,15 @@ final class RemoteServer {
     static let uploadsDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appending(path: "\(Bundle.main.bundleIdentifier ?? "dev.gustaf.berth")/RemoteUploads")
 
     private(set) var failure: String?
+    private var usageFeatures: [String] = []
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var listener: NWListener?
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var clients: [ObjectIdentifier: Client] = [:]
     @ObservationIgnored private var lastSessions: Data?
-    @ObservationIgnored private var lastCodexUsage: Data?
+    @ObservationIgnored private var lastPlanUsage: PlanUsage?
+    @ObservationIgnored private var lastCodexUsage: CodexUsage?
+    @ObservationIgnored private var defaultsObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var token = ""
     @ObservationIgnored private var uploads: [String: Upload] = [:]
     @ObservationIgnored private var reviewChanges: [String: ReviewChanges] = [:]
@@ -112,15 +116,22 @@ final class RemoteServer {
         self.listener = listener
         let paths = [Store.claudeDirectory.appending(path: "projects"), Store.codexDirectory.appending(path: "sessions")]
         watcher = FileWatcher(paths: paths.map(\.path), latency: 0.3) { [weak self] _ in self?.streamTranscripts() }
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: nil) { [weak self] _ in
+            Task { @MainActor in self?.updateUsageFeatures() }
+        }
+        updateUsageFeatures()
         observeSessions()
-        observeCodexUsage()
+        observeUsage()
     }
 
     private func stop() {
         listener?.cancel()
         listener = nil
         watcher = nil
+        if let defaultsObserver { NotificationCenter.default.removeObserver(defaultsObserver) }
+        defaultsObserver = nil
         lastSessions = nil
+        lastPlanUsage = nil
         lastCodexUsage = nil
         failure = nil
         for client in clients.values { client.connection.cancel() }
@@ -223,6 +234,7 @@ final class RemoteServer {
             Task { await sendChanges(of: sessionID, to: connection) }
 
         case .usage:
+            clients[id]?.wantsPlanUsage = true
             Task {
                 await store.refreshPlanUsage()
                 send(try? JSONEncoder().encode(RemoteServerMessage.usage(store.planUsage)), to: connection)
@@ -445,6 +457,15 @@ final class RemoteServer {
         try? FileManager.default.removeItem(at: upload.file.deletingLastPathComponent())
     }
 
+    private func updateUsageFeatures() {
+        guard listener != nil else { return }
+
+        let features = UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey)
+            ? [RemoteUsageFeature.name] + (store.isCodexEnabled ? [RemoteCodexUsageFeature.name] : [])
+            : []
+        if features != usageFeatures { usageFeatures = features }
+    }
+
     private var sessionsMessage: RemoteServerMessage {
         let open = Set(store.tabs.compactMap(\.sessionID))
         let remote = { (session: SessionSummary) in
@@ -473,7 +494,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.filter { $0.agent.harness.supports(.remote) }.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.filter { $0.agent.harness.supports(.remote) }.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] + (store.isCodexEnabled ? [RemoteCodexUsageFeature.name] : []) : []))
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature] + usageFeatures)
     }
 
     private func observeSessions() {
@@ -491,18 +512,29 @@ final class RemoteServer {
         streamTranscripts()
     }
 
-    private func observeCodexUsage() {
+    private func observeUsage() {
         guard listener != nil else { return }
 
-        let data = withObservationTracking {
-            try? JSONEncoder().encode(RemoteServerMessage.codexUsage(store.codexUsage))
+        let (planUsage, codexUsage) = withObservationTracking {
+            (store.planUsage, store.codexUsage)
         } onChange: { [weak self] in
-            Task { @MainActor in self?.observeCodexUsage() }
+            Task { @MainActor in self?.observeUsage() }
         }
-        guard let data, data != lastCodexUsage else { return }
-
-        lastCodexUsage = data
-        for client in clients.values where client.isAuthenticated && client.wantsCodexUsage { send(data, to: client.connection) }
+        let features = usageFeatures
+        if planUsage != lastPlanUsage {
+            lastPlanUsage = planUsage
+            if features.contains(RemoteUsageFeature.name) {
+                let data = try? JSONEncoder().encode(RemoteServerMessage.usage(planUsage))
+                for client in clients.values where client.isAuthenticated && client.wantsPlanUsage { send(data, to: client.connection) }
+            }
+        }
+        if codexUsage != lastCodexUsage {
+            lastCodexUsage = codexUsage
+            if features.contains(RemoteCodexUsageFeature.name) {
+                let data = try? JSONEncoder().encode(RemoteServerMessage.codexUsage(codexUsage))
+                for client in clients.values where client.isAuthenticated && client.wantsCodexUsage { send(data, to: client.connection) }
+            }
+        }
     }
 
     private func streamTranscripts() {
