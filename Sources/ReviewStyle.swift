@@ -16,6 +16,7 @@ enum ReviewColorScheme: String, CaseIterable {
 
 struct ReviewStyle: Equatable {
     static let colorSchemeKey = "reviewColorScheme"
+    static let syntaxColorsKey = "reviewSyntaxColors"
     static let fontFamilyKey = "reviewFontFamily"
     static let fontSizeKey = "reviewFontSize"
     static let lineHeightKey = "reviewLineHeight"
@@ -61,7 +62,9 @@ struct ReviewStyle: Equatable {
     let link: NSColor
     let indentGuide: NSColor
     private let commentFont: NSFont
+    private let italicFont: NSFont
     private let syntax: Syntax
+    private(set) var vscode: VSCodeTheme?
 
     init(scheme: ReviewColorScheme, fontFamily: String, fontSize: Double, lineHeightMultiple: Double, ghostty: GhosttyTheme) {
         let size = fontSize > 0 ? fontSize : ghostty.font.pointSize
@@ -134,11 +137,22 @@ struct ReviewStyle: Equatable {
         warning = NSColor(ghostty.needsYou)
         link = syntax.function
         self.indentGuide = indentGuide ?? foreground.withAlphaComponent(0.12)
-        commentFont = italicComments ? NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) : font
+        italicFont = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+        commentFont = italicComments ? italicFont : font
         self.syntax = syntax
     }
 
+    func withSyntaxColors(_ source: SyntaxColorSource) -> Self {
+        guard source == .vscode, let theme = VSCodeTheme.active, theme.isDark == isDark else { return self }
+
+        var style = self
+        style.vscode = theme
+        return style
+    }
+
     func color(forCapture capture: String) -> NSColor {
+        if let vscode { return vscode.color(forCapture: capture) }
+
         let kind = String(capture.prefix { $0 != "." })
         if kind == "comment" { return syntax.comment }
         if capture == "string.regexp" { return syntax.regexp }
@@ -163,7 +177,9 @@ struct ReviewStyle: Equatable {
     }
 
     func font(forCapture capture: String) -> NSFont {
-        capture.hasPrefix("comment") ? commentFont : font
+        if let vscode { return vscode.isItalic(forCapture: capture) ? italicFont : font }
+
+        return capture.hasPrefix("comment") ? commentFont : font
     }
 }
 
