@@ -1,5 +1,10 @@
 import SwiftUI
-import UIKit
+
+enum SessionListLayout {
+    static let statusWidth = 14.0
+    static let columnSpacing = 6.0
+    static let rowInsets = EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+}
 
 struct SessionListView: View {
     @Environment(RemoteClient.self) private var client
@@ -14,19 +19,9 @@ struct SessionListView: View {
 
     var body: some View {
         let pinned = Set(client.groups.first { $0.id == "pinned" }?.sessions.map(\.id) ?? [])
-        let rank = ["waiting": 0, "busy": 1, "shell": 2]
-        let matches = { (session: RemoteSession) in
-            query.isEmpty || [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) }
-        }
-        let running = client.groups
-            .flatMap { group in group.sessions.filter { $0.status != nil || group.id == "starting" } }
-            .sorted { (rank[$0.status ?? ""] ?? 3, $1.lastActivity) < (rank[$1.status ?? ""] ?? 3, $0.lastActivity) }
-        let runningIDs = Set(running.map(\.id))
-        let waitingCount = running.count(where: { $0.status == "waiting" })
-        let groups = ([RemoteGroup(id: "active", title: "Active", sessions: running)] + client.groups.filter { $0.id != "starting" })
-            .map { group in RemoteGroup(id: group.id, title: group.title, sessions: group.sessions.filter { (group.id == "active" || !runningIDs.contains($0.id)) && matches($0) }) }
-            .filter { !$0.sessions.isEmpty }
-
+        let groups = visibleGroups
+        let usageGroups = query.isEmpty ? client.usageGroups(at: .now) : []
+        let tints: [String: Color] = ["needsYou": .orange, "working": .green, "unread": .blue]
         let searchedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let searchesTranscripts = client.features.contains(RemoteSearchFeature.name) && searchedQuery.count >= RemoteSearchFeature.minimumQueryLength
 
@@ -36,45 +31,58 @@ struct SessionListView: View {
                     Section {
                         Link(destination: UpdateCheck.installURL) {
                             Label("Install Berth Remote \(version)", systemImage: "arrow.down.circle")
+                                .padding(.vertical, 6)
+                                .frame(minHeight: 44)
                         }
+                        .listRowInsets(SessionListLayout.rowInsets)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
+                    .listSectionSeparator(.hidden)
                 }
-                if query.isEmpty {
-                    let usageGroups = client.usageGroups(at: .now)
-                    if !usageGroups.isEmpty {
-                        Section {
+                if !usageGroups.isEmpty {
+                    let expansion = Binding { expandedGroups["usage", default: true] } set: { expandedGroups["usage"] = $0 }
+                    Section {
+                        SessionSectionHeader(title: "Usage", isExpanded: expansion)
+                        if expansion.wrappedValue {
                             ForEach(usageGroups) { group in
                                 UsageCard(group: group) { isShowingUsage = true }
+                                    .listRowInsets(SessionListLayout.rowInsets)
+                                    .listRowSeparator(.hidden)
+                                    .listRowBackground(Color.clear)
                             }
                         }
                     }
+                    .listSectionSeparator(.hidden)
                 }
                 ForEach(groups) { group in
-                    Section(isExpanded: Binding { expandedGroups[group.id] ?? true } set: { expandedGroups[group.id] = $0 }) {
-                        ForEach(group.sessions) { session in
-                            SessionRow(session: session, isPinned: pinned.contains(session.id)) { action in
-                                feedback = ActionFeedback(count: feedback.count + 1, action: action)
-                            }
-                        }
-                    } header: {
-                        HStack {
-                            Text(group.title)
-                            if group.id == "active", waitingCount > 0 {
-                                Label("\(waitingCount) \(waitingCount == 1 ? "needs" : "need") you", systemImage: "exclamationmark.bubble.fill")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.orange)
-                                    .textCase(nil)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.6)
+                    let expansion = Binding { expandedGroups[group.id, default: group.id != "recent:older"] } set: { expandedGroups[group.id] = $0 }
+                    let startsList = usageGroups.isEmpty && group.id == groups.first?.id
+                    Section {
+                        SessionSectionHeader(title: group.title, count: group.sessions.count, tint: tints[group.id], topSpacing: startsList ? 0 : 8, isExpanded: expansion)
+                        if expansion.wrappedValue {
+                            ForEach(group.sessions) { session in
+                                SessionRow(session: session, isPinned: pinned.contains(session.id)) {
+                                    path.append(session.id)
+                                } didAct: { action in
+                                    feedback = ActionFeedback(count: feedback.count + 1, action: action)
+                                }
+                                .listRowInsets(SessionListLayout.rowInsets)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
                             }
                         }
                     }
+                    .listSectionSeparator(.hidden)
                 }
                 if searchesTranscripts {
                     TranscriptSearchSection(query: searchedQuery)
                 }
             }
-            .listStyle(.sidebar)
+            .listStyle(.plain)
+            .listSectionSpacing(0)
+            .environment(\.defaultMinListRowHeight, 0)
+            .scrollEdgeEffectStyle(.soft, for: .bottom)
             .sensoryFeedback(trigger: feedback) { _, new in
                 new.action == .archive ? .warning : .impact(weight: .light)
             }
@@ -117,6 +125,87 @@ struct SessionListView: View {
             }
         }
     }
+
+    private var visibleGroups: [RemoteGroup] {
+        let matches = { (session: RemoteSession) in
+            query.isEmpty || [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) }
+        }
+        let sessions = client.groups.flatMap(\.sessions)
+        let needsYou = sessions.filter { $0.status == "waiting" }.sorted { $0.lastActivity > $1.lastActivity }
+        let working = sessions.filter { $0.status == "busy" }.sorted { $0.lastActivity > $1.lastActivity }
+        let unread = sessions.filter { $0.isUnread == true }
+        let orderedGroups = [
+            RemoteGroup(id: "needsYou", title: "Needs You", sessions: needsYou),
+            RemoteGroup(id: "working", title: "Working", sessions: working),
+            RemoteGroup(id: "unread", title: "Unread", sessions: unread),
+        ] + client.groups.filter { $0.id == "starting" }
+            + client.groups.filter { $0.id == "pinned" }
+            + client.groups.filter { $0.id != "starting" && $0.id != "pinned" }
+
+        var placed: Set<String> = []
+        var groups: [RemoteGroup] = []
+        for group in orderedGroups {
+            var sessions: [RemoteSession] = []
+            for session in group.sessions where matches(session) && placed.insert(session.id).inserted {
+                sessions.append(session)
+            }
+            guard !sessions.isEmpty else { continue }
+
+            groups.append(RemoteGroup(id: group.id, title: group.title, sessions: sessions))
+        }
+        return groups
+    }
+}
+
+private struct SessionSectionHeader: View {
+    let title: String
+    var count: Int?
+    var tint: Color?
+    var topSpacing = 0.0
+    @Binding var isExpanded: Bool
+
+    @ScaledMetric(relativeTo: .body) private var statusWidth = SessionListLayout.statusWidth
+
+    var body: some View {
+        let label = if !isExpanded, let count {
+            Text("\(title), ^[\(count) session](inflect: true)")
+        } else {
+            Text(title)
+        }
+
+        Button {
+            withAnimation { isExpanded.toggle() }
+        } label: {
+            HStack(spacing: SessionListLayout.columnSpacing) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .imageScale(.small)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: statusWidth)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 0)
+                if !isExpanded, let count {
+                    Text(count, format: .number)
+                        .font(.subheadline.monospacedDigit())
+                        .fixedSize()
+                }
+            }
+            .foregroundStyle(tint ?? Color.secondary)
+            .padding(.vertical, 4)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .textCase(nil)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityLabel(label)
+        .accessibilityValue(isExpanded ? "expanded" : "collapsed")
+        .padding(.top, topSpacing)
+        .listRowInsets(SessionListLayout.rowInsets)
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
 }
 
 private struct ActionFeedback: Equatable {
@@ -145,6 +234,7 @@ struct ConnectionStatus: View {
 private struct SessionRow: View {
     let session: RemoteSession
     let isPinned: Bool
+    let open: () -> Void
     let didAct: (RemoteSessionAction) -> Void
 
     @Environment(RemoteClient.self) private var client
@@ -154,16 +244,21 @@ private struct SessionRow: View {
         let toggleRead = session.isUnread == true ? RemoteSessionAction.markRead : .markUnread
         let toggleRule = isPinned ? RemoteSessionAction.unpin : .pin
 
-        NavigationLink(value: session.id) {
-            SessionSummaryView(session: session)
+        Button(action: open) {
+            SessionRowLabel(session: session)
+                .foregroundStyle(.primary)
+                .contentShape(.rect)
         }
+        .accessibilityValue(Text((session.agent ?? .legacyClaude).name))
+        .accessibilityHint("Opens the session")
         .swipeActions(edge: .leading) {
             Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") { perform(toggleRule) }
                 .tint(.yellow)
         }
         .swipeActions(edge: .trailing) {
             if session.status == nil {
-                Button("Mark as Done", systemImage: "archivebox", role: .destructive) { perform(.archive) }
+                Button("Mark as Done", systemImage: "checkmark") { perform(.archive) }
+                    .tint(.green)
             }
             Button(session.isUnread == true ? "Mark as Read" : "Mark as Unread", systemImage: session.isUnread == true ? "envelope.open" : "envelope.badge") { perform(toggleRead) }
                 .tint(.blue)
@@ -184,7 +279,7 @@ private struct SessionRow: View {
             }
             if session.status == nil {
                 Divider()
-                Button("Mark as Done", systemImage: "archivebox", role: .destructive) { perform(.archive) }
+                Button("Mark as Done", systemImage: "checkmark", role: .destructive) { perform(.archive) }
             }
         } preview: {
             SessionPreview(session: session)
@@ -223,98 +318,183 @@ private struct SessionPreview: View {
     }
 }
 
-private struct SessionSummaryView: View {
+private struct SessionRowLabel: View {
     let session: RemoteSession
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric private var gutterWidth = 14
+    @ScaledMetric(relativeTo: .body) private var statusWidth = SessionListLayout.statusWidth
 
     var body: some View {
-        let gutterWidth = gutterWidth
-        let isProminent = session.status != nil || session.isUnread == true
-        let folder = URL(filePath: session.folder).lastPathComponent
         let isAccessibility = dynamicTypeSize.isAccessibilitySize
-        let agent = session.agent ?? .legacyClaude
+        let titleInset = statusWidth + SessionListLayout.columnSpacing
+        let repo = Text(verbatim: URL(filePath: session.folder).lastPathComponent)
+        let location = session.branch.map { branch in
+            Text("\(repo) · \(Text(verbatim: branch).foregroundStyle(Color.teal.opacity(0.8)))")
+        } ?? repo
 
-        let title = Text(session.title)
-            .font(.body.weight(isProminent ? .semibold : .regular))
-            .foregroundStyle(isProminent ? .primary : .secondary)
-            .lineLimit(isAccessibility ? 2 : 1, reservesSpace: true)
-        let time = SessionTime(session: session)
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-        let branch = session.branch.map { Text("  \(Text(Image(systemName: "arrow.triangle.branch")).accessibilityLabel("Branch")) \($0)") }
-        let location = Text("\(session.isLocked ? Text(Image(systemName: "lock.fill")).accessibilityLabel("Locked") : Text(""))\(session.isLocked ? " " : "")\(folder)\(branch ?? Text(""))")
-            .font(.footnote)
-            .monospaced()
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .truncationMode(.middle)
+        let details = Group {
+            if let watch = session.pullRequestWatch, session.status == "idle" || session.status == nil {
+                Image(systemName: "eye")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(watch.title)
+            } else if let pullRequest = session.pullRequest {
+                PullRequestTag(pullRequest: pullRequest)
+            }
+            SessionTime(session: session)
+        }
 
-        HStack(alignment: .top, spacing: 4) {
-            Image(systemName: "circle.fill")
-                .font(.caption2)
-                .foregroundStyle(.blue)
-                .opacity(session.isUnread == true ? 1 : 0)
-                .frame(width: gutterWidth, height: 22)
-                .accessibilityLabel("Unread")
-                .accessibilityHidden(session.isUnread != true)
-            VStack(alignment: .leading, spacing: 3) {
-                if isAccessibility {
-                    title
-                    time
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                } else {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        title
-                        Spacer(minLength: 0)
-                        time
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: SessionListLayout.columnSpacing) {
+                SessionStatusSlot(session: session)
+                    .frame(width: statusWidth)
+                HStack(spacing: 4) {
+                    Text(session.title)
+                        .font(.body.weight(session.isUnread == true ? .semibold : .medium))
+                        .lineLimit(isAccessibility ? 2 : 1)
+                        .truncationMode(.tail)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if session.isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Locked")
                     }
                 }
-                location
-                if let watch = session.pullRequestWatch, session.status == "idle" {
-                    Label(watch.title, systemImage: "eye")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if !isAccessibility {
+                    HStack(spacing: 8) { details }
+                        .fixedSize()
                 }
-                if let pullRequest = session.pullRequest {
-                    PullRequestTag(pullRequest: pullRequest)
+            }
+            if isAccessibility {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { details }
+                    VStack(alignment: .leading, spacing: 3) { details }
+                }
+                .padding(.leading, titleInset)
+            }
+            location
+                .font(.footnote.monospaced())
+                .foregroundStyle(.secondary)
+                .lineLimit(isAccessibility ? nil : 1)
+                .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.leading, titleInset)
+        }
+        .padding(.vertical, 6)
+        .opacity(session.isLocked ? 0.55 : 1)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct SessionStatusSlot: View {
+    let session: RemoteSession
+
+    @ScaledMetric(relativeTo: .body) private var dotSize = 6.0
+    @ScaledMetric(relativeTo: .body) private var ringSize = 5.0
+    @ScaledMetric(relativeTo: .body) private var ringStroke = 1.0
+
+    var body: some View {
+        ZStack {
+            if session.status == "waiting" {
+                Circle()
+                    .fill(.orange)
+                    .frame(width: dotSize, height: dotSize)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Needs you")
+            } else if session.status == "busy" {
+                SessionWorkingDots()
+            } else if session.status == "shell" {
+                Circle()
+                    .fill(.pink)
+                    .frame(width: dotSize, height: dotSize)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Background task running")
+            } else if session.isUnread == true {
+                Circle()
+                    .fill(.blue)
+                    .frame(width: dotSize, height: dotSize)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Unread")
+            } else if session.isOpen {
+                Circle()
+                    .strokeBorder(Color.secondary.opacity(0.5), lineWidth: ringStroke)
+                    .frame(width: ringSize, height: ringSize)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Open on Mac")
+            }
+        }
+    }
+}
+
+private struct SessionWorkingDots: View {
+    @ScaledMetric(relativeTo: .body) private var dotSize = 4.0
+    @ScaledMetric(relativeTo: .body) private var spacing = 1.0
+    @State private var offset = Double.random(in: 0..<1.2)
+
+    var body: some View {
+        TimelineView(.periodic(from: Date(timeIntervalSinceReferenceDate: offset), by: 0.4)) { context in
+            let phase = Int(((context.date.timeIntervalSinceReferenceDate - offset) / 0.4).rounded()) % 3
+            HStack(spacing: spacing) {
+                ForEach(0..<3) { index in
+                    Circle()
+                        .fill(Color.green.opacity(index == phase ? 1 : 0.35))
+                        .frame(width: dotSize, height: dotSize)
                 }
             }
         }
-        .padding(.vertical, 2)
-        .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] + gutterWidth + 4 }
-        .opacity(session.isLocked ? 0.55 : 1)
-        .accessibilityElement(children: .combine)
-        .accessibilityValue(Text(agent.name))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Working")
     }
 }
 
 private struct PullRequestTag: View {
     let pullRequest: RemotePullRequest
 
-    var body: some View {
-        let color: Color = pullRequest.state == "Open" ? .green : pullRequest.state == "Merged" ? .purple : pullRequest.state == "Closed" ? .red : .secondary
+    @ScaledMetric(relativeTo: .caption) private var iconSize = 12.0
+    @ScaledMetric(relativeTo: .caption) private var dividerHeight = 8.0
+    @ScaledMetric(relativeTo: .caption) private var checkDotSize = 5.0
 
-        HStack(spacing: 3) {
-            OcticonImage(Octicon(pullRequestState: pullRequest.state))
+    var body: some View {
+        let tint: Color = switch pullRequest.state {
+        case "Open": .green
+        case "Merged": .purple
+        case "Closed": .red
+        default: .secondary
+        }
+        let checks = ["Open", "Draft"].contains(pullRequest.state) ? pullRequest.checks : nil
+
+        HStack(spacing: 4) {
+            OcticonImage(Octicon(pullRequestState: pullRequest.state), size: iconSize)
+                .imageScale(.small)
             Text(verbatim: "#\(pullRequest.number)")
-                .monospaced()
-            if let checks = pullRequest.checks {
-                Image(systemName: ChecksStyle.symbol(checks))
-                    .foregroundStyle(ChecksStyle.color(checks))
-                    .accessibilityLabel(ChecksStyle.title(checks))
+            if let checks {
+                Rectangle()
+                    .fill(tint.opacity(0.35))
+                    .frame(width: 1, height: dividerHeight)
+                Group {
+                    if checks == "passed" || checks == "failed" {
+                        Image(systemName: checks == "passed" ? "checkmark" : "xmark")
+                            .imageScale(.small)
+                            .fontWeight(.bold)
+                            .accessibilityHidden(true)
+                    } else {
+                        Circle()
+                            .frame(width: checkDotSize, height: checkDotSize)
+                    }
+                }
+                .foregroundStyle(ChecksStyle.color(checks))
             }
         }
-        .font(.caption.weight(.medium))
-        .foregroundStyle(color)
-        .padding(.horizontal, 8)
-        // swiftlint:disable:next negative_padding - a background shape bleeding past the pill
-        .background { RoundedRectangle(cornerRadius: 6).fill(color.opacity(0.15)).padding(.vertical, -2) }
+        .font(.caption.monospaced())
+        .foregroundStyle(tint)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(tint.opacity(0.16), in: .rect(cornerRadius: 4))
         .fixedSize()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Pull request \(String(pullRequest.number)), \(pullRequest.state)\(pullRequest.checks.map { ", " + ChecksStyle.title($0) } ?? "")")
+        .accessibilityLabel("Pull request \(String(pullRequest.number)), \(pullRequest.state)\(checks.map { ", " + ChecksStyle.title($0) } ?? "")")
     }
 }
 
@@ -322,25 +502,21 @@ private struct SessionTime: View {
     let session: RemoteSession
 
     var body: some View {
-        if session.status == "waiting" {
-            Text("Needs you")
-                .bold()
-                .foregroundStyle(.orange)
-        } else if session.status == "busy" {
-            let since = session.turnStartedAt ?? session.lastPrompt ?? session.lastActivity
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Text("Working \(Duration.seconds(max(0, context.date.timeIntervalSince(since)).rounded(.down)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 1)))")
-                    .monospacedDigit()
-            }
-            .foregroundStyle(.green)
-        } else if session.status == "shell" {
-            Text("Task running")
-                .foregroundStyle(.teal)
-        } else {
-            TimelineView(.everyMinute) { context in
-                Text(age(at: context.date))
+        Group {
+            if session.status == "busy" {
+                let since = session.turnStartedAt ?? session.lastPrompt ?? session.lastActivity
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    let elapsed = Duration.seconds(max(0, context.date.timeIntervalSince(since)).rounded(.down))
+                    Text(elapsed.formatted(.units(allowed: [.hours, .minutes, .seconds], width: .narrow, maximumUnitCount: 1)))
+                }
+            } else {
+                TimelineView(.everyMinute) { context in
+                    Text(age(at: context.date))
+                }
             }
         }
+        .font(.footnote.monospacedDigit())
+        .foregroundStyle(.secondary)
     }
 
     private func age(at now: Date) -> String {

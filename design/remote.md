@@ -10,6 +10,8 @@ A listener failure shows in Settings. Prompts are `paste` then `sendKey(.enter)`
 
 Transcript tails are read off the main thread, one read per client at a time. Berth Remote keeps the token in the Keychain, accepts only `wss://` (plus `ws://127.0.0.1` in Debug), drops the socket in the background and reconnects on activation and after drops (1, 2, 5, 10 s).
 
+The phone derives Needs You, Working and Unread from live status and unread flags, then shows New, Pinned and the Mac’s groups in the order received. Each session appears in its first matching section.
+
 ## Codex sessions
 
 `RemoteSession` carries an optional agent descriptor with the harness name, symbol, and per-session settings and attachment flags. The phone assumes Claude when an older Mac omits the descriptor. Codex transcripts come from the rollout index and the read-only context chip uses the session summary.
