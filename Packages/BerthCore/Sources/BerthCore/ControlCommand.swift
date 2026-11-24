@@ -6,6 +6,7 @@ public enum ControlCommand {
            berth open-terminal [--cwd <dir>] [--background] [--json] [--] [<command>...]
            berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]
            berth open <path> [--background] [--json]
+           berth show-pr <number|url> [--repo <path>] [--json]
            berth send <tab> <text> [--no-enter]
            berth capture <tab>
            berth close <tab>
@@ -26,7 +27,7 @@ public enum ControlCommand {
         guard let socketPath = environment[ControlEnvironment.socket], let token = environment[ControlEnvironment.token], let caller = environment[ControlEnvironment.tab] else {
             throw UsageError(message: "Not inside a Berth tab, or Agent Control is off in Berth's Settings > General")
         }
-        guard let name = arguments.first, let operation = [ControlOp.list, .openSession, .send, .capture, .close, .wait].first(where: { $0.rawValue == name }) ?? (name == "open-terminal" ? .open : name == "open" ? .openPath : nil) else {
+        guard let name = arguments.first, let operation = [ControlOp.list, .openSession, .showPullRequest, .send, .capture, .close, .wait].first(where: { $0.rawValue == name }) ?? (name == "open-terminal" ? .open : name == "open" ? .openPath : nil) else {
             throw UsageError(message: usage)
         }
 
@@ -49,6 +50,12 @@ public enum ControlCommand {
 
                 rest.removeFirst()
                 request.cwd = URL(filePath: folder, relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
+
+            case "--repo" where operation == .showPullRequest:
+                guard let folder = rest.first, !folder.isEmpty, !folder.hasPrefix("--") else { throw UsageError(message: "--repo needs a folder") }
+
+                rest.removeFirst()
+                request.repositoryPath = URL(filePath: folder, relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
 
             case "--timeout" where operation == .wait:
                 guard !rest.isEmpty, let seconds = Double(rest.removeFirst()), seconds >= 0 else { throw UsageError(message: "--timeout needs a number of seconds") }
@@ -86,6 +93,18 @@ public enum ControlCommand {
             guard positional.count == 1 else { throw UsageError(message: usage) }
 
             request.path = URL(filePath: positional[0], relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
+
+        case .showPullRequest:
+            guard positional.count == 1, let target = positional.first else { throw UsageError(message: usage) }
+
+            if let number = Int(target), number > 0 {
+                request.pullRequest = number
+            } else if let link = PullRequestLink.parse(target) {
+                request.pullRequest = link.number
+                request.repository = link.repository
+            } else {
+                throw UsageError(message: "Pass a positive PR number or a GitHub pull request URL")
+            }
 
         case .capture, .close, .wait:
             guard positional.count == 1 else { throw UsageError(message: usage) }

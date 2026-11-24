@@ -73,6 +73,42 @@ extension Snapshot {
         await print("wrong token: \(berth("ls", environment: environment.merging([ControlEnvironment.token: "guess"]) { _, new in new }))")
         await print("no environment: \(berth("ls", environment: [:]))")
 
+        if let sessionClone = UserDefaults.standard.string(forKey: "snapshotControlSessionClone"),
+           let pullRequestClone = UserDefaults.standard.string(forKey: "snapshotControlPullRequestClone") {
+            let sessionTab = UUID()
+            let sessionID = "snapshot-control-review"
+            store.openShell(cwd: sessionClone, command: "exec cat", id: sessionTab)
+            store.tabs = store.tabs.map { $0.id == sessionTab ? Tab(id: $0.id, kind: .claude, cwd: sessionClone, sessionID: sessionID, terminal: $0.terminal) : $0 }
+            let owned = UUID()
+            store.openShell(cwd: sessionClone, command: "exec cat", id: owned, parent: sessionTab)
+            let ownedEnvironment = store.control.environment(for: owned)
+            let before = store.tabs.count
+            let api = await berth("show-pr", "1445", "--json", environment: ownedEnvironment)
+            let missing = await berth("show-pr", "https://github.com/acme/billing-tools/pull/1445", environment: ownedEnvironment)
+            let billing = await berth("show-pr", "https://github.com/acme/billing/pull/1445", "--repo", pullRequestClone, "--json", environment: ownedEnvironment)
+            let repeated = await berth("show-pr", "https://github.com/Acme/Billing/pull/1445", environment: ownedEnvironment)
+            let model = store.reviewModel
+            let entries = store.sessionReviewPullRequests(of: sessionID, changes: model?.changes, excluding: nil)
+            let repositories = entries.map(\.id.repository).sorted()
+            let expanded = entries.allSatisfy { model?.expandedPullRequests.contains($0.id) == true && model?.pullRequestFiles[$0.location]?.files.isEmpty == false }
+            let document = model?.selectedDocument
+            print("show-pr number \(api)")
+            print("show-pr no clone \(missing)")
+            print("show-pr URL \(billing)")
+            print("show-pr repeat \(repeated)")
+            print("show-pr review repositories \(repositories), expanded \(expanded), selected \(document?.path ?? "-"), clone \(document?.root ?? "-")")
+            guard api.hasPrefix("[0]"), billing.hasPrefix("[0]"), repeated.hasPrefix("[0]"),
+                  missing.hasPrefix("[1]"), missing.contains("No local clone"), missing.contains("--repo <path>"),
+                  store.showsReviewPanel, store.selectedTabID == sessionTab, store.tabs.count == before,
+                  repositories == ["acme/api", "acme/billing"], expanded, model?.slimExpansionOverrides["otherPullRequests"] == true,
+                  let document, document.pullRequestLink?.repository == "acme/billing",
+                  document.root == pullRequestClone, model?.isReadOnly(document) == true, model?.contents[document] != nil
+            else {
+                FileHandle.standardError.write(Data("show-pr control snapshot failed\n".utf8))
+                exit(1)
+            }
+        }
+
         guard let image = image(of: window), let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { exit(1) }
 
         try? png.write(to: output)

@@ -39,7 +39,7 @@ struct BerthApp: App {
                 AppAction.checkForUpdates.menuButton(appDelegate.store)
             }
             CommandGroup(after: .newItem) {
-                ForEach([AppAction.newSession, .pullRequests, .searchSessions, .newTerminal, .newTerminalForSession, .newGroup], id: \.self) { action in
+                ForEach([AppAction.newSession, .pullRequests, .showPullRequestInReview, .searchSessions, .newTerminal, .newTerminalForSession, .newGroup], id: \.self) { action in
                     action.menuButton(appDelegate.store)
                         .disabled(!action.isAvailable(in: appDelegate.store))
                 }
@@ -216,7 +216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
             let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showChanges, .hideChanges, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showPullRequestInReview, .showChanges, .hideChanges, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil
             }

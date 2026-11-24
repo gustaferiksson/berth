@@ -423,6 +423,9 @@ final class ReviewGitTests {
         try await git(origin, "branch", "-D", "pr-fixture")
         let checkout = root.appending(path: "checkout")
         try await git(root, "clone", "--quiet", "--no-local", origin.path, checkout.path)
+        let github = "https://github.com/Acme/Billing.git"
+        try await git(checkout, "config", "remote.origin.url", github)
+        try await git(checkout, "config", "url.\(origin.path).insteadOf", github)
         try await git(checkout, "config", "--add", "remote.origin.fetch", "+refs/pull/*:refs/remotes/origin/pull/*")
         try write(checkout, "keep.txt", "staged\n")
         try await git(checkout, "add", "keep.txt")

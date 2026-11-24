@@ -63,6 +63,15 @@ final class ControlService {
 
         if request.operation == .openPath { return openPath(request, for: caller) }
 
+        if request.operation == .showPullRequest {
+            guard let number = request.pullRequest else { return .failure("Missing pull request number") }
+
+            switch await store.showPullRequestInReview(number: number, repository: request.repository, repositoryPath: request.repositoryPath, in: caller) {
+            case let .success(link): return ControlResponse(text: "Showing \(link.repository) PR #\(link.number) in Review")
+            case let .failure(error): return .failure(error.message)
+            }
+        }
+
         guard let tab = request.tab else { return .failure("Missing tab") }
 
         let matches = store.tabs.filter { $0.id.uuidString.lowercased().hasPrefix(tab.lowercased()) }

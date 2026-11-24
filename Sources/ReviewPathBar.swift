@@ -24,9 +24,15 @@ struct ReviewPathBar: View {
 
     private func bar(_ folders: [(name: String, children: [ReviewFileTree])]) -> some View {
         let name = (document.path as NSString).lastPathComponent
-        let title = document.pullRequestNumber.map { "PR #\($0):\(name)" } ?? name
+        let title = document.pullRequestNumber.map { "PR #\($0) · \(name)" } ?? name
         return HStack(spacing: 4) {
-            if model.isSessionFiles {
+            if let link = document.pullRequestLink {
+                Text(link.repository)
+                ForEach(Array(folders.enumerated()), id: \.offset) { _, folder in
+                    chevron
+                    Text(folder.name)
+                }
+            } else if model.isSessionFiles {
                 Text(sessionFolder)
             } else {
                 segment((RepositoryRoot.checkout(model.changes?.root ?? model.folder) as NSString).lastPathComponent, children: model.tree)
@@ -36,7 +42,7 @@ struct ReviewPathBar: View {
                 }
             }
             chevron
-            segment(title, children: children(of: (document.path as NSString).deletingLastPathComponent), icon: NSImage(size: NSSize(width: 13, height: 13), flipped: false) { NSWorkspace.shared.icon(for: UTType(filenameExtension: (name as NSString).pathExtension) ?? .data).draw(in: $0); return true })
+            segment(title, children: document.pullRequestLink == nil ? children(of: (document.path as NSString).deletingLastPathComponent) : [], icon: NSImage(size: NSSize(width: 13, height: 13), flipped: false) { NSWorkspace.shared.icon(for: UTType(filenameExtension: (name as NSString).pathExtension) ?? .data).draw(in: $0); return true })
             Spacer(minLength: 8)
             switch document.compare {
             case .uncommitted: Text("Uncommitted")

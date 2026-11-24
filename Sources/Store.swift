@@ -135,6 +135,7 @@ final class Store {
     @ObservationIgnored private var multiSelectionAnchor: SidebarItem?
     var missingFolder: String?
     var pullRequestFailure: String?
+    var showPullRequestFailure: String?
     var stopWatchingFailure: String?
     private(set) var preparingPullRequests: [PullRequestLink] = []
     @ObservationIgnored private var pullRequestPreparation: Task<Void, Never>?
@@ -180,6 +181,7 @@ final class Store {
     static let sessionFilesRoot = "session-files"
     static let resolvedHome = URL(filePath: NSHomeDirectory()).resolvingSymlinksInPath().path
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
+    private(set) var shownReviewPullRequests: [String: [PullRequestLink: ReviewPullRequest]] = [:]
     var activeReviewRoots: [String: String] = [:]
     var collapsedReviewRepositories: Set<String> = []
     var expandedReviewTasks: Set<String> = []
@@ -1402,6 +1404,122 @@ final class Store {
         return ([reviewModels[sessionID], reviewModels[Self.reviewKey(sessionID, root: Self.sessionFilesRoot)]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
     }
 
+    func showPullRequestInReview(number: Int, repository: String?, repositoryPath: String? = nil, in tabID: Tab.ID) async -> Result<PullRequestLink, ReviewPullRequestFailure> {
+        guard UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return .failure(.init(message: "Enable Review in Settings to show a pull request")) }
+        guard let caller = tabs.first(where: { $0.id == tabID }),
+              let target = caller.kind == .claude ? caller : tabs.first(where: { $0.id == caller.parentTabID && $0.kind == .claude }),
+              let sessionID = target.sessionID
+        else { return .failure(.init(message: "Select a session tab or run berth show-pr from a session or its terminal")) }
+        guard number > 0, repository.map({ PullRequestLink.validatedRepository($0) != nil }) ?? true else {
+            return .failure(.init(message: "Pass a positive PR number or a GitHub pull request URL"))
+        }
+
+        let location: ReviewPullRequestLocation
+        do {
+            location = try await resolveReviewPullRequest(number: number, repository: repository, path: repositoryPath, caller: caller.folder, session: target.folder)
+        } catch {
+            return .failure(error)
+        }
+
+        let link = location.link
+        let pullRequest: PullRequest? = if Snapshot.output != nil {
+            Snapshot.fixtureShownPullRequests[link] ?? Snapshot.fixtureLinkedPullRequests[link]
+        } else {
+            await PullRequestStatus.fetch([], linked: [link]).linked[link]
+        }
+        guard let pullRequest else {
+            return .failure(.init(message: "Couldn’t load \(link.repository) PR #\(number). Check the PR number and that gh is signed in with access to the repository"))
+        }
+        guard UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return .failure(.init(message: "Enable Review in Settings to show a pull request")) }
+        guard activate(.tab(target.id)) else { return .failure(.init(message: "The session tab closed. Open it and try again")) }
+
+        if !showsReviewPanel { showsReviewPanel = true }
+        guard let model = reviewModels[sessionID] else { return .failure(.init(message: "Review couldn’t open for this session tab")) }
+
+        let entry = ReviewPullRequest(location: location, pullRequest: pullRequest)
+        let document: ReviewDocument
+        let contents: ReviewContents
+        do {
+            let loaded = try await model.loadPullRequestFiles(entry)
+            guard let first = loaded.files.first else { return .failure(.init(message: "PR #\(number) has no changed files")) }
+
+            document = ReviewDocument(path: first.path, compare: loaded.compare, root: location.root, pullRequestLink: link)
+            contents = try await model.pullRequestContents(document)
+        } catch {
+            return .failure(.init(message: "Couldn’t load changed files for \(link.repository) PR #\(number). \(ReviewModel.describe(error))"))
+        }
+        guard UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return .failure(.init(message: "Enable Review in Settings to show a pull request")) }
+        guard activate(.tab(target.id)) else { return .failure(.init(message: "The session tab closed. Open it and try again")) }
+
+        if !showsReviewPanel { showsReviewPanel = true }
+        guard reviewModels[sessionID] === model else {
+            return .failure(.init(message: "The session’s Review changed while loading the PR. Try again"))
+        }
+
+        shownReviewPullRequests[sessionID, default: [:]][link] = entry
+        model.slimExpansionOverrides["otherPullRequests"] = true
+        model.expandedPullRequests.insert(link)
+        model.slimScopeOverride = .changes
+        model.open(document, loaded: contents)
+        return .success(link)
+    }
+
+    private func resolveReviewPullRequest(number: Int, repository: String?, path: String?, caller: String, session: String) async throws(ReviewPullRequestFailure) -> ReviewPullRequestLocation {
+        if let path {
+            var isDirectory: ObjCBool = false
+            guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                throw .init(message: "Pass an existing local clone folder to --repo")
+            }
+
+            let root = RepositoryRoot.resolve(path)
+            guard let origin = await RepositoryRoot.gitHubRepository(at: root) else {
+                throw .init(message: "Pass a local clone with a GitHub origin to --repo")
+            }
+            guard repository == nil || origin.lowercased() == repository?.lowercased() else {
+                throw .init(message: "The --repo folder has origin \(origin). Pass a clone of \(repository ?? origin)")
+            }
+
+            return ReviewPullRequestLocation(link: PullRequestLink(repository: origin.lowercased(), number: number), root: root)
+        }
+
+        let callerRoot = RepositoryRoot.resolve(caller)
+        let sessionRoot = RepositoryRoot.resolve(session)
+        let roots = callerRoot == sessionRoot ? [callerRoot] : [callerRoot, sessionRoot]
+        for root in roots {
+            if let origin = await RepositoryRoot.gitHubRepository(at: root)?.lowercased(), repository == nil || origin == repository?.lowercased() {
+                return ReviewPullRequestLocation(link: PullRequestLink(repository: origin, number: number), root: root)
+            }
+        }
+        guard let repository = repository?.lowercased() else {
+            throw .init(message: "This tab has no GitHub origin. Pass a pull request URL or use --repo <path>")
+        }
+
+        refreshLocalClones()
+        await waitForLocalClones()
+        let link = PullRequestLink(repository: repository, number: number)
+        if let clone = localCheckout(of: repository), await RepositoryRoot.gitHubRepository(at: clone)?.lowercased() == repository {
+            return ReviewPullRequestLocation(link: link, root: clone)
+        }
+
+        let siblings = await RepositoryRoot.gitHubSiblingClones(of: Set(roots))
+        if let clone = siblings.values.flatMap({ $0.filter { $0.value == repository }.keys }).min() {
+            return ReviewPullRequestLocation(link: link, root: clone)
+        }
+        throw .init(message: "No local clone of \(repository). Pass --repo <path> or clone the repository")
+    }
+
+    func sessionReviewPullRequests(of sessionID: String, changes: ReviewChanges?, excluding branchNumber: Int?) -> [ReviewPullRequest] {
+        var entries = shownReviewPullRequests[sessionID] ?? [:]
+        if let changes, let root = repositoryRoot(ofSession: sessionID),
+           let repository = pullRequestBranch(inRoot: root, branch: changes.branch)?.repository.lowercased() {
+            for pullRequest in pullRequests(inRoot: nil, of: sessionID, branch: changes.branch) where pullRequest.number != branchNumber {
+                let link = PullRequestLink(repository: repository, number: pullRequest.number)
+                if entries[link] == nil { entries[link] = ReviewPullRequest(location: ReviewPullRequestLocation(link: link, root: changes.root), pullRequest: pullRequest) }
+            }
+        }
+        return entries.values.sorted { ($0.id.number, $0.id.repository) < ($1.id.number, $1.id.repository) }
+    }
+
     func showChanges(opening paths: [String]) {
         showsReviewPanel = true
         isHarborShown = false
@@ -1950,6 +2068,7 @@ final class Store {
         if let sessionID {
             reviewModels = reviewModels.filter { $0.key != sessionID && !$0.key.hasPrefix(sessionID + "\n") }
             activeReviewRoots[sessionID] = nil
+            shownReviewPullRequests[sessionID] = nil
             reviewRepositories[sessionID] = nil
             editedRepositories[sessionID] = nil
             editedFiles[sessionID] = nil

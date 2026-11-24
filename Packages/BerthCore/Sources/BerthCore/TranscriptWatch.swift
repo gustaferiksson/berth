@@ -31,9 +31,8 @@ extension TranscriptActivity {
         if let argument, let number = Int(argument), number > 0 {
             return PullRequestWatch(number: number, since: date)
         }
-        if let argument, let link = argument.wholeMatch(of: /https:\/\/(?:www\.)?github\.com\/([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+)\/pull\/([0-9]+)\/?(?:[?#][^\s]*)?/),
-           let number = Int(link.2), number > 0 {
-            return PullRequestWatch(number: number, repository: link.1.lowercased(), since: date)
+        if let argument, let link = PullRequestLink.parse(String(argument)) {
+            return PullRequestWatch(number: link.number, repository: link.repository.lowercased(), since: date)
         }
         return PullRequestWatch(number: nil, since: date)
     }

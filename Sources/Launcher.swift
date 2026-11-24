@@ -21,7 +21,7 @@ struct StewardPullRequestButton: View {
 }
 
 enum LauncherMode {
-    case newSession, search, palette, pullRequests, issues, projects
+    case newSession, search, palette, pullRequests, showPullRequestInReview, issues, projects
 }
 
 struct Launcher: View {
@@ -104,8 +104,16 @@ struct Launcher: View {
         return IssueInbox.rank(query, in: store.issueInbox ?? [], now: .now)
     }
 
+    private var showsPullRequests: Bool { mode == .pullRequests || mode == .showPullRequestInReview }
+
+    private var pastedPullRequest: PullRequestLink? {
+        guard mode == .showPullRequestInReview else { return nil }
+
+        return PullRequestLink.parse(query.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     private var rankedPullRequests: (pullRequests: [InboxPullRequest], older: Int) {
-        guard mode == .pullRequests, issueReference == nil else { return ([], 0) }
+        guard showsPullRequests, issueReference == nil, pastedPullRequest == nil else { return ([], 0) }
 
         return PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now)
     }
@@ -159,19 +167,19 @@ struct Launcher: View {
         let count = switch mode {
         case .newSession: matches.count
         case .palette: rows.count
-        case .pullRequests: ranked.pullRequests.count
+        case .pullRequests, .showPullRequestInReview: pastedPullRequest == nil ? ranked.pullRequests.count : 1
         case .issues: issues.issues.count
         case .search: hits.count
         case .projects: projectEntries.count
         }
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: [LauncherMode.newSession: "folder", .palette: "command", .pullRequests: "arrow.triangle.pull", .issues: "exclamationmark.circle", .projects: "checklist"][mode] ?? "magnifyingglass")
+                Image(systemName: [LauncherMode.newSession: "folder", .palette: "command", .pullRequests: "arrow.triangle.pull", .showPullRequestInReview: AppAction.showPullRequestInReview.symbol, .issues: "exclamationmark.circle", .projects: "checklist"][mode] ?? "magnifyingglass")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 24)
                     .accessibilityHidden(true)
-                TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests or paste an issue", .issues: "Search or paste an issue", .projects: "Search project items"][mode] ?? "Search all sessions"))
+                TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests or paste an issue", .showPullRequestInReview: "Search pull requests or paste a PR URL", .issues: "Search or paste an issue", .projects: "Search project items"][mode] ?? "Search all sessions"))
                     .textFieldStyle(.plain)
                     .font(.system(size: 22))
                     .focused($isQueryFocused)
@@ -191,9 +199,12 @@ struct Launcher: View {
                             openOnGitHub(url)
                             return .handled
                         }
-                        let pullRequests = rankedPullRequests.pullRequests
-                        if mode == .pullRequests, pullRequests.indices.contains(highlighted) {
-                            openOnGitHub(pullRequests[highlighted].url)
+                        if let pullRequest, showsPullRequests {
+                            if AppAction.showPullRequestInReview.isAvailable(in: store) {
+                                showInReview(PullRequestLink(repository: pullRequest.repository, number: pullRequest.number))
+                            } else if mode == .pullRequests {
+                                openOnGitHub(pullRequest.url)
+                            }
                             return .handled
                         }
                         let matches = self.matches
@@ -291,6 +302,8 @@ struct Launcher: View {
                     let openable = linked.count { $0.opening.isOpenable }
                     if openable > 0 { LauncherKeyHint("↩", "Open \(openable) Pull Request\(openable == 1 ? "" : "s")") }
                     LauncherKeyHint("⌥↩", "Open on GitHub")
+                } else if mode == .showPullRequestInReview {
+                    LauncherKeyHint("↩", "Show in Review")
                 } else if mode == .pullRequests {
                     let opening = pullRequest.map { store.opening(of: PullRequestLink(repository: $0.repository, number: $0.number)) }
                     let label = if case let .session(session)? = opening {
@@ -305,7 +318,7 @@ struct Launcher: View {
                         "Open"
                     }
                     LauncherKeyHint("↩", label)
-                    LauncherKeyHint("⌥↩", "Open on GitHub")
+                    LauncherKeyHint("⌥↩", AppAction.showPullRequestInReview.isAvailable(in: store) ? "Show in Review" : "Open on GitHub")
                 } else if mode == .issues {
                     if let issueRow {
                         LauncherKeyHint("↩", issueRow.openPullRequestCount == 0 ? "Start" : "Open PRs")
@@ -325,7 +338,7 @@ struct Launcher: View {
                     LauncherKeyHint("↩", "Open")
                     LauncherKeyHint("↑↓", "Session")
                 }
-                if richPreviews, mode == .pullRequests || mode == .issues { LauncherKeyHint("␣", "Preview") }
+                if richPreviews, showsPullRequests || mode == .issues { LauncherKeyHint("␣", "Preview") }
                 if let nextScope { LauncherKeyHint("⇥", nextScope.title) }
                 Spacer(minLength: 0)
                 if mode == .search, let indexing = store.searchIndexing {
@@ -348,10 +361,10 @@ struct Launcher: View {
             store.launcherQuery = ""
             isQueryFocused = true
             if mode == .search { store.updateSearchIndex() }
-            if mode == .pullRequests { store.refreshInbox() }
+            if showsPullRequests { store.refreshInbox() }
             if mode == .issues { store.refreshIssueInbox() }
             if mode == .projects { store.projects.refresh() }
-            if mode == .pullRequests || mode == .issues || mode == .projects { store.refreshLocalClones() }
+            if showsPullRequests || mode == .issues || mode == .projects { store.refreshLocalClones() }
             guard mode == .newSession else { return }
 
             let known = store.knownFolders
@@ -425,18 +438,29 @@ struct Launcher: View {
                 VStack(spacing: 0) {
                     if issue != nil {
                         issueRows(linked)
-                    } else if mode == .pullRequests {
+                    } else if let pastedPullRequest {
+                        Button { showInReview(pastedPullRequest) } label: {
+                            LauncherRowFrame(symbol: AppAction.showPullRequestInReview.symbol, tint: .accentColor, title: "\(pastedPullRequest.repository) #\(pastedPullRequest.number)", isHighlighted: true) {
+                                EmptyView()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    } else if showsPullRequests {
                         ForEach(Array(pullRequests.enumerated()), id: \.element.id) { index, pullRequest in
                             if index == 0 || pullRequests[index - 1].role != pullRequest.role {
                                 LauncherSectionHeader(pullRequest.role.title, count: pullRequestGroups[pullRequest.role]?.count)
                                     .padding(.top, index == 0 ? 0 : 6)
                             }
+                            let link = PullRequestLink(repository: pullRequest.repository, number: pullRequest.number)
                             pullRequestRow(pullRequest, isHighlighted: index == highlighted)
                                 .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .launcher, store: store))
                                 .id(index)
                                 .onTapGesture { open(pullRequest) }
                                 .contextMenu {
-                                    StewardPullRequestButton(link: PullRequestLink(repository: pullRequest.repository, number: pullRequest.number), url: pullRequest.url)
+                                    Button("Show in Review", systemImage: AppAction.showPullRequestInReview.symbol) { showInReview(link) }
+                                        .disabled(!AppAction.showPullRequestInReview.isAvailable(in: store))
+                                    Button("Open on GitHub", systemImage: "arrow.up.right.square") { openOnGitHub(pullRequest.url) }
+                                    if mode == .pullRequests { StewardPullRequestButton(link: link, url: pullRequest.url) }
                                 }
                         }
                         if pullRequests.isEmpty {
@@ -787,7 +811,8 @@ struct Launcher: View {
             selectedIssue = highlightedIssue
             return
         }
-        if mode == .pullRequests {
+        if let pastedPullRequest { return showInReview(pastedPullRequest) }
+        if showsPullRequests {
             let pullRequests = rankedPullRequests.pullRequests
             if pullRequests.indices.contains(highlighted) { open(pullRequests[highlighted]) }
             return
@@ -930,11 +955,24 @@ struct Launcher: View {
 
     private func open(_ pullRequest: InboxPullRequest) {
         let link = PullRequestLink(repository: pullRequest.repository, number: pullRequest.number)
+        if mode == .showPullRequestInReview { return showInReview(link) }
+
         let opening = store.opening(of: link)
         if case .noCheckout = opening { return missingCheckout = pullRequest }
 
         store.openPullRequest(link, url: pullRequest.url, opening: opening)
         store.launcherMode = nil
+    }
+
+    private func showInReview(_ link: PullRequestLink) {
+        guard let tab = store.selectedTabID else { return }
+
+        store.launcherMode = nil
+        Task {
+            if case let .failure(error) = await store.showPullRequestInReview(number: link.number, repository: link.repository, in: tab) {
+                store.showPullRequestFailure = error.message
+            }
+        }
     }
 
     private func openLinkedPullRequests(_ pullRequests: [LinkedPullRequest]) {

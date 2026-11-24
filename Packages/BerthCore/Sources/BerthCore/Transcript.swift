@@ -24,6 +24,22 @@ public struct PullRequestLink: Sendable, Hashable {
         self.repository = repository
         self.number = number
     }
+
+    public static func parse(_ url: String) -> Self? {
+        guard let match = url.wholeMatch(of: /https:\/\/(?:www\.)?github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9_.-]+)\/pull\/([0-9]+)\/?(?:[?#][^\s]*)?/),
+              let number = Int(match.2), number > 0, let repository = validatedRepository(String(match.1))
+        else { return nil }
+
+        return Self(repository: repository, number: number)
+    }
+
+    public static func validatedRepository(_ repository: String) -> String? {
+        guard let match = repository.wholeMatch(of: /([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)\/([A-Za-z0-9_.-]+)/),
+              match.1.count <= 39, match.2.count <= 100, match.2 != ".", match.2 != ".."
+        else { return nil }
+
+        return repository
+    }
 }
 
 public struct SessionModelSettings: Sendable, Hashable {

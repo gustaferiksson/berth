@@ -209,6 +209,10 @@ struct ContentView: View {
         } message: { message in
             Text(message)
         }
+        .alert("Couldn’t Show Pull Request in Review", isPresented: Binding(get: { store.showPullRequestFailure != nil }, set: { if !$0 { store.showPullRequestFailure = nil } }), presenting: store.showPullRequestFailure) { _ in
+        } message: { message in
+            Text(message)
+        }
         .alert("Couldn’t Stop Watching", isPresented: Binding(get: { store.stopWatchingFailure != nil }, set: { if !$0 { store.stopWatchingFailure = nil } }), presenting: store.stopWatchingFailure) { _ in
         } message: { message in
             Text(message)
