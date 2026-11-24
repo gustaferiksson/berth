@@ -43,7 +43,7 @@ struct SidebarSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 480)
+        .frame(height: 640)
         .onChange(of: showsPlanUsage) {
             Task {
                 await store.refreshPlanUsage()
