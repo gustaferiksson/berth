@@ -524,7 +524,7 @@ private struct Composer: View {
             let pending = client.pendingAttachments[sessionID, default: [:]].values.joined().lazy.compactMap(\.number).max() ?? 0
             let number = max(attachments.lazy.compactMap(\.number).max() ?? 0, sent, pending) + 1
             attachment.number = number
-            insertAtCaret("[Image #\(number)]")
+            await insertAtCaret("[Image #\(number)]")
         }
         attachments.append(attachment)
         await client.upload(prepared.data, id: prepared.attachment.id, name: prepared.attachment.name)
@@ -550,7 +550,7 @@ private struct Composer: View {
     }
     #endif
 
-    private func insertAtCaret(_ token: String) {
+    private func insertAtCaret(_ token: String) async {
         var caret = draft.endIndex
         if case let .selection(range)? = selection?.indices, draft.indices.contains(range.upperBound) || range.upperBound == draft.endIndex {
             caret = range.upperBound
@@ -559,7 +559,11 @@ private struct Composer: View {
         let leading = before.isEmpty || before.last?.isWhitespace == true ? "" : " "
         let after = draft[caret...]
         let trailing = after.first?.isWhitespace == true ? "" : " "
-        draft.insert(contentsOf: leading + token + trailing, at: caret)
+        let inserted = leading + token + trailing
+        let offset = draft.distance(from: draft.startIndex, to: caret) + inserted.count
+        draft.insert(contentsOf: inserted, at: caret)
+        await Task.yield()
+        selection = TextSelection(insertionPoint: draft.index(draft.startIndex, offsetBy: offset))
     }
 
     private func remove(_ attachment: Attachment) {

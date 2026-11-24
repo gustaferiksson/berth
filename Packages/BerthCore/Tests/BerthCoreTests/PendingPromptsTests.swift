@@ -167,4 +167,19 @@ struct PendingPromptsTests {
         #expect(PendingPrompts.reconcile(pending, entries: [], queued: [recorded.text], now: now) == pending)
         #expect(PendingPrompts.unqueued(pending, queued: [recorded.text]) == pending)
     }
+
+    @Test func pullingBackTheQueueLeavesNoGhostBubble() {
+        let enqueued = ["first", "second"].map { #"{"type":"queue-operation","operation":"enqueue","content":"\#($0)"}"# }
+        let queued = TranscriptTail.entries(in: Data((enqueued.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: []).queue
+        let pending = [PendingPrompt(text: "second", sentAt: sent)]
+        let recalled = PendingPrompts.recall(queued, pending: pending)
+
+        #expect(recalled.text == "first\nsecond" && recalled.pending.isEmpty)
+
+        let popAll = ["first", "second"].map { #"{"type":"queue-operation","operation":"popAll","content":"\#($0)"}"# }
+        let afterPop = TranscriptTail.entries(in: Data((popAll.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: queued)
+        let kept = PendingPrompts.reconcile(pending, entries: [], queued: afterPop.queue, now: sent.addingTimeInterval(30))
+
+        #expect(PendingPrompts.shown(kept, queued: afterPop.queue).isEmpty)
+    }
 }

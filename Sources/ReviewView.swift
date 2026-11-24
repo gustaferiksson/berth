@@ -100,7 +100,7 @@ final class ReviewModel {
     @ObservationIgnored private var queuedLoad: Task<Void, Never>?
     @ObservationIgnored private var graphLoading: Task<Void, Never>?
     @ObservationIgnored private var commitSelection = 0
-    @ObservationIgnored private var rangeFiles: [ReviewDocument: ReviewFile] = [:]
+    @ObservationIgnored var rangeFiles: [ReviewDocument: ReviewFile] = [:]
     @ObservationIgnored private(set) var loadCount = 0
     var buffers: [String: ReviewEditBuffer] = [:]
     @ObservationIgnored private var blameCache: [ReviewBlameKey: Task<ReviewBlameSnapshot?, Never>] = [:]

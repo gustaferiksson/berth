@@ -8,10 +8,24 @@ struct ConversationComposerField: NSViewRepresentable {
     let color: NSColor
     let promptColor: NSColor?
     let focusRequest: Int
+    let layoutWidth: CGFloat
     let submit: () -> Void
     let attach: ([URL]) -> String
+    let recall: () -> Bool
 
     private static let maxLines = 8.0
+
+    static func height(of text: String, font: NSFont, width: CGFloat) -> CGFloat {
+        let storage = NSTextStorage(string: text, attributes: [.font: font])
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        layout.ensureLayout(for: container)
+        let lineHeight = ceil(layout.defaultLineHeight(for: font))
+        return min(max(ceil(layout.usedRect(for: container).height), lineHeight), lineHeight * maxLines)
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -27,10 +41,10 @@ struct ConversationComposerField: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
+        textView.autoresizingMask = []
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.widthTracksTextView = false
         textView.writingToolsBehavior = .none
         textView.setAccessibilityLabel("Message")
         textView.registerForDraggedTypes([.fileURL])
@@ -38,7 +52,7 @@ struct ConversationComposerField: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.documentView = textView
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = false
+        scrollView.hasVerticalScroller = true
         scrollView.scrollerStyle = .overlay
         scrollView.autohidesScrollers = true
         return scrollView
@@ -60,6 +74,7 @@ struct ConversationComposerField: NSViewRepresentable {
         textView.insertionPointColor = color
         textView.onSubmit = submit
         textView.onAttach = attach
+        textView.onRecall = recall
         if textView.string != text {
             textView.string = text
             textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
@@ -77,16 +92,16 @@ struct ConversationComposerField: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context _: Context) -> CGSize? {
         guard let textView = nsView.documentView as? ComposerTextView, let layout = textView.textLayoutManager else { return nil }
 
-        let width = proposal.width ?? 400
-        let lineHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
+        let width = layoutWidth > 0 ? layoutWidth : proposal.width ?? 400
         textView.frame.size.width = width
         layout.textContainer?.size = NSSize(width: width, height: .greatestFiniteMagnitude)
         layout.ensureLayout(for: layout.documentRange)
         let used = layout.usageBoundsForTextContainer.height
-        let inset = textView.textContainerInset.height * 2
-        let maxHeight = lineHeight * Self.maxLines
-        nsView.hasVerticalScroller = used > maxHeight
-        return CGSize(width: width, height: min(max(used, lineHeight), maxHeight) + inset)
+        let height = Self.height(of: text, font: font, width: width)
+        if textView.selectedRange().location == (textView.string as NSString).length {
+            nsView.contentView.scroll(to: NSPoint(x: 0, y: max(0, used - height)))
+        }
+        return CGSize(width: proposal.width ?? width, height: min(height, proposal.height ?? height))
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -109,6 +124,7 @@ final class ComposerTextView: NSTextView {
     var placeholder = ""
     var onSubmit: () -> Void = {}
     var onAttach: ([URL]) -> String = { _ in "" }
+    var onRecall: () -> Bool = { false }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -134,6 +150,9 @@ final class ComposerTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        let isUp = event.keyCode == 126 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isDisjoint(with: [.shift, .option, .command, .control])
+        if isUp, string.isEmpty, !hasMarkedText(), onRecall() { return }
+
         let isReturn = event.keyCode == 36 || event.keyCode == 76
         guard isReturn, !hasMarkedText() else { return super.keyDown(with: event) }
 

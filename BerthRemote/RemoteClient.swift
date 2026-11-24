@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import Observation
 import Security
+import UIKit
 
 @Observable
 final class RemoteClient {
@@ -156,15 +157,22 @@ final class RemoteClient {
             Finally, reload the feed from an empty state and confirm that the first page appears at the top. If the entry you were reading has been deleted, the feed should restore the nearest remaining entry.
             """),
         ]
+        if UserDefaults.standard.bool(forKey: "snapshotDemoImageOnly") {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 160)).pngData { context in
+                UIColor.systemTeal.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 240, height: 160))
+            }
+            entries[session.id]?.append(RemoteEntry(id: "prompt-image", kind: .prompt, text: "[Image #1]", images: [image], imageNumbers: [1]))
+        }
         activity[session.id] = RemoteActivity(tasks: [], context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"))
         let resets = Date.now.addingTimeInterval(3 * 3600)
         usage = PlanUsage(windows: [
             UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: resets),
-            UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.18, resetsAt: resets.addingTimeInterval(3 * 86_400)),
+            UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.81, resetsAt: resets.addingTimeInterval(3 * 86_400)),
         ])
         codexUsage = CodexUsage(usage: PlanUsage(windows: [
-            UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.67, resetsAt: resets),
-            UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.31, resetsAt: resets.addingTimeInterval(3 * 86_400)),
+            UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.18, resetsAt: resets),
+            UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.47, resetsAt: resets.addingTimeInterval(3 * 86_400)),
         ]), recordedAt: .now)
         if !UserDefaults.standard.bool(forKey: "snapshotDemoList") { openedSessionID = session.id }
     }
