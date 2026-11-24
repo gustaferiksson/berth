@@ -129,6 +129,8 @@ One JSON request line in, one response line out per connection (`ControlRequest`
 - `wait <tab> [--timeout]`: until the exit file exists or the tab is gone; the CLI exits with that status.
 - `capture <tab>`: any tab. libghostty-spm exposes no screen read on a live surface, so it reads the session host's scrollback ring through `HostFrame.dump` (a request that doesn't attach, so the tab's client isn't replaced) and strips escapes with `TerminalText.plain`; tabs not behind a host report capture as unsupported.
 
+- `open-url <url> [--background] [--json]` opens an http or https page as a new tab in the caller's session browser (the Claude tab, or the parent of a terminal it opened) and switches that session to Browser mode unless `--background`.
+
 Agents use `show-pr` when the user asks to review or check out a PR in Berth. Use `open-session` for a separate working session when the user asks for one.
 
 In the PR launcher, Option-Return and the Show in Review row menu apply to the selected session tab when Review is enabled. File ▸ Show Pull Request in Review… (⌥⌘R) and the plus button beside Session pull requests open a launcher where Return shows the highlighted PR. A pasted GitHub PR URL also works in that mode.

@@ -146,6 +146,11 @@ struct ControlTests {
         #expect(throws: ControlCommand.UsageError.self) { try parse(["open", "a", "b"]) }
         #expect(throws: ControlCommand.UsageError.self) { try parse(["open", "--cwd", "/x", "a"]) }
 
+        #expect(try parse(["open-url", "http://localhost:3000/invoices", "--background"]).request == ControlRequest(token: "tok", caller: "me", operation: .openURL, background: true, url: "http://localhost:3000/invoices"))
+        #expect(throws: ControlCommand.UsageError.self) { try parse(["open-url", "file:///etc/passwd"]) }
+        #expect(throws: ControlCommand.UsageError.self) { try parse(["open-url", "javascript:alert(1)"]) }
+        #expect(throws: ControlCommand.UsageError.self) { try parse(["open-url"]) }
+
         let send = try parse(["send", "ab12", "hello", "world", "--no-enter"]).request
         #expect(send.tab == "ab12" && send.text == "hello world" && send.enter == false)
         #expect(try parse(["wait", "ab12", "--timeout", "30"]).request.timeout == 30)

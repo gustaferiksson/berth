@@ -93,6 +93,7 @@ final class Store {
     let updater = AppUpdater()
     @ObservationIgnored lazy var remote = RemoteServer(store: self)
     @ObservationIgnored lazy var control = ControlService(store: self)
+    @ObservationIgnored lazy var browser = BrowserModel(store: self)
 
     var tabs: [Tab] = [] {
         didSet {
@@ -443,6 +444,7 @@ final class Store {
         }
         guard restoringTabs else { return }
 
+        browser.restore()
         Task {
             await refreshTask?.value
             await restoreOpenTabs()
@@ -1007,6 +1009,7 @@ final class Store {
             for index in tabs.indices {
                 guard let target = tabs[index].sessionID.flatMap({ continued[$0] }) else { continue }
 
+                browser.rekey(from: BrowserModel.key(of: tabs[index]), to: target)
                 tabs[index].sessionID = target
             }
             let pins = pinnedIDs.map { continued[$0] ?? $0 }
@@ -1094,6 +1097,7 @@ final class Store {
                     && session.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) >= tab.opened } ?? false
             }), ProcessAncestry.isDescendant(session.pid, of: getpid()) else { continue }
 
+            browser.rekey(from: BrowserModel.key(of: tabs[position]), to: session.sessionId)
             tabs[position].sessionID = session.sessionId
         }
         let needsYou = NeedsYou.update(previous: waitingSessionIDs, live: Array(liveBySession.values), inBerth: Set(tabs.compactMap(\.sessionID)))
@@ -1436,7 +1440,7 @@ final class Store {
 
     var shownPane: SessionPane? {
         if isHarborShown { return nil }
-        if sessionPane == .terminal { return .terminal }
+        if sessionPane == .terminal || sessionPane == .browser { return sessionPane }
         return UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && showsReviewPanel ? sessionPane : nil
     }
 
@@ -1468,6 +1472,16 @@ final class Store {
         showsReviewPanel = true
         isHarborShown = false
         leaveTerminalPane(of: sessionTab)
+    }
+
+    func showBrowserPane() {
+        guard let session = sessionTab else { return }
+
+        launcherMode = nil
+        isHarborShown = false
+        leaveTerminalPane(of: session)
+        sessionPanes[session.id] = .browser
+        if browser.shownTab == nil { browser.open(nil, in: BrowserModel.key(of: session)) }
     }
 
     func hideSessionPanel() {
@@ -1965,6 +1979,7 @@ final class Store {
         for index in tabs.indices where tabs[index].sessionID == nil {
             guard let claim = tabs[index].agent.harness.claim, let session = claim(tabs[index].opened, tabs[index].cwd, summaries, claimed) else { continue }
 
+            browser.rekey(from: BrowserModel.key(of: tabs[index]), to: session.id)
             tabs[index].sessionID = session.id
             claimed.insert(session.id)
         }
@@ -2077,6 +2092,7 @@ final class Store {
         if multiSelection.contains(.session(sessionID)) { multiSelection.removeAll { $0 == .session(sessionID) } }
         applyGroups()
         if let tab = tab(forSession: sessionID) { close(tab.id) }
+        browser.discard(sessionID)
     }
 
     func dismissAttention(_ sessionID: String) {
@@ -2189,11 +2205,12 @@ final class Store {
         conversationTabIDs.remove(id)
         conversationSuspended.remove(id)
         conversationDrafts[id] = nil
+        if let closing = tabs.first(where: { $0.id == id && $0.kind == .claude }) { browser.release(BrowserModel.key(of: closing)) }
         sessionPanes[id] = nil
         filesModels[id] = nil
         paneTerminalIDs[id] = nil
         tabs.removeAll { $0.id == id }
-        if let parent, !tabs.contains(where: { $0.parentTabID == parent }) { sessionPanes[parent] = nil }
+        if let parent, sessionPanes[parent] == .terminal, !tabs.contains(where: { $0.parentTabID == parent }) { sessionPanes[parent] = nil }
         pullRequestTabs = pullRequestTabs.filter { $0.value != id }
         recentTabIDs.removeAll { $0 == id }
         if multiSelection.contains(.tab(id)) { multiSelection.removeAll { $0 == .tab(id) } }

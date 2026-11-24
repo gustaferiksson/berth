@@ -10,10 +10,10 @@ Two constraints decide where those shells live. A `TerminalSurfaceView` can neve
 
 Layout, as picked:
 
-- Mode switcher: a segmented icon control in the window toolbar where the Review toggle sat (`ModeSwitcher`, a `ControlGroup` of toggles, so it is easy to restyle). Modes are Changes, Files, Browser and Terminal; only Changes and Terminal are built, the rest are hidden. Clicking the active mode hides the sidebar and the column.
+- Mode switcher: a segmented icon control in the window toolbar where the Review toggle sat (`ModeSwitcher`, one `NSSegmentedControl` capsule, since a SwiftUI segmented `Picker` can't report a click on the selected segment). Modes are Changes, Files, Browser and Terminal; only Changes and Terminal are built, the rest are hidden. Clicking the active mode hides the sidebar and the column.
 - The mode's sidebar stays trailing (with `sidebarPosition` right it takes the leading column, as Review did). Changes uses today's Review list; Terminal lists the session's owned terminals (`TerminalList`, + for New Terminal, × and Close Terminal per row).
 - Pane header: a slim path bar. Changes keeps Review's; Terminal shows the shown terminal's folder and title (`TerminalPathBar`).
-- Files is built (design/flows-files.md): a full folder tree in the sidebar and the file in the pane. Later modes: Browser shows vertical tabs in the sidebar, grouped into "Pinned" and "This session" `SidebarSection` accordions, with a URL bar in the pane.
+- Files is built (design/flows-files.md): a full folder tree in the sidebar and the file in the pane. Browser is built too: vertical tabs in the sidebar, grouped into "Pinned" and "This session" `SidebarSection` accordions, with a URL bar in the pane (tab ownership in 0011).
 
 `TerminalSplit`'s second item hosts `PaneHost`: `ReviewDiffColumn` unchanged for Changes, or the Terminal path bar over an empty card. The mode is per Claude tab in memory (`Store.sessionPanes`, absent means Changes; `Store.shownPane` is what shows). The sidebar and column show when Review's panel shows or the session's mode is Terminal, so Terminal works with Review off (the switcher then offers only Terminal).
 

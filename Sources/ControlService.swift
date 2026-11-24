@@ -63,6 +63,8 @@ final class ControlService {
 
         if request.operation == .openPath { return openPath(request, for: caller) }
 
+        if request.operation == .openURL { return openURL(request, for: caller) }
+
         if request.operation == .showPullRequest {
             guard let number = request.pullRequest else { return .failure("Missing pull request number") }
 
@@ -161,6 +163,22 @@ final class ControlService {
         }
         if request.background != true { store.activate(.tab(id)) }
         return ControlResponse(tab: Self.shortID(id))
+    }
+
+    private func openURL(_ request: ControlRequest, for caller: UUID) -> ControlResponse {
+        guard let url = request.url.flatMap(URL.init(string:)), WebAddress.allows(url) else { return .failure("Pass one http or https URL") }
+
+        let callerTab = store.tabs.first { $0.id == caller }
+        guard let session = store.tabs.first(where: { $0.kind == .claude && $0.id == (callerTab?.kind == .claude ? callerTab?.id : callerTab?.parentTabID) }) else {
+            return .failure("Only a Claude session tab, or a terminal it opened, has a browser")
+        }
+
+        store.browser.open(url, in: BrowserModel.key(of: session), selects: request.background != true)
+        if request.background != true {
+            store.activate(.tab(session.id))
+            store.showBrowserPane()
+        }
+        return ControlResponse(text: "Opened \(url.absoluteString) in the session’s browser")
     }
 
     private func capture(_ tab: Tab) async -> ControlResponse {

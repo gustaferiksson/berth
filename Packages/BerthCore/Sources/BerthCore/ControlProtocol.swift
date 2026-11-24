@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 public enum ControlOp: String, Codable, Sendable {
-    case list = "ls", open, openSession = "open-session", openPath = "open-path", send, capture, close, wait, showPullRequest = "show-pr"
+    case list = "ls", open, openSession = "open-session", openPath = "open-path", openURL = "open-url", send, capture, close, wait, showPullRequest = "show-pr"
 }
 
 public struct ControlRequest: Codable, Equatable, Sendable {
@@ -20,8 +20,9 @@ public struct ControlRequest: Codable, Equatable, Sendable {
     public var pullRequest: Int?
     public var repository: String?
     public var repositoryPath: String?
+    public var url: String?
 
-    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil, pullRequest: Int? = nil, repository: String? = nil, repositoryPath: String? = nil) {
+    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil, pullRequest: Int? = nil, repository: String? = nil, repositoryPath: String? = nil, url: String? = nil) {
         self.token = token
         self.caller = caller
         self.operation = operation
@@ -36,6 +37,7 @@ public struct ControlRequest: Codable, Equatable, Sendable {
         self.pullRequest = pullRequest
         self.repository = repository
         self.repositoryPath = repositoryPath
+        self.url = url
     }
 }
 

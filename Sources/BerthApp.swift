@@ -72,6 +72,8 @@ struct BerthApp: App {
             CommandGroup(after: .sidebar) {
                 AppAction.commandPalette.menuButton(appDelegate.store)
                 AppAction.switchTerminal.menuButton(appDelegate.store)
+                AppAction.showBrowser.menuButton(appDelegate.store)
+                    .disabled(!AppAction.showBrowser.isAvailable(in: appDelegate.store))
                 if isReviewEnabled {
                     AppAction.showChangesPane.menuButton(appDelegate.store)
                         .disabled(!AppAction.showChangesPane.isAvailable(in: appDelegate.store))
@@ -204,7 +206,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let responder = event.window?.firstResponder as? NSView
             let ancestors = responder.map { Array(sequence(first: $0, next: \.superview)) } ?? []
-            if flags == .command, event.charactersIgnoringModifiers == "f", store.sessionPane != .terminal, ancestors.contains(where: { $0 is NSHostingView<PaneHost> }) {
+            if flags == .command, let key = [33: "[", 30: "]"][event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key }), action.isAvailable(in: store) {
+                action.perform(on: store)
+                return nil
+            }
+            if flags == .command, event.charactersIgnoringModifiers == "f", store.sessionPane == .changes || store.sessionPane == .files, ancestors.contains(where: { $0 is NSHostingView<PaneHost> }) {
                 let textView = ancestors.lazy.compactMap { $0 as? ReviewTextView }.first
                 if let textView, textView.selectedRanges.count == 1, textView.selectedRange().length > 0, textView.textStorage?.mutableString.rangeOfCharacter(from: .newlines, options: [], range: textView.selectedRange()).location == NSNotFound {
                     let setSearchString = NSMenuItem()

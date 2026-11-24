@@ -109,6 +109,8 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSMinimumSystemVersion: "26.0"
         NSHumanReadableCopyright: "Berth"
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoadsInWebContent: true
         UTExportedTypeDeclarations:
           - UTTypeIdentifier: dev.gustaf.berth.group
             UTTypeDescription: Berth Sidebar Group
