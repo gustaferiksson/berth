@@ -210,6 +210,7 @@ struct ReviewSubheading: View {
                 .foregroundStyle(theme.secondary)
             Text("+\(files.compactMap(\.additions).reduce(0, +)) −\(files.compactMap(\.deletions).reduce(0, +))")
                 .foregroundStyle(theme.secondary)
+                .padding(.trailing, ReviewInset.statusSlot)
         }
         .font(.subheadline)
         .frame(height: 22)
@@ -222,6 +223,7 @@ enum ReviewInset {
     static let content = 16.0
     static let listMargin = 8.0
     static let tree = 16.0
+    static let statusSlot = 18.0
 }
 
 extension View {

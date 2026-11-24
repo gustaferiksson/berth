@@ -1373,6 +1373,7 @@ private struct ReviewChangeRow: View {
     var body: some View {
         HStack(spacing: 6) {
             Text((file.path as NSString).lastPathComponent)
+                .monospaced()
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .fontWeight(.regular)
@@ -1386,22 +1387,18 @@ private struct ReviewChangeRow: View {
                 }
             }
             .fixedSize()
-            .opacity(showsOpenFile ? 0 : 1)
-            .overlay(alignment: .trailing) {
-                if showsOpenFile {
-                    Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(theme.secondary)
-                        .help("Open File")
-                        .fixedSize()
-                }
+            if showsOpenFile {
+                Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(theme.secondary)
+                    .help("Open File")
+                    .fixedSize()
             }
-            .animation(.easeOut(duration: 0.12), value: showsOpenFile)
             Text(file.status.rawValue)
                 .font(.caption2.weight(.medium).monospaced())
                 .foregroundStyle(file.status.color(in: theme))
-                .frame(width: 12)
+                .frame(width: ReviewInset.statusSlot - 6)
         }
         .font(.callout)
         .monospacedDigit()
@@ -1472,6 +1469,7 @@ private struct ReviewFileNode: View {
         let status = (changes.uncommitted.first { $0.path == node.path } ?? changes.committed.first { $0.path == node.path })?.status
         return Label {
             Text(node.name)
+                .monospaced()
                 .foregroundStyle(status.flatMap { [ReviewFile.Status.added: theme.working, .modified: theme.needsYou, .deleted: theme.closed, .renamed: theme.branch][$0] } ?? theme.foreground)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1495,7 +1493,7 @@ private struct ReviewThreadRows: View {
             let file = path as NSString
             let group = groups[path, default: []]
             HStack(spacing: 5) {
-                Text(file.lastPathComponent).bold()
+                Text(file.lastPathComponent).monospaced().bold()
                 if !file.deletingLastPathComponent.isEmpty {
                     Text(file.deletingLastPathComponent)
                         .foregroundStyle(theme.secondary)
@@ -2129,6 +2127,7 @@ struct ReviewDiffColumn: View {
                 .font(.caption)
                 .accessibilityHidden(true)
             Text(title)
+                .monospaced()
                 .italic(tab.isPreview)
                 .lineLimit(1)
             if !parents.isEmpty {

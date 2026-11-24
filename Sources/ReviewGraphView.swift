@@ -199,6 +199,7 @@ private struct ReviewGraphCommitRow: View {
                     .frame(width: 12)
                     .accessibilityLabel(status)
                 Text((file.path as NSString).lastPathComponent)
+                    .monospaced()
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .accessibilityLabel(file.path)
