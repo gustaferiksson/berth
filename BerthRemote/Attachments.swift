@@ -31,6 +31,8 @@ struct AttachmentTile: View {
     let state: RemoteClient.UploadState?
     let remove: () -> Void
 
+    @State private var isViewing = false
+
     var body: some View {
         let status = switch state {
         case .done: ""
@@ -82,6 +84,17 @@ struct AttachmentTile: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(attachment.name)
         .accessibilityValue(status)
+        .overlay {
+            if attachment.thumbnail != nil {
+                Button { isViewing = true } label: { Color.clear.contentShape(.rect) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open \(attachment.name)")
+            }
+        }
+        .fullScreenCover(isPresented: $isViewing) {
+            let item = ViewerImage(id: attachment.id, data: attachment.thumbnail)
+            ImageViewer(images: [item], start: item)
+        }
         .overlay(alignment: .topTrailing) {
             Button(action: remove) {
                 Image(systemName: "xmark")
