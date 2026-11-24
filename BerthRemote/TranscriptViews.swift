@@ -338,7 +338,7 @@ private struct PromptBubble: View {
     }
 }
 
-private struct PromptImageTag: View {
+struct PromptImageTag: View {
     let number: Int
 
     var body: some View {

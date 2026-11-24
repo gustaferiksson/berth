@@ -5,6 +5,7 @@ struct Attachment: Identifiable, Equatable {
     let id = UUID().uuidString
     let name: String
     let thumbnail: Data?
+    var number: Int?
 
     nonisolated static func prepared(_ data: Data, name: String, isImage: Bool) -> (attachment: Self, data: Data)? {
         guard isImage else {
@@ -62,6 +63,12 @@ struct AttachmentTile: View {
         }
         .frame(width: 60, height: 60)
         .clipShape(.rect(cornerRadius: ComposerLayout.tileRadius))
+        .overlay(alignment: .bottomLeading) {
+            if let number = attachment.number {
+                PromptImageTag(number: number)
+                    .padding(4)
+            }
+        }
         .opacity(isUploading ? 0.45 : 1)
         .overlay {
             if isUploading {

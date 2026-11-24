@@ -259,7 +259,13 @@ final class RemoteClient {
 
     func sendDraft(to sessionID: String) -> Bool {
         let text = draftTexts[sessionID, default: ""]
-        let attachments = draftAttachments[sessionID, default: []]
+        let attachments = draftAttachments[sessionID, default: []].enumerated().sorted { lhs, rhs in
+            let positions = [lhs, rhs].map { $0.element.number.flatMap { text.range(of: "[Image #\($0)]")?.lowerBound } }
+            guard let first = positions[0] else { return positions[1] == nil ? lhs.offset < rhs.offset : true }
+            guard let second = positions[1] else { return false }
+
+            return first < second
+        }.map(\.element)
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return false }
 
         draftTexts[sessionID] = nil
