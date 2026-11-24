@@ -27,14 +27,14 @@ final class HoverCardPanel {
         return true
     }
 
-    func show(_ card: some View, owner: String, isDark: Bool, beside row: NSRect, column: NSRect, in window: NSWindow, trailing: Bool) {
+    func show(_ card: some View, owner: String, colorScheme: ColorScheme, beside row: NSRect, column: NSRect, in window: NSWindow, position: SidebarPosition) {
         pendingHide?.cancel()
         self.owner = owner
-        let host = NSHostingView(rootView: card.glassEffect(.regular, in: .rect(cornerRadius: 12)).environment(\.colorScheme, isDark ? .dark : .light))
+        let host = NSHostingView(rootView: card.glassEffect(.regular, in: .rect(cornerRadius: 12)).environment(\.colorScheme, colorScheme))
         host.sizingOptions = [.intrinsicContentSize]
         let size = host.fittingSize
-        let frame = Self.frame(size: size, row: row, column: column, trailing: trailing, screen: window.screen?.visibleFrame ?? .zero)
-        panel.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+        let frame = Self.frame(size: size, row: row, column: column, position: position, screen: window.screen?.visibleFrame ?? window.frame)
+        panel.appearance = NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
         panel.contentView = host
         panel.setFrame(frame, display: true)
         if panel.parent == nil { window.addChildWindow(panel, ordered: .above) }
@@ -44,11 +44,15 @@ final class HoverCardPanel {
         }
     }
 
-    static func frame(size: NSSize, row: NSRect, column: NSRect, trailing: Bool, screen: NSRect) -> NSRect {
-        let gap = 8.0
-        let x = trailing ? column.maxX + gap : column.minX - gap - size.width
-        let y = min(max(row.maxY - size.height, screen.minY), screen.maxY - size.height)
-        return NSRect(origin: NSPoint(x: x, y: y), size: size)
+    static func frame(size: NSSize, row: NSRect, column: NSRect, position: SidebarPosition, screen: NSRect) -> NSRect {
+        let gap = 4.0
+        let x = position == .left ? column.maxX + gap : column.minX - gap - size.width
+        let y = row.maxY + SessionHoverCard.contentPadding - size.height
+        let origin = NSPoint(
+            x: min(max(x, screen.minX), max(screen.minX, screen.maxX - size.width)),
+            y: min(max(y, screen.minY), max(screen.minY, screen.maxY - size.height))
+        )
+        return NSRect(origin: origin, size: size)
     }
 
     func hideSoon(owner leaving: String) {
@@ -111,16 +115,20 @@ struct SessionHoverTrigger: ViewModifier {
                     guard !Task.isCancelled, let anchor, let window = anchor.window, !ItemPreviewPanel.shared.claimsHover else { return }
 
                     let row = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
-                    let column = anchor.enclosingScrollView.map { window.convertToScreen($0.convert($0.bounds, to: nil)) } ?? row
+                    let column = if let document = anchor.enclosingScrollView?.documentView, !document.visibleRect.isEmpty {
+                        window.convertToScreen(document.convert(document.visibleRect, to: nil))
+                    } else {
+                        row
+                    }
                     HoverCardPanel.shared.show(
                         SessionHoverCard(session: session, pullRequests: pullRequests, context: context, watch: store.pullRequestWatch(for: session.id), excerpt: excerpt, projectStatuses: store.projects.statusLabels(for: pullRequests))
                             .environment(\.ghosttyTheme, theme),
                         owner: session.id,
-                        isDark: theme.isDark,
+                        colorScheme: theme.isDark ? .dark : .light,
                         beside: row,
                         column: column,
                         in: window,
-                        trailing: sidebarPosition == .left
+                        position: sidebarPosition
                     )
                 }
             }
@@ -157,6 +165,8 @@ struct HoverExcerpt: Sendable {
 }
 
 struct SessionHoverCard: View {
+    static let contentPadding = 12.0
+
     let session: SessionSummary
     let pullRequests: [SessionPullRequest]
     let context: SessionContext?
@@ -166,41 +176,38 @@ struct SessionHoverCard: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(session.title)
-                    .font(.callout.weight(.semibold))
+                    .font(.headline)
                     .lineLimit(2)
-                    .padding(.horizontal, 6)
                 branchRow
             }
             if !pullRequests.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(pullRequests, id: \.self) { pullRequestRow(for: $0) }
                 }
             }
             if let watch {
                 Label(watch.title, systemImage: "eye")
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
-                    .padding(.horizontal, 6)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
             folderRow
             if let excerpt { excerptRow(excerpt) }
             footer
         }
-        .frame(width: 260, alignment: .leading)
-        .padding(6)
+        .frame(width: 276, alignment: .leading)
+        .padding(Self.contentPadding)
     }
 
     private var branchRow: some View {
         let project = URL(filePath: session.checkout).lastPathComponent
         return Text([session.agent.harness.isOptIn ? session.agent.harness.name : nil, project, session.branch].compactMap(\.self).joined(separator: " · "))
-            .font(.caption)
-            .foregroundStyle(.primary.opacity(0.7))
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
-            .padding(.horizontal, 6)
     }
 
     private func pullRequestRow(for item: SessionPullRequest) -> some View {
@@ -214,25 +221,23 @@ struct SessionHoverCard: View {
                 .accessibilityHidden(true)
                 .font(.system(size: 7))
                 .foregroundStyle(item.state.color(in: theme))
-                .padding(.top, 4)
-            VStack(alignment: .leading, spacing: 1) {
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: "#\(item.number) \(item.pullRequest.title)")
-                    .font(.caption.weight(.medium))
+                    .font(.callout.weight(.medium))
                     .lineLimit(1)
                 Text(verbatim: status.joined(separator: " · "))
-                    .font(.caption2)
-                    .foregroundStyle(.primary.opacity(0.7))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                 if let project = projectStatuses["\(item.repository.lowercased())#\(item.number)"] {
                     Label(project, systemImage: "checklist")
-                        .font(.caption2.weight(.medium))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
     }
 
     private static func reviewText(_ decision: InboxPullRequest.ReviewDecision) -> String? {
@@ -244,27 +249,26 @@ struct SessionHoverCard: View {
     private var folderRow: some View {
         Text((session.cwd as NSString).abbreviatingWithTildeInPath)
             .font(.caption.monospaced())
-            .foregroundStyle(.primary.opacity(0.7))
+            .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.head)
-            .padding(.horizontal, 6)
     }
 
     private func excerptRow(_ excerpt: HoverExcerpt) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(excerpt.prompt)
-                .font(.caption)
+                .font(.callout)
+                .foregroundStyle(.primary)
                 .lineLimit(3)
             if let reply = excerpt.reply {
                 Text(reply)
-                    .font(.caption)
-                    .foregroundStyle(.primary.opacity(0.7))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                     .lineLimit(3)
             }
         }
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 6)
     }
 
     private var footer: some View {
@@ -276,7 +280,6 @@ struct SessionHoverCard: View {
             }
         }
         .font(.caption)
-        .foregroundStyle(.primary.opacity(0.7))
-        .padding(.horizontal, 6)
+        .foregroundStyle(.secondary)
     }
 }

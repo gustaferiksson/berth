@@ -52,7 +52,7 @@ Neither uses the file mtime: `claude --resume` appends only `system`, `bridge-se
 
 Context fill (#51): `Transcript.summary` takes the tail's last non-sidechain, non-`<synthetic>` assistant `usage` and `message.model` (`SessionContext`, the same rule as `TranscriptActivity`), unknown when a `compact_boundary` follows it. With neither in the tail it keeps the previous scan's value only while the tail covers every byte since that scan (a boundary sits 0.3 to 6 MB before the next reply). `Store.refresh` adds the window and model name from the model catalog (`TranscriptActivity.catalogModel`, cached per model until relaunch).
 
-Open or live rows from 80% show `ContextRing` (13 pt, square ends so 94% doesn't read as full) left of the status dot, reserving the dot's slot like the flag. Compaction counts reach only the remote (`TranscriptActivity.context`), not the Mac UI (the sidebar's context footer was removed). `BranchText`'s minimum width is 48 so tags with checks fit at 220 pt.
+Open or live rows from 80% show `ContextRing` (13 pt, square ends so 94% doesn't read as full) left of the status dot, reserving the dot's slot like the flag. Compaction counts reach only the remote (`TranscriptActivity.context`), not the Mac UI (the sidebar's context footer was removed).
 
 ## Other processes' environment
 
