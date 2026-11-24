@@ -174,7 +174,7 @@ struct Launcher: View {
         }
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: [LauncherMode.newSession: "folder", .palette: "command", .pullRequests: "arrow.triangle.pull", .showPullRequestInReview: AppAction.showPullRequestInReview.symbol, .issues: "exclamationmark.circle", .projects: "checklist"][mode] ?? "magnifyingglass")
+                ([LauncherMode.newSession: LauncherGlyph.symbol("folder"), .palette: "command", .pullRequests: .octicon(.pullRequest), .showPullRequestInReview: .octicon(.pullRequest), .issues: .octicon(.issueOpened), .projects: "checklist"][mode] ?? "magnifyingglass").image(octiconSize: 18)
                     .font(.system(size: 18, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 24)
@@ -440,7 +440,7 @@ struct Launcher: View {
                         issueRows(linked)
                     } else if let pastedPullRequest {
                         Button { showInReview(pastedPullRequest) } label: {
-                            LauncherRowFrame(symbol: AppAction.showPullRequestInReview.symbol, tint: .accentColor, title: "\(pastedPullRequest.repository) #\(pastedPullRequest.number)", isHighlighted: true) {
+                            LauncherRowFrame(symbol: .octicon(.pullRequest), tint: .accentColor, title: "\(pastedPullRequest.repository) #\(pastedPullRequest.number)", isHighlighted: true) {
                                 EmptyView()
                             }
                         }
@@ -471,7 +471,7 @@ struct Launcher: View {
                                     isLoading: store.isInboxLoading
                                 )
                             } else {
-                                LauncherMessage(symbol: "arrow.triangle.pull", title: isBlank ? "No open pull requests need you" : "No matching pull requests")
+                                LauncherMessage(symbol: .octicon(.pullRequest), title: isBlank ? "No open pull requests need you" : "No matching pull requests")
                             }
                         }
                     } else if mode == .issues {
@@ -498,7 +498,7 @@ struct Launcher: View {
                                     isLoading: store.isIssueInboxLoading
                                 )
                             } else {
-                                LauncherMessage(symbol: "smallcircle.filled.circle", title: isBlank ? "No recent open issues" : "No matching issues")
+                                LauncherMessage(symbol: .octicon(.issueOpened), title: isBlank ? "No recent open issues" : "No matching issues")
                             }
                         }
                     } else if mode == .projects {
@@ -572,7 +572,7 @@ struct Launcher: View {
             case let .failure(error): error.message
             case .success: selectedIssue == nil ? "No open linked pull requests" : "Couldn’t start session"
             }
-            let symbol = if case .failure? = issueResult { "exclamationmark.circle" } else { "arrow.triangle.pull" }
+            let symbol: LauncherGlyph = if case .failure? = issueResult { "exclamationmark.circle" } else { .octicon(.pullRequest) }
             LauncherMessage(symbol: symbol, title: message, isLoading: issueResult == nil)
         }
     }
@@ -619,7 +619,7 @@ struct Launcher: View {
             "Updated \(age(since: pullRequest.updatedAt))",
         ].compactMap(\.self)
 
-        return LauncherRowFrame(symbol: "arrow.triangle.pull", tint: tint, title: pullRequest.title, secondary: secondary, isHighlighted: isHighlighted) {
+        return LauncherRowFrame(symbol: .octicon(Octicon(state)), tint: tint, title: pullRequest.title, secondary: secondary, isHighlighted: isHighlighted) {
             HStack(spacing: 5) {
                 switch pullRequest.checks {
                 case .passed:
@@ -660,7 +660,7 @@ struct Launcher: View {
             age(since: issue.updatedAt),
         ].compactMap(\.self)
 
-        return LauncherRowFrame(symbol: "smallcircle.filled.circle", tint: theme.working, title: issue.title, secondary: secondary, isHighlighted: isHighlighted) {
+        return LauncherRowFrame(symbol: .octicon(.issueOpened), tint: theme.working, title: issue.title, secondary: secondary, isHighlighted: isHighlighted) {
             HStack(spacing: 5) {
                 ForEach(Array(issue.labels.prefix(2).enumerated()), id: \.offset) { _, label in
                     LauncherLabelCapsule(name: label.name, hex: label.color)
@@ -669,7 +669,7 @@ struct Launcher: View {
                     LauncherBadge("+\(issue.labels.count - 2)")
                 }
                 if issue.openPullRequestCount > 0 {
-                    LauncherBadge(String(issue.openPullRequestCount), symbol: "arrow.triangle.pull")
+                    LauncherBadge(String(issue.openPullRequestCount), symbol: .octicon(.pullRequest))
                         .accessibilityLabel(Text(verbatim: "\(issue.openPullRequestCount) linked pull request\(issue.openPullRequestCount == 1 ? "" : "s")"))
                 }
             }
@@ -706,7 +706,7 @@ struct Launcher: View {
         let status = failed ? "Couldn’t open session" : store.issuePullRequestStatus(pullRequest, opening: opening)
         let secondary = [link.repository, "#\(link.number)"] + (pullRequest.isDraft ? ["Draft"] : [])
 
-        return LauncherRowFrame(symbol: "arrow.triangle.pull", tint: state.color(in: theme), title: pullRequest.title, secondary: secondary) {
+        return LauncherRowFrame(symbol: .octicon(Octicon(state)), tint: state.color(in: theme), title: pullRequest.title, secondary: secondary) {
             LauncherBadge(status, tint: failed ? theme.closed : nil)
         }
         .opacity(opening.isOpenable ? 1 : 0.6)
@@ -759,7 +759,7 @@ struct Launcher: View {
     }
 
     private func paletteRow(_ row: PaletteRow, isHighlighted: Bool) -> some View {
-        LauncherRowFrame(symbol: row.symbol, tint: row.item.section == .action ? .accentColor : .secondary, title: row.item.title, isHighlighted: isHighlighted) {
+        LauncherRowFrame(symbol: .symbol(row.symbol), tint: row.item.section == .action ? .accentColor : .secondary, title: row.item.title, isHighlighted: isHighlighted) {
             if !row.trailing.isEmpty {
                 Text(verbatim: row.trailing)
                     .font(.caption)

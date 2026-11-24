@@ -17,10 +17,10 @@ struct ProjectItemRow: View {
     let isHighlighted: Bool
     @Environment(\.ghosttyTheme) private var theme
 
-    private var symbol: String {
+    private var symbol: LauncherGlyph {
         switch item.kind {
-        case .issue: "smallcircle.filled.circle"
-        case .pullRequest: "arrow.triangle.pull"
+        case .issue: .octicon(.issueOpened)
+        case .pullRequest: .octicon(.pullRequest)
         case .draft: "square.and.pencil"
         }
     }
