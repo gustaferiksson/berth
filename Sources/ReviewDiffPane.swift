@@ -338,7 +338,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             if isOriginalChanged || isModifiedChanged { closePeek() }
             if isModifiedChanged {
                 loadedModified = view.modified
-                right.string = view.modified
+                right.replaceContents(with: view.modified)
                 right.side = nil
                 right.syntaxRuns = []
                 right.history.removeAllActions()
