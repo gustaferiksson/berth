@@ -7,17 +7,17 @@ enum ConversationHighlighting {
     private static var cache: [String: [CodeHighlighter.Span]] = [:]
 
     static func attributed(_ text: String, language: String?, theme: GhosttyTheme) async -> AttributedString? {
-        guard let colored = await colored(text, language: language, style: style(theme)) else { return nil }
+        guard let colored = await colored(text, language: language, style: ReviewStyle.stored(ghostty: theme)) else { return nil }
 
         return try? AttributedString(colored, including: \.appKit)
     }
 
     static func highlighted(_ text: String, language: String?, theme: GhosttyTheme) async -> NSAttributedString? {
-        await colored(text, language: language, style: style(theme))
+        await colored(text, language: language, style: ReviewStyle.stored(ghostty: theme))
     }
 
     static func diffLines(_ rows: [(old: Bool, new: Bool, text: String)], language: String?, theme: GhosttyTheme) async -> [AttributedString] {
-        let style = style(theme)
+        let style = ReviewStyle.stored(ghostty: theme)
         var result = rows.map { AttributedString($0.text) }
         for side in [false, true] {
             let indices = rows.indices.filter { side ? rows[$0].new : rows[$0].old }
@@ -33,11 +33,6 @@ enum ConversationHighlighting {
             }
         }
         return result
-    }
-
-    private static func style(_ theme: GhosttyTheme) -> ReviewStyle {
-        ReviewStyle(scheme: .terminal, fontFamily: "", fontSize: 0, lineHeightMultiple: 1, ghostty: theme)
-            .withSyntaxColors(SyntaxColorSource(rawValue: UserDefaults.standard.string(forKey: ReviewStyle.syntaxColorsKey) ?? "") ?? .terminal)
     }
 
     private static func colored(_ text: String, language: String?, style: ReviewStyle) async -> NSAttributedString? {
@@ -66,10 +61,12 @@ struct HighlightedConversationText: View {
     let language: String?
 
     @Environment(\.ghosttyTheme) private var theme
+    @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.terminal
+    @AppStorage(ReviewStyle.syntaxColorsKey) private var syntaxColors = SyntaxColorSource.terminal
     @State private var attributed: AttributedString?
 
     var body: some View {
         Text(attributed ?? AttributedString(text))
-            .task(id: [text, language ?? "", "\(theme.foreground)"]) { attributed = await ConversationHighlighting.attributed(text, language: language, theme: theme) }
+            .task(id: [text, language ?? "", "\(theme.foreground)", colorScheme.rawValue, syntaxColors.rawValue]) { attributed = await ConversationHighlighting.attributed(text, language: language, theme: theme) }
     }
 }

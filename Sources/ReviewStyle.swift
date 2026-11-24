@@ -142,6 +142,14 @@ struct ReviewStyle: Equatable {
         self.syntax = syntax
     }
 
+    static func stored(ghostty: GhosttyTheme) -> Self {
+        let scheme = ReviewColorScheme(rawValue: UserDefaults.standard.string(forKey: colorSchemeKey) ?? "") ?? .terminal
+        let source = SyntaxColorSource(rawValue: UserDefaults.standard.string(forKey: syntaxColorsKey) ?? "") ?? .terminal
+        let style = Self(scheme: scheme, fontFamily: "", fontSize: 0, lineHeightMultiple: 1, ghostty: ghostty)
+        let matched = style.isDark == ghostty.isDark ? style : Self(scheme: .terminal, fontFamily: "", fontSize: 0, lineHeightMultiple: 1, ghostty: ghostty)
+        return matched.withSyntaxColors(source)
+    }
+
     func withSyntaxColors(_ source: SyntaxColorSource) -> Self {
         guard source == .vscode, let theme = VSCodeTheme.active, theme.isDark == isDark else { return self }
 
