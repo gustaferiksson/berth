@@ -336,12 +336,13 @@ private struct ConversationFold<Content: View>: View {
     @ViewBuilder let content: Content
 
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isExpanded = conversationExpandsAll
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Button {
-                withAnimation(.smooth(duration: 0.2)) { isExpanded.toggle() }
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) { isExpanded.toggle() }
             } label: {
                 ConversationFoldLabel(label: label, state: state, isExpanded: isExpanded)
             }
@@ -355,8 +356,10 @@ private struct ConversationFold<Content: View>: View {
                             .fill(theme.foreground.opacity(0.14))
                             .frame(width: 1)
                     }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .clipped()
     }
 }
 
