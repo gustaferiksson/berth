@@ -48,12 +48,12 @@ struct SessionRow: View {
 
     @ViewBuilder private var content: some View {
         if showsTwoLines {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 line(projectName: nil)
                 repoAndBranch
                     .padding(.leading, StatusSlot.width + Self.columnSpacing)
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 8)
         } else if let projectName {
             ViewThatFits(in: .horizontal) {
                 line(projectName: projectName)
