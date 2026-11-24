@@ -153,6 +153,7 @@ struct ConversationView: View {
         .defaultScrollAnchor(.bottom)
         .scrollEdgeEffectHidden(true, for: .bottom)
         .environment(\.conversationSelection, selection)
+        .onChange(of: ObjectIdentifier(model)) { selection = ConversationSelection { [model] in model.turns } }
         .onScrollGeometryChange(for: ConversationScrollState.self) { geometry in
             ConversationScrollState(height: geometry.contentSize.height, isAtBottom: geometry.visibleRect.maxY >= geometry.contentSize.height + geometry.contentInsets.bottom - 40)
         } action: { old, new in

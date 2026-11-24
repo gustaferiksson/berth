@@ -15,8 +15,8 @@ extension Snapshot {
         window.becomeKey()
 
         let results = await heavyConversationTurns > 0
-            ? [selectAllLoadedTurns(store: store, tab: tab, window: window)]
-            : [dragAcrossItems(window: window, save: save), shiftClick(window: window), selectAllFixture(window: window)]
+            ? [selectAllLoadedTurns(store: store, tab: tab, window: window), autoscrollUp(store: store, tab: tab, window: window)]
+            : [dragAcrossItems(window: window, save: save), dragAcrossTurns(window: window), shiftClick(window: window), selectAllFixture(window: window), clickLink(window: window), reopen(store: store, window: window)]
         let passed = results.allSatisfy(\.self)
         print(passed ? "select: ALL PASS" : "select: FAILED")
         ProcessAncestry.hangUpDescendants()
@@ -33,6 +33,58 @@ extension Snapshot {
         await click(from: from, to: to, in: window)
         save(".selection.png")
         return check("drag", copied(), inOrder: ["export code and the CI log", "The date formatter has no fixed time zone", "formatter.timeZone = TimeZone", "UTC"], excluding: ["I'll start with the", "Why does the usage export"])
+    }
+
+    private static func dragAcrossTurns(window: NSWindow) async -> Bool {
+        guard let first = await reply(containing: "Fixed. The export", in: window),
+              let last = await reply(containing: "I'll add the column", in: window),
+              let from = point(in: first, before: "passes now"),
+              let to = point(in: last, after: "I'll add the column")
+        else { return fail("drag across turns", "fixture replies are not on screen") }
+
+        await click(from: from, to: to, in: window)
+        return check("drag across turns", copied(), inOrder: ["passes now", "[Image #12] [Image #13]", "I'll add the column"], excluding: ["git log", "missing-dir", "then run both"])
+    }
+
+    private static func clickLink(window: NSWindow) async -> Bool {
+        guard let view = await reply(containing: "Notes are in", in: window), let point = point(in: view, before: "export docs") else { return fail("link", "fixture reply is not on screen") }
+
+        var opened: URL?
+        view.openURL = { opened = $0 }
+        await click(from: point, to: point, in: window)
+        guard opened?.absoluteString == "https://example.com/docs/export" else { return fail("link", "opened \(opened?.absoluteString ?? "nothing")") }
+
+        print("select: link PASS")
+        return true
+    }
+
+    private static func autoscrollUp(store: Store, tab: Tab, window: NSWindow) async -> Bool {
+        let replies = store.conversationModels[tab.id]?.turns.flatMap { turn in turn.parts.compactMap { part -> String? in if case let .reply(entry) = part { entry.text } else { nil } } } ?? []
+        guard replies.count > 1,
+              let previous = replies[replies.count - 2].firstMatch(of: /Ledger batch (\d+)/)?.1,
+              let last = replies.last?.firstMatch(of: /Ledger batch (\d+)/)?.1,
+              let view = await reply(containing: "Ledger batch \(last)", in: window),
+              let start = point(in: view, before: "the exact input"),
+              let scroll = view.enclosingScrollView
+        else { return fail("autoscroll", "the last heavy reply is not on screen") }
+
+        let top = scroll.convert(scroll.bounds, to: nil).maxY
+        let before = scroll.contentView.bounds.minY
+        await click(from: start, to: NSPoint(x: start.x, y: top + 60), in: window, holding: .seconds(2))
+        let moved = abs(scroll.contentView.bounds.minY - before)
+        print("select: autoscroll moved \(Int(moved)) pt")
+        guard moved > 200 else { return fail("autoscroll", "the transcript did not scroll") }
+
+        return check("autoscroll", copied(), inOrder: ["Ledger batch \(previous)\n", "Ledger batch \(last)\n", "so a later check can find"])
+    }
+
+    private static func reopen(store: Store, window: NSWindow) async -> Bool {
+        AppAction.showTerminal.perform(on: store)
+        try? await Task.sleep(for: .seconds(1))
+        AppAction.showConversation.perform(on: store)
+        try? await Task.sleep(for: .seconds(2))
+        print("select: reopened the conversation")
+        return await shiftClick(window: window)
     }
 
     private static func shiftClick(window: NSWindow) async -> Bool {
@@ -112,17 +164,22 @@ extension Snapshot {
         return view.convert(NSPoint(x: (frame[keyPath: edge] + frame.midX) / 2, y: frame.midY), to: nil)
     }
 
-    private static func click(from start: NSPoint, to end: NSPoint, in window: NSWindow, modifiers: NSEvent.ModifierFlags = []) async {
+    private static func click(from start: NSPoint, to end: NSPoint, in window: NSWindow, modifiers: NSEvent.ModifierFlags = [], holding: Duration = .zero) async {
         let steps = start == end ? 0 : 12
         let moves = steps == 0 ? [] : (1...steps).map { NSPoint(x: start.x + (end.x - start.x) * Double($0) / Double(steps), y: start.y + (end.y - start.y) * Double($0) / Double(steps)) }
         let event = { (type: NSEvent.EventType, point: NSPoint) in
             NSEvent.mouseEvent(with: type, location: point, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)
         }
-        for queued in moves.compactMap({ event(.leftMouseDragged, $0) }) + [event(.leftMouseUp, end)].compactMap(\.self) {
+        let up = [event(.leftMouseUp, end)].compactMap(\.self)
+        for queued in moves.compactMap({ event(.leftMouseDragged, $0) }) + (holding == .zero ? up : []) {
             NSApp.postEvent(queued, atStart: false)
         }
         if let down = event(.leftMouseDown, start) { window.sendEvent(down) }
-        try? await Task.sleep(for: .milliseconds(600))
+        try? await Task.sleep(for: .milliseconds(600) + holding)
+        guard holding != .zero else { return }
+
+        up.forEach { NSApp.postEvent($0, atStart: false) }
+        try? await Task.sleep(for: .milliseconds(300))
     }
 
     private static func copied() -> String {

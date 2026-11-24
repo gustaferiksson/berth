@@ -28,7 +28,9 @@ final class ConversationSelection {
     private var anchor: Position?
     private var focus: Position?
     private var theme = GhosttyTheme(values: [:])
-    private(set) var isDragging = false
+    private var monitor: Any?
+    private var lastDrag: NSEvent?
+    private var autoscrolling: Task<Void, Never>?
 
     init(turns: @escaping () -> [Turn]) {
         self.turns = turns
@@ -61,20 +63,15 @@ final class ConversationSelection {
         let position = Position(item: id, offset: offset)
         if !extending || anchor == nil { anchor = position }
         focus = position
-        isDragging = true
         apply()
+        track()
         return true
     }
 
-    func drag(to point: NSPoint) {
-        guard isDragging, let position = position(at: point) else { return }
+    func handOff(from view: ConversationNSTextView, in window: NSWindow) {
+        guard hasSelection, let next = views.allObjects.first(where: { $0 !== view && $0.window === window }) else { return }
 
-        focus = position
-        apply()
-    }
-
-    func endDrag() {
-        isDragging = false
+        window.makeFirstResponder(next)
     }
 
     func adopt(_ view: ConversationNSTextView) {
@@ -119,6 +116,51 @@ final class ConversationSelection {
         }
         .filter { !$0.isEmpty }
         .joined(separator: "\n\n")
+    }
+
+    private func track() {
+        monitor.map(NSEvent.removeMonitor)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            guard let self else { return event }
+
+            if event.type == .leftMouseUp { finish(event) } else { follow(event) }
+            return nil
+        }
+    }
+
+    private func follow(_ event: NSEvent) {
+        lastDrag = event
+        drag(to: event.locationInWindow)
+        guard autoscroll(with: event), autoscrolling == nil else { return }
+
+        autoscrolling = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(50))
+                guard let self, let event = lastDrag, autoscroll(with: event) else { break }
+
+                drag(to: event.locationInWindow)
+            }
+            self?.autoscrolling = nil
+        }
+    }
+
+    private func finish(_ event: NSEvent) {
+        drag(to: event.locationInWindow)
+        monitor.map(NSEvent.removeMonitor)
+        monitor = nil
+        lastDrag = nil
+        autoscrolling?.cancel()
+    }
+
+    private func autoscroll(with event: NSEvent) -> Bool {
+        views.allObjects.first { $0.window === event.window }?.autoscroll(with: event) ?? false
+    }
+
+    private func drag(to point: NSPoint) {
+        guard let position = position(at: point) else { return }
+
+        focus = position
+        apply()
     }
 
     @discardableResult

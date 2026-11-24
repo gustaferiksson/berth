@@ -299,7 +299,7 @@ extension Snapshot {
             virtual(result("repl_1", "", 0, ["toolUseResult": ["stdout": "columns.md\nexport.md", "stderr": "", "interrupted": false]])),
             virtual(assistant(0, [use("repl_2", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])])),
             virtual(result("repl_2", "", 0, ["toolUseResult": ["type": "text", "file": ["filePath": "\(conversationFolder)/docs/columns.md", "content": "# Columns\n\nplan name\n", "numLines": 3]]])),
-            assistant(3, [text("The migration check is still running, the docs agent has started.")]),
+            assistant(3, [text("The migration check is still running, the docs agent has started. Notes are in [the export docs](https://example.com/docs/export).")]),
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),

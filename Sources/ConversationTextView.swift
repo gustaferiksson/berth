@@ -56,8 +56,6 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     private var fitted: (width: CGFloat, height: CGFloat, used: CGFloat)?
     private var cachedBlocks: [Block]?
     private var highlight: NSRange?
-    private var lastDrag: NSEvent?
-    private var autoscrolling: Task<Void, Never>?
 
     func configure() {
         isEditable = false
@@ -117,22 +115,22 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
         needsDisplay = true
     }
 
-    private func insertionIndex(in line: NSTextLineFragment, at point: CGPoint) -> Int {
+    private func position(in line: NSTextLineFragment, at point: CGPoint) -> (offset: Int, hit: Int?) {
         let range = line.characterRange
         let text = line.attributedString.string as NSString
         let end = NSMaxRange(range) > range.location && text.character(at: NSMaxRange(range) - 1) == 0x0A ? NSMaxRange(range) - 1 : NSMaxRange(range)
         let hit = line.characterIndex(for: point)
-        guard hit != NSNotFound else { return point.x <= 0 ? range.location : end }
-        guard hit < end else { return end }
+        guard hit != NSNotFound else { return (point.x <= 0 ? range.location : end, nil) }
+        guard hit < end else { return (end, nil) }
 
         let middle = (line.locationForCharacter(at: hit).x + line.locationForCharacter(at: hit + 1).x) / 2
-        return point.x >= middle ? hit + 1 : hit
+        return (point.x >= middle ? hit + 1 : hit, hit)
     }
 
-    func characterOffset(at point: NSPoint) -> Int {
-        guard let manager = textLayoutManager, let storage = textContentStorage else { return 0 }
+    private func hitTest(text point: NSPoint) -> (offset: Int, hit: Int?) {
+        guard let manager = textLayoutManager, let storage = textContentStorage else { return (0, nil) }
 
-        var offset = (string as NSString).length
+        var result = ((string as NSString).length, Int?.none)
         manager.enumerateTextLayoutFragments(from: storage.documentRange.location, options: [.ensuresLayout]) { fragment in
             let frame = fragment.layoutFragmentFrame
             guard point.y < frame.maxY else { return true }
@@ -140,14 +138,19 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
             let start = storage.offset(from: storage.documentRange.location, to: fragment.rangeInElement.location)
             let lines = fragment.textLineFragments
             guard point.y >= frame.minY, let line = lines.first(where: { point.y - frame.minY < $0.typographicBounds.maxY }) ?? lines.last else {
-                offset = start
+                result = (start, nil)
                 return false
             }
 
-            offset = start + insertionIndex(in: line, at: CGPoint(x: point.x - frame.minX - line.typographicBounds.minX, y: point.y - frame.minY - line.typographicBounds.minY))
+            let found = position(in: line, at: CGPoint(x: point.x - frame.minX - line.typographicBounds.minX, y: point.y - frame.minY - line.typographicBounds.minY))
+            result = (start + found.offset, found.hit.map { start + $0 })
             return false
         }
-        return offset
+        return result
+    }
+
+    func characterOffset(at point: NSPoint) -> Int {
+        hitTest(text: point).offset
     }
 
     func show(_ text: NSAttributedString) {
@@ -307,36 +310,14 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
         }
     }
 
-    override func mouseDragged(with event: NSEvent) {
-        guard let selection, selection.isDragging else { return super.mouseDragged(with: event) }
-
-        lastDrag = event
-        selection.drag(to: event.locationInWindow)
-        guard autoscroll(with: event), autoscrolling == nil else { return }
-
-        autoscrolling = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(50))
-                guard let self, let event = lastDrag, let current = self.selection, current.isDragging, autoscroll(with: event) else { break }
-
-                current.drag(to: event.locationInWindow)
-            }
-            self?.autoscrolling = nil
-        }
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        guard let selection, selection.isDragging else { return super.mouseUp(with: event) }
-
-        autoscrolling?.cancel()
-        lastDrag = nil
-        selection.drag(to: event.locationInWindow)
-        selection.endDrag()
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil, let window, window.firstResponder === self { selection?.handOff(from: self, in: window) }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     private func select(with event: NSEvent, at point: NSPoint) {
-        let offset = characterOffset(at: point)
-        let isLink = offset < (string as NSString).length && textStorage?.attribute(.link, at: offset, effectiveRange: nil) != nil
+        let (offset, hit) = hitTest(text: point)
+        let isLink = hit.map { textStorage?.attribute(.link, at: $0, effectiveRange: nil) != nil } ?? false
         guard let selection, event.clickCount == 1, !isLink, selection.begin(in: self, at: offset, extending: event.modifierFlags.contains(.shift)) else {
             super.mouseDown(with: event)
             guard let selection else { return }
