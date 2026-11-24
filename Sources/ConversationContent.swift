@@ -60,7 +60,6 @@ struct PromptImageLoader {
 
 struct ConversationPrompt: View {
     let entry: RemoteEntry
-    var isQueued = false
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -90,13 +89,7 @@ struct ConversationPrompt: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .background(bubble.fill(theme.foreground.opacity(0.07)))
-                    .opacity(isQueued ? 0.6 : 1)
                     .contextMenu { Button("Copy") { copyToPasteboard(entry.text) } }
-            }
-            if isQueued {
-                Label("Queued", systemImage: "clock")
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
             }
         }
         .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.75 }

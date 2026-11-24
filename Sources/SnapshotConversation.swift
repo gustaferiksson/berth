@@ -303,7 +303,7 @@ extension Snapshot {
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ] + pendingRecords(assistant: assistant, use: use, result: result)
+        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base)
         let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
         guard repetitions > 1 else { return records }
 
@@ -338,6 +338,12 @@ extension Snapshot {
             return true
         }
         return image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: format, properties: [:]) } ?? Data()
+    }
+
+    private static func queuedRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        guard let text = UserDefaults.standard.string(forKey: "snapshotConversationQueued") else { return [] }
+
+        return [base("queue-operation", 1, [:]).merging(["operation": "enqueue", "content": text]) { $1 }]
     }
 
     private static func pendingRecords(assistant: (TimeInterval, [[String: Any]]) -> [String: Any], use: (String, String, [String: Any]) -> [String: Any], result: (String, String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {

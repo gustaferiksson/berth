@@ -209,7 +209,7 @@ CFFIXED_USER_HOME="$trace_home" xcrun xctrace export --input "$out/conversation.
 
 `-snapshotConversationSelect YES` (with `-snapshotConversationHeight 1500`) selects from the first reply paragraph through its list, code block and table with the real selection API, saves `<out>.selection.png` and prints the string the copy path writes to a private pasteboard.
 
-`-snapshotConversationSubagent YES` opens the invented docs agent conversation directly, including its prompt, tool call and reply. Use with `-snapshotConversation YES`.
+`-snapshotConversationQueued "<text>"` adds a queued prompt to the fixture (use with `-snapshotConversationStatus busy`; the fixture already runs a background shell and agent, so the agents pill shows), and `-snapshotConversationSubagent YES` opens the invented docs agent conversation directly, including its prompt, tool call and reply. Use with `-snapshotConversation YES`.
 
 `-snapshotConversationDrive "<step>|…"` (type:, attach:, remove:, send:, decline:, stop, show, allow, deny, choose:<n>, status:<s>[/<waitingFor>], restamp, drop, wait:<ms>, snap:<name>, log), `-snapshotConversationWaitingFor`, `-snapshotConversationPending bash|edit|question|plan` and `-snapshotConversationRawLog /abs/file` (raw-mode pty logger, so Esc and digits reach the file) prove what reaches the pty.
 
