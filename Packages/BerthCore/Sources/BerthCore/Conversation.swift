@@ -3,10 +3,27 @@ import Foundation
 public enum PromptTextPart: Sendable {
     case text(Substring)
     case image(token: Substring, number: Int)
+    case pasted(Substring)
 
     public static var imageToken: Regex<(Substring, Substring)> { /\[Image #(\d+)\]/ }
+    public static var pastedBlock: Regex<(Substring, Substring)> { /<pasted_content(?: id="[^"]*")?>(?s:(.*?))<\/pasted_content(?: id="[^"]*")?>/ }
+
+    public static func plain(_ text: String) -> String {
+        text.replacing(pastedBlock) { String($0.output.1) }
+    }
 
     public static func split(_ text: String) -> [Self] {
+        var parts: [Self] = []
+        var start = text.startIndex
+        for match in text.matches(of: pastedBlock) {
+            parts += splitImages(text[start..<match.range.lowerBound])
+            parts.append(.pasted(match.output.1.trimmingCharacters(in: .newlines)[...]))
+            start = match.range.upperBound
+        }
+        return parts + splitImages(text[start...])
+    }
+
+    private static func splitImages(_ text: Substring) -> [Self] {
         var parts: [Self] = []
         var start = text.startIndex
         for match in text.matches(of: imageToken) {

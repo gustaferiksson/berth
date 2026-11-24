@@ -36,6 +36,13 @@ struct PendingPromptsTests {
         #expect(PendingPrompts.reconcile(pending, entries: [recorded], queued: [], now: sent.addingTimeInterval(3)).isEmpty)
     }
 
+    @Test func handsOverToARecordWrappedInPastedContentTags() {
+        let pending = [PendingPrompt(text: "regarding this\nfoo: string[]", sentAt: sent)]
+        let recorded = RemoteEntry(id: "u1", kind: .prompt, text: "regarding this\n<pasted_content id=\"a1\">\nfoo: string[]</pasted_content id=\"a1\">", date: sent.addingTimeInterval(2))
+
+        #expect(PendingPrompts.reconcile(pending, entries: [recorded], queued: [], now: sent.addingTimeInterval(3)).isEmpty)
+    }
+
     @Test func ignoresAnOlderPromptWithTheSameText() {
         let pending = [PendingPrompt(text: "continue", sentAt: sent)]
         let older = RemoteEntry(id: "u0", kind: .prompt, text: "continue", date: sent.addingTimeInterval(-60))

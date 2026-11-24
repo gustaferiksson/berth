@@ -91,7 +91,7 @@ struct ConversationPrompt: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .background(bubble.fill(theme.foreground.opacity(0.07)))
-                    .contextMenu { Button("Copy") { copyToPasteboard(entry.text) } }
+                    .contextMenu { Button("Copy") { copyToPasteboard(PromptTextPart.plain(entry.text)) } }
             }
         }
         .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.75 }
@@ -120,6 +120,15 @@ struct ConversationPrompt: View {
                 let tagText = NSMutableAttributedString(attachment: attachment)
                 tagText.addAttributes(attributes.merging([.conversationCopyText: String(token)]) { $1 }, range: NSRange(location: 0, length: tagText.length))
                 result.append(tagText)
+
+            case let .pasted(value):
+                let quoted: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.monospacedSystemFont(ofSize: font.pointSize * 0.92, weight: .regular),
+                    .foregroundColor: NSColor(theme.foreground).withAlphaComponent(0.75),
+                    .backgroundColor: NSColor(theme.foreground).withAlphaComponent(0.08),
+                    .paragraphStyle: style,
+                ]
+                result.append(NSAttributedString(string: String(value), attributes: quoted))
             }
         }
         return result

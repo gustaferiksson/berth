@@ -205,7 +205,8 @@ public enum TranscriptTail {
 
             return (placeholders.count == imageBlocks.count ? placeholders[index] : index + 1, thumbnail)
         }.prefix(maxImages)
-        let shown = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shown = trimmed.wholeMatch(of: PromptTextPart.pastedBlock).map { $0.output.1.trimmingCharacters(in: .whitespacesAndNewlines) } ?? trimmed
         return RemoteEntry(id: id, kind: .prompt, text: shown, date: date, images: numbered.isEmpty ? nil : numbered.map(\.data), imageNumbers: numbered.isEmpty ? nil : numbered.map(\.number))
     }
 }
