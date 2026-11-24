@@ -911,16 +911,11 @@ struct ReviewFileList: View {
         return model.tree.flatMap { leaves(of: $0, compare: nil, root: nil, in: model) }
     }
 
-    private func changeOrder(_ changes: ReviewChanges?) -> [ReviewDocument] {
-        let ownAndExtraFiles = repositoryOrder(changes)
-        let pullRequestFiles = expansion(of: "otherPullRequests", defaultExpanded: false).wrappedValue ? sessionPullRequests(in: changes).flatMap { group in
-            group.entries.flatMap { entry -> [ReviewDocument] in
-                guard group.model.expandedPullRequests.contains(entry.id), group.model.loadingPullRequests[entry.location] == nil, let loaded = group.model.pullRequestFiles[entry.location] else { return [] }
-
-                return loaded.files.map { ReviewDocument(path: $0.path, compare: loaded.compare, root: entry.location.root, pullRequestLink: entry.id) }
-            }
-        } : []
-        return pullRequestFiles + ownAndExtraFiles + sessionFileOrder
+    private func changeOrder(_ changes: ReviewChanges?, pullRequests: [(entry: ReviewPullRequest, loaded: ReviewPullRequestFiles, model: ReviewModel)]) -> [ReviewDocument] {
+        let pullRequestFiles = pullRequests.flatMap { entry, loaded, model in
+            documents(loaded.files, compare: loaded.compare, in: model, root: entry.location.root, pullRequestLink: entry.id)
+        }
+        return pullRequestFiles + repositoryOrder(changes) + sessionFileOrder
     }
 
     private func repositoryOrder(_ changes: ReviewChanges?) -> [ReviewDocument] {
@@ -950,17 +945,18 @@ struct ReviewFileList: View {
         return own + graphFileOrder + filesOrder + others
     }
 
-    private func documents(_ files: [ReviewFile], compare: ReviewCompare, in model: ReviewModel, root: String?) -> [ReviewDocument] {
-        guard changesAsTree else { return files.map { ReviewDocument(path: $0.path, compare: compare, root: root) } }
+    private func documents(_ files: [ReviewFile], compare: ReviewCompare, in model: ReviewModel, root: String?, pullRequestLink: PullRequestLink? = nil) -> [ReviewDocument] {
+        guard changesAsTree else { return files.map { ReviewDocument(path: $0.path, compare: compare, root: root, pullRequestLink: pullRequestLink) } }
 
-        return ReviewFileTree.compactNodes(files.map(\.path)).flatMap { leaves(of: $0, compare: compare, root: root, in: model) }
+        return ReviewFileTree.compactNodes(files.map(\.path)).flatMap { leaves(of: $0, compare: compare, root: root, in: model, pullRequestLink: pullRequestLink) }
     }
 
-    private func leaves(of node: ReviewFileTree, compare: ReviewCompare?, root: String?, in model: ReviewModel) -> [ReviewDocument] {
-        guard let children = node.children else { return [ReviewDocument(path: node.path, compare: compare, root: root)] }
+    private func leaves(of node: ReviewFileTree, compare: ReviewCompare?, root: String?, in model: ReviewModel, pullRequestLink: PullRequestLink? = nil) -> [ReviewDocument] {
+        guard let children = node.children else { return [ReviewDocument(path: node.path, compare: compare, root: root, pullRequestLink: pullRequestLink)] }
 
-        let isExpanded = compare.map { !model.collapsedChangeFolders.contains(ReviewDocument(path: node.path, compare: $0)) } ?? model.expandedFolders.contains(node.path)
-        return isExpanded ? children.flatMap { leaves(of: $0, compare: compare, root: root, in: model) } : []
+        let folder = ReviewDocument(path: node.path, compare: compare, root: pullRequestLink == nil ? nil : root, pullRequestLink: pullRequestLink)
+        let isExpanded = compare == nil ? model.expandedFolders.contains(node.path) : !model.collapsedChangeFolders.contains(folder)
+        return isExpanded ? children.flatMap { leaves(of: $0, compare: compare, root: root, in: model, pullRequestLink: pullRequestLink) } : []
     }
 
     private func open(_ document: ReviewDocument) {
@@ -1315,10 +1311,12 @@ struct ReviewFileList: View {
     }
 
     private func changesList(_ changes: ReviewChanges?) -> some View {
+        let pullRequests = expandedSessionPullRequests(in: changes)
         let changeFolders = changesAsTree ? ((changes.map { [$0] } ?? []) + extras.compactMap(\.model.changes)).flatMap { changes in
             [changes.uncommitted, changes.committed].map { ReviewFileTree.compactNodes($0.map(\.path)).flatMap(\.folderPaths) }
-        } + [ReviewFileTree.compactNodes(sessionFiles).flatMap(\.folderPaths)] : nil
-        return list(name: "review", order: changeOrder(changes)) {
+        } + pullRequests.map { ReviewFileTree.compactNodes($0.loaded.files.map(\.path)).flatMap(\.folderPaths) }
+            + [ReviewFileTree.compactNodes(sessionFiles).flatMap(\.folderPaths)] : nil
+        return list(name: "review", order: changeOrder(changes, pullRequests: pullRequests)) {
             if isStacked {
                 pullRequestSection(changes)
                 if shownRepo != nil || !store.shownReviewPullRequests[sessionID, default: [:]].isEmpty {
@@ -1446,12 +1444,28 @@ struct ReviewFileList: View {
         return [(root, linked, extra.model), (nil, entries, model)]
     }
 
+    private func expandedSessionPullRequests(in changes: ReviewChanges?) -> [(entry: ReviewPullRequest, loaded: ReviewPullRequestFiles, model: ReviewModel)] {
+        guard expansion(of: "otherPullRequests", defaultExpanded: false).wrappedValue,
+              !isStacked || shownRepo != nil || !store.shownReviewPullRequests[sessionID, default: [:]].isEmpty
+        else { return [] }
+
+        return sessionPullRequests(in: changes).flatMap { group in
+            group.entries.compactMap { entry in
+                guard group.model.expandedPullRequests.contains(entry.id), group.model.loadingPullRequests[entry.location] == nil,
+                      let loaded = group.model.pullRequestFiles[entry.location], !loaded.files.isEmpty
+                else { return nil }
+
+                return (entry, loaded, group.model)
+            }
+        }
+    }
+
     private func sessionPullRequestSection(_ changes: ReviewChanges?) -> some View {
         let groups = sessionPullRequests(in: changes)
         let count = groups.reduce(0) { $0 + $1.entries.count }
         return SidebarSection(isExpanded: count == 0 ? .constant(false) : expansion(of: "otherPullRequests", defaultExpanded: false)) {
             ForEach(groups, id: \.root) { group in
-                ReviewOtherPullRequests(entries: group.entries, model: group.model)
+                ReviewOtherPullRequests(entries: group.entries, model: group.model, changesAsTree: changesAsTree)
             }
         } header: { expansion in
             SidebarSectionHeader(title: "Session pull requests", help: "Pull requests linked to this session or added to Review", count: count == 0 ? nil : count, isExpanded: expansion) {
@@ -1822,23 +1836,11 @@ private struct SessionFileNode: View {
     var body: some View {
         if let children = node.children {
             let isExpanded = !model.collapsedSessionFolders.contains(node.path)
-            Button {
+            ReviewFolderRow(isExpanded: isExpanded, depth: depth) {
                 if isExpanded { model.collapsedSessionFolders.insert(node.path) } else { model.collapsedSessionFolders.remove(node.path) }
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(theme.secondary)
-                        .frame(width: 10)
-                        .accessibilityHidden(true)
-                    label
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 6.5)
-                .contentShape(.rect)
+                label
             }
-            .buttonStyle(.plain)
-            .reviewRow(leading: Double(depth) * ReviewInset.tree)
             if isExpanded {
                 ForEach(children) { Self(node: $0, model: model, depth: depth + 1) }
             }
@@ -1944,21 +1946,11 @@ private struct ReviewFileNode: View {
 
     var body: some View {
         if let children = node.children {
-            Button { isExpanded.wrappedValue.toggle() } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(theme.secondary)
-                        .frame(width: 10)
-                        .accessibilityHidden(true)
-                    label
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, compare == nil ? 6.5 : 7.5)
-                .contentShape(.rect)
+            ReviewFolderRow(isExpanded: isExpanded.wrappedValue, depth: depth, verticalPadding: compare == nil ? 6.5 : 7.5) {
+                isExpanded.wrappedValue.toggle()
+            } label: {
+                label
             }
-            .buttonStyle(.plain)
-            .reviewRow(leading: Double(depth) * ReviewInset.tree)
             .modifier(ReviewRowChrome(document: nil, model: model))
             if isExpanded.wrappedValue {
                 ForEach(children) { Self(node: $0, compare: compare, changes: changes, model: model, root: root, depth: depth + 1) }

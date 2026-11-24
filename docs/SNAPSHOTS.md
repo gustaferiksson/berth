@@ -61,6 +61,10 @@ It also prints each changed file per section, the file tree's top level and its 
 
 `-snapshotReviewSessionPullRequests YES` links open PR #1445 “Let Margo switch between approved reviewers” to the fixture session and opens the Session pull requests section. Add `-snapshotReviewExpandPullRequest 1445` to expand that row and open its first changed file. For the expanded snapshot, use a checkout whose GitHub `origin` matches `acme/billing` (or the value of `-snapshotReviewRepository`) and serves `refs/pull/1445/head`. The local URL rewrite in the fixture recipe below lets Git fetch from a local repo. The PR uses `-snapshotReviewPullRequestBase <branch>` when supplied, or the repository’s default base. The `review selected` output reports the file count and shows the selected tab as `PR #1445:<path>`. Add `-snapshotReviewCommandClick YES` to open that file the way ⌘-click does: the working-tree file when the session folder holds it, otherwise the PR head version read-only (delete the file in the clone to see this).
 
+`-snapshotHoverPullRequestRows YES` draws every pull request row in the Session pull requests section as hovered, so its ... menu shows in place of the status dot.
+
+The billing clone recipe gives PR #1445 a compacted `review/permissions` folder with a nested `rules` folder. With the PR expanded, use `-reviewChangesAsTree YES` to start in tree mode, or `-reviewChangesAsTree NO -snapshotKeys "shot:list toggle-tree shot:tree toggle-tree"` to capture both layouts and return to list mode in one run.
+
 Use `-snapshotReview /abs/api -snapshotReviewShowPullRequest /abs/billing -languageServersEnabled NO` to show fixture PR `acme/billing#1445` in the API session and open its first changed file. Add `-snapshotReviewShowPullRequestLauncher YES` for the launcher in Show in Review mode over that diff. Use the clone fixture recipe in the Agent control section.
 
 ## Review: edit, scroll, minimap, gutter and comments
@@ -118,6 +122,8 @@ Snapshot modes ignore saved window state (`ApplePersistenceIgnoreState`); before
 `-snapshotKeysGap <ms>` (default 400, plus 100) shortens the wait between keys (50 types and undoes inside Review's 300 ms re-render). Pseudo-keys: `browse<n>` selects the nth sidebar-ordered tab like ↑/↓ (no selection history), `exit` types `exit` into the selected terminal, `terminal` focuses the selected tab's terminal (ctrl chords sent by the harness never reach zsh, so only Review's side of a terminal-focused ⌃- can be shown), and in Review: `file<n>` clicks the nth Changes row (Uncommitted, then Committed), `open:<u|c|f>:<path>` clicks that path's Uncommitted row, Committed row or Files row, `dbl:<u|c|f>:<path>` double-clicks it (open and keep), `keep` double-clicks the current tab, `back`, `forward`, `reveal` (sets `ReviewModel.filesReveal` to the current path, like the tab menu's Reveal in Files), `save` (saves the draft directly; `cmd+s` works too), `refresh` runs `Store.refreshReview` like Refresh.
 
 `layout:<auto|sideBySide|inline>` writes `reviewDiffLayout` (the run restores its starting value, also after a tab strip toggle click (836,68 with Save showing, else 861,68, at the default width)), `width:<pt>` sets the window width, `git:<a>,<b>,…` runs git with those arguments in the review model's folder, `relocate:</abs/dir>` sets the selected tab's folder like a scan after `/cd`, `uncomment` deletes the review model's comments (every Review snapshot starts with a fixture comment, so a move only shows `movedFolder` until it runs); each waits, then prints.
+
+`toggle-tree` flips `reviewChangesAsTree` in the argument domain, waits for the Changes panel to update, and prints the new mode. It works while a Session pull request is expanded.
 
 The state line also prints the terminal split's pane widths, the diff layout (stored, shown, which of Show Side by Side / Show Inline is offered), the review model's folder, branch, Uncommitted and Committed paths and `movedFolder`, each Uncommitted path's +/- counts, the model's `loads` count and its `error`, the Files list's expanded folders, the changed trees' collapsed folders (`collapsed change folders`), and the focused text view's character count. A `click:` on a row's Open File button lands, unlike a plain row click.
 
@@ -259,7 +265,13 @@ for name in api billing; do
   git -C "$producer" commit -q -m Base
   git -C "$producer" switch -q -c proposal
   printf 'Proposed behavior in %s\n' "$name" >> "$producer/$name.txt"
-  git -C "$producer" commit -q -am "Proposed change"
+  if [ "$name" = billing ]; then
+    mkdir -p "$producer/review/permissions/rules"
+    printf 'Approved reviewers\n' > "$producer/review/permissions/reviewers.txt"
+    printf 'Allow reviewer switches\n' > "$producer/review/permissions/rules/switching.txt"
+  fi
+  git -C "$producer" add -A
+  git -C "$producer" commit -q -m "Proposed change"
   git -C "$producer" update-ref refs/pull/1445/head proposal
   git -C "$producer" switch -q main
   git -C "$producer" branch -q -D proposal

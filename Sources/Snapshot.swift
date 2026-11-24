@@ -2046,6 +2046,15 @@ enum Snapshot {
                     print("\(spec) (writes reviewDiffLayout, restored after the run):\n  \(state())")
                     continue
                 }
+                if spec == "toggle-tree" {
+                    let showTree = !UserDefaults.standard.bool(forKey: "reviewChangesAsTree")
+                    var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                    arguments["reviewChangesAsTree"] = showTree
+                    UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                    try? await Task.sleep(for: .seconds(1))
+                    print("toggle-tree (Changes \(showTree ? "tree" : "list"))\n  \(state())")
+                    continue
+                }
                 if spec.hasPrefix("width:"), let width = Double(spec.dropFirst(6)) {
                     window.setContentSize(NSSize(width: width, height: window.contentLayoutRect.height))
                     try? await Task.sleep(for: .seconds(1))

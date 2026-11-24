@@ -185,6 +185,7 @@ extension ReviewModel {
 struct ReviewOtherPullRequests: View {
     let entries: [ReviewPullRequest]
     let model: ReviewModel
+    let changesAsTree: Bool
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -207,25 +208,15 @@ struct ReviewOtherPullRequests: View {
                         .frame(height: 24)
                         .reviewRow(leading: ReviewInset.tree)
                 } else if let loaded = model.pullRequestFiles[entry.location], !loaded.files.isEmpty {
-                    ForEach(loaded.files, id: \.path) { file in
-                        let document = ReviewDocument(path: file.path, compare: loaded.compare, root: entry.location.root, pullRequestLink: link)
-                        let open = { model.openPullRequestFile(file, of: entry, compare: loaded.compare) }
-                        let local = model.changes?.root == entry.location.root ? (entry.location.root as NSString).appendingPathComponent(file.path) : nil
-                        ReviewHistoricalFileButton(file: file, document: document, model: model, openFile: file.status == .deleted ? nil : open)
-                            .reviewRow(leading: ReviewInset.tree)
-                            .id(document)
-                            .contextMenu {
-                                if file.status != .deleted {
-                                    Button("Open File", systemImage: "doc", action: open)
-                                }
-                                if let local, FileManager.default.fileExists(atPath: local) {
-                                    Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: local)]) }
-                                }
-                                Button("Copy Path") {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(local ?? file.path, forType: .string)
-                                }
-                            }
+                    if changesAsTree {
+                        let files = Dictionary(loaded.files.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+                        ForEach(ReviewFileTree.compactNodes(loaded.files.map(\.path))) { node in
+                            ReviewPullRequestFileNode(node: node, files: files, entry: entry, compare: loaded.compare, model: model)
+                        }
+                    } else {
+                        ForEach(loaded.files, id: \.path) { file in
+                            ReviewPullRequestFileRow(file: file, entry: entry, compare: loaded.compare, model: model)
+                        }
                     }
                 } else {
                     Text("No changed files")
@@ -235,6 +226,104 @@ struct ReviewOtherPullRequests: View {
                 }
             }
         }
+    }
+}
+
+private struct ReviewPullRequestFileNode: View {
+    let node: ReviewFileTree
+    let files: [String: ReviewFile]
+    let entry: ReviewPullRequest
+    let compare: ReviewCompare
+    let model: ReviewModel
+    var depth = 1
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        if let children = node.children {
+            let folder = ReviewDocument(path: node.path, compare: compare, root: entry.location.root, pullRequestLink: entry.id)
+            let isExpanded = !model.collapsedChangeFolders.contains(folder)
+            ReviewFolderRow(isExpanded: isExpanded, depth: depth, verticalPadding: 0, minHeight: 28) {
+                if isExpanded { model.collapsedChangeFolders.insert(folder) } else { model.collapsedChangeFolders.remove(folder) }
+            } label: {
+                Label {
+                    Text(node.name)
+                        .monospaced()
+                        .foregroundStyle(theme.foreground)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .fontWeight(.regular)
+                } icon: {
+                    Image(systemName: "folder")
+                        .foregroundStyle(theme.secondary)
+                }
+                .font(.subheadline)
+                .help(node.path)
+            }
+            if isExpanded {
+                ForEach(children) { Self(node: $0, files: files, entry: entry, compare: compare, model: model, depth: depth + 1) }
+            }
+        } else if let file = files[node.path] {
+            ReviewPullRequestFileRow(file: file, entry: entry, compare: compare, model: model, depth: depth + 1)
+        }
+    }
+}
+
+private struct ReviewPullRequestFileRow: View {
+    let file: ReviewFile
+    let entry: ReviewPullRequest
+    let compare: ReviewCompare
+    let model: ReviewModel
+    var depth = 1
+
+    var body: some View {
+        let root = entry.location.root
+        let document = ReviewDocument(path: file.path, compare: compare, root: root, pullRequestLink: entry.id)
+        let open = { model.openPullRequestFile(file, of: entry, compare: compare) }
+        let local = model.changes?.root == root ? (root as NSString).appendingPathComponent(file.path) : nil
+        ReviewHistoricalFileButton(file: file, document: document, model: model, openFile: file.status == .deleted ? nil : open, minHeight: 28, trailingPadding: 0)
+            .reviewRow(leading: Double(depth) * ReviewInset.tree)
+            .id(document)
+            .contextMenu {
+                if file.status != .deleted {
+                    Button("Open File", systemImage: "doc", action: open)
+                }
+                if let local, FileManager.default.fileExists(atPath: local) {
+                    Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: local)]) }
+                }
+                Button("Copy Path") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(local ?? file.path, forType: .string)
+                }
+            }
+    }
+}
+
+struct ReviewFolderRow<Label: View>: View {
+    let isExpanded: Bool
+    let depth: Int
+    var verticalPadding = 6.5
+    var minHeight: CGFloat?
+    let toggle: () -> Void
+    @ViewBuilder let label: () -> Label
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 6) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(theme.secondary)
+                    .frame(width: 10)
+                    .accessibilityHidden(true)
+                label()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, verticalPadding)
+            .frame(minHeight: minHeight)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .reviewRow(leading: Double(depth) * ReviewInset.tree)
     }
 }
 
