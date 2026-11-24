@@ -182,10 +182,10 @@ private struct SessionRow: View {
             Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") { perform(toggleRule) }
             Button(session.isUnread == true ? "Mark as Read" : "Mark as Unread", systemImage: session.isUnread == true ? "envelope.open" : "envelope.badge") { perform(toggleRead) }
             if let pullRequest = session.pullRequest, client.features.contains(RemotePullRequestFeature.name) {
-                Button("Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull") { isShowingPullRequest = true }
+                Button { isShowingPullRequest = true } label: { Label("Pull Request #\(String(pullRequest.number))", image: Octicon.pullRequest.assetName()) }
             } else if let pullRequest = session.pullRequest, pullRequest.url.scheme == "https" {
                 Link(destination: pullRequest.url) {
-                    Label("Open Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull")
+                    Label("Open Pull Request #\(String(pullRequest.number))", image: Octicon.pullRequest.assetName())
                 }
             }
             if session.status == nil {
@@ -302,10 +302,9 @@ private struct PullRequestTag: View {
 
     var body: some View {
         let color: Color = pullRequest.state == "Open" ? .green : pullRequest.state == "Merged" ? .purple : pullRequest.state == "Closed" ? .red : .secondary
-        let icon = pullRequest.state == "Merged" ? "arrow.triangle.merge" : "arrow.triangle.pull"
 
         HStack(spacing: 3) {
-            Image(systemName: icon)
+            OcticonImage(Octicon(pullRequestState: pullRequest.state))
             Text(verbatim: "#\(pullRequest.number)")
                 .monospaced()
             if let checks = pullRequest.checks {

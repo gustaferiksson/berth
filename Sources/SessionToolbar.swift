@@ -93,7 +93,7 @@ private struct PullRequestButton: View {
 
     var body: some View {
         Button { openURL(pullRequest.url) } label: {
-            Label { Text(verbatim: "#\(pullRequest.number)") } icon: { Image(systemName: "arrow.triangle.pull") }
+            Label { Text(verbatim: "#\(pullRequest.number)") } icon: { OcticonImage(Octicon(pullRequest.state)) }
                 .labelStyle(.titleAndIcon)
                 .foregroundStyle(pullRequest.state.color(in: theme))
         }
