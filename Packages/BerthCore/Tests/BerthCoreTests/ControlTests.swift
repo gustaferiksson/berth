@@ -168,6 +168,120 @@ struct ControlTests {
         #expect(try JSONDecoder().decode(ControlRequest.self, from: data) == request)
     }
 
+    @Test func browserCommandsParseTheirOptions() throws {
+        let environment = [ControlEnvironment.socket: "/s.sock", ControlEnvironment.token: "tok", ControlEnvironment.tab: "me"]
+        func parse(_ arguments: [String]) throws -> ControlCommand.Invocation {
+            try ControlCommand.parse(["browser"] + arguments, environment: environment, currentDirectory: "/work/app")
+        }
+
+        let tabs = try parse(["tabs", "--json"])
+        #expect(tabs.request == ControlRequest(token: "tok", caller: "me", operation: .browserTabs))
+        #expect(tabs.json)
+
+        let screenshot = try parse(["screenshot", "--tab", "abcd", "--out", "../capture.png", "--full-page", "--json"])
+        #expect(screenshot.request == ControlRequest(token: "tok", caller: "me", operation: .browserScreenshot, tab: "abcd", path: "/work/capture.png", fullPage: true))
+        #expect(screenshot.json)
+
+        let path = try #require(try parse(["screenshot"]).request.path)
+        let file = URL(filePath: path)
+        #expect(file.deletingLastPathComponent().path == FileManager.default.temporaryDirectory.path)
+        #expect(file.lastPathComponent.wholeMatch(of: /berth-screenshot-[0-9a-f]{8}\.png/) != nil)
+        #expect(try parse(["screenshot"]).request.path != path)
+
+        let console = try parse(["console", "--tab", "abcd", "--since", "41", "--follow", "--json"])
+        #expect(console.request == ControlRequest(token: "tok", caller: "me", operation: .browserConsole, tab: "abcd", since: 41))
+        #expect(console.follow && console.json)
+        #expect(try !parse(["console"]).follow)
+
+        for (name, operation) in [("url", ControlOp.browserURL), ("reload", .browserReload), ("text", .browserText), ("snapshot", .browserSnapshot)] {
+            let invocation = try parse([name, "--tab", "abcd", "--json"])
+            #expect(invocation.request == ControlRequest(token: "tok", caller: "me", operation: operation, tab: "abcd"))
+            #expect(invocation.json)
+        }
+
+        let html = try parse(["html", "--tab", "abcd", "--selector", "#invoice input[name=email]", "--json"])
+        #expect(html.request == ControlRequest(token: "tok", caller: "me", operation: .browserHTML, tab: "abcd", selector: "#invoice input[name=email]"))
+        #expect(html.json)
+        #expect(try parse(["html"]).request.selector == nil)
+
+        let navigate = try parse(["navigate", "http://localhost:3000/preview", "--tab", "abcd", "--json"])
+        #expect(navigate.request == ControlRequest(token: "tok", caller: "me", operation: .browserNavigate, tab: "abcd", url: "http://localhost:3000/preview"))
+        #expect(navigate.json)
+    }
+
+    @Test func browserCommandsRejectInvalidArguments() {
+        let environment = [ControlEnvironment.socket: "/s.sock", ControlEnvironment.token: "tok", ControlEnvironment.tab: "me"]
+        for arguments in [
+            [], ["bogus"], ["tabs", "--tab", "abcd"], ["tabs", "extra"],
+            ["screenshot", "--out"], ["screenshot", "--out", "--full-page"], ["screenshot", "extra"],
+            ["console", "--since"], ["console", "--since", "wat"], ["console", "--since", "-1"], ["console", "extra"],
+            ["url", "--tab"], ["reload", "--follow"], ["text", "--full-page"],
+            ["html", "--selector"], ["html", "--selector", "--json"], ["html", "--selector", ""], ["snapshot", "--selector", "main"], ["snapshot", "extra"],
+            ["navigate"], ["navigate", "file:///tmp/page"], ["navigate", "javascript:alert(1)"], ["navigate", "https://example.invalid", "extra"],
+        ] {
+            #expect(throws: ControlCommand.UsageError.self) { try ControlCommand.parse(["browser"] + arguments, environment: environment, currentDirectory: "/") }
+        }
+    }
+
+    @Test func browserRepliesRenderTabsConsoleAndPageText() {
+        let tabs = [
+            ControlBrowserTab(id: "abcd1234", title: "Preview", url: "http://localhost:3000", loading: true, active: true),
+            ControlBrowserTab(id: "abcd5678", title: "New Tab", url: nil, loading: false, active: false),
+        ]
+        #expect(ControlCommand.render(ControlResponse(browserTabs: tabs), json: false) == "* abcd1234  loading  Preview  http://localhost:3000\n  abcd5678  -  New Tab  -")
+
+        let timestamp = Date(timeIntervalSinceReferenceDate: 42)
+        let console = [
+            ControlConsoleEntry(sequence: 2, level: "log", text: "Ready", timestamp: timestamp),
+            ControlConsoleEntry(sequence: 3, level: "warn", text: "First\nSecond", timestamp: timestamp),
+        ]
+        #expect(ControlCommand.render(ControlResponse(console: console), json: false) == "2 log Ready\n3 warn First\\nSecond")
+        #expect(ControlCommand.render(console[0], json: true) == #"{"level":"log","sequence":2,"text":"Ready","timestamp":42}"#)
+        for output in ["<html>\n  <body></body>\n</html>", #"- heading "Ready" [level=1] [ref=e1]"#] {
+            #expect(ControlCommand.render(ControlResponse(text: output), json: false) == output)
+        }
+    }
+
+    @Test func browserHTMLRequestRoundTripsAndLegacyRequestsNeedNoSelector() throws {
+        let oldRequest = Data(#"{"token":"tok","caller":"me","operation":"browser-text"}"#.utf8)
+        #expect(try JSONDecoder().decode(ControlRequest.self, from: oldRequest) == ControlRequest(token: "tok", caller: "me", operation: .browserText))
+
+        let request = ControlRequest(token: "tok", caller: "me", operation: .browserHTML, selector: "main > input")
+        #expect(try JSONDecoder().decode(ControlRequest.self, from: JSONEncoder().encode(request)) == request)
+    }
+
+    @Test func browserRequestsAndRepliesRoundTripThroughControlServer() throws {
+        let directory = try Self.shortDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        let seen = Seen()
+        let path = ControlEnvironment.socketPath(directory: directory)
+        let tabs = ControlResponse(browserTabs: [ControlBrowserTab(id: "abcd1234", title: "Preview", url: nil, loading: false, active: true)])
+        let console = ControlResponse(console: [ControlConsoleEntry(sequence: 10, level: "info", text: "Ready", timestamp: Date(timeIntervalSinceReferenceDate: 42))])
+        let screenshot = ControlResponse(text: "/tmp/berth.png")
+        let server = ControlServer(path: path, token: "secret") { request in
+            seen.add(request)
+            switch request.operation {
+            case .browserTabs: return tabs
+            case .browserConsole: return console
+            case .browserScreenshot: return screenshot
+            default: return .failure("Unexpected request")
+            }
+        }
+        try server.start()
+        defer { server.stop() }
+
+        let requests = [
+            ControlRequest(token: "secret", caller: "me", operation: .browserTabs),
+            ControlRequest(token: "secret", caller: "me", operation: .browserConsole, tab: "abcd", since: 9),
+            ControlRequest(token: "secret", caller: "me", operation: .browserScreenshot, tab: "abcd", path: "/tmp/berth.png", fullPage: true),
+        ]
+        for (request, response) in zip(requests, [tabs, console, screenshot]) {
+            #expect(try ControlClient.send(request, socketPath: path) == response)
+        }
+        #expect(seen.all == requests)
+    }
+
     @Test func showPullRequestParsesNumbersURLsAndClonePaths() throws {
         let environment = [ControlEnvironment.socket: "/s.sock", ControlEnvironment.token: "tok", ControlEnvironment.tab: "me"]
         let number = try ControlCommand.parse(["show-pr", "42"], environment: environment, currentDirectory: "/work/app")

@@ -9,6 +9,7 @@ final class ControlService {
     static let cliTool = Bundle.main.executableURL?.deletingLastPathComponent().appending(path: "berth-cli")
 
     private static let exitsDirectory = directory + "/exits"
+    private static let noBrowserSession = "Only a Claude session tab, or a terminal it opened, has a browser"
 
     private(set) var failure: String?
     @ObservationIgnored private unowned let store: Store
@@ -64,6 +65,8 @@ final class ControlService {
         if request.operation == .openPath { return openPath(request, for: caller) }
 
         if request.operation == .openURL { return openURL(request, for: caller) }
+
+        if request.operation.isBrowser { return await browser(request, for: caller) }
 
         if request.operation == .showPullRequest {
             guard let number = request.pullRequest else { return .failure("Missing pull request number") }
@@ -167,11 +170,7 @@ final class ControlService {
 
     private func openURL(_ request: ControlRequest, for caller: UUID) -> ControlResponse {
         guard let url = request.url.flatMap(URL.init(string:)), WebAddress.allows(url) else { return .failure("Pass one http or https URL") }
-
-        let callerTab = store.tabs.first { $0.id == caller }
-        guard let session = store.tabs.first(where: { $0.kind == .claude && $0.id == (callerTab?.kind == .claude ? callerTab?.id : callerTab?.parentTabID) }) else {
-            return .failure("Only a Claude session tab, or a terminal it opened, has a browser")
-        }
+        guard let session = browserSession(for: caller) else { return .failure(Self.noBrowserSession) }
 
         store.browser.open(url, in: BrowserModel.key(of: session), selects: request.background != true)
         if request.background != true {
@@ -179,6 +178,93 @@ final class ControlService {
             store.showBrowserPane()
         }
         return ControlResponse(text: "Opened \(url.absoluteString) in the session’s browser")
+    }
+
+    private func browserSession(for caller: UUID) -> Tab? {
+        guard let tab = store.tabs.first(where: { $0.id == caller }) else { return nil }
+
+        if tab.kind == .claude { return tab }
+
+        return store.tabs.first { $0.kind == .claude && $0.id == tab.parentTabID }
+    }
+
+    private func browser(_ request: ControlRequest, for caller: UUID) async -> ControlResponse {
+        guard let session = browserSession(for: caller) else { return .failure(Self.noBrowserSession) }
+
+        let key = BrowserModel.key(of: session)
+        let tabs = store.browser.tabs(in: key)
+        let active = tabs.first { $0.id == store.browser.selectedIDs[key] } ?? tabs.last
+        if request.operation == .browserTabs {
+            return ControlResponse(browserTabs: tabs.map { tab in
+                ControlBrowserTab(id: Self.shortID(tab.id), title: tab.displayTitle, url: tab.url?.absoluteString, loading: tab.isLoading, active: tab === active)
+            })
+        }
+
+        let tab: BrowserTab
+        if let id = request.tab {
+            let matches = tabs.filter { !id.isEmpty && $0.id.uuidString.lowercased().hasPrefix(id.lowercased()) }
+            guard matches.count == 1, let match = matches.first else {
+                return .failure(matches.isEmpty ? "No browser tab \(id) in this session" : "\(id) matches more than one browser tab in this session")
+            }
+
+            tab = match
+        } else {
+            guard let active else { return .failure("This session has no browser tabs. Open one with berth open-url.") }
+
+            tab = active
+        }
+
+        switch request.operation {
+        case .browserURL: return ControlResponse(text: tab.url?.absoluteString ?? "")
+
+        case .browserReload:
+            tab.reload()
+            return ControlResponse()
+
+        case .browserNavigate:
+            guard let url = request.url.flatMap(URL.init(string:)), WebAddress.allows(url) else { return .failure("Pass one http or https URL") }
+
+            tab.load(url)
+            return ControlResponse()
+
+        case .browserConsole: return tab.console(since: request.since)
+
+        case .browserText, .browserHTML, .browserSnapshot:
+            do {
+                let content: BrowserPageContent = switch request.operation {
+                case .browserHTML: .html(request.selector)
+                case .browserSnapshot: .snapshot
+                default: .text
+                }
+                let text = try await tab.pageContent(content)
+                guard browserSessionContains(tab, session: session.id, caller: caller) else { return .failure("The browser tab is no longer in this session") }
+
+                return ControlResponse(text: text)
+            } catch {
+                return .failure(error.localizedDescription)
+            }
+
+        case .browserScreenshot:
+            guard let path = request.path, path.hasPrefix("/") else { return .failure("Missing absolute screenshot path") }
+
+            do {
+                let png = try await tab.screenshot(fullPage: request.fullPage == true, fallbackSize: store.browser.lastPaneSize)
+                guard browserSessionContains(tab, session: session.id, caller: caller) else { return .failure("The browser tab is no longer in this session") }
+
+                try png.write(to: URL(filePath: path), options: .atomic)
+                return ControlResponse(text: path)
+            } catch {
+                return .failure(error.localizedDescription)
+            }
+
+        default: return .failure("Unknown browser operation")
+        }
+    }
+
+    private func browserSessionContains(_ tab: BrowserTab, session: UUID, caller: UUID) -> Bool {
+        guard let current = browserSession(for: caller), current.id == session else { return false }
+
+        return store.browser.tabs(in: BrowserModel.key(of: current)).contains { $0 === tab }
     }
 
     private func capture(_ tab: Tab) async -> ControlResponse {

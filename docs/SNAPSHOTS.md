@@ -253,6 +253,15 @@ Snapshot mode never uses the session host (no hosted launch, reattach or hang-up
 
 `-snapshotControl YES -controlEnabled YES -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`) runs the embedded `berth-cli` against the live control socket from a fake caller tab and prints `ls`, `open-terminal`, `wait` (exit status), `send`, `capture`, a refused send and close on the caller, a close, a wrong token and a missing environment. It first plants a stale skill and hook in the temp home and prints whether launch refreshed them, and it runs `open` on a folder, a file, a missing path and no path.
 
+`-snapshotControlBrowser YES -controlEnabled YES` runs the embedded CLI from a shell parented to a fixture Claude session. It verifies session-only tab listing and denies pinned, foreign and unknown tab ids and a shell without a Claude parent. It checks that an unloaded background tab paints a PNG, that the full-page capture reaches the bottom, and that console messages, an uncaught exception, an unhandled promise rejection, `--since`, text, URL and reload work. It checks snapshot roles, names, values, states and stable refs on a form, and verifies HTML output and selector errors. It tests file URL refusal and uses a blocked HTTPS URL for navigation. The probe writes the window PNG to the path passed to `-snapshot` and exits nonzero on failure.
+
+```sh
+fixture_home=$(mktemp -d /tmp/bcb.XXXXXX)
+env -i PATH=/usr/bin:/bin HOME="$HOME" CFFIXED_USER_HOME="$fixture_home" \
+  .build/Build/Products/Debug/Berth.app/Contents/MacOS/Berth \
+  -snapshot "$fixture_home/browser.png" -snapshotControlBrowser YES -controlEnabled YES
+```
+
 Add `-snapshotControlSessionClone "$fixture/api" -snapshotControlPullRequestClone "$fixture/billing" -reviewEnabled YES` to exercise `show-pr` via the embedded CLI. The probe sends a number from an owned terminal, opens a URL from another clone using `--repo`, checks the no-clone error, and repeats the URL with different capitalization. It verifies that the session tab stays the target, that each repository’s PR #1445 appears once and is expanded, and that the selected read-only diff comes from the billing clone.
 
 Create both fixture clones in the caller shell, before launching the snapshot with `env -i PATH=/usr/bin:/bin`. The URL rewrite keeps the fixture fetches local while the configured origins exercise GitHub repository matching.

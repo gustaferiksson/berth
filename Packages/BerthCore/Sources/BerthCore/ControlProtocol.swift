@@ -3,6 +3,11 @@ import Foundation
 
 public enum ControlOp: String, Codable, Sendable {
     case list = "ls", open, openSession = "open-session", openPath = "open-path", openURL = "open-url", send, capture, close, wait, showPullRequest = "show-pr"
+    case browserTabs = "browser-tabs", browserScreenshot = "browser-screenshot", browserConsole = "browser-console", browserURL = "browser-url"
+    case browserReload = "browser-reload", browserNavigate = "browser-navigate", browserText = "browser-text"
+    case browserHTML = "browser-html", browserSnapshot = "browser-snapshot"
+
+    public var isBrowser: Bool { rawValue.hasPrefix("browser-") }
 }
 
 public struct ControlRequest: Codable, Equatable, Sendable {
@@ -21,8 +26,11 @@ public struct ControlRequest: Codable, Equatable, Sendable {
     public var repository: String?
     public var repositoryPath: String?
     public var url: String?
+    public var fullPage: Bool?
+    public var since: Int?
+    public var selector: String?
 
-    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil, pullRequest: Int? = nil, repository: String? = nil, repositoryPath: String? = nil, url: String? = nil) {
+    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil, pullRequest: Int? = nil, repository: String? = nil, repositoryPath: String? = nil, url: String? = nil, fullPage: Bool? = nil, since: Int? = nil, selector: String? = nil) {
         self.token = token
         self.caller = caller
         self.operation = operation
@@ -38,6 +46,9 @@ public struct ControlRequest: Codable, Equatable, Sendable {
         self.repository = repository
         self.repositoryPath = repositoryPath
         self.url = url
+        self.fullPage = fullPage
+        self.since = since
+        self.selector = selector
     }
 }
 
@@ -61,6 +72,38 @@ public struct ControlTab: Codable, Equatable, Sendable {
     }
 }
 
+public struct ControlBrowserTab: Codable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let url: String?
+    public let loading: Bool
+    public let active: Bool
+
+    public init(id: String, title: String, url: String?, loading: Bool, active: Bool) {
+        self.id = id
+        self.title = title
+        self.url = url
+        self.loading = loading
+        self.active = active
+    }
+}
+
+public struct ControlConsoleEntry: Codable, Equatable, Sendable {
+    public static let bufferCapacity = 500
+
+    public let sequence: Int
+    public let level: String
+    public let text: String
+    public let timestamp: Date
+
+    public init(sequence: Int, level: String, text: String, timestamp: Date) {
+        self.sequence = sequence
+        self.level = level
+        self.text = text
+        self.timestamp = timestamp
+    }
+}
+
 public struct ControlResponse: Codable, Equatable, Sendable {
     public var succeeded: Bool
     public var error: String?
@@ -68,14 +111,20 @@ public struct ControlResponse: Codable, Equatable, Sendable {
     public var tab: String?
     public var text: String?
     public var exit: Int32?
+    public var browserTabs: [ControlBrowserTab]?
+    public var console: [ControlConsoleEntry]?
+    public var consoleHasMore: Bool?
 
-    public init(succeeded: Bool = true, error: String? = nil, tabs: [ControlTab]? = nil, tab: String? = nil, text: String? = nil, exit: Int32? = nil) {
+    public init(succeeded: Bool = true, error: String? = nil, tabs: [ControlTab]? = nil, tab: String? = nil, text: String? = nil, exit: Int32? = nil, browserTabs: [ControlBrowserTab]? = nil, console: [ControlConsoleEntry]? = nil, consoleHasMore: Bool? = nil) {
         self.succeeded = succeeded
         self.error = error
         self.tabs = tabs
         self.tab = tab
         self.text = text
         self.exit = exit
+        self.browserTabs = browserTabs
+        self.console = console
+        self.consoleHasMore = consoleHasMore
     }
 
     public static func failure(_ message: String) -> Self {

@@ -23,19 +23,8 @@ extension Snapshot {
         print("tab environment keys \(store.control.environment(for: caller).keys.sorted()), failure \(store.control.failure ?? "none")")
 
         func berth(_ arguments: String..., environment: [String: String] = environment) async -> String {
-            await Task.detached {
-                let process = Process()
-                let pipe = Pipe()
-                process.executableURL = tool
-                process.arguments = arguments
-                process.environment = environment
-                process.standardOutput = pipe
-                process.standardError = pipe
-                try? process.run()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                return "[\(process.terminationStatus)] " + String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            }.value
+            let result = await runControlCLI(tool, arguments: arguments, environment: environment)
+            return "[\(result.status)] \(result.output)"
         }
 
         await print("ls: \(berth("ls"))")
@@ -115,6 +104,26 @@ extension Snapshot {
         store.isTerminating = true
         ProcessAncestry.hangUpDescendants()
         exit(0)
+    }
+
+    static func runControlCLI(_ tool: URL, arguments: [String], environment: [String: String]) async -> (status: Int32, output: String) {
+        await Task.detached {
+            let process = Process()
+            let pipe = Pipe()
+            process.executableURL = tool
+            process.arguments = arguments
+            process.environment = environment
+            process.standardOutput = pipe
+            process.standardError = pipe
+            do {
+                try process.run()
+            } catch {
+                return (1, error.localizedDescription)
+            }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return (process.terminationStatus, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+        }.value
     }
 }
 #endif

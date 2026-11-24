@@ -24,6 +24,9 @@ struct BrowserPane: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                if size.width > 0, size.height > 0 { browser.lastPaneSize = size }
+            }
             .background(theme.background ?? Color(nsColor: .textBackgroundColor))
             .clipShape(.rect(cornerRadius: CardBorder.radius, style: .continuous))
             .overlay { CardBorder() }
@@ -526,7 +529,7 @@ private struct BrowserAddressField: View {
 
     private var reloadButton: some View {
         Button {
-            if tab?.isLoading == true { tab?.loadedWebView?.stopLoading() } else { tab?.loadedWebView?.reload() }
+            if tab?.isLoading == true { tab?.loadedWebView?.stopLoading() } else { tab?.reload() }
         } label: {
             Label(tab?.isLoading == true ? "Stop" : "Reload", systemImage: tab?.isLoading == true ? "xmark" : "arrow.clockwise")
                 .frame(width: 16, height: 22)
