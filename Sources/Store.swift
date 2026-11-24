@@ -5,6 +5,7 @@ import Darwin
 import Foundation
 import GhosttyTerminal
 import Observation
+import SwiftUI
 
 struct Tab: Identifiable {
     enum Kind: String, Codable {
@@ -86,6 +87,10 @@ struct ReviewRepository: Hashable {
 
 @Observable
 final class Store {
+    enum LinkOrigin {
+        case app, conversation
+    }
+
     static let shared = Store()
     static let claudeDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude")
     static let codexDirectory = CodexIndex.home(environment: ProcessInfo.processInfo.environment, user: FileManager.default.homeDirectoryForCurrentUser)
@@ -1482,6 +1487,29 @@ final class Store {
         leaveTerminalPane(of: session)
         sessionPanes[session.id] = .browser
         if browser.shownTab == nil { browser.open(nil, in: BrowserModel.key(of: session)) }
+    }
+
+    var linkOpeningAction: OpenURLAction {
+        OpenURLAction { url in
+            self.openLink(url)
+            return .handled
+        }
+    }
+
+    func openLink(_ url: URL, from origin: LinkOrigin = .app) {
+        let defaults = UserDefaults.standard
+        let destination = LinkDestination.resolve(
+            url,
+            opensGitHubInBerth: defaults.bool(forKey: BrowserModel.githubLinksKey),
+            opensConversationLinksInBerth: origin == .conversation && defaults.string(forKey: BrowserModel.linksKey) == BrowserLinkTarget.berth.rawValue
+        )
+        guard !browser.isSnapshot, destination == .berth, let session = sessionTab else {
+            browser.openOutside(url)
+            return
+        }
+
+        browser.open(url, in: BrowserModel.key(of: session))
+        showBrowserPane()
     }
 
     func hideSessionPanel() {

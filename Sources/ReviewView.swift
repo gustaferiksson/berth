@@ -33,6 +33,7 @@ nonisolated struct ReviewBlameSnapshot: Sendable {
     var currentUser: String?
     var repository: String?
     var openCommit: (@MainActor (String) -> Void)?
+    var openLink: (@MainActor (URL) -> Void)?
 }
 
 private struct ReviewBlameKey: Hashable {
@@ -2157,7 +2158,11 @@ struct ReviewDiffColumn: View {
                             isWritingPullRequest: model.isWritingPullRequest,
                             style: style,
                             blameRevision: model.blameRevision,
-                            loadBlame: { await model.loadBlame(for: document) },
+                            loadBlame: { [weak store] in
+                                var blame = await model.loadBlame(for: document)
+                                blame?.openLink = { store?.openLink($0) }
+                                return blame
+                            },
                             language: areLanguageServersEnabled ? model.language : nil,
                             reveal: model.reveal.flatMap { $0.document == document ? $0.range : nil },
                             revealLine: revealLine,
