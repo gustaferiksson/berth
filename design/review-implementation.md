@@ -28,7 +28,7 @@ The branch header and comments bar sit above and below one `List`. The accordion
 
 `movePersistedPanelTab` applies an older `reviewPanelTab` once. `preview` opens Preview, `comments` opens the comments list, `files` opens Files and `graph` opens Commits and History.
 
-`ReviewGraphRows` renders the graph in Commits, under History on feature branches. `ReviewModel.loadGraph` loads 200 commits on first expansion and appends 200 at a time. Refresh reloads the loaded prefix. `ReviewGit.graph` walks branch, remote and tag tips plus HEAD in topological order. `ReviewGraph.layout` reuses lanes for pending parents and keeps the loaded prefix stable. The graph draws up to eight lanes.
+`ReviewGraphRows` renders the graph in Commits, under History on feature branches. `ReviewModel.loadGraph` loads 200 commits on first expansion and appends 200 at a time as Show More raises the visible row limit. Refresh reloads the loaded prefix and keeps the visible limit for the same branch and default-branch status. `ReviewGit.graph` walks branch, remote and tag tips plus HEAD in topological order. `ReviewGraph.layout` reuses lanes for pending parents and keeps the loaded prefix stable. The graph draws up to four lanes.
 
 The tree toggle renders changes as `ReviewFileTree.compactNodes`, joining single-child folder chains with "/". Change folder expansion lives in `ReviewModel.collapsedChangeFolders`, keyed by path and compare. Files uses `ReviewModel.expandedFolders`, keyed by path. The list identity includes tree-mode folder paths and the Files tree’s folder paths. A shape change rebuilds the list to avoid stale AppKit outline rows and the "no common ancestor" crash.
 

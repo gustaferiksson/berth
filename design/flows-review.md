@@ -76,8 +76,10 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
   available, otherwise the plain file. Reveal in Files expands the section and parent folders
   and scrolls to the row. When expanded, Files follows the working path.
 - Commits shows the branch’s commits and a History disclosure for the graph. On the default
-  branch, the graph appears directly. Select a commit to show its changed files and preview the
-  first diff. Load More fetches older commits. See `Sources/ReviewGraphView.swift`.
+  branch, the graph appears directly and starts with 10 rows. On a feature branch, it shows
+  through the merge base when that commit is in the loaded page and starts with 10 rows otherwise.
+  Show More reveals up to 20 more rows and fetches another page when needed. Select a commit to
+  show its changed files and preview the first diff. See `Sources/ReviewGraphView.swift`.
 - Refreshing: the panel reloads its lists on its own when the repository changes on disk. While
   the panel shows a model (not while hidden or under Harbor; showing it again reloads), one
   FSEvents watcher in `Store` covers the repository root and the common git dir (`git rev-parse
