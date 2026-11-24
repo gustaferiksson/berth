@@ -255,9 +255,11 @@ struct ConversationMarkdown: View {
     var selectionID: String?
 
     @Environment(\.ghosttyTheme) private var theme
+    @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.terminal
+    @AppStorage(ReviewStyle.syntaxColorsKey) private var syntaxColors = SyntaxColorSource.terminal
 
     var body: some View {
-        ConversationProse(run: ConversationMarkdownCache.run(text: text, theme: theme), selectionID: selectionID)
+        ConversationProse(run: ConversationMarkdownCache.run(text: text, theme: theme, palette: [colorScheme.rawValue, syntaxColors.rawValue]), selectionID: selectionID)
     }
 
     static func rendered(_ text: String, theme: GhosttyTheme) -> NSAttributedString {
@@ -315,12 +317,13 @@ private enum ConversationMarkdownCache {
         let unread: Color
         let inlineCode: Color
         let font: NSFont
+        let palette: [String]
     }
 
     private static var cached: [Key: Run] = [:]
 
-    static func run(text: String, theme: GhosttyTheme) -> Run {
-        let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font)
+    static func run(text: String, theme: GhosttyTheme, palette: [String] = [ReviewStyle.colorSchemeKey, ReviewStyle.syntaxColorsKey].map { UserDefaults.standard.string(forKey: $0) ?? "" }) -> Run {
+        let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font, palette: palette)
         if let run = cached[key] { return run }
 
         let run = Run(blocks: MarkdownBlock.blocks(in: text), theme: theme)
