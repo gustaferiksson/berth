@@ -61,6 +61,7 @@ struct PromptImageLoader {
 struct ConversationPrompt: View {
     let entry: RemoteEntry
     var selectionID: String?
+    var isShellRunning = false
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -139,6 +140,11 @@ struct ConversationPrompt: View {
                     .accessibilityHidden(true)
                 Text(verbatim: entry.text)
                     .textSelection(.enabled)
+                if isShellRunning, entry.shellOutput == nil, entry.shellError == nil {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Running")
+                }
             }
             if !lines.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {

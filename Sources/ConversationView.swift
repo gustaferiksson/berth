@@ -139,8 +139,12 @@ struct ConversationView: View {
                     )
                 }
                 ForEach(pending, id: \.sentAt) { prompt in
-                    ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text))
-                        .opacity(0.6)
+                    if let command = prompt.shellCommand {
+                        ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: command, name: "bash", command: command), isShellRunning: true)
+                    } else {
+                        ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text))
+                            .opacity(0.6)
+                    }
                 }
             }
             .frame(maxWidth: theme.messageWidth, alignment: .leading)
@@ -256,7 +260,7 @@ struct ConversationTurnView: View {
 
         VStack(alignment: .leading, spacing: 14) {
             if let prompt = turn.prompt {
-                ConversationPrompt(entry: prompt, selectionID: "prompt:\(turn.id)")
+                ConversationPrompt(entry: prompt, selectionID: "prompt:\(turn.id)", isShellRunning: turn.parts.isEmpty)
             }
             ForEach(turn.parts) { part in
                 if case let .work(calls) = part, !turn.isInterrupted {
