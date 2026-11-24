@@ -93,6 +93,7 @@ final class Store {
     let updater = AppUpdater()
     @ObservationIgnored lazy var remote = RemoteServer(store: self)
     @ObservationIgnored lazy var control = ControlService(store: self)
+    @ObservationIgnored lazy var browser = BrowserModel(store: self)
 
     var tabs: [Tab] = [] {
         didSet {
@@ -442,6 +443,7 @@ final class Store {
         }
         guard restoringTabs else { return }
 
+        browser.restore()
         Task {
             await refreshTask?.value
             await restoreOpenTabs()
@@ -1435,7 +1437,7 @@ final class Store {
 
     var shownPane: SessionPane? {
         if isHarborShown { return nil }
-        if sessionPane == .terminal { return .terminal }
+        if sessionPane == .terminal || sessionPane == .browser { return sessionPane }
         return UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && showsReviewPanel ? .changes : nil
     }
 
@@ -1443,6 +1445,16 @@ final class Store {
         showsReviewPanel = true
         isHarborShown = false
         leaveTerminalPane(of: sessionTab)
+    }
+
+    func showBrowserPane() {
+        guard let session = sessionTab else { return }
+
+        launcherMode = nil
+        isHarborShown = false
+        leaveTerminalPane(of: session)
+        sessionPanes[session.id] = .browser
+        if browser.shownTab == nil { browser.open(nil, in: BrowserModel.key(of: session)) }
     }
 
     func hideSessionPanel() {
@@ -2052,6 +2064,7 @@ final class Store {
         if multiSelection.contains(.session(sessionID)) { multiSelection.removeAll { $0 == .session(sessionID) } }
         applyGroups()
         if let tab = tab(forSession: sessionID) { close(tab.id) }
+        browser.discard(sessionID)
     }
 
     func dismissAttention(_ sessionID: String) {
@@ -2164,10 +2177,11 @@ final class Store {
         conversationTabIDs.remove(id)
         conversationSuspended.remove(id)
         conversationDrafts[id] = nil
+        if let closing = tabs.first(where: { $0.id == id && $0.kind == .claude }) { browser.release(BrowserModel.key(of: closing)) }
         sessionPanes[id] = nil
         paneTerminalIDs[id] = nil
         tabs.removeAll { $0.id == id }
-        if let parent, !tabs.contains(where: { $0.parentTabID == parent }) { sessionPanes[parent] = nil }
+        if let parent, sessionPanes[parent] == .terminal, !tabs.contains(where: { $0.parentTabID == parent }) { sessionPanes[parent] = nil }
         pullRequestTabs = pullRequestTabs.filter { $0.value != id }
         recentTabIDs.removeAll { $0 == id }
         if multiSelection.contains(.tab(id)) { multiSelection.removeAll { $0 == .tab(id) } }

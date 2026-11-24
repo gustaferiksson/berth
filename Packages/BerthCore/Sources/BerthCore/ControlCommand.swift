@@ -6,6 +6,7 @@ public enum ControlCommand {
            berth open-terminal [--cwd <dir>] [--background] [--json] [--] [<command>...]
            berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]
            berth open <path> [--background] [--json]
+           berth open-url <url> [--background] [--json]
            berth show-pr <number|url> [--repo <path>] [--json]
            berth send <tab> <text> [--no-enter]
            berth capture <tab>
@@ -27,11 +28,11 @@ public enum ControlCommand {
         guard let socketPath = environment[ControlEnvironment.socket], let token = environment[ControlEnvironment.token], let caller = environment[ControlEnvironment.tab] else {
             throw UsageError(message: "Not inside a Berth tab, or Agent Control is off in Berth's Settings > General")
         }
-        guard let name = arguments.first, let operation = [ControlOp.list, .openSession, .showPullRequest, .send, .capture, .close, .wait].first(where: { $0.rawValue == name }) ?? (name == "open-terminal" ? .open : name == "open" ? .openPath : nil) else {
+        guard let name = arguments.first, let operation = [ControlOp.list, .openSession, .openURL, .showPullRequest, .send, .capture, .close, .wait].first(where: { $0.rawValue == name }) ?? (name == "open-terminal" ? .open : name == "open" ? .openPath : nil) else {
             throw UsageError(message: usage)
         }
 
-        let opensTab = operation == .open || operation == .openSession || operation == .openPath
+        let opensTab = operation == .open || operation == .openSession || operation == .openPath || operation == .openURL
         var request = ControlRequest(token: token, caller: caller, operation: operation)
         var json = false
         var positional: [String] = []
@@ -93,6 +94,11 @@ public enum ControlCommand {
             guard positional.count == 1 else { throw UsageError(message: usage) }
 
             request.path = URL(filePath: positional[0], relativeTo: URL(filePath: currentDirectory, directoryHint: .isDirectory)).standardizedFileURL.path
+
+        case .openURL:
+            guard positional.count == 1, let url = URL(string: positional[0]), WebAddress.allows(url) else { throw UsageError(message: "Pass one http or https URL") }
+
+            request.url = url.absoluteString
 
         case .showPullRequest:
             guard positional.count == 1, let target = positional.first else { throw UsageError(message: usage) }

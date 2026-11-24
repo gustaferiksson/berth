@@ -35,6 +35,9 @@ struct GeneralSettings: View {
     @AppStorage(keepsSessionsRunningKey) private var keepsSessionsRunning = false
     @AppStorage(ControlService.enabledKey) private var isControlEnabled = false
     @State private var control = ControlInstaller()
+    @AppStorage(BrowserModel.searchKey) private var search = BrowserSearch.duckDuckGo
+    @AppStorage(BrowserModel.persistentDataKey) private var keepsWebsiteData = false
+    @AppStorage(BrowserModel.linksKey) private var linkTarget = BrowserLinkTarget.defaultBrowser
 
     private var codexModels: [CodexModel] { CodexModels.load(from: Store.codexDirectory) }
 
@@ -111,6 +114,20 @@ struct GeneralSettings: View {
                 Text("Sessions in tabs opened after you turn this on get a berth command that lists tabs, opens terminals in their folder, reads their output and closes the ones they opened. It talks to Berth over a private socket in Application Support.")
             }
             Section {
+                Picker("Search with", selection: $search) {
+                    ForEach(BrowserSearch.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                Picker("Conversation links open in", selection: $linkTarget) {
+                    Text("Default browser").tag(BrowserLinkTarget.defaultBrowser)
+                    Text("Berth’s browser").tag(BrowserLinkTarget.berth)
+                }
+                Toggle("Keep website data between launches", isOn: $keepsWebsiteData)
+            } header: {
+                Text("Browser")
+            } footer: {
+                Text("The Browser pane (⇧⌘B) forgets cookies and logins when Berth quits. Keep website data so logins stick; it applies to tabs opened after you change it.")
+            }
+            Section {
                 Picker("Unload idle sessions after", selection: $unloadIdleAfter) {
                     Text("Never").tag(0.0)
                     Text("1 hour").tag(3600.0)
@@ -131,7 +148,7 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 1000)
+        .frame(height: 1180)
     }
 }
 

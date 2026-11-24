@@ -2,14 +2,16 @@ import GhosttyTerminal
 import SwiftUI
 
 enum SessionPane: String, CaseIterable {
-    case changes, terminal
+    case changes, browser, terminal
 
     var title: String {
-        self == .changes ? "Changes" : "Terminal"
+        rawValue.capitalized
     }
 
     var action: AppAction {
-        self == .changes ? .showChangesPane : .switchTerminal
+        if self == .terminal { return .switchTerminal }
+        if self == .browser { return .showBrowser }
+        return .showChangesPane
     }
 }
 
@@ -20,8 +22,8 @@ struct PaneHost: View {
         let isTerminal = store.sessionPane == .terminal
         ZStack {
             ReviewDiffColumn(store: store)
-                .opacity(isTerminal ? 0 : 1)
-                .allowsHitTesting(!isTerminal)
+                .opacity(store.sessionPane == .changes ? 1 : 0)
+                .allowsHitTesting(store.sessionPane == .changes)
             VStack(spacing: 0) {
                 if let terminal = store.sessionTab.flatMap({ store.paneTerminal(of: $0.id) }) {
                     TerminalPathBar(tab: terminal, terminal: terminal.terminal)
@@ -32,6 +34,7 @@ struct PaneHost: View {
             .background(store.theme.background ?? Color(nsColor: .textBackgroundColor))
             .overlay { CardBorder() }
             .opacity(isTerminal ? 1 : 0)
+            if store.sessionPane == .browser { BrowserPane(store: store) }
         }
         .environment(store)
         .environment(\.ghosttyTheme, store.theme)
@@ -72,6 +75,8 @@ struct SessionPanel: View {
     var body: some View {
         if store.sessionPane == .terminal {
             TerminalList()
+        } else if store.sessionPane == .browser {
+            BrowserTabList()
         } else {
             ReviewPanel()
         }
@@ -84,10 +89,10 @@ struct ModeSwitcher: View {
 
     var body: some View {
         ControlGroup {
-            ForEach(isReviewEnabled ? SessionPane.allCases : [.terminal], id: \.self) { mode in
-                let keys = mode == .changes ? "⇧⌘D" : "⌘J"
+            ForEach(isReviewEnabled ? SessionPane.allCases : [.browser, .terminal], id: \.self) { mode in
+                let keys = mode == .changes ? "⇧⌘D" : mode == .browser ? "⇧⌘B" : "⌘J"
                 Toggle(mode.title, systemImage: mode.action.symbol, isOn: Binding(get: { store.shownPane == mode }, set: { isOn in
-                    if !isOn { store.hideSessionPanel() } else if mode == .terminal { store.showTerminalPane() } else { store.showChangesPane() }
+                    if !isOn { store.hideSessionPanel() } else if mode == .terminal { store.showTerminalPane() } else if mode == .browser { store.showBrowserPane() } else { store.showChangesPane() }
                 }))
                 .help("\(mode.title) (\(keys))")
             }

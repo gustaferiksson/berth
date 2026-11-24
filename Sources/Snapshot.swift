@@ -464,7 +464,7 @@ enum Snapshot {
         if let busySidebar { return busySidebar.sessions }
         if let issueFixtures { return issueFixtures.sessions }
 
-        if let fixtures = triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures { return fixtures }
+        if let fixtures = triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures ?? browserFixtures { return fixtures }
         if !pullRequestFixtures.isEmpty { return pullRequestFixtures.map(\.session) }
         if launcherKeys != nil { return hubFolders }
         if showsWatching, !UserDefaults.standard.bool(forKey: "snapshotConversation") { return longNames.map(\.session) }
@@ -951,6 +951,7 @@ enum Snapshot {
         window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
         window.orderFrontRegardless()
         if UserDefaults.standard.bool(forKey: "snapshotControl") { await captureControl(store: store, window: window, output: output) }
+        if UserDefaults.standard.bool(forKey: "snapshotBrowser") { await captureBrowser(store: store, window: window) }
         if let mode = UserDefaults.standard.string(forKey: "snapshotHost") { await captureHost(mode: mode, store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotConversation") { await captureConversation(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { await captureTasksReview(store: store, window: window, output: output) }
