@@ -127,6 +127,16 @@ private struct FilesList: View {
 }
 
 private struct FilesRow: View {
+    private static let fileSymbols = [
+        "swift": "swift",
+        "ts": "curlybraces", "tsx": "curlybraces", "js": "curlybraces", "jsx": "curlybraces", "mjs": "curlybraces", "cjs": "curlybraces",
+        "json": "curlybraces.square",
+        "md": "text.document", "markdown": "text.document",
+        "png": "photo", "jpg": "photo", "jpeg": "photo", "gif": "photo", "webp": "photo", "heic": "photo", "svg": "photo",
+        "yml": "list.bullet.indent", "yaml": "list.bullet.indent",
+        "sh": "terminal", "zsh": "terminal", "bash": "terminal",
+    ]
+
     let row: FileRow
     let files: FilesModel
     let review: ReviewModel
@@ -145,10 +155,21 @@ private struct FilesRow: View {
         let isExpanded = files.expanded.contains(entry.path)
         let absolute = root + "/" + entry.path
         HStack(spacing: 6) {
-            Image(systemName: entry.isFolder ? (isExpanded ? "chevron.down" : "chevron.right") : "doc")
-                .font(.system(size: entry.isFolder ? 10 : 12, weight: .semibold))
+            if entry.isFolder {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(theme.secondary)
+                    .frame(width: 12)
+                    .accessibilityHidden(true)
+            } else {
+                Spacer(minLength: 0)
+                    .frame(width: 12)
+            }
+            Image(systemName: entry.isFolder ? "folder" : fileSymbol(for: entry.name))
+                .font(.system(size: 12, weight: .semibold))
+                .symbolRenderingMode(.monochrome)
                 .foregroundStyle(theme.secondary)
-                .frame(width: 12)
+                .frame(width: 14)
                 .accessibilityHidden(true)
             Text(entry.name)
                 .monospaced()
@@ -196,6 +217,10 @@ private struct FilesRow: View {
             Button("Copy Path") { copy(absolute) }
             Button("Copy Relative Path") { copy(entry.path) }
         }
+    }
+
+    private func fileSymbol(for name: String) -> String {
+        Self.fileSymbols[(name as NSString).pathExtension.lowercased()] ?? "doc"
     }
 
     private func copy(_ text: String) {
