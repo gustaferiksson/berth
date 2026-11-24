@@ -17,54 +17,44 @@ extension RemoteClient {
     }
 }
 
-struct UsageSummary: View {
-    @Environment(RemoteClient.self) private var client
-
+struct UsageCard: View {
+    let group: UsageGroup
     let open: () -> Void
 
     var body: some View {
         TimelineView(.everyMinute) { timeline in
-            let groups = client.usageGroups(at: timeline.date)
-            if !groups.isEmpty {
-                Button(action: open) {
-                    VStack(spacing: 14) {
-                        ForEach(groups) { group in
+            Button(action: open) {
+                HStack(spacing: 10) {
+                    Image(group.asset)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 16, height: 16)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    VStack(spacing: 10) {
+                        ForEach(group.windows.prefix(2)) { window in
                             HStack(spacing: 10) {
-                                if groups.count > 1 || group.name == "Codex" {
-                                    Image(group.asset)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(width: 16, height: 16)
-                                        .foregroundStyle(.secondary)
-                                        .accessibilityHidden(true)
-                                }
-                                VStack(spacing: 10) {
-                                    ForEach(group.windows.prefix(2)) { window in
-                                        HStack(spacing: 10) {
-                                            Text(window.title)
-                                                .font(.footnote)
-                                                .foregroundStyle(.secondary)
-                                                .frame(width: 58, alignment: .leading)
-                                            UsageTrack(window: window, now: timeline.date, height: 8)
-                                            Text("\(window.usedPercent)%")
-                                                .font(.footnote)
-                                                .monospacedDigit()
-                                                .foregroundStyle(UsageTrack.aheadTint(window, now: timeline.date) ?? .secondary)
-                                                .frame(width: 40, alignment: .trailing)
-                                        }
-                                        .accessibilityElement(children: .ignore)
-                                        .accessibilityLabel("\(group.name) \(window.title)")
-                                        .accessibilityValue(group.spoken(window, at: timeline.date))
-                                    }
-                                }
+                                Text(window.title)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 58, alignment: .leading)
+                                UsageTrack(window: window, now: timeline.date, height: 8)
+                                Text("\(window.usedPercent)%")
+                                    .font(.footnote)
+                                    .monospacedDigit()
+                                    .foregroundStyle(UsageTrack.aheadTint(window, now: timeline.date) ?? .secondary)
+                                    .frame(width: 40, alignment: .trailing)
                             }
-                            .opacity(group.staleSince == nil ? 1 : 0.5)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("\(group.name) \(window.title)")
+                            .accessibilityValue(group.spoken(window, at: timeline.date))
                         }
                     }
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("Shows plan usage")
+                .opacity(group.staleSince == nil ? 1 : 0.5)
             }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows plan usage")
         }
     }
 }

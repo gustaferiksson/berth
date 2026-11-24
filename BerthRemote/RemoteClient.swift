@@ -156,7 +156,16 @@ final class RemoteClient {
             Finally, reload the feed from an empty state and confirm that the first page appears at the top. If the entry you were reading has been deleted, the feed should restore the nearest remaining entry.
             """),
         ]
-        openedSessionID = session.id
+        let resets = Date.now.addingTimeInterval(3 * 3600)
+        usage = PlanUsage(windows: [
+            UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: resets),
+            UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.18, resetsAt: resets.addingTimeInterval(3 * 86_400)),
+        ])
+        codexUsage = CodexUsage(usage: PlanUsage(windows: [
+            UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.67, resetsAt: resets),
+            UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.31, resetsAt: resets.addingTimeInterval(3 * 86_400)),
+        ]), recordedAt: .now)
+        if !UserDefaults.standard.bool(forKey: "snapshotDemoList") { openedSessionID = session.id }
     }
     #endif
 

@@ -141,7 +141,7 @@ Berth Remote's DEBUG `-snapshotExpanded YES` and `-snapshotExpandedCalls YES` op
 
 More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those sheets), `-snapshotQuery "<text>"` (list search), `-snapshotTray YES` (quick reply tray), `-snapshotIntent "<spec>"` with `-snapshotIntentConnect "<url>|<token>"` (runs an intent against a Mac and prints the result).
 
-`-snapshotDemo YES` opens a sample session without a Mac server. Add `-snapshotDemoFocus YES` to focus the composer after 1.5 seconds.
+`-snapshotDemo YES` opens a sample session without a Mac server. Add `-snapshotDemoList YES` to stay on the session list (with sample Claude and Codex usage cards). Add `-snapshotDemoFocus YES` to focus the composer after 1.5 seconds.
 
 ### Glass (see docs/adr/0005)
 
