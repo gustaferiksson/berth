@@ -192,6 +192,26 @@ final class ConversationModel {
         if draft.isEmpty { draft = sent }
     }
 
+    var canRecallQueued: Bool {
+        !queued.isEmpty && draft.isEmpty && !isSending
+    }
+
+    func recallQueued() async {
+        guard canRecallQueued, let sessionID else { return }
+
+        let recalled = PendingPrompts.recall(queued, pending: pending)
+        isSending = true
+        defer { isSending = false }
+
+        if case let .refused(message) = await store.recallQueued(recalled.text, in: sessionID) {
+            notice = message
+            return
+        }
+
+        pending = recalled.pending
+        setText(draft.text.isEmpty ? recalled.text : recalled.text + "\n" + draft.text)
+    }
+
     func show(pending text: String, sentAt: Date) {
         pending.append(PendingPrompt(text: text, sentAt: sentAt))
         reconcilePending()

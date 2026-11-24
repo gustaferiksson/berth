@@ -83,7 +83,8 @@ struct ConversationComposer: View {
                             focusRequest: focusRequest,
                             layoutWidth: fieldWidth,
                             submit: send,
-                            attach: { canAttach ? model.attach($0) : "" }
+                            attach: { canAttach ? model.attach($0) : "" },
+                            recall: recallQueued
                         )
                         Button {
                             guard stops else { return send() }
@@ -114,6 +115,13 @@ struct ConversationComposer: View {
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             model.append((try? result.get()) ?? [])
         }
+    }
+
+    private func recallQueued() -> Bool {
+        guard model.canRecallQueued else { return false }
+
+        Task { await model.recallQueued() }
+        return true
     }
 
     private func send() {
