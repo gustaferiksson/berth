@@ -493,6 +493,24 @@ public struct RemoteFileDiff: Codable, Sendable, Hashable {
     }
 }
 
+public struct RemoteSlashCommand: Codable, Equatable, Sendable {
+    public static let feature = "commands"
+
+    public let name: String
+    public let summary: String
+    public let source: String
+    public let requiresArguments: Bool
+    public let argumentHint: String?
+
+    public init(name: String, summary: String, source: String, requiresArguments: Bool, argumentHint: String?) {
+        self.name = name
+        self.summary = summary
+        self.source = source
+        self.requiresArguments = requiresArguments
+        self.argumentHint = argumentHint
+    }
+}
+
 public enum RemoteClientMessage: Codable, Sendable {
     case auth(hmac: Data)
     case subscribe(sessionID: String)
@@ -511,6 +529,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case taskDetail(sessionID: String, taskID: String)
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
+    case commands(sessionID: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
@@ -528,4 +547,5 @@ public enum RemoteServerMessage: Codable, Sendable {
     case codexUsage(CodexUsage?)
     case taskDetail(sessionID: String, taskID: String, detail: RemoteTaskDetail?)
     case image(sessionID: String, id: String, variant: RemoteImageVariant, data: Data?)
+    case commands(sessionID: String, commands: [RemoteSlashCommand])
 }

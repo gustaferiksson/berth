@@ -243,7 +243,24 @@ final class RemoteServer {
 
         case let .image(sessionID, imageID, variant):
             Task { await sendImage(imageID, variant: variant, in: sessionID, to: connection) }
+
+        case let .commands(sessionID):
+            Task { await sendCommands(of: sessionID, to: connection) }
         }
+    }
+
+    private func sendCommands(of sessionID: String, to connection: NWConnection) async {
+        let session = store.sessionsByID[sessionID]
+        let tab = store.tab(forSession: sessionID)
+        guard let folder = session?.cwd ?? tab?.cwd, let harness = (session?.agent ?? tab?.agent)?.harness, harness.supports(.remote) else { return }
+
+        let data = await Task.detached {
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let commands = SlashCommand.load(home: home, folder: URL(filePath: folder, directoryHint: .isDirectory), harness: harness)
+            let reply = RemoteServerMessage.commands(sessionID: sessionID, commands: commands.map { RemoteSlashCommand($0) })
+            return try? JSONEncoder().encode(reply)
+        }.value
+        send(data, to: connection)
     }
 
     private func sendImage(_ imageID: String, variant: RemoteImageVariant, in sessionID: String, to connection: NWConnection) async {
@@ -456,7 +473,7 @@ final class RemoteServer {
         }
         let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.filter { $0.agent.harness.supports(.remote) }.map(remote))]
             + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.filter { $0.agent.harness.supports(.remote) }.map(remote)) }
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] + (store.isCodexEnabled ? [RemoteCodexUsageFeature.name] : []) : []))
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature] + (UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) ? [RemoteUsageFeature.name] + (store.isCodexEnabled ? [RemoteCodexUsageFeature.name] : []) : []))
     }
 
     private func observeSessions() {
