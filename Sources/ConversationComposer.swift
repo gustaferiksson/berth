@@ -16,6 +16,7 @@ struct ConversationComposer: View {
     @Environment(\.ghosttyTheme) private var theme
     @State private var isImporting = false
     @State private var width: CGFloat = 0
+    @State private var settledHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -30,6 +31,7 @@ struct ConversationComposer: View {
         let controlSize = ConversationComposerLayout.controlSize
         let fieldWidth = ConversationComposerLayout.fieldBounds(in: width, isExpanded: isExpanded, canAttach: canAttach).width
         let fieldHeight = ConversationComposerField.height(of: draft.text, font: font, width: fieldWidth)
+        let animatesHeight = abs(fieldHeight - settledHeight) > controlSize * 1.5
         let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
         let placeholder = model.blocksSending ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
 
@@ -107,8 +109,8 @@ struct ConversationComposer: View {
                 .overlay { shape.strokeBorder(theme.shellAttached.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
                 .glassEffect(.regular, in: shape)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-                .animation(animation, value: isExpanded)
-                .animation(animation, value: fieldHeight)
+                .animation(animation, value: [isExpanded ? 1 : 0, animatesHeight ? fieldHeight : 0])
+                .onChange(of: fieldHeight) { settledHeight = fieldHeight }
                 .animation(.smooth(duration: 0.2), value: isShell)
             }
         }
@@ -135,7 +137,6 @@ struct ConversationComposer: View {
 private struct ConversationComposerLayout: Layout {
     static let inset: CGFloat = 10
     static let controlSize: CGFloat = 24
-    private static let expandedInset: CGFloat = 14
     private static let fieldTop: CGFloat = 12
     private static let fieldGap: CGFloat = 8
 
@@ -150,8 +151,8 @@ private struct ConversationComposerLayout: Layout {
 
     static func fieldBounds(in width: CGFloat, isExpanded: Bool, canAttach: Bool) -> (leading: CGFloat, width: CGFloat) {
         let controlInset = controlSize + 2 * inset
-        let leading: CGFloat = isExpanded || !canAttach ? 16 : controlInset
-        let trailing: CGFloat = isExpanded ? 16 : controlInset
+        let leading: CGFloat = isExpanded ? inset : !canAttach ? 16 : controlInset
+        let trailing: CGFloat = isExpanded ? inset : controlInset
         return (leading, max(0, width - leading - trailing))
     }
 
@@ -163,14 +164,14 @@ private struct ConversationComposerLayout: Layout {
         _ = subviews[1].sizeThatFits(.unspecified)
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 400
         let collapsed = max(fieldHeight, Self.controlSize) + 2 * Self.inset
-        let expanded = Self.fieldTop + fieldHeight + Self.fieldGap + Self.controlSize + Self.expandedInset
+        let expanded = Self.fieldTop + fieldHeight + Self.fieldGap + Self.controlSize + Self.inset
         return CGSize(width: width, height: blend(collapsed, expanded))
     }
 
     func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
         let collapsed = Self.fieldBounds(in: bounds.width, isExpanded: false, canAttach: canAttach)
         let expanded = Self.fieldBounds(in: bounds.width, isExpanded: true, canAttach: canAttach)
-        let controlsInset = blend(Self.inset, Self.expandedInset)
+        let controlsInset = Self.inset
         let controlsTop = bounds.maxY - controlsInset - Self.controlSize
         subviews[0].place(at: CGPoint(x: bounds.minX + controlsInset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
         let fieldY = blend(bounds.midY - fieldHeight / 2, bounds.minY + Self.fieldTop)
