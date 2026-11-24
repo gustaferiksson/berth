@@ -371,7 +371,7 @@ private struct Composer: View {
         .buttonStyle(.plain)
     }
 
-    private func trailingControls(isExpanded: Bool) -> some View {
+    private func trailingControls(isExpanded _: Bool) -> some View {
         let isEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
         let showsStop = isWorking && isEmpty
         let canSend = !isEmpty && attachments.allSatisfy { client.uploads[$0.id] == .done }
