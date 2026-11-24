@@ -15,11 +15,7 @@ public struct SlashCommand: Equatable, Sendable {
         self.argumentHint = argumentHint
     }
 
-    public init(_ command: RemoteSlashCommand) {
-        self.init(command.name, command.summary, source: command.source, requiresArguments: command.requiresArguments, argumentHint: command.argumentHint)
-    }
-
-    public static let claudeBuiltIns: [Self] = [
+    private static let claudeBuiltIns: [Self] = [
         Self("/add-dir", "Add a working directory", requiresArguments: true, argumentHint: "<path>"),
         Self("/clear", "Start a fresh conversation"),
         Self("/compact", "Summarize the conversation to free up context", argumentHint: "[instructions]"),
@@ -31,12 +27,16 @@ public struct SlashCommand: Equatable, Sendable {
         Self("/security-review", "Review changes for security vulnerabilities"),
     ]
 
-    public static let codexBuiltIns: [Self] = [
+    private static let codexBuiltIns: [Self] = [
         Self("/compact", "Summarize the conversation to free up context"),
         Self("/init", "Create project instructions in AGENTS.md"),
         Self("/review", "Review changes with custom instructions", requiresArguments: true, argumentHint: "<instructions>"),
         Self("/status", "Show session settings and usage"),
     ]
+
+    public static func builtIns(for harness: Harness) -> [Self] {
+        harness.agent == .codex ? codexBuiltIns : claudeBuiltIns
+    }
 
     public static func matching(_ query: String, in commands: [Self]) -> [Self] {
         let query = query.hasPrefix("/") ? String(query.dropFirst()) : query
@@ -49,21 +49,8 @@ public struct SlashCommand: Equatable, Sendable {
         .sorted { $0.score > $1.score }
         .map(\.command)
     }
-}
 
-#if os(macOS)
-public extension RemoteSlashCommand {
-    init(_ command: SlashCommand) {
-        self.init(name: command.name, summary: command.summary, source: command.source, requiresArguments: command.requiresArguments, argumentHint: command.argumentHint)
-    }
-}
-
-public extension SlashCommand {
-    static func builtIns(for harness: Harness) -> [Self] {
-        harness.agent == .codex ? codexBuiltIns : claudeBuiltIns
-    }
-
-    static func load(home: URL, folder: URL?, harness: Harness) -> [Self] {
+    public static func load(home: URL, folder: URL?, harness: Harness) -> [Self] {
         var groups = [builtIns(for: harness)]
         if harness.agent == .codex {
             let prompts = home.appending(path: ".codex/prompts")
@@ -157,4 +144,3 @@ public extension SlashCommand {
         return Self("/\(prefix)\(name)", summary.count > 120 ? String(summary.prefix(119)) + "…" : summary, source: source, argumentHint: metadata["argument-hint"])
     }
 }
-#endif
