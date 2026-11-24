@@ -15,6 +15,13 @@ struct ConversationView: View {
     @State private var barHeight: CGFloat = 0
     @State private var now = Date.now
     @FocusState private var isFocused: Bool
+    @State private var selection: ConversationSelection
+
+    init(model: ConversationModel, tab: Tab) {
+        self.model = model
+        self.tab = tab
+        _selection = State(initialValue: ConversationSelection { [model] in model.turns })
+    }
 
     var body: some View {
         let harness = tab.agent.harness
@@ -145,6 +152,8 @@ struct ConversationView: View {
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
         .scrollEdgeEffectHidden(true, for: .bottom)
+        .environment(\.conversationSelection, selection)
+        .onChange(of: ObjectIdentifier(model)) { selection = ConversationSelection { [model] in model.turns } }
         .onScrollGeometryChange(for: ConversationScrollState.self) { geometry in
             ConversationScrollState(height: geometry.contentSize.height, isAtBottom: geometry.visibleRect.maxY >= geometry.contentSize.height + geometry.contentInsets.bottom - 40)
         } action: { old, new in
@@ -248,7 +257,7 @@ struct ConversationTurnView: View {
 
         VStack(alignment: .leading, spacing: 14) {
             if let prompt = turn.prompt {
-                ConversationPrompt(entry: prompt)
+                ConversationPrompt(entry: prompt, selectionID: "prompt:\(turn.id)")
             }
             ForEach(turn.parts) { part in
                 if case let .work(calls) = part, !turn.isInterrupted {
@@ -328,7 +337,7 @@ private struct ConversationPartView: View {
     var body: some View {
         switch part {
         case let .reply(entry):
-            ConversationReply(text: entry.text)
+            ConversationReply(text: entry.text, selectionID: "reply:\(entry.id)")
 
         case let .work(calls):
             VStack(alignment: .leading, spacing: 8) {

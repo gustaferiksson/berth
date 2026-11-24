@@ -299,7 +299,7 @@ extension Snapshot {
             virtual(result("repl_1", "", 0, ["toolUseResult": ["stdout": "columns.md\nexport.md", "stderr": "", "interrupted": false]])),
             virtual(assistant(0, [use("repl_2", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])])),
             virtual(result("repl_2", "", 0, ["toolUseResult": ["type": "text", "file": ["filePath": "\(conversationFolder)/docs/columns.md", "content": "# Columns\n\nplan name\n", "numLines": 3]]])),
-            assistant(3, [text("The migration check is still running, the docs agent has started.")]),
+            assistant(3, [text("The migration check is still running, the docs agent has started. Notes are in [the export docs](https://example.com/docs/export).")]),
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
@@ -434,29 +434,6 @@ extension Snapshot {
         log()
     }
 
-    private static func textViews(in view: NSView) -> [ConversationNSTextView] {
-        (view as? ConversationNSTextView).map { [$0] } ?? view.subviews.flatMap { textViews(in: $0) }
-    }
-
-    private static func selectAcrossBlocks(window: NSWindow, save: (String) -> Void) async {
-        guard let content = window.contentView,
-              let view = textViews(in: content).first(where: { $0.string.contains("Fixed.") })
-        else { return print("select: no reply view found") }
-
-        let text = view.string as NSString
-        let start = text.range(of: "machine's time zone").location
-        let end = text.range(of: "UTC").upperBound
-        window.makeFirstResponder(view)
-        view.setSelectedRange(NSRange(location: start, length: end - start))
-        try? await Task.sleep(for: .milliseconds(500))
-        save(".selection.png")
-        let pasteboard = NSPasteboard.withUniqueName()
-        let written = view.writeSelection(to: pasteboard, types: view.writablePasteboardTypes)
-        print("select: wrote \(written), range \(view.selectedRange())")
-        print("select: uses TextKit 2 \(view.textLayoutManager != nil), pasteboard types \(pasteboard.types?.map(\.rawValue) ?? [])")
-        print("select: copied \(pasteboard.string(forType: .string)?.debugDescription ?? "nothing")")
-    }
-
     static func captureConversation(store: Store, window: NSWindow, output: URL) async {
         let width = UserDefaults.standard.double(forKey: "snapshotConversationWidth")
         let height = UserDefaults.standard.double(forKey: "snapshotConversationHeight")
@@ -533,9 +510,7 @@ extension Snapshot {
         }
         save(".conversation.png")
         if UserDefaults.standard.bool(forKey: "snapshotConversationSelect") {
-            await selectAcrossBlocks(window: window, save: save)
-            ProcessAncestry.hangUpDescendants()
-            exit(0)
+            await testConversationSelection(store: store, tab: tab, window: window, save: save)
         }
         if let script = UserDefaults.standard.string(forKey: "snapshotConversationDrive") {
             await driveConversation(script, store: store, tab: tab, rawLog: rawLog, save: save)

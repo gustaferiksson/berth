@@ -90,6 +90,13 @@ struct ConversationSubagentView: View {
     let back: () -> Void
 
     @Environment(\.ghosttyTheme) private var theme
+    @State private var selection: ConversationSelection
+
+    init(model: ConversationSubagentModel, back: @escaping () -> Void) {
+        self.model = model
+        self.back = back
+        _selection = State(initialValue: ConversationSelection { [model] in model.turns })
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -147,6 +154,7 @@ struct ConversationSubagentView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
             .defaultScrollAnchor(.bottom)
+            .environment(\.conversationSelection, selection)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(theme.foreground)

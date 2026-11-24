@@ -2,10 +2,17 @@ import AppKit
 import SwiftUI
 
 struct ConversationTextView: NSViewRepresentable {
+    enum Sizing {
+        case fill, hug
+    }
+
     let text: NSAttributedString
+    var selectionID: String?
+    var sizing = Sizing.fill
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
+    @Environment(\.conversationSelection) private var selection
 
     func makeNSView(context _: Context) -> ConversationNSTextView {
         let view = ConversationNSTextView(usingTextLayoutManager: true)
@@ -16,12 +23,16 @@ struct ConversationTextView: NSViewRepresentable {
     func updateNSView(_ view: ConversationNSTextView, context _: Context) {
         view.theme = theme
         view.openURL = { openURL($0) }
+        view.selectionID = selectionID
+        view.selection = selectionID == nil ? nil : selection
         view.show(text)
+        view.selection?.register(view)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: ConversationNSTextView, context _: Context) -> CGSize? {
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 400
-        return CGSize(width: width, height: view.height(fitting: width))
+        let height = view.height(fitting: width)
+        return CGSize(width: sizing == .hug ? min(width, view.usedWidth) : width, height: height)
     }
 }
 
@@ -36,12 +47,15 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     }
 
     var openURL: (URL) -> Void = { _ in }
+    var selectionID: String?
+    weak var selection: ConversationSelection?
 
     private var source: NSAttributedString?
     private var hoveredBlock: Int?
     private var copiedBlock: Int?
-    private var fitted: (width: CGFloat, height: CGFloat)?
+    private var fitted: (width: CGFloat, height: CGFloat, used: CGFloat)?
     private var cachedBlocks: [Block]?
+    private var highlight: NSRange?
 
     func configure() {
         isEditable = false
@@ -58,18 +72,85 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
 
     override var writablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
 
+    var usedWidth: CGFloat {
+        fitted?.used ?? bounds.width
+    }
+
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned { setSelectedRange(NSRange(location: selectedRange().location, length: 0)) }
-        return resigned
+        guard resigned else { return false }
+
+        if let selection { selection.focusLeft(self) } else { setSelectedRange(NSRange(location: selectedRange().location, length: 0)) }
+        return true
     }
 
     override func writeSelection(to pasteboard: NSPasteboard, types _: [NSPasteboard.PasteboardType]) -> Bool {
         let range = selectedRange()
-        guard range.length > 0 else { return false }
+        let text = selection.flatMap { $0.hasSelection ? $0.copiedText() : nil } ?? textStorage.map { ConversationSelection.plainText($0, in: range) } ?? ""
+        guard !text.isEmpty else { return false }
 
         pasteboard.declareTypes([.string], owner: nil)
-        return pasteboard.setString((string as NSString).substring(with: range), forType: .string)
+        return pasteboard.setString(text, forType: .string)
+    }
+
+    override func copy(_: Any?) {
+        _ = writeSelection(to: .general, types: [.string])
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        guard item.action == #selector(copy(_:)), let selection, selection.hasSelection else { return super.validateUserInterfaceItem(item) }
+
+        return true
+    }
+
+    override func selectAll(_ sender: Any?) {
+        guard selection?.selectAll(from: self) == true else { return super.selectAll(sender) }
+    }
+
+    func showSelection(_ range: NSRange?) {
+        let shown = range.flatMap { $0.length > 0 ? $0 : nil }
+        guard shown != highlight else { return }
+
+        highlight = shown
+        needsDisplay = true
+    }
+
+    private func position(in line: NSTextLineFragment, at point: CGPoint) -> (offset: Int, hit: Int?) {
+        let range = line.characterRange
+        let text = line.attributedString.string as NSString
+        let end = NSMaxRange(range) > range.location && text.character(at: NSMaxRange(range) - 1) == 0x0A ? NSMaxRange(range) - 1 : NSMaxRange(range)
+        let hit = line.characterIndex(for: point)
+        guard hit != NSNotFound else { return (point.x <= 0 ? range.location : end, nil) }
+        guard hit < end else { return (end, nil) }
+
+        let middle = (line.locationForCharacter(at: hit).x + line.locationForCharacter(at: hit + 1).x) / 2
+        return (point.x >= middle ? hit + 1 : hit, hit)
+    }
+
+    private func hitTest(text point: NSPoint) -> (offset: Int, hit: Int?) {
+        guard let manager = textLayoutManager, let storage = textContentStorage else { return (0, nil) }
+
+        var result = ((string as NSString).length, Int?.none)
+        manager.enumerateTextLayoutFragments(from: storage.documentRange.location, options: [.ensuresLayout]) { fragment in
+            let frame = fragment.layoutFragmentFrame
+            guard point.y < frame.maxY else { return true }
+
+            let start = storage.offset(from: storage.documentRange.location, to: fragment.rangeInElement.location)
+            let lines = fragment.textLineFragments
+            guard point.y >= frame.minY, let line = lines.first(where: { point.y - frame.minY < $0.typographicBounds.maxY }) ?? lines.last else {
+                result = (start, nil)
+                return false
+            }
+
+            let found = position(in: line, at: CGPoint(x: point.x - frame.minX - line.typographicBounds.minX, y: point.y - frame.minY - line.typographicBounds.minY))
+            result = (start + found.offset, found.hit.map { start + $0 })
+            return false
+        }
+        return result
+    }
+
+    func characterOffset(at point: NSPoint) -> Int {
+        hitTest(text: point).offset
     }
 
     func show(_ text: NSAttributedString) {
@@ -79,6 +160,7 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
         guard textStorage?.isEqual(to: text) != true else { return }
 
         textStorage?.setAttributedString(text)
+        highlight = nil
         hoveredBlock = nil
         copiedBlock = nil
         fitted = nil
@@ -94,7 +176,12 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
         manager.ensureLayout(for: manager.documentRange)
         cachedBlocks = nil
         let height = ceil(max(manager.usageBoundsForTextContainer.maxY, blocks().map(\.rect.maxY).max() ?? 0))
-        fitted = (width, height)
+        var used = 0.0
+        manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: []) { fragment in
+            used = fragment.textLineFragments.reduce(used) { max($0, fragment.layoutFragmentFrame.minX + $1.typographicBounds.maxX) }
+            return true
+        }
+        fitted = (width, height, min(width, ceil(used)))
         return height
     }
 
@@ -148,6 +235,7 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        drawHighlight()
         let fill = NSColor(theme.foreground).withAlphaComponent(0.06)
         let secondary = NSColor(theme.secondary)
         for (index, block) in blocks().enumerated() where block.rect.intersects(dirtyRect) {
@@ -166,6 +254,22 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
             image?.draw(in: NSRect(x: copyFrame(of: block).midX - 7, y: copyFrame(of: block).midY - 7, width: 14, height: 14))
         }
         super.draw(dirtyRect)
+    }
+
+    private func drawHighlight() {
+        guard let highlight,
+              let storage = textContentStorage,
+              let manager = textLayoutManager,
+              let start = storage.location(storage.documentRange.location, offsetBy: highlight.location),
+              let end = storage.location(start, offsetBy: highlight.length),
+              let range = NSTextRange(location: start, end: end)
+        else { return }
+
+        (window?.isKeyWindow == true ? NSColor.selectedTextBackgroundColor : NSColor.unemphasizedSelectedTextBackgroundColor).setFill()
+        manager.enumerateTextSegments(in: range, type: .selection, options: []) { _, frame, _, _ in
+            frame.fill()
+            return true
+        }
     }
 
     override func updateTrackingAreas() {
@@ -193,7 +297,7 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let all = blocks()
-        guard let index = all.firstIndex(where: { $0.language != nil && copyFrame(of: $0).contains(point) }) else { return super.mouseDown(with: event) }
+        guard let index = all.firstIndex(where: { $0.language != nil && copyFrame(of: $0).contains(point) }) else { return select(with: event, at: point) }
 
         let code = (string as NSString).substring(with: all[index].range).trimmingCharacters(in: .newlines)
         copyToPasteboard(code)
@@ -204,5 +308,25 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
             self?.copiedBlock = nil
             self?.needsDisplay = true
         }
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil, let window, window.firstResponder === self { selection?.handOff(from: self, in: window) }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    private func select(with event: NSEvent, at point: NSPoint) {
+        let (offset, hit) = hitTest(text: point)
+        let isLink = hit.map { textStorage?.attribute(.link, at: $0, effectiveRange: nil) != nil } ?? false
+        guard let selection, event.clickCount == 1, !isLink, selection.begin(in: self, at: offset, extending: event.modifierFlags.contains(.shift)) else {
+            super.mouseDown(with: event)
+            guard let selection else { return }
+
+            selection.adopt(self)
+            setSelectedRange(NSRange(location: selectedRange().location, length: 0))
+            return
+        }
+
+        window?.makeFirstResponder(self)
     }
 }
