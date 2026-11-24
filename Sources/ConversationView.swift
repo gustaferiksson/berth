@@ -228,7 +228,6 @@ private struct QueuedPrompt: View {
     var body: some View {
         ConversationPrompt(entry: RemoteEntry(id: text, kind: .prompt, text: text))
             .opacity(0.5)
-            .blur(radius: 0.4)
     }
 }
 
