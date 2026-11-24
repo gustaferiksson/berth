@@ -9,6 +9,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let promptColor: NSColor?
     let focusRequest: Int
     let layoutWidth: CGFloat
+    let slashPicker: ConversationSlashPicker?
     let submit: () -> Void
     let attach: ([URL]) -> String
     let recall: () -> Bool
@@ -75,10 +76,21 @@ struct ConversationComposerField: NSViewRepresentable {
         textView.onSubmit = submit
         textView.onAttach = attach
         textView.onRecall = recall
-        if textView.string != text {
-            textView.string = text
-            textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
-            textView.needsDisplay = true
+        if textView.slashPicker !== slashPicker || textView.string != text {
+            textView.slashPicker = slashPicker
+            slashPicker?.field = textView
+            if textView.string != text {
+                context.coordinator.isUpdatingText = true
+                textView.string = text
+                textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
+                textView.needsDisplay = true
+                context.coordinator.isUpdatingText = false
+            }
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView else { return }
+
+                textView.slashPicker?.update(query: textView.slashCompletion?.query)
+            }
         }
         if let promptColor, text.hasPrefix("!") {
             textView.textStorage?.addAttribute(.foregroundColor, value: promptColor, range: NSRange(location: 0, length: 1))
@@ -110,15 +122,23 @@ struct ConversationComposerField: NSViewRepresentable {
         var parent: ConversationComposerField
         var focusRequest = 0
         var height: CGFloat = 0
+        var isUpdatingText = false
 
         init(_ parent: ConversationComposerField) {
             self.parent = parent
         }
 
         func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
+            guard !isUpdatingText, let textView = notification.object as? ComposerTextView else { return }
 
             parent.text = textView.string
+            textView.slashPicker?.update(query: textView.slashCompletion?.query)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard !isUpdatingText, let textView = notification.object as? ComposerTextView else { return }
+
+            textView.slashPicker?.update(query: textView.slashCompletion?.query)
         }
     }
 }
@@ -128,6 +148,20 @@ final class ComposerTextView: NSTextView {
     var onSubmit: () -> Void = {}
     var onAttach: ([URL]) -> String = { _ in "" }
     var onRecall: () -> Bool = { false }
+    weak var slashPicker: ConversationSlashPicker?
+
+    var slashCompletion: (query: String, replacementRange: NSRange)? {
+        let selection = selectedRange()
+        guard string.hasPrefix("/"), !hasMarkedText(), selection.length == 0, selection.location > 0 else { return nil }
+
+        let text = string
+        let word = text.prefix { !$0.isWhitespace }
+        let wordEnd = word.utf16.count
+        guard selection.location <= wordEnd else { return nil }
+
+        let replacesSpace = text[word.endIndex...].hasPrefix(" ")
+        return ((text as NSString).substring(to: selection.location), NSRange(location: 0, length: wordEnd + (replacesSpace ? 1 : 0)))
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -153,22 +187,35 @@ final class ComposerTextView: NSTextView {
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        slashPicker?.update(query: slashCompletion?.query)
         needsDisplay = true
     }
 
     override func unmarkText() {
         super.unmarkText()
+        slashPicker?.update(query: slashCompletion?.query)
         needsDisplay = true
     }
 
     override func keyDown(with event: NSEvent) {
-        let isUp = event.keyCode == 126 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isDisjoint(with: [.shift, .option, .command, .control])
-        if isUp, string.isEmpty, !hasMarkedText(), onRecall() { return }
+        guard !hasMarkedText() else { return super.keyDown(with: event) }
 
+        let isUnmodified = event.modifierFlags.isDisjoint(with: [.shift, .option, .command, .control])
         let isReturn = event.keyCode == 36 || event.keyCode == 76
-        guard isReturn, !hasMarkedText() else { return super.keyDown(with: event) }
+        let submits = isReturn && event.modifierFlags.isDisjoint(with: [.shift, .option])
+        if let slashPicker {
+            slashPicker.update(query: slashCompletion?.query)
+            if isUnmodified {
+                if event.keyCode == 126, slashPicker.move(by: -1) { return }
+                if event.keyCode == 125, slashPicker.move(by: 1) { return }
+                if event.keyCode == 53, slashPicker.dismiss() { return }
+            }
+            if submits || isUnmodified && event.keyCode == 48, slashPicker.accept() { return }
+        }
+        if event.keyCode == 126, isUnmodified, string.isEmpty, onRecall() { return }
+        guard isReturn else { return super.keyDown(with: event) }
 
-        if event.modifierFlags.isDisjoint(with: [.shift, .option]) {
+        if submits {
             onSubmit()
         } else {
             insertNewlineIgnoringFieldEditor(nil)
