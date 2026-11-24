@@ -156,6 +156,7 @@ final class RemoteClient {
             Finally, reload the feed from an empty state and confirm that the first page appears at the top. If the entry you were reading has been deleted, the feed should restore the nearest remaining entry.
             """),
         ]
+        activity[session.id] = RemoteActivity(tasks: [], context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"))
         let resets = Date.now.addingTimeInterval(3 * 3600)
         usage = PlanUsage(windows: [
             UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: resets),
