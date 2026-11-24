@@ -144,6 +144,7 @@ struct ContentView: View {
             }
         }
         .containerBackground(for: .window) { WindowBackdrop(chrome: store.theme.chrome, transparency: windowTransparency) }
+        .environment(\.openURL, store.linkOpeningAction)
         .environment(\.ghosttyTheme, store.theme)
         .preferredColorScheme(store.theme.isDark ? .dark : .light)
         .background(WindowChrome(color: store.theme.chrome, transparency: windowTransparency))
@@ -488,6 +489,7 @@ private struct TerminalArea: View {
         .background(store.theme.background ?? Color(nsColor: .textBackgroundColor))
         .overlay { CardBorder() }
         .environment(store)
+        .environment(\.openURL, store.linkOpeningAction)
         .environment(\.ghosttyTheme, store.theme)
     }
 }

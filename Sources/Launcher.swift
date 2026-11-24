@@ -47,7 +47,6 @@ struct Launcher: View {
 
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(\.openURL) private var openURL
     @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
     @AppStorage(ItemPreviewSetting.key) private var richPreviews = false
     @State private var query: String
@@ -1012,7 +1011,7 @@ struct Launcher: View {
         #if DEBUG
         if Snapshot.launcherKeys != nil { return store.probeOpenedURLs.append(url) }
         #endif
-        openURL(url)
+        store.openLink(url)
     }
 
     private func start(_ agent: Agent, in path: String) {

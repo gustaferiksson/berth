@@ -325,8 +325,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
                         NSPasteboard.general.setString(entry.hash, forType: .string)
                     }),
                 ]
-                if let repository = blameSnapshot.repository, let url = URL(string: "https://github.com/\(repository)/commit/\(entry.hash)") {
-                    actions.append(("Open on GitHub", { NSWorkspace.shared.open(url) }))
+                if let openLink = blameSnapshot.openLink, let repository = blameSnapshot.repository,
+                   let url = URL(string: "https://github.com/\(repository)/commit/\(entry.hash)") {
+                    actions.append(("Open on GitHub", { openLink(url) }))
                 }
                 self?.showHover("\(author)\n\(date)\n\(entry.hash.prefix(7))\n\n\(message)", diagnostics: [], below: anchor, parsesCodeFences: false, actions: actions)
                 return

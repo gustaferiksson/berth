@@ -38,6 +38,7 @@ struct GeneralSettings: View {
     @AppStorage(BrowserModel.searchKey) private var search = BrowserSearch.duckDuckGo
     @AppStorage(BrowserModel.persistentDataKey) private var keepsWebsiteData = false
     @AppStorage(BrowserModel.linksKey) private var linkTarget = BrowserLinkTarget.defaultBrowser
+    @AppStorage(BrowserModel.githubLinksKey) private var opensGitHubInBerth = false
 
     private var codexModels: [CodexModel] { CodexModels.load(from: Store.codexDirectory) }
 
@@ -121,11 +122,12 @@ struct GeneralSettings: View {
                     Text("Default browser").tag(BrowserLinkTarget.defaultBrowser)
                     Text("Berth’s browser").tag(BrowserLinkTarget.berth)
                 }
+                Toggle("Open GitHub links in Berth’s browser", isOn: $opensGitHubInBerth)
                 Toggle("Keep website data between launches", isOn: $keepsWebsiteData)
             } header: {
                 Text("Browser")
             } footer: {
-                Text("The Browser pane (⇧⌘B) forgets cookies and logins when Berth quits. Keep website data so logins stick; it applies to tabs opened after you change it.")
+                Text("The Browser pane (⇧⌘B) forgets cookies and logins when Berth quits. Keep website data so logins stick for tabs opened after you change it. GitHub links can open in the current session’s Browser pane.")
             }
             Section {
                 Picker("Unload idle sessions after", selection: $unloadIdleAfter) {
