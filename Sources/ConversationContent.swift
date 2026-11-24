@@ -44,7 +44,6 @@ struct ConversationElapsed: View {
 
 struct ConversationPrompt: View {
     let entry: RemoteEntry
-    var isQueued = false
 
     @Environment(\.ghosttyTheme) private var theme
     @State private var isExpanded = conversationExpandsAll
@@ -87,26 +86,15 @@ struct ConversationPrompt: View {
                     .foregroundStyle(theme.secondary)
                     .accessibilityHidden(true)
                 Text(verbatim: entry.text)
-                    .foregroundStyle(isQueued ? theme.secondary : theme.foreground)
+                    .foregroundStyle(theme.foreground)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
-            }
-            if isQueued {
-                Label("Queued", systemImage: "clock")
-                    .font(.caption)
-                    .foregroundStyle(theme.secondary)
             }
         }
         .font(theme.conversationFont())
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background {
-            if isQueued {
-                bubble.strokeBorder(theme.secondary, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-            } else {
-                bubble.fill(theme.foreground.opacity(0.07))
-            }
-        }
+        .background(bubble.fill(theme.foreground.opacity(0.07)))
         .contextMenu { Button("Copy") { copyToPasteboard(entry.text) } }
     }
 

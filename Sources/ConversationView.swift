@@ -95,6 +95,11 @@ struct ConversationView: View {
                 if model.turns.isEmpty, model.queued.isEmpty, pending.isEmpty {
                     emptyState
                 }
+                if model.turns.isEmpty {
+                    ForEach(model.queued.enumerated(), id: \.offset) { _, prompt in
+                        QueuedPrompt(text: prompt)
+                    }
+                }
                 ForEach(model.turns) { turn in
                     let isCurrent = turn.id == model.turns.last?.id
                     ConversationTurnView(
@@ -105,11 +110,9 @@ struct ConversationView: View {
                         since: since,
                         tasks: model.tasks,
                         details: model.details,
+                        queued: isCurrent ? model.queued : [],
                         reviewChanges: isReviewEnabled ? { AppAction.showChanges.perform(on: store) } : nil
                     )
-                }
-                ForEach(model.queued.enumerated(), id: \.offset) { _, prompt in
-                    ConversationPrompt(entry: RemoteEntry(id: prompt, kind: .prompt, text: prompt), isQueued: true)
                 }
                 ForEach(pending, id: \.sentAt) { prompt in
                     ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text))
@@ -206,6 +209,16 @@ struct ConversationView: View {
     }
 }
 
+private struct QueuedPrompt: View {
+    let text: String
+
+    var body: some View {
+        ConversationPrompt(entry: RemoteEntry(id: text, kind: .prompt, text: text))
+            .opacity(0.5)
+            .blur(radius: 0.4)
+    }
+}
+
 private struct ConversationScrollState: Equatable {
     let height: Double
     let isAtBottom: Bool
@@ -219,6 +232,7 @@ struct ConversationTurnView: View {
     let since: Date?
     let tasks: [RemoteTask]
     let details: [String: ToolCallDetails]
+    var queued: [String] = []
     let reviewChanges: (() -> Void)?
 
     @Environment(\.ghosttyTheme) private var theme
@@ -248,6 +262,9 @@ struct ConversationTurnView: View {
                 Label("Interrupted", systemImage: "stop.circle")
                     .font(.subheadline)
                     .foregroundStyle(theme.secondary)
+            }
+            ForEach(queued.enumerated(), id: \.offset) { _, prompt in
+                QueuedPrompt(text: prompt)
             }
             if isWorking {
                 working
