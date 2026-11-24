@@ -105,7 +105,7 @@ struct ContentView: View {
                                 store.launcherRole = .reviewRequested
                                 store.launcherMode = .pullRequests
                             } label: {
-                                Label("\(reviewRequests) to review", systemImage: "arrow.triangle.pull")
+                                Label { Text("\(reviewRequests) to review") } icon: { OcticonImage(.pullRequest) }
                                     .labelStyle(.titleAndIcon)
                                     .foregroundStyle(store.theme.needsYou)
                             }
@@ -434,6 +434,7 @@ private struct TerminalArea: View {
                     .onChange(of: showsSurface, initial: true) { tab.terminal.isSurfaceVisible = showsSurface }
                 if let model {
                     ConversationView(model: model, tab: tab)
+                        .conversationTypography()
                 }
             }
             if store.isHarborShown {

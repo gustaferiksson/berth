@@ -3,8 +3,25 @@ import Foundation
 import GhosttyTerminal
 import SwiftUI
 
+enum LauncherGlyph: ExpressibleByStringLiteral {
+    case symbol(String)
+    case octicon(Octicon)
+
+    init(stringLiteral value: String) {
+        self = .symbol(value)
+    }
+
+    @ViewBuilder
+    func image(octiconSize: CGFloat = 14) -> some View {
+        switch self {
+        case let .symbol(name): Image(systemName: name)
+        case let .octicon(octicon): OcticonImage(octicon, size: octiconSize)
+        }
+    }
+}
+
 struct LauncherRowFrame<Trailing: View>: View {
-    let symbol: String
+    let symbol: LauncherGlyph
     let tint: Color
     let title: String
     let secondary: [String]
@@ -15,7 +32,7 @@ struct LauncherRowFrame<Trailing: View>: View {
 
     @Environment(\.ghosttyTheme) private var theme
 
-    init(symbol: String, tint: Color, title: String, secondary: [String] = [], isHighlighted: Bool = false, monospacedSecondary: Bool = false, snippets: [AttributedString] = [], @ViewBuilder trailing: () -> Trailing) {
+    init(symbol: LauncherGlyph, tint: Color, title: String, secondary: [String] = [], isHighlighted: Bool = false, monospacedSecondary: Bool = false, snippets: [AttributedString] = [], @ViewBuilder trailing: () -> Trailing) {
         self.symbol = symbol
         self.tint = tint
         self.title = title
@@ -29,7 +46,7 @@ struct LauncherRowFrame<Trailing: View>: View {
     var body: some View {
         let accent = Color.accentColor
         HStack(spacing: 10) {
-            Image(systemName: symbol)
+            symbol.image()
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(tint)
                 .frame(width: 30, height: 30)
@@ -118,12 +135,12 @@ struct LauncherSectionHeader: View {
 
 struct LauncherBadge: View {
     let text: String
-    let symbol: String?
+    let symbol: LauncherGlyph?
     let tint: Color?
 
     @Environment(\.ghosttyTheme) private var theme
 
-    init(_ text: String, symbol: String? = nil, tint: Color? = nil) {
+    init(_ text: String, symbol: LauncherGlyph? = nil, tint: Color? = nil) {
         self.text = text
         self.symbol = symbol
         self.tint = tint
@@ -132,7 +149,7 @@ struct LauncherBadge: View {
     var body: some View {
         HStack(spacing: 4) {
             if let symbol {
-                Image(systemName: symbol)
+                symbol.image()
                     .imageScale(.small)
                     .accessibilityHidden(true)
             }
@@ -256,12 +273,12 @@ struct LauncherKeyHint: View {
 }
 
 struct LauncherMessage: View {
-    let symbol: String
+    let symbol: LauncherGlyph
     let title: String
     let detail: String?
     let isLoading: Bool
 
-    init(symbol: String, title: String, detail: String? = nil, isLoading: Bool = false) {
+    init(symbol: LauncherGlyph, title: String, detail: String? = nil, isLoading: Bool = false) {
         self.symbol = symbol
         self.title = title
         self.detail = detail
@@ -275,7 +292,7 @@ struct LauncherMessage: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Image(systemName: symbol)
+                    symbol.image()
                         .font(.system(size: 28))
                         .foregroundStyle(.secondary)
                 }

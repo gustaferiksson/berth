@@ -72,31 +72,31 @@ struct ItemPreviewView: View {
 
     private var header: some View {
         let color: Color
-        let icon: String
+        let icon: Octicon
         let title: String
         switch (preview.kind, preview.state) {
         case (.pullRequest, .open):
-            (color, icon, title) = (PullRequestState.open.color(in: theme), "arrow.triangle.pull", "Open")
+            (color, icon, title) = (PullRequestState.open.color(in: theme), Octicon(.open), "Open")
         case (.pullRequest, .draft):
-            (color, icon, title) = (PullRequestState.draft.color(in: theme), "arrow.triangle.pull", "Draft")
+            (color, icon, title) = (PullRequestState.draft.color(in: theme), Octicon(.draft), "Draft")
         case (.pullRequest, .merged):
-            (color, icon, title) = (PullRequestState.merged.color(in: theme), "arrow.triangle.merge", "Merged")
+            (color, icon, title) = (PullRequestState.merged.color(in: theme), Octicon(.merged), "Merged")
         case (.pullRequest, _):
-            (color, icon, title) = (PullRequestState.closed.color(in: theme), "xmark.circle", "Closed")
+            (color, icon, title) = (PullRequestState.closed.color(in: theme), Octicon(.closed), "Closed")
         case (.issue, .open):
-            (color, icon, title) = (theme.working, "circle", "Open")
+            (color, icon, title) = (theme.working, Octicon(IssueState.open), "Open")
         case (.issue, .completed):
-            (color, icon, title) = (theme.merged, "checkmark.circle", "Completed")
+            (color, icon, title) = (theme.merged, Octicon(IssueState.completed), "Completed")
         case (.issue, .notPlanned):
-            (color, icon, title) = (.secondary, "slash.circle", "Not planned")
+            (color, icon, title) = (.secondary, Octicon(IssueState.notPlanned), "Not planned")
         case (.issue, _):
-            (color, icon, title) = (.secondary, "slash.circle", "Closed")
+            (color, icon, title) = (.secondary, Octicon(IssueState.notPlanned), "Closed")
         }
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 HStack(spacing: 4) {
-                    Image(systemName: icon).accessibilityHidden(true)
+                    OcticonImage(icon)
                     Text(title).fontWeight(.semibold)
                 }
                 .foregroundStyle(color)

@@ -147,12 +147,23 @@ private struct PullRequestStatePill: View {
 
     var body: some View {
         let color: Color = state == "Open" ? .green : state == "Merged" ? .purple : state == "Closed" ? .red : .gray
-        Text(state)
+        Label { Text(state) } icon: { OcticonImage(Octicon(pullRequestState: state), size: 14) }
             .font(.footnote.bold())
             .foregroundStyle(color)
             .padding(.horizontal, 10)
             .padding(.vertical, 3)
             .background(color.opacity(0.15), in: .rect(cornerRadius: 6))
+    }
+}
+
+extension Octicon {
+    init(pullRequestState: String) {
+        switch pullRequestState {
+        case "Draft": self = .pullRequestDraft
+        case "Merged": self = .merge
+        case "Closed": self = .pullRequestClosed
+        default: self = .pullRequest
+        }
     }
 }
 

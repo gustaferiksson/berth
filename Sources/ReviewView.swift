@@ -1444,10 +1444,12 @@ struct ReviewFileList: View {
                             .buttonStyle(.borderless)
                             .help(comment.element == nil ? "Open in the diff" : "Open Preview")
                         if comment.element == nil {
-                            Button("Add to Pull Request Review", systemImage: "arrow.triangle.pull") {
+                            Button {
                                 guard let target, let number = target.pullRequest?.number else { return }
 
                                 Task { await owner.model.sendToPullRequest(comment, repository: target.repository, number: number) }
+                            } label: {
+                                Label { Text("Add to Pull Request Review") } icon: { OcticonImage(.pullRequest) }
                             }
                             .labelStyle(.iconOnly)
                             .buttonStyle(.borderless)
@@ -1882,7 +1884,7 @@ struct PullRequestStatePill: View {
                 .background(color.opacity(0.16), in: .rect(cornerRadius: 4))
         } else {
             Button { openURL(pullRequest.url) } label: {
-                Label(pullRequest.state.rawValue, systemImage: [PullRequestState.merged: "arrow.triangle.merge", .closed: "xmark.circle"][pullRequest.state] ?? "arrow.triangle.pull")
+                Label { Text(pullRequest.state.rawValue) } icon: { OcticonImage(Octicon(pullRequest.state)) }
                     .labelStyle(CompactLabel())
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(color)
