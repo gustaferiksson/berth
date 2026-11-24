@@ -1240,7 +1240,7 @@ private struct RowChrome: ViewModifier {
         let isSlim = style == .slim
         let fill = isSelected ? (isSlim ? 0.18 : 0.1) : isHighlighted && (isSlim || !isLocked) ? (isSlim ? 0.06 : 0.05) : 0
         content
-            .environment(\.showsSlimRowActions, isSlim && (isHighlighted || isSelected))
+            .environment(\.showsSlimRowActions, isSlim && isHighlighted)
             .padding(.horizontal, Self.listMargin)
             .contentShape(.rect)
             .onTapGesture(perform: select)
