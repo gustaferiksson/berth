@@ -532,17 +532,20 @@ final class ReviewModel {
 }
 
 private extension Store {
-    func shownReviewPullRequest(for model: ReviewModel, sessionID: String, root: String?) -> (repository: String, pullRequest: PullRequest?)? {
-        guard let branch = model.changes?.branch else { return nil }
+    func shownReviewPullRequest(for model: ReviewModel, sessionID: String, root: String?, branchOnly: Bool = false) -> (repository: String, pullRequest: PullRequest?)? {
+        guard let changes = model.changes, !branchOnly || !changes.isDefaultBranch else { return nil }
 
+        let branch = changes.branch
         let looked: (repository: String, pullRequest: PullRequest?)? = if let root {
             pullRequestBranch(inRoot: root, branch: branch).flatMap { key in pullRequests[key].map { (key.repository, $0) } }
         } else {
             pullRequest(in: sessionsByID[sessionID]?.checkout ?? model.folder, branch: branch)
         }
-        let linked = pullRequests(inRoot: root, of: sessionID, branch: branch)
+        guard looked?.pullRequest == nil else { return looked }
+
+        let linked = pullRequests(inRoot: root, of: sessionID, branch: branch).filter { !branchOnly || $0.headRefName == branch }
         let lookupRoot = root ?? repositoryRoot(ofSession: sessionID) ?? model.folder
-        guard looked?.pullRequest == nil, let first = linked.first(where: { [.open, .draft].contains($0.state) }) ?? linked.first,
+        guard let first = linked.first(where: { [.open, .draft].contains($0.state) }) ?? linked.first,
               let repository = pullRequestBranch(inRoot: lookupRoot, branch: branch)?.repository else { return looked }
 
         return (repository, first)
@@ -873,7 +876,7 @@ struct ReviewFileList: View {
         let target = root.flatMap { store.reviewModels[Store.reviewKey(sessionID, root: $0)] } ?? model
         guard target.changes?.branch == branch else { return nil }
 
-        return store.shownReviewPullRequest(for: target, sessionID: sessionID, root: root)
+        return store.shownReviewPullRequest(for: target, sessionID: sessionID, root: root, branchOnly: usesSlimPanel)
     }
 
     private func branchCard(_ changes: ReviewChanges, _ status: ReviewBranchStatus) -> some View {
@@ -926,7 +929,7 @@ struct ReviewFileList: View {
         if shownRepo == nil, let filesModel = sessionFilesModel, !files.isEmpty {
             let expanded = expansion(of: "sessionFiles", defaultExpanded: !usesSlimPanel)
             if usesSlimPanel {
-                ReviewSlimSectionHeader(title: "Edited by Session", count: files.count, expansion: expanded)
+                ReviewSlimSectionHeader(title: "Edited outside Changes", count: files.count, expansion: expanded, help: "Files this session wrote that the Changes list does not show")
             } else {
                 GroupHeader(title: "Edited by Session", help: "Files this session wrote or edited that no changes list shows", count: nil, isExpanded: expanded) { EmptyView() } accessory: { _ in
                     Text("^[\(files.count) file](inflect: true)")
@@ -1290,7 +1293,7 @@ struct ReviewFileList: View {
 
     @ViewBuilder
     func threadSection(in model: ReviewModel, root: String?) -> some View {
-        if let shown = store.shownReviewPullRequest(for: model, sessionID: sessionID, root: root)?.pullRequest,
+        if let shown = store.shownReviewPullRequest(for: model, sessionID: sessionID, root: root, branchOnly: usesSlimPanel)?.pullRequest,
            let detail = model.pullRequestDetails[shown.number], !detail.threads.isEmpty {
             let expanded = expansion(of: "reviewThreads", defaultExpanded: !usesSlimPanel || detail.unresolvedThreads > 0)
             Group {
@@ -1351,7 +1354,7 @@ struct ReviewFileList: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(owners.flatMap { owner in owner.model.comments.map { (owner: owner, comment: $0) } }, id: \.comment.id) { owner, comment in
-                    let target = store.shownReviewPullRequest(for: owner.model, sessionID: sessionID, root: owner.repository?.root)
+                    let target = store.shownReviewPullRequest(for: owner.model, sessionID: sessionID, root: owner.repository?.root, branchOnly: usesSlimPanel)
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(comment.element.map { "Preview \($0.selector)" } ?? "\(owner.repository.map { "\($0.name):" } ?? "")\(comment.path):\(comment.endLine > comment.line ? "\(comment.line)-\(comment.endLine)" : "\(comment.line)")\(comment.compare == .committed ? ", committed" : "")")
@@ -1421,6 +1424,7 @@ struct ReviewFileList: View {
                     .frame(minWidth: 48, alignment: .leading)
                 if !changes.isDefaultBranch, let base = changes.base {
                     baseMenu(base, candidates: changes.bases)
+                        .layoutPriority(1)
                 }
             }
             .font(.caption.monospaced())
@@ -1452,7 +1456,7 @@ struct ReviewFileList: View {
             .labelsHidden()
         } label: {
             HStack(spacing: 3) {
-                Text("→ \(base)")
+                Text(usesSlimPanel ? "vs \(base)" : "→ \(base)")
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.down")
@@ -1464,7 +1468,6 @@ struct ReviewFileList: View {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .layoutPriority(1)
         .help("Compare against…")
     }
 
@@ -1672,7 +1675,7 @@ private struct ReviewChangeRow: View {
         if isSlim {
             ReviewSlimChangeColumns(file: file, showsFolder: showsFolder) {
                 ReviewSlimLineCounts(additions: file.additions.flatMap { $0 == 0 ? nil : $0 }, deletions: file.deletions.flatMap { $0 == 0 ? nil : $0 })
-                    .modifier(openFileOverlay)
+                openFileSlot
             }
         } else {
             legacyRow
@@ -1695,7 +1698,7 @@ private struct ReviewChangeRow: View {
                 }
             }
             .fixedSize()
-            .modifier(openFileOverlay)
+            openFileSlot
             Text(file.status.rawValue)
                 .font(.caption2.weight(.medium).monospaced())
                 .foregroundStyle(file.status.color(in: theme))
@@ -1705,31 +1708,17 @@ private struct ReviewChangeRow: View {
         .monospacedDigit()
     }
 
-    private var openFileOverlay: ReviewOpenFileOverlay {
-        ReviewOpenFileOverlay(path: file.path, model: model, isVisible: showsOpenFile)
-    }
-}
-
-private struct ReviewOpenFileOverlay: ViewModifier {
-    let path: String
-    let model: ReviewModel
-    let isVisible: Bool
-    @Environment(\.ghosttyTheme) private var theme
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(isVisible ? 0 : 1)
-            .overlay(alignment: .trailing) {
-                if isVisible {
-                    Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: path, compare: nil)) }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(theme.secondary)
-                        .help("Open File")
-                        .fixedSize()
-                }
-            }
-            .animation(.easeOut(duration: 0.12), value: isVisible)
+    private var openFileSlot: some View {
+        Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .foregroundStyle(theme.secondary)
+            .help("Open File")
+            .frame(width: 16)
+            .opacity(showsOpenFile ? 1 : 0)
+            .allowsHitTesting(showsOpenFile)
+            .accessibilityHidden(!showsOpenFile)
+            .animation(.easeOut(duration: 0.12), value: showsOpenFile)
     }
 }
 
