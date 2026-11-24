@@ -219,6 +219,7 @@ struct ReviewHistoricalFileButton: View {
     let document: ReviewDocument
     let model: ReviewModel
     var openFile: (() -> Void)?
+    @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -247,21 +248,16 @@ struct ReviewHistoricalFileButton: View {
                     .truncationMode(.middle)
                     .accessibilityLabel(file.path)
                 Spacer(minLength: 0)
-                if let additions = file.additions, additions > 0 {
-                    Text("+\(additions)").foregroundStyle(theme.working).accessibilityLabel("\(additions) additions")
-                }
-                if let deletions = file.deletions, deletions > 0 {
-                    Text("−\(deletions)").foregroundStyle(theme.closed).accessibilityLabel("\(deletions) deletions")
-                }
+                ReviewFileStats(file: file)
             }
             .font(.caption)
-            .monospacedDigit()
             .padding(.horizontal, 4)
             .frame(minHeight: 22)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .background(theme.foreground.opacity(isSelected ? 0.1 : 0), in: .rect(cornerRadius: 4))
+        .onHover { isHovering = $0 }
+        .listRowBackground(RowFill(opacity: isSelected ? 0.18 : isHovering ? 0.06 : 0, color: isSelected ? .accentColor : .primary, cornerRadius: 6, verticalInset: 1))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }

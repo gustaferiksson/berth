@@ -1768,7 +1768,7 @@ private struct ReviewRowChrome: ViewModifier {
             }
             .onHover { isHovering = $0 }
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-            .listRowBackground(RowFill(opacity: isSelected ? 0.1 : isHovering ? 0.05 : 0, cornerRadius: 4))
+            .listRowBackground(RowFill(opacity: isSelected ? 0.18 : isHovering ? 0.06 : 0, color: isSelected ? .accentColor : .primary, cornerRadius: 6, verticalInset: 1))
     }
 }
 
@@ -1900,17 +1900,9 @@ private struct ReviewChangeRow: View {
                 .truncationMode(.middle)
                 .fontWeight(.regular)
             Spacer(minLength: 4)
-            openFileSlot
-            HStack(spacing: 6) {
-                if let additions = file.additions, additions > 0 {
-                    Text("+\(additions)").foregroundStyle(theme.working).accessibilityLabel("\(additions) additions")
-                }
-                if let deletions = file.deletions, deletions > 0 {
-                    Text("−\(deletions)").foregroundStyle(theme.closed).accessibilityLabel("\(deletions) deletions")
-                }
-            }
-            .fixedSize()
-            .monospacedDigit()
+            ReviewFileStats(file: file)
+                .opacity(showsOpenFile ? 0 : 1)
+                .overlay(alignment: .trailing) { openFileSlot }
         }
         .font(.subheadline)
     }
@@ -1923,6 +1915,7 @@ private struct ReviewChangeRow: View {
                 .foregroundStyle(theme.secondary)
                 .help("Open File")
                 .fixedSize()
+                .padding(.trailing, 2)
         }
     }
 }
