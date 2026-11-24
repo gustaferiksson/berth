@@ -98,28 +98,6 @@ struct SessionView: View {
                 }
             }
         }
-        .overlay(alignment: .bottom) {
-            ZStack {
-                if !isAtBottom {
-                    Button(action: scrollToEnd) {
-                        if hasNewMessages {
-                            Label("New Messages", systemImage: "arrow.down")
-                        } else {
-                            Image(systemName: "arrow.down")
-                                .frame(width: 24, height: 24)
-                        }
-                    }
-                    .accessibilityLabel(hasNewMessages ? "New messages, scroll to end" : "Scroll to End")
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(hasNewMessages ? .capsule : .circle)
-                    .controlSize(.large)
-                    .padding()
-                    .transition(.scale.combined(with: .opacity))
-                }
-            }
-            .animation(.smooth, value: hasNewMessages)
-            .animation(.smooth, value: isAtBottom)
-        }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 6) {
                 if let tasks = activity?.tasks, !tasks.isEmpty {
@@ -134,6 +112,28 @@ struct SessionView: View {
                     openContext: { isShowingContext = true },
                     isKeyboardUp: isKeyboardUp
                 )
+            }
+            .overlay(alignment: .top) {
+                ZStack {
+                    if !isAtBottom {
+                        Button(action: scrollToEnd) {
+                            if hasNewMessages {
+                                Label("New Messages", systemImage: "arrow.down")
+                            } else {
+                                Image(systemName: "arrow.down")
+                                    .frame(width: 24, height: 24)
+                            }
+                        }
+                        .accessibilityLabel(hasNewMessages ? "New messages, scroll to end" : "Scroll to End")
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(hasNewMessages ? .capsule : .circle)
+                        .controlSize(.large)
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .animation(.smooth, value: hasNewMessages)
+                .animation(.smooth, value: isAtBottom)
+                .alignmentGuide(.top) { $0[.bottom] + 10 }
             }
             .padding(.horizontal, isKeyboardUp ? Self.keyboardInset : Self.controlsInset)
             .padding(.bottom, isKeyboardUp ? Self.keyboardInset : Self.controlsInset)
