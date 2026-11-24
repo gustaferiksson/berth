@@ -433,6 +433,28 @@ extension Snapshot {
 
             case "log": log()
 
+            case "keys":
+                let parts = argument.split(separator: ":").map(String.init)
+                func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+                guard let textView = NSApp.windows.lazy.compactMap(\.contentView).flatMap(descendants).compactMap({ $0 as? ComposerTextView }).first, let clip = textView.enclosingScrollView?.contentView else { break }
+
+                textView.window?.makeFirstResponder(textView)
+                let origins = NSMutableArray()
+                clip.postsBoundsChangedNotifications = true
+                let observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { _ in origins.add(clip.bounds.origin.y) }
+                defer { NotificationCenter.default.removeObserver(observer) }
+                for line in 0..<(Int(parts[0]) ?? 40) {
+                    for character in "line \(line) of typed text\n" {
+                        textView.insertText(String(character), replacementRange: textView.selectedRange())
+                        try? await Task.sleep(for: .milliseconds(25))
+                    }
+                    save(".\(parts[1])-\(line).png")
+                }
+                let values = origins.compactMap { $0 as? CGFloat }
+                let drops = zip(values, values.dropFirst()).count(where: { $1 < $0 })
+                print("origins \(values.map { String(format: "%.0f", $0) }.joined(separator: " "))")
+                print("origin decreases \(drops), frame height \(clip.frame.height)")
+
             case "burst":
                 let parts = argument.split(separator: ":").map(String.init)
                 for frame in 0..<(Int(parts[0]) ?? 8) {

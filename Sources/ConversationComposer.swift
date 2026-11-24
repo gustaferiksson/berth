@@ -16,6 +16,7 @@ struct ConversationComposer: View {
     @Environment(\.ghosttyTheme) private var theme
     @State private var isImporting = false
     @State private var width: CGFloat = 0
+    @State private var settledHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -30,6 +31,7 @@ struct ConversationComposer: View {
         let controlSize = ConversationComposerLayout.controlSize
         let fieldWidth = ConversationComposerLayout.fieldBounds(in: width, isExpanded: isExpanded, canAttach: canAttach).width
         let fieldHeight = ConversationComposerField.height(of: draft.text, font: font, width: fieldWidth)
+        let animatesHeight = abs(fieldHeight - settledHeight) > controlSize * 1.5
         let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
         let placeholder = model.blocksSending ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
 
@@ -107,8 +109,8 @@ struct ConversationComposer: View {
                 .overlay { shape.strokeBorder(theme.shellAttached.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
                 .glassEffect(.regular, in: shape)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-                .animation(animation, value: isExpanded)
-                .animation(animation, value: fieldHeight)
+                .animation(animation, value: [isExpanded ? 1 : 0, animatesHeight ? fieldHeight : 0])
+                .onChange(of: fieldHeight) { settledHeight = fieldHeight }
                 .animation(.smooth(duration: 0.2), value: isShell)
             }
         }

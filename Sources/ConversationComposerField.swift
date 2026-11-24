@@ -89,7 +89,7 @@ struct ConversationComposerField: NSViewRepresentable {
         DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context _: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         guard let textView = nsView.documentView as? ComposerTextView, let layout = textView.textLayoutManager else { return nil }
 
         let width = layoutWidth > 0 ? layoutWidth : proposal.width ?? 400
@@ -98,7 +98,9 @@ struct ConversationComposerField: NSViewRepresentable {
         layout.ensureLayout(for: layout.documentRange)
         let used = layout.usageBoundsForTextContainer.height
         let height = Self.height(of: text, font: font, width: width)
-        if textView.selectedRange().location == (textView.string as NSString).length {
+        let heightChanged = context.coordinator.height != height
+        context.coordinator.height = height
+        if heightChanged, textView.selectedRange().location == (textView.string as NSString).length {
             nsView.contentView.scroll(to: NSPoint(x: 0, y: max(0, used - height)))
         }
         return CGSize(width: proposal.width ?? width, height: min(height, proposal.height ?? height))
@@ -107,6 +109,7 @@ struct ConversationComposerField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ConversationComposerField
         var focusRequest = 0
+        var height: CGFloat = 0
 
         init(_ parent: ConversationComposerField) {
             self.parent = parent
@@ -132,6 +135,15 @@ final class ComposerTextView: NSTextView {
 
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.placeholderTextColor]
         placeholder.draw(at: NSPoint(x: textContainerOrigin.x + (textContainer?.lineFragmentPadding ?? 0), y: textContainerOrigin.y), withAttributes: attributes)
+    }
+
+    override func scrollRangeToVisible(_ range: NSRange) {
+        guard let scrollView = enclosingScrollView, let layout = textLayoutManager, let font, NSMaxRange(range) == (string as NSString).length else { return super.scrollRangeToVisible(range) }
+
+        layout.ensureLayout(for: layout.documentRange)
+        let viewport = ConversationComposerField.height(of: string, font: font, width: frame.width)
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, layout.usageBoundsForTextContainer.height - viewport)))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     override func didChangeText() {
