@@ -78,7 +78,7 @@ struct ReviewPathBar: View {
                     Image(nsImage: icon)
                         .accessibilityHidden(true)
                 }
-                Text(title)
+                Text(title).monospaced()
             }
             .foregroundStyle(Color(nsColor: icon == nil ? style.secondary : style.foreground))
         }
