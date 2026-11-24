@@ -88,8 +88,8 @@ struct UsageTrack: View {
     private var fill: Color {
         switch window.severity(at: now) {
         case .normal: .primary.opacity(0.55)
-        case .warning: Color(SyntaxPalette.warning)
-        case .critical: Color(SyntaxPalette.critical)
+        case .warning: Color(SyntaxPalette.warningFill)
+        case .critical: Color(SyntaxPalette.criticalFill)
         }
     }
 
@@ -102,7 +102,7 @@ struct UsageTrack: View {
                     .frame(width: width * (isOvershootOnly ? window.pace(at: now) : window.used))
                 if isOvershootOnly {
                     Rectangle()
-                        .fill(Color(SyntaxPalette.warning).opacity(0.7))
+                        .fill(Color(SyntaxPalette.warningFill).opacity(0.7))
                         .frame(width: width * (window.used - window.pace(at: now)))
                         .offset(x: width * window.pace(at: now))
                 }

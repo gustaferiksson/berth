@@ -20,6 +20,8 @@ nonisolated enum SyntaxPalette {
     static let `operator` = UIColor(light: 0xCF222E, dark: 0x56B6C2)
     static let warning = UIColor(light: 0x953800, dark: 0xE5C07B)
     static let critical = UIColor(light: 0xCF222E, dark: 0xE06C75)
+    static let warningFill = UIColor(light: 0xE0A43A, dark: 0xE5C07B)
+    static let criticalFill = UIColor(light: 0xE5534B, dark: 0xE06C75)
     static let comment = UIColor(light: 0x6E7781, dark: 0x5C6370)
     static let variable = UIColor(light: 0x1F2328, dark: 0xE06C75)
     static let constant = UIColor(light: 0x0550AE, dark: 0xE5C07B)
