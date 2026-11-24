@@ -63,6 +63,7 @@ struct ConversationPrompt: View {
     var isQueued = false
 
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @State private var isExpanded = conversationExpandsAll
 
     var body: some View {
@@ -82,7 +83,7 @@ struct ConversationPrompt: View {
                 }
             }
             if !entry.text.isEmpty {
-                Text(verbatim: entry.text)
+                promptText
                     .font(theme.conversationFont())
                     .foregroundStyle(theme.foreground)
                     .textSelection(.enabled)
@@ -100,6 +101,17 @@ struct ConversationPrompt: View {
         }
         .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.75 }
         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private var promptText: Text {
+        let scale = theme.font.pointSize / NSFont.systemFontSize
+        return PromptTextPart.split(entry.text).reduce(Text(verbatim: "")) { result, part in
+            let text = switch part {
+            case let .text(value): Text(verbatim: String(value))
+            case let .image(token, number): ConversationImageTag(number: number, scale: scale).inlineText(token: token, displayScale: displayScale)
+            }
+            return Text("\(result)\(text)")
+        }
     }
 
     private var shell: some View {
@@ -622,6 +634,35 @@ struct ConversationSpinner: View {
     }
 }
 
+struct ConversationImageTag: View {
+    let number: Int
+    var scale: CGFloat = 1
+
+    private var font: NSFont {
+        let size = NSFont.preferredFont(forTextStyle: .caption2, options: [:]).pointSize
+        return .systemFont(ofSize: size * scale, weight: .bold)
+    }
+
+    var body: some View {
+        Text(verbatim: "#\(number)")
+            .font(scale == 1 ? .caption2.weight(.bold) : Font(font))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6 * scale)
+            .padding(.vertical, 2 * scale)
+            .background(.black.opacity(0.6), in: .capsule)
+    }
+
+    func inlineText(token: Substring, displayScale: CGFloat) -> Text {
+        let renderer = ImageRenderer(content: self)
+        renderer.scale = displayScale
+        guard let image = renderer.nsImage else { return Text(verbatim: String(token)) }
+
+        return Text(Image(nsImage: image).renderingMode(.original))
+            .baselineOffset(font.descender - 2 * scale)
+            .accessibilityLabel(Text("Image \(String(number))"))
+    }
+}
+
 private struct ConversationPromptImage: View {
     let entryID: String
     let thumbnail: Data
@@ -654,12 +695,7 @@ private struct ConversationPromptImage: View {
             .frame(width: image.map { min(240, 120 * $0.size.width / max($0.size.height, 1)) } ?? 160, height: 120)
             .clipShape(.rect(cornerRadius: 10))
             .overlay(alignment: .bottomLeading) {
-                Text(verbatim: "#\(number)")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.black.opacity(0.6), in: .capsule)
+                ConversationImageTag(number: number)
                     .padding(4)
             }
         }

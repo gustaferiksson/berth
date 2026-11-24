@@ -288,7 +288,8 @@ struct TranscriptTests {
         let plain = #"{"type":"user","uuid":"u2","timestamp":"2026-10-29T10:01:00.000Z","message":{"content":[{"type":"text","text":"look"},\#(image)]}}"#
         let entries = TranscriptTail.entries(in: Data((line + "\n" + plain + "\n").utf8), dropFirst: false, queue: []).entries
         #expect(entries.map(\.imageNumbers) == [[12, 13], [1]])
-        #expect(entries[0].text == "and  compare")
+        #expect(entries.map(\.text) == ["[Image #12] and [Image #13] compare", "look"])
+        #expect(PendingPrompts.recordedCount(text: "and compare", attachmentCount: 2, entries: entries) == 1)
     }
 
     private func transcript(withPrompt prompt: String, followedByToolResults count: Int) throws -> URL {

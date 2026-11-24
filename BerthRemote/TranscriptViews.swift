@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 #if DEBUG
 let expandsWork = UserDefaults.standard.bool(forKey: "snapshotExpanded")
@@ -197,8 +198,12 @@ private struct PromptBubble: View {
     var isQueued = false
     var attachments: [Attachment]?
 
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isExpanded = false
     @ScaledMetric(relativeTo: .subheadline) private var markerWidth = 16
+    @ScaledMetric(relativeTo: .caption2) private var imageTagDescent = 2.0
 
     var body: some View {
         if entry.name == "bash" { shell } else { promptBubble }
@@ -208,8 +213,9 @@ private struct PromptBubble: View {
         let uploads = PendingPrompts.uploadPath
         let files = attachments?.filter { $0.thumbnail == nil }.map(\.name) ?? entry.text.matches(of: uploads).map { String($0.output.1) }
         let images = attachments?.compactMap(\.thumbnail) ?? entry.images ?? []
-        let numbers = attachments == nil ? entry.imageNumbers ?? Array(1...max(images.count, 1)) : Array(1...max(images.count, 1))
         let text = (attachments == nil ? entry.text.replacing(uploads, with: "") : entry.text).trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = PromptTextPart.split(text)
+        let numbers = imageNumbers(parts: parts, count: images.count)
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 4, topTrailingRadius: 20, style: .continuous)
 
         return VStack(alignment: .trailing, spacing: 6) {
@@ -224,14 +230,10 @@ private struct PromptBubble: View {
                                 .frame(width: min(200, 120 * image.size.width / image.size.height), height: 120)
                                 .clipShape(.rect(cornerRadius: 14))
                                 .overlay(alignment: .bottomLeading) {
-                                    Text(verbatim: "#\(number)")
-                                        .font(.caption2.weight(.bold))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color(.systemBackground).opacity(0.85), in: .capsule)
+                                    PromptImageTag(number: number)
                                         .padding(4)
                                 }
-                                .accessibilityLabel("Image \(number)")
+                                .accessibilityLabel("Image \(String(number))")
                         }
                     }
                 }
@@ -245,7 +247,7 @@ private struct PromptBubble: View {
                     .background { RoundedRectangle(cornerRadius: 14).fill(.fill.tertiary) }
             }
             if !text.isEmpty {
-                Text(verbatim: text)
+                promptText(parts)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background { bubble.fill(.fill.tertiary) }
@@ -255,6 +257,38 @@ private struct PromptBubble: View {
         .opacity(isQueued ? 0.6 : 1)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.85 }
         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func imageNumbers(parts: [PromptTextPart], count: Int) -> [Int] {
+        if let numbers = entry.imageNumbers, numbers.count == count { return numbers }
+
+        let references = parts.compactMap { part -> Int? in
+            if case let .image(_, number) = part { return number }
+            return nil
+        }
+        return references.count == count ? references : (0..<count).map { $0 + 1 }
+    }
+
+    private func promptText(_ parts: [PromptTextPart]) -> Text {
+        parts.reduce(Text(verbatim: "")) { result, part in
+            let text = switch part {
+            case let .text(value): Text(verbatim: String(value))
+            case let .image(token, number): inlineImageTag(token: token, number: number)
+            }
+            return Text("\(result)\(text)")
+        }
+    }
+
+    private func inlineImageTag(token: Substring, number: Int) -> Text {
+        let renderer = ImageRenderer(content: PromptImageTag(number: number)
+            .environment(\.colorScheme, colorScheme)
+            .environment(\.dynamicTypeSize, dynamicTypeSize))
+        renderer.scale = displayScale
+        guard let image = renderer.uiImage else { return Text(verbatim: String(token)) }
+
+        return Text(Image(uiImage: image).renderingMode(.original))
+            .baselineOffset(-imageTagDescent - 2)
+            .accessibilityLabel(Text("Image \(String(number))"))
     }
 
     private var shell: some View {
@@ -301,6 +335,19 @@ private struct PromptBubble: View {
         }
         .font(.subheadline.monospaced())
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct PromptImageTag: View {
+    let number: Int
+
+    var body: some View {
+        Text(verbatim: "#\(number)")
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color(.systemBackground).opacity(0.85), in: .capsule)
     }
 }
 

@@ -196,7 +196,7 @@ public enum TranscriptTail {
 
     static func prompt(id: String, text: String, date: Date?, blocks: [[String: Any]]) -> RemoteEntry {
         let imageBlocks = blocks.filter { $0["type"] as? String == "image" }
-        let placeholders = text.matches(of: /\[Image #(\d+)\]/).compactMap { Int($0.output.1) }
+        let placeholders = text.matches(of: PromptTextPart.imageToken).compactMap { Int($0.output.1) }
         let numbered = imageBlocks.enumerated().lazy.compactMap { index, block -> (number: Int, data: Data)? in
             guard let base64 = (block["source"] as? [String: Any])?["data"] as? String,
                   let data = Data(base64Encoded: base64),
@@ -205,7 +205,7 @@ public enum TranscriptTail {
 
             return (placeholders.count == imageBlocks.count ? placeholders[index] : index + 1, thumbnail)
         }.prefix(maxImages)
-        let shown = numbered.isEmpty ? text : text.replacing(/\[Image #\d+\]/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let shown = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return RemoteEntry(id: id, kind: .prompt, text: shown, date: date, images: numbered.isEmpty ? nil : numbered.map(\.data), imageNumbers: numbered.isEmpty ? nil : numbered.map(\.number))
     }
 }
