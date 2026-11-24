@@ -4,6 +4,7 @@ import Foundation
 final class FileWatcher {
     private var stream: FSEventStreamRef?
     private let onChange: ([String]) -> Void
+    private(set) var isRunning = false
 
     init(paths: [String], latency: TimeInterval, onChange: @escaping ([String]) -> Void) {
         self.onChange = onChange
@@ -23,7 +24,7 @@ final class FileWatcher {
         guard let stream else { return }
 
         FSEventStreamSetDispatchQueue(stream, .main)
-        FSEventStreamStart(stream)
+        isRunning = FSEventStreamStart(stream)
     }
 
     isolated deinit {

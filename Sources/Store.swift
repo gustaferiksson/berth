@@ -111,6 +111,7 @@ final class Store {
 
     var conversationDrafts: [Tab.ID: ConversationDraft] = [:]
     private(set) var conversationModels: [Tab.ID: ConversationModel] = [:]
+    @ObservationIgnored private var recentConversationModels: [Tab.ID: (model: ConversationModel, sessionID: String?, agent: Agent, shownAt: ContinuousClock.Instant)] = [:]
     var conversationFocusRequests = 0
     private(set) var orphanedSessionIDs: Set<String> = []
     @ObservationIgnored private var resumingOrphans: Set<String> = []
@@ -1196,16 +1197,24 @@ final class Store {
     }
 
     func syncConversations() {
-        let shown = Set(tabs.filter { $0.id == selectedTabID && !isHarborShown && showsConversation($0) }.map(\.id))
-        for id in conversationModels.keys where !shown.contains(id) {
+        let shown = tabs.first { $0.id == selectedTabID && !isHarborShown && showsConversation($0) }
+        recentConversationModels = recentConversationModels.filter { id, recent in
+            tabs.contains { $0.id == id && $0.sessionID == recent.sessionID && $0.agent == recent.agent }
+        }
+        for id in conversationModels.keys where id != shown?.id || recentConversationModels[id] == nil {
             conversationModels[id]?.stop()
             conversationModels[id] = nil
         }
-        for id in shown where conversationModels[id] == nil {
-            let model = ConversationModel(tabID: id, store: self)
-            conversationModels[id] = model
-            model.start()
+        guard let shown, conversationModels[shown.id] == nil else { return }
+
+        let model = recentConversationModels[shown.id]?.model ?? ConversationModel(tabID: shown.id, store: self)
+        recentConversationModels[shown.id] = (model, shown.sessionID, shown.agent, .now)
+        if recentConversationModels.count > 4,
+           let oldest = recentConversationModels.min(by: { $0.value.shownAt < $1.value.shownAt }) {
+            recentConversationModels[oldest.key] = nil
         }
+        conversationModels[shown.id] = model
+        model.start()
     }
 
     func refreshConversations() {

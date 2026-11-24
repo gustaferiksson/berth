@@ -72,7 +72,7 @@ Fixture: `Packages/BerthCore` with a scratch type error, or a copy of the packag
 
 `-snapshotPerf YES` (`SnapshotPerf.swift`) times, as main-thread ms and process CPU, window resizes (a sweep down to 900 pt and back, and across the 801 pt sidebar yield), the session sidebar toggle and the Review panel toggle; `-snapshotPerfRounds <n>` (toggle pairs, default 1), `-snapshotPerfSteps resize,sidebar,panel` (default all) and `-snapshotPerfSetup closeDiff,hidePanel,hideSessions` (run first). Release timing needs `SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG`.
 
-`-snapshotPerfSteps resize,scroll` adds an opt-in scroll step that times 40 equal steps from bottom to top and back in the window’s tallest scroll document (also available with `-snapshotConversation YES -snapshotPerf YES`).
+`-snapshotPerfSteps resize,scroll` adds an opt-in scroll step that times 40 steps from bottom to top and 40 back in the window’s tallest scroll document. The Conversation snapshot also accepts `-snapshotPerfSteps scroll`.
 
 ## Fixture homes, URLs and window state
 
@@ -147,6 +147,38 @@ The Claude fixture includes bash-mode stdout and stderr, and `-snapshotConversat
 With `-snapshotConversation YES -codexEnabled YES`, `-snapshotConversationCodexApproval YES` sets the Action Required title and shows an invented command, its justification, and the Allow, Always Allow, and Deny buttons. `-snapshotConversationCodexTasks YES` sets the Ready title and shows an invented running subagent and background terminal in the tasks pill. Use an empty `CFFIXED_USER_HOME` and leave `CODEX_HOME` unset or point it at that fixture home’s `.codex` directory.
 
 `-snapshotConversationRepeat <n>` repeats the fixture transcript with unique record, message and tool IDs and monotonic timestamps for longer conversation performance runs (try `16`, about 500 entries; the image is kept in the first repetition only, since the reader takes the last 256 KB).
+
+`-snapshotConversationHeavy <turns>` replaces the Claude fixture with an invented JSONL transcript. Try `440` for long Markdown replies with three fenced code blocks each, 5–15 tool calls and results per turn, and three image prompts near the end. The performance log prints the on-disk size and the model’s loaded turns, entries and images after `TranscriptTail` applies its normal byte window.
+
+With the heavy fixture, `-snapshotPerf YES` defaults to `-snapshotPerfSteps switch,stream,scroll`. The first switch is timed from Show Conversation to loaded turns and an offscreen display flush at the bottom. `switch` adds `-snapshotPerfRounds <n>` terminal-to-conversation reopens (default one). `stream` appends a prompt, three successively longer assistant blocks, a tool call and its result to the fixture JSONL. It times each write through file watching, model update and display flush. Wall times include the 5 ms polling interval and the display run-loop turn. Main-thread CPU times include work on that thread throughout each interval. `scroll` also reports the sweep’s wall time and main-thread CPU. The profile signpost category is `Conversation Performance`.
+
+If FSEvents cannot start, the DEBUG harness logs `explicit refresh (FSEvents unavailable)` and refreshes the model after each append. Those stream timings exclude file event delivery.
+
+```sh
+CONFIGURATION=Debug ./build.sh
+app="$PWD/.build/Build/Products/Debug/Berth.app/Contents/MacOS/Berth"
+out=$(mktemp -d /tmp/berth-conversation-perf.XXXXXX)
+for run in 1 2 3; do
+  fixture_home=$(mktemp -d "$out/home.XXXXXX")
+  env -i PATH=/usr/bin:/bin CFFIXED_USER_HOME="$fixture_home" "$app" \
+    -snapshot "$out/run-$run.png" -snapshotConversation YES \
+    -conversationEnabled YES -reviewEnabled NO -languageServersEnabled NO \
+    -snapshotConversationHeavy 440 -snapshotPerf YES \
+    -snapshotPerfSteps switch,stream,scroll -snapshotPerfRounds 3 > "$out/run-$run.log" 2>&1
+done
+
+fixture_home=$(mktemp -d "$out/home.XXXXXX")
+trace_home=$(mktemp -d "$out/trace-home.XXXXXX")
+CFFIXED_USER_HOME="$trace_home" xcrun xctrace record --template 'Time Profiler' \
+  --instrument os_signpost --time-limit 30s --output "$out/conversation.trace" --target-stdout "$out/profile.log" \
+  --launch -- /usr/bin/env -i PATH=/usr/bin:/bin CFFIXED_USER_HOME="$fixture_home" "$app" \
+  -snapshot "$out/profile.png" -snapshotConversation YES -conversationEnabled YES \
+  -reviewEnabled NO -languageServersEnabled NO -snapshotConversationHeavy 440 \
+  -snapshotPerf YES -snapshotPerfSteps switch,stream -snapshotPerfRounds 3
+CFFIXED_USER_HOME="$trace_home" xcrun xctrace export --input "$out/conversation.trace" \
+  --xpath '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]' \
+  --output "$out/time-profile.xml"
+```
 
 `-snapshotConversationSubagent YES` opens the invented docs agent conversation directly, including its prompt, tool call and reply. Use with `-snapshotConversation YES`.
 

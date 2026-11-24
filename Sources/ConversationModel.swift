@@ -111,6 +111,10 @@ final class ConversationModel {
 
     var entryCount: Int { entries.count }
 
+    #if DEBUG
+    var isWatchingTranscript: Bool { watcher?.isRunning == true }
+    #endif
+
     private var sessionID: String? { store.tabs.first { $0.id == tabID }?.sessionID }
 
     var blocksSending: Bool { isTurnOpen && !(store.liveBySession[sessionID ?? ""]?.reportsWaiting ?? false) }
@@ -274,6 +278,7 @@ final class ConversationModel {
     func start() {
         guard let tab = store.tabs.first(where: { $0.id == tabID }) else { return }
 
+        lastChange = .now
         let harness = tab.agent.harness
         watcher = FileWatcher(paths: [store.sessionIndex(for: tab.agent).root.path], latency: 0.3) { [weak self] paths in
             guard let self else { return }
@@ -297,6 +302,14 @@ final class ConversationModel {
         watcher = nil
         shellPolling?.cancel()
         shellPolling = nil
+        needsRead = false
+        openSubagent = nil
+        notice = nil
+        pending.removeAll()
+        shellTasks.removeAll()
+        pickedModel = nil
+        pickedEffort = nil
+        rolloutApproval = nil
     }
 
     private func refreshShellTasks() async {
@@ -413,26 +426,39 @@ final class ConversationModel {
         }
         if queued != chunk.queuedPrompts { queued = chunk.queuedPrompts }
         if !chunk.isContinuation || !chunk.entries.isEmpty {
-            entries = (chunk.isContinuation ? entries : []) + chunk.entries
-            turns = Turn.turns(from: entries)
-            var currentDetails: [String: ToolCallDetails] = [:]
-            var currentCompleted: Set<String> = []
-            for turn in turns {
-                for part in turn.parts {
-                    let calls: [ToolCall] = switch part {
-                    case let .work(calls), let .cards(calls): calls
-                    case .reply: []
-                    }
-                    for call in calls {
-                        currentDetails[call.id] = if let cached = details[call.id], call.result == nil || completedCalls.contains(call.id) { cached } else { call.details }
-                        if call.result != nil { currentCompleted.insert(call.id) }
-                    }
-                }
+            if !chunk.isContinuation {
+                entries.removeAll()
+                details.removeAll()
+                completedCalls.removeAll()
             }
-            details = currentDetails
-            completedCalls = currentCompleted
+            entries.append(contentsOf: chunk.entries)
+            if chunk.isContinuation, let continued = Turn.continuing(turns, with: chunk.entries) {
+                turns = continued
+            } else {
+                rebuildTurns()
+            }
         }
         if entries.count > previousCount || isTurnOpen != wasTurnOpen { lastChange = .now }
         reconcilePending()
+    }
+
+    private func rebuildTurns() {
+        turns = Turn.turns(from: entries)
+        var currentDetails: [String: ToolCallDetails] = [:]
+        var currentCompleted: Set<String> = []
+        for turn in turns {
+            for part in turn.parts {
+                let calls: [ToolCall] = switch part {
+                case let .work(calls), let .cards(calls): calls
+                case .reply: []
+                }
+                for call in calls {
+                    currentDetails[call.id] = if let cached = details[call.id], call.result == nil || completedCalls.contains(call.id) { cached } else { call.details }
+                    if call.result != nil { currentCompleted.insert(call.id) }
+                }
+            }
+        }
+        details = currentDetails
+        completedCalls = currentCompleted
     }
 }
