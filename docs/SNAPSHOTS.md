@@ -198,22 +198,17 @@ Create both fixture clones in the caller shell, before launching the snapshot wi
 ```sh
 fixture=$(mktemp -d /tmp/berth-pr.XXXXXX)
 for name in api billing; do
-  producer="$fixture/$name-origin"
-  clone="$fixture/$name"
-  github="https://github.com/acme/$name.git"
+  producer="$fixture/$name-origin"; clone="$fixture/$name"; github="https://github.com/acme/$name.git"
   git init -q -b main "$producer"
   printf 'Current behavior in %s\n' "$name" > "$producer/$name.txt"
   git -C "$producer" add "$name.txt"
-  tree=$(git -C "$producer" write-tree)
-  base=$(printf 'tree %s\nauthor Fixture <fixture@example.test> 1000000000 +0000\ncommitter Fixture <fixture@example.test> 1000000000 +0000\n\nBase\n' "$tree" |
-    git -C "$producer" hash-object -t commit -w --stdin)
-  git -C "$producer" update-ref refs/heads/main "$base"
+  git -C "$producer" commit -q -m Base
+  git -C "$producer" switch -q -c proposal
   printf 'Proposed behavior in %s\n' "$name" >> "$producer/$name.txt"
-  git -C "$producer" add "$name.txt"
-  tree=$(git -C "$producer" write-tree)
-  head=$(printf 'tree %s\nparent %s\nauthor Fixture <fixture@example.test> 1000000001 +0000\ncommitter Fixture <fixture@example.test> 1000000001 +0000\n\nProposed change\n' "$tree" "$base" |
-    git -C "$producer" hash-object -t commit -w --stdin)
-  git -C "$producer" update-ref refs/pull/1445/head "$head"
+  git -C "$producer" commit -q -am "Proposed change"
+  git -C "$producer" update-ref refs/pull/1445/head proposal
+  git -C "$producer" switch -q main
+  git -C "$producer" branch -q -D proposal
   git clone -q "$producer" "$clone"
   git -C "$clone" config remote.origin.url "$github"
   git -C "$clone" config "url.$producer.insteadOf" "$github"
