@@ -229,16 +229,25 @@ final class ControlService {
 
         case .browserConsole: return tab.console(since: request.since)
 
-        case .browserScreenshot, .browserText:
+        case .browserText, .browserHTML, .browserSnapshot:
             do {
-                if request.operation == .browserText {
-                    let text = try await tab.pageText()
-                    guard browserSessionContains(tab, session: session.id, caller: caller) else { return .failure("The browser tab is no longer in this session") }
-
-                    return ControlResponse(text: text)
+                let content: BrowserPageContent = switch request.operation {
+                case .browserHTML: .html(request.selector)
+                case .browserSnapshot: .snapshot
+                default: .text
                 }
-                guard let path = request.path, path.hasPrefix("/") else { return .failure("Missing absolute screenshot path") }
+                let text = try await tab.pageContent(content)
+                guard browserSessionContains(tab, session: session.id, caller: caller) else { return .failure("The browser tab is no longer in this session") }
 
+                return ControlResponse(text: text)
+            } catch {
+                return .failure(error.localizedDescription)
+            }
+
+        case .browserScreenshot:
+            guard let path = request.path, path.hasPrefix("/") else { return .failure("Missing absolute screenshot path") }
+
+            do {
                 let png = try await tab.screenshot(fullPage: request.fullPage == true, fallbackSize: store.browser.lastPaneSize)
                 guard browserSessionContains(tab, session: session.id, caller: caller) else { return .failure("The browser tab is no longer in this session") }
 

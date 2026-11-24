@@ -5,7 +5,7 @@ public enum ControlInstall {
         public let message: String
     }
 
-    public static let hookCommand = #"[ -z "$BERTH_TAB_ID" ] || printf 'You are running inside Berth, tab %s. Use berth show-pr to show a GitHub PR in Review. After editing web UI, use berth open-url to open the dev server, then berth browser screenshot, berth browser console or berth browser text to check it. Browser commands see only the current session tabs and omit pinned tabs. See the berth skill for command syntax.\n' "$BERTH_TAB_ID""#
+    public static let hookCommand = #"[ -z "$BERTH_TAB_ID" ] || printf 'You are running inside Berth, tab %s. Use berth show-pr to show a GitHub PR in Review. Use berth open-url to open the dev server and berth browser snapshot to read the page. Browser commands see only the current session tabs and omit pinned tabs. See the berth skill for command syntax.\n' "$BERTH_TAB_ID""#
 
     public static let skill = """
     ---
@@ -29,6 +29,8 @@ public enum ControlInstall {
     - `berth browser reload [--tab <id>] [--json]` reloads the current page.
     - `berth browser navigate <url> [--tab <id>] [--json]` takes the tab to an http or https URL.
     - `berth browser text [--tab <id>] [--json]` prints the page’s visible text, capped at 100000 characters.
+    - `berth browser html [--tab <id>] [--selector <css>] [--json]` prints the formatted DOM for the page or the first matching element, capped at 100000 characters.
+    - `berth browser snapshot [--tab <id>] [--json]` prints an accessibility-style outline with roles, names, states and element refs, capped at 100000 characters.
     - `berth show-pr <number|url> [--repo <path>] [--json]` expands a GitHub pull request in the current session’s Review panel and opens its first changed file. A number uses the origin of your current repo or `--repo`. For a URL such as `https://github.com/acme/api/pull/42`, Berth looks for a matching local clone. Use `--repo` if the clone is elsewhere.
     - `berth send <tab> <text> [--no-enter]`: types text into a tab you opened and presses Return.
     - `berth capture <tab>`: prints the tab's recent output. Works only for tabs running behind Berth's session host ("Keep sessions running when Berth quits" on); otherwise it reports that capture is unsupported.
@@ -37,7 +39,7 @@ public enum ControlInstall {
 
     When the user asks to review or check out a PR in Berth, use `berth show-pr` to show it in their current tab. If the user asks for a separate working session, open it with `berth open-session --cwd <worktree> --background -- "<prompt>"` so each session shows in the sidebar.
 
-    After editing web UI, open the dev server first with `berth open-url`, then check it with `berth browser screenshot`, `berth browser console` and `berth browser text`. Browser commands see only the current session’s tabs and omit pinned tabs. `--tab` accepts a unique id prefix. When omitted, Berth uses the selected session tab or falls back to the last session tab.
+    Open the dev server with `berth open-url`, read the page with `berth browser snapshot` (refs like `e12`), and check results with `berth browser screenshot`, `berth browser console` or `berth browser text`. Browser commands see only the current session’s tabs and omit pinned tabs. `--tab` accepts a unique id prefix. When omitted, Berth uses the selected session tab or falls back to the last session tab.
 
     You can only send to and close terminal and session tabs you opened. Close them when you are done with them. Output of a command that has exited is gone, so redirect it to a file if you need it.
     """

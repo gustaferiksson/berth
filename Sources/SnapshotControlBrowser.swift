@@ -37,12 +37,23 @@ extension Snapshot {
         let simplePage = folder.appending(path: "simple.html")
         try Data("""
         <!doctype html><title>Control Console</title><h1>Browser control fixture text</h1>
+        <form aria-label="Preferences">
+          <label for="email">Email</label><input id="email" type="text" value="ada@example.com" required>
+          <label><input type="checkbox" checked>Remember me</label>
+          <button disabled>Save</button>
+          <a href="https://example.com/docs">Docs</a>
+          <div>Plain fixture text</div>
+        </form>
+        <p hidden>Hidden fixture text</p>
+        <button aria-hidden="true">Hidden fixture button</button>
         <script>
+        window.__berthRefs = new Map([['e1', document.body]]);
         addEventListener('load', () => {
           console.log('control fixture log');
           console.warn('control fixture warning');
           console.error('control fixture error');
           setTimeout(() => { throw new Error('control fixture uncaught'); }, 0);
+          Promise.reject('control fixture rejection');
         });
         </script>
         """.utf8).write(to: loggedPage)
@@ -100,10 +111,12 @@ extension Snapshot {
             fail("browser tabs should list the caller’s two session tabs")
         }
 
-        for denied in [pinned, other] {
-            let id = String(denied.id.uuidString.lowercased().prefix(8))
-            let result = await berth("screenshot", "--tab", id)
-            guard result.status == 1, result.output.contains("No browser tab \(id) in this session") else { fail("browser screenshot escaped its session") }
+        for denied in [pinned.id, other.id, UUID()] {
+            let id = String(denied.uuidString.lowercased().prefix(8))
+            for command in ["screenshot", "html", "snapshot"] {
+                let result = await berth(command, "--tab", id)
+                guard result.status == 1, result.output == "berth: No browser tab \(id) in this session" else { fail("browser \(command) escaped its session") }
+            }
         }
         let unparented = await berth("tabs", asOutsider: true)
         guard unparented.status == 1, unparented.output.contains("Only a Claude session tab") else { fail("browser allowed a shell without a Claude parent") }
@@ -130,14 +143,69 @@ extension Snapshot {
         let text = await berth("text")
         guard text.status == 0, text.output.contains("Browser control fixture text") else { fail("browser text should read the active page") }
 
+        let snapshot = await berth("snapshot")
+        let lines = snapshot.output.split(separator: "\n")
+        guard snapshot.status == 0, snapshot.output.contains("- text: Plain fixture text"),
+              !snapshot.output.contains("Hidden fixture")
+        else { fail("browser snapshot should include visible fixture content") }
+
+        let expected = [
+            /- heading "Browser control fixture text" \[level=1\] \[ref=e[0-9]+\]/,
+            /\x20{2}- textbox "Email" \[required\] \[ref=e[0-9]+\]: ada@example\.com/,
+            /\x20{2}- checkbox "Remember me" \[checked\] \[ref=e[0-9]+\]/,
+            /\x20{2}- button "Save" \[disabled\] \[ref=e[0-9]+\]/,
+            /\x20{2}- link "Docs" \[ref=e[0-9]+\] \/url: https:\/\/example\.com\/docs/,
+        ]
+        for pattern in expected where !lines.contains(where: { $0.wholeMatch(of: pattern) != nil }) {
+            fail("browser snapshot should include the form controls with roles, names, states and refs")
+        }
+
+        let heading = snapshot.output.firstMatch(of: #/(?<ref>e[0-9]+)\]/#)?.ref
+        guard let heading,
+              try await active.webView.evaluateJavaScript("window.__berthRefs.get('\(heading)') === document.querySelector('h1')", contentWorld: BrowserPageContent.world) as? Bool == true,
+              try await active.webView.evaluateJavaScript("""
+              const button = document.createElement('button');
+              button.textContent = 'New fixture button';
+              document.body.prepend(button);
+              window.__berthRefs.size === 1 && window.__berthRefs.get('e1') === document.body
+              """, contentWorld: .page) as? Bool == true
+        else { fail("browser snapshot refs should resolve only in the isolated world") }
+
+        let repeated = await berth("snapshot", "--tab", activeID, "--json")
+        let repeatedText = try JSONDecoder().decode(ControlResponse.self, from: Data(repeated.output.utf8)).text
+        let repeatedLines = repeatedText?.split(separator: "\n") ?? []
+        guard repeated.status == 0, repeatedLines.dropFirst().elementsEqual(lines),
+              repeatedLines.first?.wholeMatch(of: /- button "New fixture button" \[ref=e[0-9]+\]/) != nil
+        else { fail("browser snapshot refs should stay stable when an element is inserted") }
+
+        let html = await berth("html")
+        guard html.status == 0, html.output.hasPrefix("<html>\n  <head>\n"),
+              html.output.contains(#"<input id="email" type="text" value="ada@example.com" required="">"#),
+              html.output.contains("<script>\nwindow.__berthRefs")
+        else { fail("browser html should print the formatted DOM and preserve the script body") }
+
+        let selectedHTML = await berth("html", "--selector", "form > input")
+        guard selectedHTML.status == 0, selectedHTML.output.hasPrefix(#"<input id="email""#), !selectedHTML.output.contains("\n")
+        else { fail("browser html --selector should print the first matching element") }
+
+        let missingHTML = await berth("html", "--selector", "#missing")
+        guard missingHTML.status == 1, missingHTML.output.contains("No element matches CSS selector") else { fail("browser html should report a missing element") }
+
+        let invalidHTML = await berth("html", "--selector", "[")
+        guard invalidHTML.status == 1, invalidHTML.output.contains("Invalid CSS selector") else { fail("browser html should report an invalid selector") }
+
         let console = await berth("console", "--json")
         let entries = try JSONDecoder().decode(ControlResponse.self, from: Data(console.output.utf8)).console ?? []
         guard console.status == 0,
               let warning = entries.first(where: { $0.level == "warn" && $0.text.contains("control fixture warning") }),
               entries.contains(where: { $0.level == "log" && $0.text.contains("control fixture log") }),
-              entries.contains(where: { $0.level == "error" && $0.text.contains("control fixture error") }),
-              entries.contains(where: { $0.level == "error" && $0.text.contains("control fixture uncaught") })
-        else { fail("browser console should capture log, warn, error and uncaught error") }
+              entries.contains(where: { $0.level == "error" && $0.text == "control fixture error" })
+        else { fail("browser console should capture log, warn and error") }
+
+        // WebKit can mute uncaught exception messages from file URLs.
+        guard entries.contains(where: { $0.level == "error" && ($0.text == "Script error." || $0.text == "Error: control fixture uncaught") }),
+              entries.contains(where: { $0.level == "error" && $0.text == "Unhandled promise rejection: control fixture rejection" })
+        else { fail("browser console should capture an uncaught exception and the exact rejection message") }
 
         let since = await berth("console", "--since", String(warning.sequence), "--json")
         let filtered = try JSONDecoder().decode(ControlResponse.self, from: Data(since.output.utf8)).console

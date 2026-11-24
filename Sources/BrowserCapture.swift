@@ -15,18 +15,15 @@ private enum BrowserCaptureError: LocalizedError {
 }
 
 extension BrowserTab {
-    func pageText() async throws -> String {
+    func pageContent(_ content: BrowserPageContent) async throws -> String {
         let view = webView
         await waitForNavigation(in: view)
         guard view === loadedWebView else { throw BrowserCaptureError.closed }
 
-        let limit = 100_000
-        let result = try await view.evaluateJavaScript("document.body?.innerText.slice(0, \(2 * limit + 1)) ?? ''", contentWorld: .defaultClient) as? String ?? ""
-        let scalars = result.unicodeScalars
-        let end = scalars.index(scalars.startIndex, offsetBy: limit, limitedBy: scalars.endIndex) ?? scalars.endIndex
-        guard end != scalars.endIndex else { return result }
+        let result = try await content.read(in: view)
+        guard view === loadedWebView else { throw BrowserCaptureError.closed }
 
-        return String(scalars[..<end]) + "\n\n[Text truncated at \(limit) characters]"
+        return result
     }
 
     func screenshot(fullPage: Bool, fallbackSize: NSSize) async throws -> Data {

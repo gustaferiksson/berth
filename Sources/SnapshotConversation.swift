@@ -479,8 +479,11 @@ extension Snapshot {
 
                 textView.window?.makeFirstResponder(textView)
                 let origins = NSMutableArray()
+                let recordOrigin: @MainActor () -> Void = { origins.add(clip.bounds.origin.y) }
                 clip.postsBoundsChangedNotifications = true
-                let observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { _ in origins.add(clip.bounds.origin.y) }
+                let observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { _ in
+                    MainActor.assumeIsolated { recordOrigin() }
+                }
                 defer { NotificationCenter.default.removeObserver(observer) }
                 for line in 0..<(Int(parts[0]) ?? 40) {
                     for character in "line \(line) of typed text\n" {

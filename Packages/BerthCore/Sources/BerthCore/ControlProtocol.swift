@@ -5,6 +5,7 @@ public enum ControlOp: String, Codable, Sendable {
     case list = "ls", open, openSession = "open-session", openPath = "open-path", openURL = "open-url", send, capture, close, wait, showPullRequest = "show-pr"
     case browserTabs = "browser-tabs", browserScreenshot = "browser-screenshot", browserConsole = "browser-console", browserURL = "browser-url"
     case browserReload = "browser-reload", browserNavigate = "browser-navigate", browserText = "browser-text"
+    case browserHTML = "browser-html", browserSnapshot = "browser-snapshot"
 
     public var isBrowser: Bool { rawValue.hasPrefix("browser-") }
 }
@@ -27,8 +28,9 @@ public struct ControlRequest: Codable, Equatable, Sendable {
     public var url: String?
     public var fullPage: Bool?
     public var since: Int?
+    public var selector: String?
 
-    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil, pullRequest: Int? = nil, repository: String? = nil, repositoryPath: String? = nil, url: String? = nil, fullPage: Bool? = nil, since: Int? = nil) {
+    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil, pullRequest: Int? = nil, repository: String? = nil, repositoryPath: String? = nil, url: String? = nil, fullPage: Bool? = nil, since: Int? = nil, selector: String? = nil) {
         self.token = token
         self.caller = caller
         self.operation = operation
@@ -46,6 +48,7 @@ public struct ControlRequest: Codable, Equatable, Sendable {
         self.url = url
         self.fullPage = fullPage
         self.since = since
+        self.selector = selector
     }
 }
 

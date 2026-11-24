@@ -137,8 +137,10 @@ One JSON request line in, one response line out per connection (`ControlRequest`
 - `berth browser reload [--tab <id>] [--json]` reloads the page.
 - `berth browser navigate <url> [--tab <id>] [--json]` navigates to an http or https URL.
 - `berth browser text [--tab <id>] [--json]` returns `document.body.innerText` with a truncation note at the 100000-character limit.
+- `berth browser html [--tab <id>] [--selector <css>] [--json]` returns the formatted DOM for the document or the first matching element, with a truncation note at the 100000-character limit.
+- `berth browser snapshot [--tab <id>] [--json]` returns an accessibility-style outline with roles, names, values, states and refs that stay stable for the life of the page, with a truncation note at the 100000-character limit.
 
-Browser commands resolve the current Claude session the same way as `open-url` and only see tabs owned by that session. Pinned tabs and tabs owned by other sessions are excluded. `--tab` accepts a unique id prefix within that session. By default commands use the selected session browser tab or fall back to the last session browser tab. Screenshots and text wait up to 15 seconds for navigation to finish. Arbitrary JavaScript evaluation is a possible follow-up.
+Browser commands resolve the current Claude session the same way as `open-url` and only see tabs owned by that session. Pinned tabs and tabs owned by other sessions are excluded. `--tab` accepts a unique id prefix within that session. By default commands use the selected session browser tab or fall back to the last session browser tab. Screenshots, text, HTML and snapshots wait up to 15 seconds for navigation to finish. Interaction commands targeting snapshot refs and JavaScript evaluation are follow-ups.
 
 Agents use `show-pr` when the user asks to review or check out a PR in Berth. Use `open-session` for a separate working session when the user asks for one.
 

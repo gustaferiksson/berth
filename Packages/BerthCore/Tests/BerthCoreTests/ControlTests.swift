@@ -193,11 +193,16 @@ struct ControlTests {
         #expect(console.follow && console.json)
         #expect(try !parse(["console"]).follow)
 
-        for (name, operation) in [("url", ControlOp.browserURL), ("reload", .browserReload), ("text", .browserText)] {
+        for (name, operation) in [("url", ControlOp.browserURL), ("reload", .browserReload), ("text", .browserText), ("snapshot", .browserSnapshot)] {
             let invocation = try parse([name, "--tab", "abcd", "--json"])
             #expect(invocation.request == ControlRequest(token: "tok", caller: "me", operation: operation, tab: "abcd"))
             #expect(invocation.json)
         }
+
+        let html = try parse(["html", "--tab", "abcd", "--selector", "#invoice input[name=email]", "--json"])
+        #expect(html.request == ControlRequest(token: "tok", caller: "me", operation: .browserHTML, tab: "abcd", selector: "#invoice input[name=email]"))
+        #expect(html.json)
+        #expect(try parse(["html"]).request.selector == nil)
 
         let navigate = try parse(["navigate", "http://localhost:3000/preview", "--tab", "abcd", "--json"])
         #expect(navigate.request == ControlRequest(token: "tok", caller: "me", operation: .browserNavigate, tab: "abcd", url: "http://localhost:3000/preview"))
@@ -211,13 +216,14 @@ struct ControlTests {
             ["screenshot", "--out"], ["screenshot", "--out", "--full-page"], ["screenshot", "extra"],
             ["console", "--since"], ["console", "--since", "wat"], ["console", "--since", "-1"], ["console", "extra"],
             ["url", "--tab"], ["reload", "--follow"], ["text", "--full-page"],
+            ["html", "--selector"], ["html", "--selector", "--json"], ["html", "--selector", ""], ["snapshot", "--selector", "main"], ["snapshot", "extra"],
             ["navigate"], ["navigate", "file:///tmp/page"], ["navigate", "javascript:alert(1)"], ["navigate", "https://example.invalid", "extra"],
         ] {
             #expect(throws: ControlCommand.UsageError.self) { try ControlCommand.parse(["browser"] + arguments, environment: environment, currentDirectory: "/") }
         }
     }
 
-    @Test func browserRepliesRenderTabsAndConsole() {
+    @Test func browserRepliesRenderTabsConsoleAndPageText() {
         let tabs = [
             ControlBrowserTab(id: "abcd1234", title: "Preview", url: "http://localhost:3000", loading: true, active: true),
             ControlBrowserTab(id: "abcd5678", title: "New Tab", url: nil, loading: false, active: false),
@@ -231,6 +237,17 @@ struct ControlTests {
         ]
         #expect(ControlCommand.render(ControlResponse(console: console), json: false) == "2 log Ready\n3 warn First\\nSecond")
         #expect(ControlCommand.render(console[0], json: true) == #"{"level":"log","sequence":2,"text":"Ready","timestamp":42}"#)
+        for output in ["<html>\n  <body></body>\n</html>", #"- heading "Ready" [level=1] [ref=e1]"#] {
+            #expect(ControlCommand.render(ControlResponse(text: output), json: false) == output)
+        }
+    }
+
+    @Test func browserHTMLRequestRoundTripsAndLegacyRequestsNeedNoSelector() throws {
+        let oldRequest = Data(#"{"token":"tok","caller":"me","operation":"browser-text"}"#.utf8)
+        #expect(try JSONDecoder().decode(ControlRequest.self, from: oldRequest) == ControlRequest(token: "tok", caller: "me", operation: .browserText))
+
+        let request = ControlRequest(token: "tok", caller: "me", operation: .browserHTML, selector: "main > input")
+        #expect(try JSONDecoder().decode(ControlRequest.self, from: JSONEncoder().encode(request)) == request)
     }
 
     @Test func browserRequestsAndRepliesRoundTripThroughControlServer() throws {

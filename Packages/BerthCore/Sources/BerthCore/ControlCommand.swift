@@ -14,6 +14,8 @@ public enum ControlCommand {
            berth browser reload [--tab <id>] [--json]
            berth browser navigate <url> [--tab <id>] [--json]
            berth browser text [--tab <id>] [--json]
+           berth browser html [--tab <id>] [--selector <css>] [--json]
+           berth browser snapshot [--tab <id>] [--json]
            berth show-pr <number|url> [--repo <path>] [--json]
            berth send <tab> <text> [--no-enter]
            berth capture <tab>
@@ -81,6 +83,12 @@ public enum ControlCommand {
 
             case "--full-page" where operation == .browserScreenshot: request.fullPage = true
 
+            case "--selector" where operation == .browserHTML:
+                guard let selector = rest.first, !selector.isEmpty, !selector.hasPrefix("--") else { throw UsageError(message: "--selector needs a CSS selector") }
+
+                request.selector = selector
+                rest.removeFirst()
+
             case "--since" where operation == .browserConsole:
                 guard let value = rest.first, let sequence = Int(value), sequence >= 0 else { throw UsageError(message: "--since needs a nonnegative sequence number") }
 
@@ -121,7 +129,7 @@ public enum ControlCommand {
             }
         }
         switch operation {
-        case .list, .openSession, .browserTabs, .browserConsole, .browserURL, .browserReload, .browserText:
+        case .list, .openSession, .browserTabs, .browserConsole, .browserURL, .browserReload, .browserText, .browserHTML, .browserSnapshot:
             guard positional.isEmpty else { throw UsageError(message: usage) }
 
         case .browserScreenshot:
