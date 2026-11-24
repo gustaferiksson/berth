@@ -69,6 +69,8 @@ final class RemoteClient {
             changes = [:]
             diffs = [:]
             taskDetails = [:]
+            slashCommands = [:]
+            requestedSlashCommands = []
             images = images.filter { if case .loaded = $0.value { true } else { false } }
             for (id, upload) in uploads where upload == .uploading { uploads[id] = .failed("The connection dropped") }
         }
@@ -86,13 +88,19 @@ final class RemoteClient {
     private(set) var diffs: [ChangeKey: DiffLoad] = [:]
     private(set) var taskDetails: [String: RemoteTaskDetail] = [:]
     private(set) var features: [String] = []
+    private(set) var slashCommands: [String: [SlashCommand]] = [:]
     private(set) var usage: PlanUsage?
     private(set) var codexUsage: CodexUsage?
     private(set) var images: [ImageKey: ImageLoad] = [:]
     private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
     private(set) var uploads: [String: UploadState] = [:]
     var draftTexts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:] {
-        didSet { UserDefaults.standard.set(draftTexts.filter { !$0.value.isEmpty }, forKey: "drafts") }
+        didSet {
+            #if DEBUG
+            if UserDefaults.standard.bool(forKey: "snapshotDemo") { return }
+            #endif
+            UserDefaults.standard.set(draftTexts.filter { !$0.value.isEmpty }, forKey: "drafts")
+        }
     }
 
     var draftAttachments: [String: [Attachment]] = [:]
@@ -103,6 +111,7 @@ final class RemoteClient {
     @ObservationIgnored private var failures = 0
     @ObservationIgnored private var sessionsReceived = 0
     @ObservationIgnored private var subscribedSessionID: String?
+    @ObservationIgnored private var requestedSlashCommands: Set<String> = []
     @ObservationIgnored private var lastSent: (sessionID: String, date: Date)?
 
     init() {
@@ -174,6 +183,13 @@ final class RemoteClient {
             UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.18, resetsAt: resets),
             UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.47, resetsAt: resets.addingTimeInterval(3 * 86_400)),
         ]), recordedAt: .now)
+        if UserDefaults.standard.bool(forKey: "snapshotDemoSlashCommands") {
+            slashCommands[session.id] = SlashCommand.claudeBuiltIns + [
+                SlashCommand(RemoteSlashCommand(name: "/compare", summary: "Compare two revisions", source: "project", requiresArguments: false, argumentHint: "<revision>")),
+                SlashCommand(RemoteSlashCommand(name: "/coverage", summary: "Generate a coverage report", source: "user", requiresArguments: false, argumentHint: nil)),
+            ]
+            draftTexts[session.id] = "/co"
+        }
         if !UserDefaults.standard.bool(forKey: "snapshotDemoList") { openedSessionID = session.id }
     }
     #endif
@@ -244,6 +260,12 @@ final class RemoteClient {
 
     func loadChanges(of sessionID: String) {
         send(.changes(sessionID: sessionID))
+    }
+
+    func loadSlashCommands(for sessionID: String) {
+        guard features.contains(RemoteSlashCommand.feature), !requestedSlashCommands.contains(sessionID), send(.commands(sessionID: sessionID)) else { return }
+
+        requestedSlashCommands.insert(sessionID)
     }
 
     func loadImage(_ id: String, variant: RemoteImageVariant) {
@@ -478,6 +500,9 @@ final class RemoteClient {
 
         case let .usage(usage):
             self.usage = usage
+
+        case let .commands(sessionID, commands):
+            slashCommands[sessionID] = commands.map { SlashCommand($0) }
 
         case let .codexUsage(usage):
             codexUsage = usage

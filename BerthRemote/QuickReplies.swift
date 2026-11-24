@@ -21,7 +21,7 @@ extension [QuickReply]: @retroactive RawRepresentable {
     }
 }
 
-struct SlashCommand: Identifiable {
+struct QuickSlashCommand: Identifiable {
     let name: String
     let symbol: String
     let summary: String
