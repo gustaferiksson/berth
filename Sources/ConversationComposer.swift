@@ -137,7 +137,6 @@ struct ConversationComposer: View {
 private struct ConversationComposerLayout: Layout {
     static let inset: CGFloat = 10
     static let controlSize: CGFloat = 24
-    private static let expandedInset: CGFloat = 14
     private static let fieldTop: CGFloat = 12
     private static let fieldGap: CGFloat = 8
 
@@ -152,8 +151,8 @@ private struct ConversationComposerLayout: Layout {
 
     static func fieldBounds(in width: CGFloat, isExpanded: Bool, canAttach: Bool) -> (leading: CGFloat, width: CGFloat) {
         let controlInset = controlSize + 2 * inset
-        let leading: CGFloat = isExpanded || !canAttach ? 16 : controlInset
-        let trailing: CGFloat = isExpanded ? 16 : controlInset
+        let leading: CGFloat = isExpanded ? inset : !canAttach ? 16 : controlInset
+        let trailing: CGFloat = isExpanded ? inset : controlInset
         return (leading, max(0, width - leading - trailing))
     }
 
@@ -165,14 +164,14 @@ private struct ConversationComposerLayout: Layout {
         _ = subviews[1].sizeThatFits(.unspecified)
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 400
         let collapsed = max(fieldHeight, Self.controlSize) + 2 * Self.inset
-        let expanded = Self.fieldTop + fieldHeight + Self.fieldGap + Self.controlSize + Self.expandedInset
+        let expanded = Self.fieldTop + fieldHeight + Self.fieldGap + Self.controlSize + Self.inset
         return CGSize(width: width, height: blend(collapsed, expanded))
     }
 
     func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
         let collapsed = Self.fieldBounds(in: bounds.width, isExpanded: false, canAttach: canAttach)
         let expanded = Self.fieldBounds(in: bounds.width, isExpanded: true, canAttach: canAttach)
-        let controlsInset = blend(Self.inset, Self.expandedInset)
+        let controlsInset = Self.inset
         let controlsTop = bounds.maxY - controlsInset - Self.controlSize
         subviews[0].place(at: CGPoint(x: bounds.minX + controlsInset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
         let fieldY = blend(bounds.midY - fieldHeight / 2, bounds.minY + Self.fieldTop)
