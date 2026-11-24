@@ -211,7 +211,7 @@ CFFIXED_USER_HOME="$trace_home" xcrun xctrace export --input "$out/conversation.
 
 `-snapshotConversationQueued "<text>"` adds a queued prompt to the fixture (use with `-snapshotConversationStatus busy`; the fixture already runs a background shell and agent, so the agents pill shows), and `-snapshotConversationSubagent YES` opens the invented docs agent conversation directly, including its prompt, tool call and reply. Use with `-snapshotConversation YES`.
 
-`-snapshotConversationDrive "<step>|…"` (type:, attach:, remove:, send:, decline:, stop, show, allow, deny, choose:<n>, status:<s>[/<waitingFor>], restamp, drop, wait:<ms>, snap:<name>, log), `-snapshotConversationWaitingFor`, `-snapshotConversationPending bash|edit|question|plan` and `-snapshotConversationRawLog /abs/file` (raw-mode pty logger, so Esc and digits reach the file) prove what reaches the pty.
+`-snapshotConversationDrive "<step>|…"` (type:, attach:, remove:, send:, decline:, stop, show, allow, deny, choose:<n>, status:<s>[/<waitingFor>], restamp, drop, wait:<ms>, snap:<name>, burst:<count>:<interval ms>:<name> (saves `<out>.<name>-<n>.png` frames right after the previous type or send step, to catch an animation), log), `-snapshotConversationWaitingFor`, `-snapshotConversationPending bash|edit|question|plan` and `-snapshotConversationRawLog /abs/file` (raw-mode pty logger, so Esc and digits reach the file) prove what reaches the pty.
 
 ### Session host (see docs/adr/0006)
 

@@ -8,6 +8,8 @@ struct ConversationComposerField: NSViewRepresentable {
     let color: NSColor
     let promptColor: NSColor?
     let focusRequest: Int
+    let layoutWidth: CGFloat
+    let reportHeight: (CGFloat) -> Void
     let submit: () -> Void
     let attach: ([URL]) -> String
 
@@ -27,10 +29,10 @@ struct ConversationComposerField: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
+        textView.autoresizingMask = []
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.widthTracksTextView = false
         textView.writingToolsBehavior = .none
         textView.setAccessibilityLabel("Message")
         textView.registerForDraggedTypes([.fileURL])
@@ -38,7 +40,7 @@ struct ConversationComposerField: NSViewRepresentable {
         let scrollView = NSScrollView()
         scrollView.documentView = textView
         scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = false
+        scrollView.hasVerticalScroller = true
         scrollView.scrollerStyle = .overlay
         scrollView.autohidesScrollers = true
         return scrollView
@@ -74,10 +76,10 @@ struct ConversationComposerField: NSViewRepresentable {
         DispatchQueue.main.async { textView.window?.makeFirstResponder(textView) }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context _: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         guard let textView = nsView.documentView as? ComposerTextView, let layout = textView.textLayoutManager else { return nil }
 
-        let width = proposal.width ?? 400
+        let width = layoutWidth > 0 ? layoutWidth : proposal.width ?? 400
         let lineHeight = ceil(NSLayoutManager().defaultLineHeight(for: font))
         textView.frame.size.width = width
         layout.textContainer?.size = NSSize(width: width, height: .greatestFiniteMagnitude)
@@ -85,13 +87,22 @@ struct ConversationComposerField: NSViewRepresentable {
         let used = layout.usageBoundsForTextContainer.height
         let inset = textView.textContainerInset.height * 2
         let maxHeight = lineHeight * Self.maxLines
-        nsView.hasVerticalScroller = used > maxHeight
-        return CGSize(width: width, height: min(max(used, lineHeight), maxHeight) + inset)
+        let height = min(max(used, lineHeight), maxHeight)
+        if textView.selectedRange().location == (textView.string as NSString).length {
+            nsView.contentView.scroll(to: NSPoint(x: 0, y: max(0, used - height)))
+        }
+        if context.coordinator.reportedHeight != height {
+            context.coordinator.reportedHeight = height
+            let report = reportHeight
+            DispatchQueue.main.async { report(height) }
+        }
+        return CGSize(width: proposal.width ?? width, height: height + inset)
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ConversationComposerField
         var focusRequest = 0
+        var reportedHeight: CGFloat = 0
 
         init(_ parent: ConversationComposerField) {
             self.parent = parent

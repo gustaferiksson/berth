@@ -16,13 +16,17 @@ struct ConversationComposer: View {
     @Environment(\.ghosttyTheme) private var theme
     @State private var isImporting = false
     @State private var width: CGFloat = 0
+    @State private var fieldHeight: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let draft = model.draft
         let stops = isWorking && draft.isEmpty
+        let canSend = stops || !(draft.isEmpty || model.isSending)
         let font = isShell ? theme.font : NSFont.systemFont(ofSize: theme.font.pointSize)
         let singleRowWidth = ConversationComposerLayout.fieldBounds(in: width, isExpanded: false, canAttach: canAttach).width
         let isExpanded = !draft.files.isEmpty || draft.text.contains(where: \.isNewline) || width > 0 && (draft.text as NSString).size(withAttributes: [.font: font]).width > singleRowWidth
+        let animation = reduceMotion ? nil : Animation.smooth(duration: 0.25)
         let inset = ConversationComposerLayout.inset
         let controlSize = ConversationComposerLayout.controlSize
         let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
@@ -51,7 +55,7 @@ struct ConversationComposer: View {
                         }
                         .padding([.horizontal, .top], inset)
                     }
-                    ConversationComposerLayout(isExpanded: isExpanded, canAttach: canAttach) {
+                    ConversationComposerLayout(progress: isExpanded ? 1 : 0, fieldHeight: fieldHeight, canAttach: canAttach) {
                         if canAttach {
                             Menu {
                                 Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
@@ -76,39 +80,37 @@ struct ConversationComposer: View {
                             color: NSColor(theme.foreground),
                             promptColor: isShell ? NSColor(theme.shellAttached) : nil,
                             focusRequest: focusRequest,
+                            layoutWidth: ConversationComposerLayout.fieldBounds(in: width, isExpanded: isExpanded, canAttach: canAttach).width,
+                            reportHeight: { height in
+                                guard fieldHeight > 0 else { return fieldHeight = height }
+
+                                withAnimation(animation) { fieldHeight = height }
+                            },
                             submit: send,
                             attach: { canAttach ? model.attach($0) : "" }
                         )
-                        if stops || !(draft.isEmpty || model.isSending) {
-                            Button {
-                                guard stops else { return send() }
+                        Button {
+                            guard stops else { return send() }
 
-                                model.interrupt()
-                            } label: {
-                                Image(systemName: stops ? "stop.fill" : "arrow.up")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: controlSize, height: controlSize)
-                                    .background(Color.accentColor, in: .circle)
-                                    .contentShape(.circle)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(stops ? "Stop" : "Send")
-                            .help(stops ? "Stop \(harnessName)" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
-                        } else {
-                            Image(systemName: "arrow.up")
+                            model.interrupt()
+                        } label: {
+                            Image(systemName: stops ? "stop.fill" : "arrow.up")
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(canSend ? AnyShapeStyle(.white) : AnyShapeStyle(.tertiary))
                                 .frame(width: controlSize, height: controlSize)
-                                .background(.quaternary, in: .circle)
-                                .accessibilityLabel("Send, unavailable")
+                                .background(canSend ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary), in: .circle)
+                                .contentShape(.circle)
                         }
+                        .buttonStyle(.plain)
+                        .allowsHitTesting(canSend)
+                        .accessibilityLabel(canSend ? (stops ? "Stop" : "Send") : "Send, unavailable")
+                        .help(stops ? "Stop \(harnessName)" : waiting != nil ? "Deny and Send (↩)" : "Send (↩)")
                     }
                 }
                 .overlay { shape.strokeBorder(theme.shellAttached.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
                 .glassEffect(.regular, in: shape)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-                .animation(isExpanded ? .smooth(duration: 0.2) : nil, value: isExpanded)
+                .animation(animation, value: isExpanded)
                 .animation(.smooth(duration: 0.2), value: isShell)
             }
         }
@@ -132,8 +134,14 @@ private struct ConversationComposerLayout: Layout {
     private static let fieldTop: CGFloat = 12
     private static let fieldGap: CGFloat = 8
 
-    let isExpanded: Bool
+    var progress: CGFloat
+    var fieldHeight: CGFloat
     let canAttach: Bool
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(progress, fieldHeight) }
+        set { (progress, fieldHeight) = (newValue.first, newValue.second) }
+    }
 
     static func fieldBounds(in width: CGFloat, isExpanded: Bool, canAttach: Bool) -> (leading: CGFloat, width: CGFloat) {
         let controlInset = controlSize + 2 * inset
@@ -142,23 +150,28 @@ private struct ConversationComposerLayout: Layout {
         return (leading, max(0, width - leading - trailing))
     }
 
+    private func blend(_ collapsed: CGFloat, _ expanded: CGFloat) -> CGFloat {
+        collapsed + (expanded - collapsed) * progress
+    }
+
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
+        _ = subviews[1].sizeThatFits(.unspecified)
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 400
-        let field = Self.fieldBounds(in: width, isExpanded: isExpanded, canAttach: canAttach)
-        let fieldHeight = subviews[1].sizeThatFits(ProposedViewSize(width: field.width, height: nil)).height
-        let height = isExpanded ? Self.fieldTop + fieldHeight + Self.fieldGap + Self.controlSize + Self.expandedInset : max(fieldHeight, Self.controlSize) + 2 * Self.inset
-        return CGSize(width: width, height: height)
+        let collapsed = max(fieldHeight, Self.controlSize) + 2 * Self.inset
+        let expanded = Self.fieldTop + fieldHeight + Self.fieldGap + Self.controlSize + Self.expandedInset
+        return CGSize(width: width, height: blend(collapsed, expanded))
     }
 
     func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
-        let field = Self.fieldBounds(in: bounds.width, isExpanded: isExpanded, canAttach: canAttach)
-        let controlsInset = isExpanded ? Self.expandedInset : Self.inset
-        let controlsTop = isExpanded ? bounds.maxY - controlsInset - Self.controlSize : bounds.midY - Self.controlSize / 2
+        let collapsed = Self.fieldBounds(in: bounds.width, isExpanded: false, canAttach: canAttach)
+        let expanded = Self.fieldBounds(in: bounds.width, isExpanded: true, canAttach: canAttach)
+        let controlsInset = blend(Self.inset, Self.expandedInset)
+        let controlsTop = blend(bounds.midY - Self.controlSize / 2, bounds.maxY - Self.expandedInset - Self.controlSize)
         subviews[0].place(at: CGPoint(x: bounds.minX + controlsInset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
         subviews[1].place(
-            at: CGPoint(x: bounds.minX + field.leading, y: isExpanded ? bounds.minY + Self.fieldTop : bounds.midY),
-            anchor: isExpanded ? .topLeading : .leading,
-            proposal: ProposedViewSize(width: field.width, height: nil)
+            at: CGPoint(x: bounds.minX + blend(collapsed.leading, expanded.leading), y: blend(bounds.midY - fieldHeight / 2, bounds.minY + Self.fieldTop)),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: blend(collapsed.width, expanded.width), height: fieldHeight)
         )
         subviews[2].place(at: CGPoint(x: bounds.maxX - controlsInset, y: controlsTop), anchor: .topTrailing, proposal: .unspecified)
     }
