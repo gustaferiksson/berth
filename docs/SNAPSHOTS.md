@@ -161,6 +161,8 @@ Add `-snapshotLauncherLoading YES` to `-snapshotIssues ""` or `-snapshotPullRequ
 
 `-snapshotConversation YES` (needs an empty `CFFIXED_USER_HOME`; pass `-reviewEnabled NO`, `-conversationEnabled YES`; `-snapshotConversationStatus busy|waiting|idle`, `-snapshotConversationMode auto|plan|acceptEdits|default` (the permission mode the status bar shows; for the branch counts make `/private/tmp/berth-conversation-fixture` a git repo with an upstream), `-snapshotConversationExpanded YES`, `-snapshotConversationHeight <pt>`) seeds an invented transcript, saves `<out>.conversation.png` and `<out>.terminal.png` and prints the surface identity across toggles.
 
+Add `-snapshotConversationEmpty YES` to open a session with zero turns, and use `-snapshotConversationWidth <pt>` to set the capture width (1100 pt by default).
+
 The Claude fixture includes bash-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
 
 `-snapshotConversationAgent codex` with `-codexEnabled YES` seeds an invented Codex rollout and opens a Codex conversation tab without fake live status. `-snapshotConversationStatus busy` leaves its final turn open; other statuses close it with task_complete. `-snapshotTerminalTitle "<text>"` sets the tab terminal's OSC title, so `[ ! ] Action Required`, `Thinking` or `Ready` drives the Codex live status. The fixture includes command output, updated and added files, a web search, a plan, a final reply, context usage and a pull request URL.
