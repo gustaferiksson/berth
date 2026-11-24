@@ -303,7 +303,7 @@ extension Snapshot {
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base)
+        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base)
         let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
         guard repetitions > 1 else { return records }
 
@@ -338,6 +338,12 @@ extension Snapshot {
             return true
         }
         return image.tiffRepresentation.flatMap { NSBitmapImageRep(data: $0)?.representation(using: format, properties: [:]) } ?? Data()
+    }
+
+    private static func imageOnlyRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        guard UserDefaults.standard.bool(forKey: "snapshotConversationImageOnly") else { return [] }
+
+        return [base("user", 1, ["role": "user", "content": [["type": "text", "text": "[Image #1]"], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]]])]
     }
 
     private static func queuedRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {

@@ -73,6 +73,9 @@ struct ConversationPrompt: View {
     private var promptBubble: some View {
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 2, topTrailingRadius: 10, style: .continuous)
 
+        let hasImages = entry.images?.isEmpty == false
+        let showsText = !entry.text.isEmpty && !(hasImages && entry.text.replacing(PromptTextPart.imageToken, with: "").allSatisfy(\.isWhitespace))
+
         return VStack(alignment: .trailing, spacing: 6) {
             if let images = entry.images {
                 let numbers = entry.imageNumbers ?? Array(1...max(images.count, 1))
@@ -82,7 +85,7 @@ struct ConversationPrompt: View {
                     }
                 }
             }
-            if !entry.text.isEmpty {
+            if showsText {
                 ConversationTextView(text: Self.attributed(entry.text, theme: theme, displayScale: displayScale), selectionID: selectionID, sizing: .hug)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
