@@ -14,6 +14,8 @@ Text arrives per content block, not per token. `Store.focusSelected()` focuses t
 
 Drops land on an AppKit `ConversationDropTarget` overlay over the card and composer. Run Berth snapshots under `env -i PATH=/usr/bin:/bin` from a Ghostty shell, or `ghostty_surface_new` crashes on the inherited environment.
 
+Up in an empty composer pulls the queued prompts back (`ConversationModel.recallQueued`): while Claude is busy it sends Up to the pty, which makes Claude Code move every queued prompt into its input box (`popAll` records empty the queue), then Ctrl+U clears that box and the composer takes the prompts joined by newlines. Up does nothing special when nothing is queued.
+
 Agent cards and running-agent popover rows open a conversation-pane overlay with Back/Escape navigation, reading turns incrementally from the subagent JSONL through the harness and watching its directory for live transcript and metadata updates.
 
 Claude bash-mode commands appear as shell rows on Mac and Remote with stdout and stderr folded after four lines.

@@ -95,6 +95,10 @@ public enum PendingPrompts {
         queued + unqueued(pending, queued: queued).map(\.text)
     }
 
+    public static func recall(_ queued: [String], pending: [PendingPrompt]) -> (text: String, pending: [PendingPrompt]) {
+        (queued.joined(separator: "\n"), pending.filter { $0.isFailed || !isQueued($0, queued: queued) })
+    }
+
     private static func isQueued(_ prompt: PendingPrompt, queued: [String]) -> Bool {
         if queued.contains(prompt.text) { return true }
 
