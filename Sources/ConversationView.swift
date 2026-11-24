@@ -6,7 +6,6 @@ struct ConversationView: View {
     let tab: Tab
 
     @Environment(Store.self) private var store
-    @Environment(\.ghosttyTheme) private var theme
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
@@ -25,6 +24,8 @@ struct ConversationView: View {
         let resolvedApproval = model.approval(for: live, harness: harness)
         let approval = resolvedApproval ?? (waitingFor == nil ? nil : .loading)
         let waiting = live.flatMap { $0.status == "waiting" ? (waitingFor: $0.waitingFor, since: $0.statusUpdatedAt) : nil }
+        let hasMessages = !model.turns.isEmpty || !model.queued.isEmpty || !model.pending.isEmpty
+        let showsStart = model.hasLoaded && !hasMessages && approval == nil && waiting == nil
         let needsTerminal = (harness.liveSource == .sessionFiles || live != nil) && model.hasLoaded && ConversationFallback.needsTerminal(live: live, approval: resolvedApproval, tabAge: now.timeIntervalSince(tab.opened), now: now)
 
         let canDeny = harness.approvalKeys.deny == .escape || approval?.isPermission == true
@@ -40,7 +41,13 @@ struct ConversationView: View {
                 now = .now
             }
             .onChange(of: live?.status) { model.refresh() }
-            .overlay(alignment: .bottom) {
+            .overlay {
+                if !model.hasLoaded {
+                    ConversationSpinner()
+                        .allowsHitTesting(false)
+                }
+            }
+            .overlay {
                 ConversationBottomBar(
                     model: model,
                     tab: tab,
@@ -53,12 +60,14 @@ struct ConversationView: View {
                     approval: approval,
                     waiting: waiting,
                     denial: denial,
+                    showsStart: showsStart,
+                    hasMessages: hasMessages,
+                    barHeight: $barHeight,
                     composerFocus: $composerFocus,
                     jump: { _ = scrollToLatest() },
                     answer: { _ = answer($0, waiting) },
                     deny: { _ = deny(denial) }
                 )
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
             }
             .overlay {
                 ConversationDropTarget(isTargeted: $isDropTargeted) { files in
@@ -95,9 +104,6 @@ struct ConversationView: View {
 
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
-                if model.turns.isEmpty, model.queued.isEmpty, pending.isEmpty {
-                    emptyState
-                }
                 ForEach(model.turns) { turn in
                     let isCurrent = turn.id == model.turns.last?.id
                     ConversationTurnView(
@@ -173,18 +179,6 @@ struct ConversationView: View {
             .onChange(of: isActionable) {
                 if isActionable, isDraftEmpty { isFocused = true } else if !isActionable { composerFocus += 1 }
             }
-    }
-
-    private var emptyState: some View {
-        Group {
-            if model.hasLoaded {
-                ContentUnavailableView("No Messages Yet", systemImage: "text.bubble", description: Text("The conversation appears here once this session has a prompt."))
-            } else {
-                ConversationSpinner()
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(.top, 80)
     }
 
     private func answer(_ key: RemoteKey, _ waiting: (waitingFor: String?, since: Double?)?) -> KeyPress.Result {
@@ -526,6 +520,9 @@ private struct ConversationBottomBar: View {
     let approval: PendingApproval?
     let waiting: (waitingFor: String?, since: Double?)?
     let denial: (waitingFor: String?, since: Double?)?
+    let showsStart: Bool
+    let hasMessages: Bool
+    @Binding var barHeight: CGFloat
     @Binding var composerFocus: Int
     let jump: () -> Void
     let answer: (RemoteKey) -> Void
@@ -533,11 +530,50 @@ private struct ConversationBottomBar: View {
 
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var branch: ReviewBranchSummary?
 
     var body: some View {
+        ConversationBarLayout(centering: showsStart ? 1 : 0) {
+            VStack(spacing: 6) {
+                Text(verbatim: URL(filePath: tab.folder).lastPathComponent)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(theme.foreground)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            .lineLimit(1)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 22)
+            .opacity(showsStart ? 1 : 0)
+            .accessibilityHidden(!showsStart)
+            .allowsHitTesting(false)
+
+            bar
+                .geometryGroup()
+        }
+        .background(alignment: .bottom) {
+            if !showsStart {
+                LinearGradient(colors: [.clear, theme.background ?? Color(nsColor: .textBackgroundColor)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: barHeight)
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(reduceMotion || !hasMessages ? nil : .smooth, value: showsStart)
+        .task(id: [tab.folder, String(isWorking)]) {
+            while !Task.isCancelled {
+                let summary = await ReviewGit.branchSummary(in: tab.folder)
+                guard !Task.isCancelled else { return }
+
+                branch = summary
+                try? await Task.sleep(for: .seconds(20))
+            }
+        }
+    }
+
+    private var bar: some View {
         let isShell = harness.supports(.bashMode) && model.draft.text.hasPrefix("!")
 
-        VStack(spacing: 10) {
+        return VStack(spacing: 10) {
             if let approval, approval.isActionable || approval == .loading {
                 ConversationApprovalCard(
                     approval: approval,
@@ -550,7 +586,7 @@ private struct ConversationBottomBar: View {
                 )
                 .transition(.blurReplace)
             }
-            if waiting == nil, model.isTurnOpen, harness.readApproval != nil || !harness.supports(.approvals) {
+            if !showsStart, waiting == nil, model.isTurnOpen, harness.readApproval != nil || !harness.supports(.approvals) {
                 TimelineView(.periodic(from: .now, by: 5)) { timeline in
                     if timeline.date.timeIntervalSince(model.lastChange) > 20 {
                         HStack {
@@ -565,18 +601,44 @@ private struct ConversationBottomBar: View {
             }
             VStack(spacing: 2) {
                 ConversationComposer(model: model, harnessName: harness.name, canAttach: canAttach, isShell: isShell, isWorking: isWorking, waiting: denial, focusRequest: composerFocus)
-                SessionStatusBar(model: model, tab: tab, harness: harness, isShell: isShell, isWorking: isWorking, isWaiting: waiting != nil)
+                SessionStatusBar(model: model, tab: tab, harness: harness, isShell: isShell, isWorking: isWorking, isWaiting: waiting != nil, summary: branch)
             }
         }
         .frame(maxWidth: 860)
         .padding(.horizontal, 18)
         .padding(.bottom, 8)
         .overlay(alignment: .top) {
-            ConversationStatusBar(agent: tab.agent, since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
-                .alignmentGuide(.top) { $0[.bottom] + 10 }
+            if !showsStart {
+                ConversationStatusBar(agent: tab.agent, since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
+                    .alignmentGuide(.top) { $0[.bottom] + 10 }
+            }
         }
         .frame(maxWidth: .infinity)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
         .animation(.smooth, value: isActive)
         .animation(.smooth, value: approval)
+    }
+}
+
+private struct ConversationBarLayout: Layout {
+    var centering: Double
+
+    var animatableData: Double {
+        get { centering }
+        set { centering = newValue }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews _: Subviews, cache _: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
+        let width = ProposedViewSize(width: bounds.width, height: nil)
+        let heading = subviews[0].sizeThatFits(width).height
+        let bottom = bounds.maxY - subviews[1].sizeThatFits(width).height
+        let center = max(bounds.minY + heading, (bounds.minY + bottom + heading) / 2)
+        let top = bottom + (center - bottom) * centering
+        subviews[0].place(at: CGPoint(x: bounds.midX, y: top), anchor: .bottom, proposal: width)
+        subviews[1].place(at: CGPoint(x: bounds.midX, y: top), anchor: .top, proposal: width)
     }
 }

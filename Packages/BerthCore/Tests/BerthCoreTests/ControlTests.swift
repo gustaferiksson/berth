@@ -49,6 +49,43 @@ struct ControlTests {
         #expect(folderMode == 0o700)
     }
 
+    @Test func theControlTokenSurvivesRelaunch() throws {
+        let directory = try Self.shortDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        let control = directory + "/control"
+        let path = ControlEnvironment.socketPath(directory: control)
+        let tokenPath = control + "/token"
+        let token = try ControlEnvironment.persistentToken(directory: control)
+        #expect(try FileManager.default.attributesOfItem(atPath: control)[.posixPermissions] as? Int == 0o700)
+        #expect(try FileManager.default.attributesOfItem(atPath: tokenPath)[.posixPermissions] as? Int == 0o600)
+
+        let server = ControlServer(path: path, token: token) { _ in ControlResponse() }
+        try server.start()
+        server.stop()
+
+        let savedToken = try ControlEnvironment.persistentToken(directory: control)
+        let relaunched = ControlServer(path: path, token: savedToken) { _ in ControlResponse() }
+        try relaunched.start()
+        defer { relaunched.stop() }
+
+        let response = try ControlClient.send(ControlRequest(token: token, caller: "caller-tab", operation: .list), socketPath: path)
+        #expect(response.succeeded)
+    }
+
+    @Test func aMalformedControlTokenIsReplaced() throws {
+        let directory = try Self.shortDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+
+        let file = URL(filePath: directory + "/token")
+        try Data(String(repeating: "z", count: 64).utf8).write(to: file)
+
+        let token = try ControlEnvironment.persistentToken(directory: directory)
+        #expect(token.wholeMatch(of: /[0-9a-f]{64}/) != nil)
+        #expect(try String(contentsOf: file, encoding: .utf8) == token)
+        #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int == 0o600)
+    }
+
     @Test func aWrongTokenNeverReachesTheHandler() throws {
         let directory = try Self.shortDirectory()
         defer { try? FileManager.default.removeItem(atPath: directory) }
@@ -65,6 +102,7 @@ struct ControlTests {
         let response = try ControlClient.send(ControlRequest(token: "guess", caller: "x", operation: .list), socketPath: path)
 
         #expect(!response.succeeded)
+        #expect(response.error == "Wrong token: this tab holds an out-of-date Berth token (control was switched off and on, or the tab predates saved tokens). Open a new tab to use berth here.")
         #expect(seen.all.isEmpty)
     }
 

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 public enum ControlOp: String, Codable, Sendable {
@@ -97,9 +98,32 @@ public enum ControlEnvironment {
         directory + "/control.sock"
     }
 
-    /// A fresh unguessable per-launch secret.
+    /// A fresh unguessable control token for a new or invalid token file.
     public static func makeToken() -> String {
         (0..<32).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined()
+    }
+
+    public static func persistentToken(directory: String) throws -> String {
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        guard chmod(directory, 0o700) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+
+        let descriptor = open(directory + "/token", O_RDWR | O_CREAT | O_EXLOCK | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+
+        let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? file.close() }
+
+        guard fchmod(descriptor, 0o600) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+
+        if let data = try file.read(upToCount: 65), let saved = String(data: data, encoding: .utf8), saved.wholeMatch(of: /[0-9A-Fa-f]{64}/) != nil {
+            return saved
+        }
+
+        let token = makeToken()
+        try file.seek(toOffset: 0)
+        try file.truncate(atOffset: 0)
+        try file.write(contentsOf: Data(token.utf8))
+        return token
     }
 
     public static func variables(socketPath: String, token: String, tab: String) -> [String: String] {
