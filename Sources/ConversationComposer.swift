@@ -108,7 +108,7 @@ struct ConversationComposer: View {
                 .overlay { shape.strokeBorder(theme.shellAttached.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
                 .glassEffect(.regular, in: shape)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-                .animation(.smooth(duration: 0.2), value: isExpanded)
+                .animation(isExpanded ? .smooth(duration: 0.2) : nil, value: isExpanded)
                 .animation(.smooth(duration: 0.2), value: isShell)
             }
         }

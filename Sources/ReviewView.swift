@@ -2199,6 +2199,7 @@ private struct GlassCapsuleButtonStyle: ButtonStyle {
 struct ReviewDiffColumn: View {
     let store: Store
     @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.terminal
+    @AppStorage(ReviewStyle.syntaxColorsKey) private var syntaxColors = SyntaxColorSource.terminal
     @AppStorage(ReviewStyle.fontFamilyKey) private var fontFamily = ""
     @AppStorage(ReviewStyle.fontSizeKey) private var fontSize = 0.0
     @AppStorage(ReviewStyle.lineHeightKey) private var lineHeight = 1.3
@@ -2211,7 +2212,7 @@ struct ReviewDiffColumn: View {
     private var isUnified: Bool { diffLayout == .inline || diffLayout == .auto && isNarrow }
 
     var body: some View {
-        let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme)
+        let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme).withSyntaxColors(syntaxColors)
         Group {
             if let model = store.reviewModel, model.isPreviewSelected {
                 VStack(spacing: 0) {

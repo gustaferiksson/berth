@@ -37,6 +37,7 @@ enum ConversationHighlighting {
 
     private static func style(_ theme: GhosttyTheme) -> ReviewStyle {
         ReviewStyle(scheme: .terminal, fontFamily: "", fontSize: 0, lineHeightMultiple: 1, ghostty: theme)
+            .withSyntaxColors(SyntaxColorSource(rawValue: UserDefaults.standard.string(forKey: ReviewStyle.syntaxColorsKey) ?? "") ?? .terminal)
     }
 
     private static func colored(_ text: String, language: String?, style: ReviewStyle) async -> NSAttributedString? {
