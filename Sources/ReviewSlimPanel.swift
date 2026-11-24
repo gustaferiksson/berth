@@ -10,75 +10,59 @@ enum ReviewSlimScope: String {
 extension ReviewFileList {
     func slimPanel(_ changes: ReviewChanges?) -> some View {
         let shown = changes.flatMap { shownPullRequest(root: nil, branch: $0.branch) }
-        let pullRequest = shown?.pullRequest
-        let detail = pullRequest.flatMap { model.pullRequestDetails[$0.number] }
+        let changeCount = changes.map { $0.uncommitted.count + $0.committed.count } ?? 0
+        let commitCount = model.status?.commits.count ?? 0
         return VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    if let changes {
-                        HStack(spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        if let changes {
                             Text(changes.branch)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(theme.branch)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                                 .help(changes.branch)
-                            if !changes.isDefaultBranch, let base = changes.base {
-                                baseMenu(base, candidates: changes.bases)
-                            }
                         }
-                        .font(.caption.monospaced())
-                        .foregroundStyle(theme.branch)
+                        Spacer(minLength: 0)
+                        if let changes { panelWarnings(changes) }
+                        treeToggle(changes)
+                        refreshButton
                     }
-                    Spacer(minLength: 0)
-                    if let changes { panelWarnings(changes) }
-                    treeToggle(changes)
-                    refreshButton
+                    .font(.callout)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(theme.secondary)
+                    if let changes {
+                        slimBranchSummary(changes, status: model.status)
+                    }
                 }
-                .font(.callout)
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .foregroundStyle(theme.secondary)
-                if let changes {
-                    slimSummary(changes, pullRequest: pullRequest, detail: detail, knowsPullRequest: shown != nil)
-                    if shown != nil, pullRequest == nil, !changes.isDefaultBranch, changes.base != nil, (model.status?.ahead ?? 0) > 0 {
-                        slimCreatePullRequest(live: store.liveBySession[sessionID] != nil)
-                    }
-                    if let pullRequest {
-                        HStack(spacing: 4) {
-                            Text(pullRequest.title)
-                                .font(.callout)
-                                .foregroundStyle(theme.foreground)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .help(pullRequest.title)
-                            Spacer(minLength: 0)
-                            Menu("Pull Request Actions", systemImage: "ellipsis") {
-                                Button("Open on GitHub", systemImage: "arrow.up.right.square") { openURL(pullRequest.url) }
-                                if let repository = shown?.repository, [.open, .draft].contains(pullRequest.state) {
-                                    StewardPullRequestButton(link: PullRequestLink(repository: repository, number: pullRequest.number), url: pullRequest.url)
-                                }
-                            }
-                            .labelStyle(.iconOnly)
-                            .menuStyle(.button)
-                            .buttonStyle(.borderless)
-                            .menuIndicator(.hidden)
+                if let shown, let pullRequest = shown.pullRequest {
+                    slimPullRequestBlock(pullRequest, detail: model.pullRequestDetails[pullRequest.number], repository: shown.repository)
+                } else if let changes, shown != nil {
+                    if changes.base != nil, (model.status?.ahead ?? 0) > 0 {
+                        let live = store.liveBySession[sessionID] != nil
+                        Button("Create Pull Request…", action: createPullRequest)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(!live)
+                            .help(live ? "Paste a prompt asking Claude to push this branch and open a pull request" : "Claude isn’t running in this tab")
+                    } else {
+                        Text("No pull request")
+                            .font(.caption)
                             .foregroundStyle(theme.secondary)
-                            .fixedSize()
-                        }
-                    }
-                    if let status = model.status {
-                        slimBranchStatus(status, changes: changes)
                     }
                 }
             }
             .padding(.horizontal, ReviewInset.content)
             .padding(.top, 12)
-            .padding(.bottom, 10)
+            .padding(.bottom, 8)
             movedFolderNotice
             VStack(spacing: 0) {
                 Picker("Review scope", selection: changes == nil ? .constant(.changes) : slimScope) {
-                    (detail?.changedFiles.map { Text("Changes \($0)") } ?? Text("Changes"))
+                    (changeCount > 0 ? Text("Changes \(changeCount)") : Text("Changes"))
                         .tag(ReviewSlimScope.changes)
-                    (detail?.commits.map { Text("Commits \($0)") } ?? Text("Commits"))
+                    (commitCount > 0 ? Text("Commits \(commitCount)") : Text("Commits"))
                         .tag(ReviewSlimScope.commits)
                     Text("Files").tag(ReviewSlimScope.files)
                 }
@@ -90,7 +74,7 @@ extension ReviewFileList {
             }
             .frame(minWidth: 0, maxWidth: .infinity)
             .padding(.horizontal, ReviewInset.content)
-            .padding(.top, 10)
+            .padding(.top, 8)
             .padding(.bottom, 8)
             Rectangle()
                 .fill(theme.foreground.opacity(0.1))
@@ -111,113 +95,117 @@ extension ReviewFileList {
         .environment(\.defaultMinListRowHeight, 0)
     }
 
-    private func slimSummary(_ changes: ReviewChanges, pullRequest: PullRequest?, detail: PullRequestDetail?, knowsPullRequest: Bool) -> some View {
-        HStack(spacing: 6) {
-            slimPullRequestFacts(pullRequest, detail: detail, knowsPullRequest: knowsPullRequest)
-            Spacer(minLength: 0)
-            slimBranchTotal(changes)
-                .layoutPriority(1)
-        }
-        .font(.caption)
-        .lineLimit(1)
-    }
-
     @ViewBuilder
-    private func slimPullRequestFacts(_ pullRequest: PullRequest?, detail: PullRequestDetail?, knowsPullRequest: Bool) -> some View {
-        if let pullRequest {
-            PullRequestStatePill(pullRequest: pullRequest, isSlim: true)
-            ReviewSlimPullRequestLink(pullRequest: pullRequest)
-            if let checks = detail?.checks {
-                let icon: (String, Color) = switch checks.state {
-                case .passed: ("checkmark.circle.fill", theme.working)
-                case .failed: ("xmark.circle.fill", theme.closed)
-                case .running: ("clock", theme.needsYou)
-                }
-                let description = "Checks · \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running"
-                Label("\(checks.passed)/\(checks.passed + checks.failed + checks.running)", systemImage: icon.0)
-                    .labelStyle(CompactLabel())
-                    .monospacedDigit()
-                    .foregroundStyle(icon.1)
-                    .help(description)
-                    .accessibilityLabel(description)
-            }
-            if let decision = detail?.reviewDecision.flatMap(InboxPullRequest.ReviewDecision.init(rawValue:)) ?? pullRequest.reviewDecision {
-                let tag: (String, String, Color) = switch decision {
-                case .approved: ("Approved", "checkmark.seal", theme.working)
-                case .changesRequested: ("Changes requested", "exclamationmark.bubble", theme.closed)
-                case .reviewRequired: ("Review required", "person.crop.circle.badge.questionmark", theme.needsYou)
-                }
-                Image(systemName: tag.1)
-                    .foregroundStyle(tag.2)
-                    .help(tag.0)
-                    .accessibilityLabel(tag.0)
-            }
-            if let detail {
-                let count = detail.unresolvedThreads
-                Button { showSlimThreadSection(detail) } label: {
-                    Label("\(count)", systemImage: "bubble.left")
-                        .labelStyle(CompactLabel())
+    private func slimBranchSummary(_ changes: ReviewChanges, status: ReviewBranchStatus?) -> some View {
+        if !changes.isDefaultBranch, let base = changes.base {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                baseMenu(base, candidates: changes.bases)
+                    .foregroundStyle(theme.branch)
+                if let status {
+                    let counts = [
+                        status.ahead > 0 ? "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits") ahead" : nil,
+                        status.behind > 0 ? "\(status.behind) behind" : nil,
+                    ].compactMap(\.self)
+                    Text(counts.isEmpty ? "No new commits" : counts.joined(separator: ", "))
                         .monospacedDigit()
+                        .foregroundStyle(theme.secondary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(theme.foreground)
-                .disabled(detail.threads.isEmpty)
-                .help(detail.threads.isEmpty ? "No review threads" : "Show Review Threads")
-                .accessibilityLabel("\(count) unresolved review threads")
             }
-        } else if knowsPullRequest {
-            Text("No pull request")
-                .foregroundStyle(theme.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(theme.foreground.opacity(0.08), in: .rect(cornerRadius: 4))
+            .font(.caption)
         }
-    }
-
-    @ViewBuilder
-    private func slimBranchTotal(_ changes: ReviewChanges) -> some View {
-        if let total = changes.total {
-            HStack(spacing: 4) {
-                Text("+\(total.additions)").foregroundStyle(total.additions == 0 ? theme.secondary : theme.working)
-                Text("−\(total.deletions)").foregroundStyle(total.deletions == 0 ? theme.secondary : theme.closed)
-            }
-            .monospacedDigit()
-            .fixedSize()
-            .help("Changes against \(changes.base ?? ""), uncommitted included")
-            .accessibilityLabel("Branch total, \(total.additions) additions and \(total.deletions) deletions")
-        }
-    }
-
-    private func slimCreatePullRequest(live: Bool) -> some View {
-        Button("Create Pull Request…", action: createPullRequest)
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(!live)
-            .help(live ? "Paste a prompt asking Claude to push this branch and open a pull request" : "Claude isn’t running in this tab")
-    }
-
-    @ViewBuilder
-    private func slimBranchStatus(_ status: ReviewBranchStatus, changes: ReviewChanges) -> some View {
-        let base = status.ahead > 0 || status.behind > 0 ? "↑\(status.ahead) ↓\(status.behind)" : nil
-        let push = if let upstream = status.upstream {
-            [
-                upstream.ahead > 0 ? "\(upstream.ahead) not pushed" : nil,
-                upstream.behind > 0 ? "\(upstream.behind) behind \(upstream.name)" : nil,
-            ].compactMap(\.self).joined(separator: " · ")
-        } else if status.ahead > 0 || !status.commits.isEmpty {
-            "No upstream"
-        } else {
-            ""
-        }
-        let caption = [base, push.isEmpty ? nil : push].compactMap(\.self).joined(separator: " · ")
-        if !caption.isEmpty {
+        if let status {
+            let caption = slimPushState(status.upstream)
             Text(caption)
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(theme.secondary)
-                .lineLimit(1)
-                .help("↑ Ahead and ↓ behind \(changes.base ?? "the base") · \(caption)")
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .help(caption)
         }
+    }
+
+    private func slimPushState(_ upstream: ReviewUpstream?) -> String {
+        guard let upstream else { return "No upstream branch" }
+
+        let counts = [
+            upstream.ahead > 0 ? "\(upstream.ahead) not pushed" : nil,
+            upstream.behind > 0 ? "\(upstream.behind) behind \(upstream.name)" : nil,
+        ].compactMap(\.self)
+        return counts.isEmpty ? "Up to date with \(upstream.name)" : counts.joined(separator: " · ")
+    }
+
+    private func slimPullRequestBlock(_ pullRequest: PullRequest, detail: PullRequestDetail?, repository: String) -> some View {
+        let isActive = [.open, .draft].contains(pullRequest.state)
+        return VStack(alignment: .leading, spacing: 3) {
+            Text("Pull request")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.secondary)
+            HStack(spacing: 6) {
+                PullRequestStatePill(pullRequest: pullRequest, isSlim: true)
+                ReviewSlimPullRequestLink(pullRequest: pullRequest)
+                if let checks = detail?.checks {
+                    let icon: (String, Color) = switch checks.state {
+                    case .passed: ("checkmark.circle.fill", theme.working)
+                    case .failed: ("xmark.circle.fill", theme.closed)
+                    case .running: ("clock", theme.needsYou)
+                    }
+                    let description = "Checks · \(checks.passed) passed, \(checks.failed) failed, \(checks.running) running"
+                    Label("\(checks.passed)/\(checks.passed + checks.failed + checks.running)", systemImage: icon.0)
+                        .labelStyle(CompactLabel())
+                        .monospacedDigit()
+                        .foregroundStyle(icon.1)
+                        .help(description)
+                        .accessibilityLabel(description)
+                }
+                if let decision = detail?.reviewDecision.flatMap(InboxPullRequest.ReviewDecision.init(rawValue:)) ?? pullRequest.reviewDecision {
+                    let tag: (String, String, Color) = switch decision {
+                    case .approved: ("Approved", "checkmark.seal", theme.working)
+                    case .changesRequested: ("Changes requested", "exclamationmark.bubble", theme.closed)
+                    case .reviewRequired: ("Review required", "person.crop.circle.badge.questionmark", theme.needsYou)
+                    }
+                    Image(systemName: tag.1)
+                        .foregroundStyle(tag.2)
+                        .help(tag.0)
+                        .accessibilityLabel(tag.0)
+                }
+                if let detail {
+                    let count = detail.unresolvedThreads
+                    Button { showSlimThreadSection(detail) } label: {
+                        Label("\(count)", systemImage: "bubble.left")
+                            .labelStyle(CompactLabel())
+                            .monospacedDigit()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(theme.foreground)
+                    .disabled(detail.threads.isEmpty)
+                    .help(detail.threads.isEmpty ? "No review threads" : "Show Review Threads")
+                    .accessibilityLabel("\(count) unresolved review threads")
+                }
+                Spacer(minLength: 0)
+                Menu("Pull Request Actions", systemImage: "ellipsis") {
+                    Button("Open on GitHub", systemImage: "arrow.up.right.square") { openURL(pullRequest.url) }
+                    if isActive {
+                        StewardPullRequestButton(link: PullRequestLink(repository: repository, number: pullRequest.number), url: pullRequest.url)
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .menuStyle(.button)
+                .buttonStyle(.borderless)
+                .menuIndicator(.hidden)
+                .foregroundStyle(theme.secondary)
+                .fixedSize()
+            }
+            .font(.caption)
+            Text(pullRequest.title)
+                .font(.callout)
+                .foregroundStyle(isActive ? theme.foreground : theme.secondary)
+                .truncationMode(.tail)
+                .help(pullRequest.title)
+        }
+        .lineLimit(1)
     }
 
     @ViewBuilder
@@ -232,18 +220,22 @@ extension ReviewFileList {
                 slimChangeSection("Committed", id: "committed", files: changes.committed, compare: .committed, changes: changes, collapsible: both)
             }
             if changes.uncommitted.isEmpty, changes.committed.isEmpty {
-                Text(changes.isDefaultBranch || changes.base == nil ? "No uncommitted changes on \(changes.branch)" : "No changes, \(changes.branch) matches \(changes.base ?? "")")
+                let base = changes.isDefaultBranch ? nil : changes.base
+                Text(base.map { "No changes against \($0)" } ?? "No uncommitted changes on \(changes.branch)")
                     .font(.callout)
                     .foregroundStyle(theme.secondary)
                     .reviewRow(top: 6, bottom: 6)
             }
-            let shown = shownPullRequest(root: nil, branch: changes.branch)?.pullRequest?.number
-            let other = store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch).filter { $0.number != shown }
+            let shown = shownPullRequest(root: nil, branch: changes.branch)
+            let branchNumber = shown?.pullRequest?.number
+            let other = store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch).filter { $0.number != branchNumber }
             if !other.isEmpty {
                 let expanded = expansion(of: "otherPullRequests", defaultExpanded: false)
-                ReviewSlimSectionHeader(title: "Other pull requests", count: other.count, expansion: expanded)
+                let help = branchNumber == nil ? "Pull requests linked to this session" : "Pull requests linked to this session other than the branch’s pull request"
+                ReviewSlimSectionHeader(title: "Session pull requests", count: other.count, expansion: expanded, help: help)
                 if expanded.wrappedValue {
-                    ReviewOtherPullRequests(pullRequests: other, repository: shownPullRequest(root: nil, branch: changes.branch)?.repository, showsHeading: false)
+                    let repository = shown?.repository ?? store.pullRequestBranch(inRoot: store.repositoryRoot(ofSession: sessionID) ?? model.folder, branch: changes.branch)?.repository
+                    ReviewOtherPullRequests(pullRequests: other, repository: repository, showsHeading: false)
                 }
             }
         }
@@ -311,6 +303,7 @@ struct ReviewSlimSectionHeader: View {
     var count: Int?
     var expansion: Binding<Bool>?
     var totals: (additions: Int, deletions: Int)?
+    var help: String?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -327,6 +320,7 @@ struct ReviewSlimSectionHeader: View {
                 label
             }
         }
+        .help(help ?? "")
         .reviewRow(top: 6, bottom: 3)
     }
 
