@@ -908,7 +908,11 @@ enum Snapshot {
                 if let changes = model.changes, let location, let pullRequest = store.pullRequests(inRoot: nil, of: "snapshot-review", branch: changes.branch).first(where: { $0.number == number }) {
                     await model.expandPullRequest(ReviewPullRequest(location: location, pullRequest: pullRequest))
                     if let loaded = model.pullRequestFiles[location], let first = loaded.files.first {
-                        model.open(ReviewDocument(path: first.path, compare: loaded.compare, root: location.root, pullRequestLink: link))
+                        if UserDefaults.standard.bool(forKey: "snapshotReviewCommandClick") {
+                            model.openPullRequestFile(first, of: ReviewPullRequest(location: location, pullRequest: pullRequest), compare: loaded.compare)
+                        } else {
+                            model.open(ReviewDocument(path: first.path, compare: loaded.compare, root: location.root, pullRequestLink: link))
+                        }
                     }
                 }
                 print("review selected PR #\(number), expanded \(model.expandedPullRequests.contains(link)), files \(location.flatMap { model.pullRequestFiles[$0]?.files.count } ?? 0), notice \(model.notice ?? "-")")

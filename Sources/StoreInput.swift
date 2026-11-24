@@ -238,6 +238,22 @@ extension Store {
         return .sent
     }
 
+    func recallQueued(_ text: String, in sessionID: String) async -> InputOutcome {
+        refreshLive()
+        guard liveBySession[sessionID]?.status == "busy", let terminal = tab(forSession: sessionID)?.terminal,
+              let clear = TerminalKeyPress(typing: "u", modifiers: .ctrl)
+        else { return .refused("Claude isn’t working in a Berth tab for this session, so the queue wasn’t pulled back") }
+
+        lastKeyInput = .now
+        terminal.sendKey(TerminalKeyPress(.arrowUp))
+        try? await Task.sleep(for: .milliseconds(300))
+        for _ in 0..<(2 * text.split(separator: "\n", omittingEmptySubsequences: false).count + 2) {
+            terminal.sendKey(clear)
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return .sent
+    }
+
     func cycleMode(_ sessionID: String) -> InputOutcome {
         refreshLive()
         guard let tab = tab(forSession: sessionID), tab.agent.harness.supports(.permissionModes) else { return .refused("Open the session in a tab first, so the key wasn’t sent") }

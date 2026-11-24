@@ -266,6 +266,7 @@ struct ReviewHistoricalFileButton: View {
     let file: ReviewFile
     let document: ReviewDocument
     let model: ReviewModel
+    var openFile: (() -> Void)?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -277,6 +278,8 @@ struct ReviewHistoricalFileButton: View {
         case .renamed: "Renamed"
         }
         return Button {
+            if let openFile, NSEvent.modifierFlags.contains(.command) { return openFile() }
+
             model.open(document)
             if NSApp.currentEvent?.clickCount == 2 { model.selectedTabID.map(model.keep) }
         } label: {

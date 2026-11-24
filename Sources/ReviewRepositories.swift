@@ -160,6 +160,22 @@ nonisolated struct ReviewPullRequestFiles: Sendable {
     let files: [ReviewFile]
 }
 
+extension ReviewModel {
+    func openPullRequestFile(_ file: ReviewFile, of entry: ReviewPullRequest, compare: ReviewCompare) {
+        guard file.status != .deleted, case let .range(_, head) = compare else { return }
+
+        let root = entry.location.root
+        if changes?.root == root, FileManager.default.fileExists(atPath: (root as NSString).appendingPathComponent(file.path)) {
+            open(workingDocument(file.path))
+            return
+        }
+
+        let document = ReviewDocument(path: file.path, compare: .range(base: head, head: head), root: root, pullRequestLink: entry.id)
+        rangeFiles[document] = ReviewFile(path: file.path, oldPath: nil, status: .modified, additions: nil, deletions: nil)
+        open(document)
+    }
+}
+
 struct ReviewOtherPullRequests: View {
     let entries: [ReviewPullRequest]
     let model: ReviewModel
@@ -228,8 +244,22 @@ struct ReviewOtherPullRequests: View {
                 } else if let loaded = model.pullRequestFiles[entry.location], !loaded.files.isEmpty {
                     ForEach(loaded.files, id: \.path) { file in
                         let document = ReviewDocument(path: file.path, compare: loaded.compare, root: entry.location.root, pullRequestLink: link)
-                        ReviewHistoricalFileButton(file: file, document: document, model: model)
+                        let open = { model.openPullRequestFile(file, of: entry, compare: loaded.compare) }
+                        let local = model.changes?.root == entry.location.root ? (entry.location.root as NSString).appendingPathComponent(file.path) : nil
+                        ReviewHistoricalFileButton(file: file, document: document, model: model, openFile: file.status == .deleted ? nil : open)
                             .reviewRow(leading: ReviewInset.tree)
+                            .contextMenu {
+                                if file.status != .deleted {
+                                    Button("Open File", systemImage: "doc", action: open)
+                                }
+                                if let local, FileManager.default.fileExists(atPath: local) {
+                                    Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(filePath: local)]) }
+                                }
+                                Button("Copy Path") {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(local ?? file.path, forType: .string)
+                                }
+                            }
                     }
                 } else {
                     Text("No changed files")

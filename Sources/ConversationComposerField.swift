@@ -11,6 +11,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let layoutWidth: CGFloat
     let submit: () -> Void
     let attach: ([URL]) -> String
+    let recall: () -> Bool
 
     private static let maxLines = 8.0
 
@@ -73,6 +74,7 @@ struct ConversationComposerField: NSViewRepresentable {
         textView.insertionPointColor = color
         textView.onSubmit = submit
         textView.onAttach = attach
+        textView.onRecall = recall
         if textView.string != text {
             textView.string = text
             textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
@@ -122,6 +124,7 @@ final class ComposerTextView: NSTextView {
     var placeholder = ""
     var onSubmit: () -> Void = {}
     var onAttach: ([URL]) -> String = { _ in "" }
+    var onRecall: () -> Bool = { false }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -147,6 +150,9 @@ final class ComposerTextView: NSTextView {
     }
 
     override func keyDown(with event: NSEvent) {
+        let isUp = event.keyCode == 126 && event.modifierFlags.intersection(.deviceIndependentFlagsMask).isDisjoint(with: [.shift, .option, .command, .control])
+        if isUp, string.isEmpty, !hasMarkedText(), onRecall() { return }
+
         let isReturn = event.keyCode == 36 || event.keyCode == 76
         guard isReturn, !hasMarkedText() else { return super.keyDown(with: event) }
 
