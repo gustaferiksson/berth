@@ -17,8 +17,8 @@ struct SessionStatusBar: View {
         let context = model.context
         let live = tab.sessionID.flatMap { store.liveBySession[$0] }
 
-        HStack(spacing: 16) {
-            HStack(spacing: 16) {
+        HStack(spacing: 14) {
+            HStack(spacing: 14) {
                 if isShell {
                     Label("bash mode", systemImage: "terminal")
                         .fontWeight(.regular)
