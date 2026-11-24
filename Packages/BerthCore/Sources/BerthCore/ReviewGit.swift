@@ -281,6 +281,18 @@ public enum ReviewGit {
             .filter { $0.hasSuffix("/") }
     }
 
+    public static func ignored(_ paths: [String], in root: String) async -> Set<String> {
+        var found: Set<String> = []
+        for start in stride(from: 0, to: paths.count, by: 200) {
+            let input = Pipe()
+            input.fileHandleForWriting.write(Data(paths[start..<min(start + 200, paths.count)].joined(separator: "\0").utf8 + [0]))
+            input.fileHandleForWriting.closeFile()
+            let output = await (try? git(["check-ignore", "--stdin", "-z"], in: root, input: input.fileHandleForReading)) ?? Data()
+            found.formUnion(output.split(separator: 0).map { String(decoding: $0, as: UTF8.self) })
+        }
+        return found
+    }
+
     public static func files(in root: String) async throws -> [String] {
         let listed = try await git(["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z"], in: root)
         let deleted = try await Set(git(["ls-files", "--deleted", "-z"], in: root).split(separator: 0))
