@@ -56,7 +56,11 @@ struct SessionListView: View {
                     .listSectionSeparator(.hidden)
                 }
                 ForEach(groups) { group in
-                    let expansion = Binding { expandedGroups[group.id, default: group.id != "recent:older"] } set: { expandedGroups[group.id] = $0 }
+                    let expansion = if query.isEmpty {
+                        Binding { expandedGroups[group.id, default: group.id != "recent:older"] } set: { expandedGroups[group.id] = $0 }
+                    } else {
+                        Binding.constant(true)
+                    }
                     let startsList = usageGroups.isEmpty && group.id == groups.first?.id
                     Section {
                         SessionSectionHeader(title: group.title, count: group.sessions.count, tint: tints[group.id], topSpacing: startsList ? 0 : 8, isExpanded: expansion)

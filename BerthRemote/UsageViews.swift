@@ -30,12 +30,12 @@ struct UsageCard: View {
                     VStack(spacing: 6) {
                         ForEach(group.windows.prefix(2)) { window in
                             HStack(spacing: 10) {
-                                UsageTrack(window: window, now: timeline.date)
-                                    .frame(minWidth: 12)
                                 Text(window.title)
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                                     .frame(width: isAccessibility ? nil : titleWidth, alignment: .leading)
+                                UsageTrack(window: window, now: timeline.date)
+                                    .frame(minWidth: 12)
                                 Text("\(window.usedPercent)%")
                                     .font(.footnote)
                                     .monospacedDigit()
