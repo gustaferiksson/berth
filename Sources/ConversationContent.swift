@@ -99,7 +99,9 @@ struct ConversationPrompt: View {
 
     static func attributed(_ text: String, theme: GhosttyTheme, displayScale: CGFloat? = nil) -> NSAttributedString {
         let font = theme.conversationNSFont()
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(theme.foreground)]
+        let style = NSMutableParagraphStyle()
+        style.lineHeightMultiple = theme.lineHeightMultiple
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(theme.foreground), .paragraphStyle: style]
         let scale = font.pointSize / NSFont.systemFontSize
         let result = NSMutableAttributedString()
         for part in PromptTextPart.split(text) {
@@ -132,6 +134,7 @@ struct ConversationPrompt: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(verbatim: "!")
                     .foregroundStyle(theme.secondary)
+                    .fixedSize()
                     .frame(width: markerWidth - 8, alignment: .leading)
                     .accessibilityHidden(true)
                 Text(verbatim: entry.text)
@@ -141,6 +144,7 @@ struct ConversationPrompt: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(verbatim: "⎿")
                         .foregroundStyle(theme.secondary)
+                        .fixedSize()
                         .frame(width: markerWidth - 8, alignment: .leading)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 2) {
@@ -160,7 +164,7 @@ struct ConversationPrompt: View {
                 .padding(.leading, markerWidth)
             }
         }
-        .font(theme.conversationFont().monospaced())
+        .font(Font(theme.conversationCodeNSFont()))
         .foregroundStyle(theme.foreground)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -237,6 +241,7 @@ struct ConversationReply: View {
             Text(verbatim: "●")
                 .font(theme.conversationFont(-3))
                 .foregroundStyle(theme.foreground)
+                .fixedSize()
                 .padding(.top, theme.conversationNSFont().ascender - theme.conversationNSFont(-3).ascender)
                 .frame(width: markerWidth - 8, alignment: .leading)
                 .accessibilityHidden(true)
@@ -317,13 +322,15 @@ private enum ConversationMarkdownCache {
         let unread: Color
         let inlineCode: Color
         let font: NSFont
+        let codeFont: NSFont
+        let lineHeightMultiple: CGFloat
         let palette: [String]
     }
 
     private static var cached: [Key: Run] = [:]
 
     static func run(text: String, theme: GhosttyTheme, palette: [String] = [ReviewStyle.colorSchemeKey, ReviewStyle.syntaxColorsKey].map { UserDefaults.standard.string(forKey: $0) ?? "" }) -> Run {
-        let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font, palette: palette)
+        let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font, codeFont: theme.codeFont, lineHeightMultiple: theme.lineHeightMultiple, palette: palette)
         if let run = cached[key] { return run }
 
         let run = Run(blocks: MarkdownBlock.blocks(in: text), theme: theme)
@@ -369,7 +376,7 @@ struct ConversationCodeBlock: View {
             }
             ScrollView(maxHeight.isFinite ? [.horizontal, .vertical] : .horizontal) {
                 HighlightedConversationText(text: text, language: syntax ?? language)
-                    .font(theme.conversationFont(-1))
+                    .font(Font(theme.conversationCodeNSFont(-1)))
                     .textSelection(.enabled)
                     .padding(12)
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
@@ -565,7 +572,7 @@ struct ConversationDiff: View {
                     .padding(.vertical, 6)
             }
         }
-        .font(theme.conversationFont(-1))
+        .font(Font(theme.conversationCodeNSFont(-1)))
         .textSelection(.enabled)
         .task(id: ["\(rows.count)", language ?? "", "\(theme.foreground)"]) {
             let input = rows.map { (old: $0.kind != .added, new: $0.kind != .removed, text: $0.text) }

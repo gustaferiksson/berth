@@ -294,8 +294,7 @@ private struct SlimPullRequestGlyph: View {
         Button {
             openURL(pullRequest.url)
         } label: {
-            Image(systemName: "arrow.triangle.pull")
-                .font(.caption)
+            OcticonImage(Octicon(pullRequest.state))
                 .foregroundStyle(pullRequest.state.color(in: theme))
                 .frame(width: 14, height: 16)
                 .overlay(alignment: .topTrailing) {

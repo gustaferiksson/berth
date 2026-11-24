@@ -1579,7 +1579,7 @@ struct IssueTag: View {
             Label {
                 Text(verbatim: "#\(issue.number)")
             } icon: {
-                Image(systemName: state.symbol)
+                OcticonImage(Octicon(state))
             }
             .labelStyle(CompactLabel())
             .font(.caption.monospaced())
@@ -1609,7 +1609,7 @@ struct IssueStatePill: View {
             Button {
                 if let url = issue.url { openURL(url) }
             } label: {
-                Label(state.title, systemImage: state.symbol)
+                Label { Text(state.title) } icon: { OcticonImage(Octicon(state)) }
                     .labelStyle(CompactLabel())
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(color)
@@ -1635,12 +1635,6 @@ extension IssueState? {
         if self == .open { return theme.working }
         if self == .completed { return theme.merged }
         return Color.secondary
-    }
-
-    var symbol: String {
-        if self == .completed { return "checkmark.circle" }
-        if self == .notPlanned { return "slash.circle" }
-        return "smallcircle.filled.circle"
     }
 
     var title: String {
@@ -1968,7 +1962,7 @@ struct PullRequestTag: View {
             Label {
                 Text(verbatim: "#\(pullRequest.number)")
             } icon: {
-                Image(systemName: "arrow.triangle.pull")
+                OcticonImage(Octicon(pullRequest.state))
             }
             .labelStyle(CompactLabel())
             if let checks {

@@ -22,7 +22,7 @@ struct ConversationComposer: View {
         let draft = model.draft
         let stops = isWorking && draft.isEmpty
         let canSend = stops || !(draft.isEmpty || model.isSending)
-        let font = isShell ? theme.font : NSFont.systemFont(ofSize: theme.font.pointSize)
+        let font = isShell ? theme.codeFont : theme.composerFont
         let singleRowWidth = ConversationComposerLayout.fieldBounds(in: width, isExpanded: false, canAttach: canAttach).width
         let isExpanded = !draft.files.isEmpty || draft.text.contains(where: \.isNewline) || width > 0 && (draft.text as NSString).size(withAttributes: [.font: font]).width > singleRowWidth
         let animation = reduceMotion ? nil : Animation.smooth(duration: 0.25)

@@ -143,7 +143,7 @@ struct ConversationView: View {
                         .opacity(0.6)
                 }
             }
-            .frame(maxWidth: 860, alignment: .leading)
+            .frame(maxWidth: theme.messageWidth, alignment: .leading)
             .padding(.horizontal, 18)
             .frame(maxWidth: .infinity)
         }
@@ -617,7 +617,7 @@ private struct ConversationBottomBar: View {
                 SessionStatusBar(model: model, tab: tab, harness: harness, isShell: isShell, isWorking: isWorking, isWaiting: waiting != nil, summary: branch)
             }
         }
-        .frame(maxWidth: 860)
+        .frame(maxWidth: theme.messageWidth)
         .padding(.horizontal, 18)
         .padding(.bottom, 8)
         .overlay(alignment: .top) {

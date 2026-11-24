@@ -171,7 +171,11 @@ struct SessionView: View {
                     case let .pullRequest(pullRequest, isFailing):
                         Button { openPullRequest(pullRequest) } label: {
                             HStack(spacing: 4) {
-                                Image(systemName: isFailing ? "xmark.circle.fill" : "arrow.triangle.pull")
+                                if isFailing {
+                                    Image(systemName: "xmark.circle.fill")
+                                } else {
+                                    OcticonImage(.pullRequest, size: 14)
+                                }
                                 Text(verbatim: "#\(pullRequest.number)")
                                     .font(.footnote.weight(.medium).monospacedDigit())
                             }
@@ -203,7 +207,7 @@ struct SessionView: View {
                             Button("Changes", systemImage: "plusminus") { isShowingChanges = true }
                         }
                         if let pullRequest = session?.pullRequest {
-                            Button("Pull Request #\(String(pullRequest.number))", systemImage: "arrow.triangle.pull") { openPullRequest(pullRequest) }
+                            Button { openPullRequest(pullRequest) } label: { Label("Pull Request #\(String(pullRequest.number))", image: Octicon.pullRequest.assetName()) }
                         }
                         if activity?.context != nil {
                             Button("Context", systemImage: "chart.pie") { isShowingContext = true }
