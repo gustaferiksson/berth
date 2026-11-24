@@ -86,6 +86,7 @@ final class RemoteClient {
     private(set) var taskDetails: [String: RemoteTaskDetail] = [:]
     private(set) var features: [String] = []
     private(set) var usage: PlanUsage?
+    private(set) var codexUsage: CodexUsage?
     private(set) var images: [ImageKey: ImageLoad] = [:]
     private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
     private(set) var uploads: [String: UploadState] = [:]
@@ -135,6 +136,29 @@ final class RemoteClient {
 
         open(url, token: token)
     }
+
+    #if DEBUG
+    func seedDemo() {
+        let session = RemoteSession(id: "demo", title: "Refine the activity feed", folder: "/Projects/Fieldnotes", branch: "main", lastActivity: .now, status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, agent: .legacyClaude)
+        state = .connected
+        groups = [RemoteGroup(id: "active", title: "Active", sessions: [session])]
+        entries[session.id] = [
+            RemoteEntry(id: "prompt-1", kind: .prompt, text: "Find out why the activity feed jumps when a new entry arrives."),
+            RemoteEntry(id: "reply-1", kind: .reply, text: "The feed rebuilds every row when a new entry arrives. Because the rows use their positions as identifiers, inserting at the top changes the identity of every visible row."),
+            RemoteEntry(id: "prompt-2", kind: .prompt, text: "Use the entry IDs and preserve the reader’s position."),
+            RemoteEntry(id: "reply-2", kind: .reply, text: "The feed now identifies rows by entry ID. When someone is reading older entries, it keeps the first visible row in place. At the top of the feed, new entries still appear automatically."),
+            RemoteEntry(id: "prompt-3", kind: .prompt, text: "What should I verify before shipping?"),
+            RemoteEntry(id: "reply-3", kind: .reply, text: """
+            Start at the top of the activity feed and wait for a new entry. It should appear above the existing entries without a visible jump. Scroll down a few screens and repeat the check. The entry you were reading should stay in place, even when several updates arrive together.
+
+            Then open a detail view and return to the feed. Check that you land on the same entry you left, including when the feed refreshed in the background. Try this once more with larger text, where a single entry can span most of the screen.
+
+            Finally, reload the feed from an empty state and confirm that the first page appears at the top. If the entry you were reading has been deleted, the feed should restore the nearest remaining entry.
+            """),
+        ]
+        openedSessionID = session.id
+    }
+    #endif
 
     func retryNow() {
         guard state == .reconnecting, task == nil else { return }
@@ -197,6 +221,7 @@ final class RemoteClient {
         guard features.contains(RemoteUsageFeature.name) else { return }
 
         send(.usage)
+        if features.contains(RemoteCodexUsageFeature.name) { send(.codexUsage) }
     }
 
     func loadChanges(of sessionID: String) {
@@ -293,9 +318,9 @@ final class RemoteClient {
     private func promptEntries(in sessionID: String) -> [RemoteEntry] {
         (entries[sessionID] ?? []).compactMap { entry in
             guard entry.kind == .prompt else { return nil }
-            guard let images = entry.images, !images.isEmpty, entry.text.firstMatch(of: PendingPrompts.imageToken) == nil else { return entry }
+            guard let images = entry.images, !images.isEmpty, entry.text.firstMatch(of: PromptTextPart.imageToken) == nil else { return entry }
 
-            let tokens = images.indices.map { "[Image #\($0 + 1)]" }.joined(separator: " ")
+            let tokens = (entry.imageNumbers ?? Array(1...images.count)).map { "[Image #\($0)]" }.joined(separator: " ")
             return RemoteEntry(id: entry.id, kind: .prompt, text: "\(tokens) \(entry.text)", name: entry.name, date: entry.date)
         }
     }
@@ -382,6 +407,7 @@ final class RemoteClient {
             self.folders = folders
             self.features = features ?? []
             if !self.features.contains(RemoteUsageFeature.name) { usage = nil }
+            if !self.features.contains(RemoteCodexUsageFeature.name) { codexUsage = nil }
             guard state != .connected else { return }
 
             state = .connected
@@ -428,6 +454,9 @@ final class RemoteClient {
 
         case let .usage(usage):
             self.usage = usage
+
+        case let .codexUsage(usage):
+            codexUsage = usage
 
         case .challenge:
             return

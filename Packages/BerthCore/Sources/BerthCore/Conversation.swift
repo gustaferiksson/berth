@@ -1,5 +1,26 @@
 import Foundation
 
+public enum PromptTextPart: Sendable {
+    case text(Substring)
+    case image(token: Substring, number: Int)
+
+    public static var imageToken: Regex<(Substring, Substring)> { /\[Image #(\d+)\]/ }
+
+    public static func split(_ text: String) -> [Self] {
+        var parts: [Self] = []
+        var start = text.startIndex
+        for match in text.matches(of: imageToken) {
+            guard let number = Int(match.output.1) else { continue }
+
+            if start < match.range.lowerBound { parts.append(.text(text[start..<match.range.lowerBound])) }
+            parts.append(.image(token: match.output.0, number: number))
+            start = match.range.upperBound
+        }
+        if start < text.endIndex { parts.append(.text(text[start...])) }
+        return parts
+    }
+}
+
 public struct ToolCall: Identifiable, Sendable {
     public let use: RemoteEntry
     public let result: RemoteEntry?
@@ -154,6 +175,7 @@ public enum TurnPart: Identifiable, Sendable {
 
 public struct FileChanges: Sendable {
     public let files: Int
+    public let paths: [String]
     public let added: Int?
     public let removed: Int?
 }
@@ -196,6 +218,7 @@ public struct Turn: Identifiable, Sendable {
         let diffs = edits.map { lines($0.use.newText).difference(from: lines($0.use.oldText)) }
         return FileChanges(
             files: Set(edits.map { $0.use.filePath ?? $0.id }).count,
+            paths: edits.compactMap(\.use.filePath).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } },
             added: isCounted ? diffs.map(\.insertions.count).reduce(0, +) : nil,
             removed: isCounted ? diffs.map(\.removals.count).reduce(0, +) : nil
         )
@@ -229,6 +252,20 @@ public struct Turn: Identifiable, Sendable {
         let hiddenScripts = scriptsWithInnerCalls(in: entries)
         let results = Dictionary(entries.filter { $0.kind == .toolResult }.compactMap { entry in entry.toolID.map { ($0, entry) } }) { _, last in last }
         var turns: [Self] = []
+        append(entries, to: &turns, hiddenScripts: hiddenScripts, results: results)
+        return turns
+    }
+
+    public static func continuing(_ turns: [Self], with entries: [RemoteEntry]) -> [Self]? {
+        // Tool records can change earlier turns by resolving a result or revealing a script's inner calls.
+        guard entries.allSatisfy({ $0.kind == .prompt || $0.kind == .reply }) else { return nil }
+
+        var turns = turns
+        append(entries, to: &turns, hiddenScripts: [], results: [:])
+        return turns
+    }
+
+    private static func append(_ entries: [RemoteEntry], to turns: inout [Self], hiddenScripts: Set<String>, results: [String: RemoteEntry]) {
         for entry in entries {
             if entry.kind == .toolResult, entry.name == "bash-output" {
                 guard let last = turns.indices.last, var prompt = turns[last].prompt, prompt.name == "bash" else { continue }
@@ -262,6 +299,5 @@ public struct Turn: Identifiable, Sendable {
                 turns[last].parts.append(call.isCard ? .cards([call]) : .work([call]))
             }
         }
-        return turns
     }
 }

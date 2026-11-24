@@ -182,3 +182,9 @@ struct ReviewStyle: Equatable {
         return capture.hasPrefix("comment") ? commentFont : font
     }
 }
+
+extension ReviewStyle {
+    var inlineCode: NSColor {
+        isDark ? NSColor(srgbRed: 177 / 255, green: 185 / 255, blue: 249 / 255, alpha: 1) : NSColor(srgbRed: 79 / 255, green: 70 / 255, blue: 229 / 255, alpha: 1)
+    }
+}

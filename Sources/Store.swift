@@ -47,6 +47,22 @@ enum NewSessionCheckout {
     case preferred, main, worktree
 }
 
+enum PullRequestPrompt {
+    case summarize, steward
+
+    func text(for link: PullRequestLink, url: URL) -> String {
+        switch self {
+        case .summarize:
+            (UserDefaults.standard.string(forKey: GeneralSettings.pullRequestPromptKey) ?? GeneralSettings.defaultPullRequestPrompt)
+                .replacing("{number}", with: String(link.number))
+                .replacing("{url}", with: url.absoluteString)
+                .replacing("{repo}", with: link.repository)
+
+        case .steward: "/steward \(url.absoluteString)"
+        }
+    }
+}
+
 enum PullRequestOpening {
     case session(SessionSummary)
     case tab(Tab.ID)
@@ -111,6 +127,7 @@ final class Store {
 
     var conversationDrafts: [Tab.ID: ConversationDraft] = [:]
     private(set) var conversationModels: [Tab.ID: ConversationModel] = [:]
+    @ObservationIgnored private var recentConversationModels: [Tab.ID: (model: ConversationModel, sessionID: String?, agent: Agent, shownAt: ContinuousClock.Instant)] = [:]
     var conversationFocusRequests = 0
     private(set) var orphanedSessionIDs: Set<String> = []
     @ObservationIgnored private var resumingOrphans: Set<String> = []
@@ -119,11 +136,14 @@ final class Store {
     @ObservationIgnored private var multiSelectionAnchor: SidebarItem?
     var missingFolder: String?
     var pullRequestFailure: String?
+    var showPullRequestFailure: String?
+    var stopWatchingFailure: String?
     private(set) var preparingPullRequests: [PullRequestLink] = []
     @ObservationIgnored private var pullRequestPreparation: Task<Void, Never>?
     var editingGroup: CustomGroup?
     var isStatsRequested = false
     var planUsage: PlanUsage?
+    var codexUsage: CodexUsage?
     var isSettingsRequested = false
     var isHarborShown = false {
         didSet {
@@ -132,6 +152,12 @@ final class Store {
             guard oldValue, !isHarborShown else { return }
 
             DispatchQueue.main.async { [weak self] in self?.focusSelected() }
+        }
+    }
+
+    var rendersMarkdown = UserDefaults.standard.bool(forKey: "rendersMarkdown") {
+        didSet {
+            if persistsTabs { UserDefaults.standard.set(rendersMarkdown, forKey: "rendersMarkdown") }
         }
     }
 
@@ -152,7 +178,11 @@ final class Store {
     @ObservationIgnored private var editedTask: Task<Void, Never>?
     @ObservationIgnored private var editedTranscripts: [String: (url: URL, edits: TranscriptEdits)] = [:]
     var editedRepositories: [String: [String: String]] = [:]
+    var editedFiles: [String: [String]] = [:]
+    static let sessionFilesRoot = "session-files"
+    static let resolvedHome = URL(filePath: NSHomeDirectory()).resolvingSymlinksInPath().path
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
+    private(set) var shownReviewPullRequests: [String: [PullRequestLink: ReviewPullRequest]] = [:]
     var activeReviewRoots: [String: String] = [:]
     var collapsedReviewRepositories: Set<String> = []
     var expandedReviewTasks: Set<String> = []
@@ -238,8 +268,12 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(seenAt, forKey: "seenSessions") } }
     }
 
-    @ObservationIgnored private var codexIDs = Set(UserDefaults.standard.stringArray(forKey: "codexSessionIDs") ?? []) {
-        didSet { if persistsTabs { UserDefaults.standard.set(codexIDs.sorted(), forKey: "codexSessionIDs") } }
+    @ObservationIgnored private var listedIDs = Dictionary(uniqueKeysWithValues: Agent.allCases.map { ($0, Set(UserDefaults.standard.stringArray(forKey: "\($0.rawValue)SessionIDs") ?? [])) }) {
+        didSet {
+            guard persistsTabs else { return }
+
+            for (agent, ids) in listedIDs where ids != oldValue[agent] { UserDefaults.standard.set(ids.sorted(), forKey: "\(agent.rawValue)SessionIDs") }
+        }
     }
 
     private(set) var flaggedIDs = Set(UserDefaults.standard.stringArray(forKey: "flaggedSessions") ?? []) {
@@ -259,9 +293,10 @@ final class Store {
     private(set) var pullRequests = Snapshot.fixturePullRequests
     private(set) var linkedPullRequests = Snapshot.fixtureLinkedPullRequests
     private(set) var inbox = Snapshot.fixtureInbox
-    private(set) var isInboxLoading = false
+    private(set) var isInboxLoading = Snapshot.launcherLoading
     private(set) var issueInbox = Snapshot.fixtureIssueInbox
-    private(set) var isIssueInboxLoading = false
+    private(set) var isIssueInboxLoading = Snapshot.launcherLoading
+    let projects = ProjectsModel()
     private var pullRequestTabs: [PullRequestLink: Tab.ID] = [:]
     private(set) var searchIndexVersion = 0
     private(set) var searchIndexing: (done: Int, total: Int)?
@@ -276,6 +311,11 @@ final class Store {
     @ObservationIgnored var probeOpenedURLs: [URL] = []
     #endif
 
+    @ObservationIgnored var watchActivities: [String: (url: URL, activity: TranscriptActivity)] = [:]
+    @ObservationIgnored var watchScan: Task<Void, Never>?
+    @ObservationIgnored var watchScanRequested = false
+    @ObservationIgnored var watchExpiry: Task<Void, Never>?
+    var transcriptWatches: [String: PullRequestWatch] = [:]
     @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private(set) var codexIndex = CodexIndex(root: codexDirectory)
 
@@ -324,6 +364,8 @@ final class Store {
     @ObservationIgnored private var inboxFetchedAt = Date.distantPast
     @ObservationIgnored private var issueInboxFetchedAt = Date.distantPast
     @ObservationIgnored private var planUsageFetchedAt = Date.distantPast
+    @ObservationIgnored private var codexUsageReadAt = Date.distantPast
+    @ObservationIgnored private var planUsageResetRefetch: Task<Void, Never>?
     @ObservationIgnored private var pullRequestPolling: Task<Void, Never>?
     @ObservationIgnored private var tabSignalPolling: Task<Void, Never>?
     @ObservationIgnored private var hostedDirectoryPolling: Task<Void, Never>?
@@ -337,6 +379,7 @@ final class Store {
     @ObservationIgnored var fakeWaiting: Bool?
     @ObservationIgnored var fakeLiveSessions: [LiveSession] = []
     @ObservationIgnored var fakeTerminalTasks: [String: [RemoteTask]] = [:]
+    var fakeWatches: [String: PullRequestWatch] = [:]
     @ObservationIgnored var fakeContexts: [String: SessionContext] = [:]
     #endif
 
@@ -365,9 +408,11 @@ final class Store {
                 self?.refreshPullRequests()
                 self?.refreshInbox()
                 self?.refreshIssueInbox()
+                self?.projects.refresh()
                 self?.refreshLocalClones()
                 self?.unloadIdleTabs()
                 await self?.refreshPlanUsage()
+                await self?.refreshCodexUsage()
             }
         }
         tabSignalPolling?.cancel()
@@ -387,7 +432,11 @@ final class Store {
         applyCodexSetting()
         refreshInbox()
         refreshIssueInbox()
-        Task { await refreshPlanUsage() }
+        projects.refresh()
+        Task {
+            await refreshPlanUsage()
+            await refreshCodexUsage()
+        }
         guard restoringTabs else { return }
 
         Task {
@@ -397,11 +446,13 @@ final class Store {
     }
 
     private func applyGroups() {
-        if hasScanned, isCodexEnabled {
-            let listed = Set(summaries.filter(\.agent.harness.isOptIn).map(\.id))
-            if listed != codexIDs { codexIDs = listed }
+        let enabled = Agent.allCases.filter(Self.isEnabled)
+        if hasScanned {
+            let listed = Dictionary(uniqueKeysWithValues: enabled.map { agent in (agent, Set(summaries.filter { $0.agent == agent }.map(\.id))) })
+            let merged = listedIDs.merging(listed) { _, new in new }
+            if merged != listedIDs { listedIDs = merged }
         }
-        let retained = hasScanned && !isCodexEnabled ? codexIDs : []
+        let retained = hasScanned ? Set(Agent.allCases.filter { !enabled.contains($0) }.flatMap { listedIDs[$0] ?? [] }) : []
         if hasScanned {
             let seen = Dictionary(summaries.map { ($0.id, seenAt[$0.id] ?? .now) }) { first, _ in first }
                 .merging(seenAt.filter { retained.contains($0.key) }) { first, _ in first }
@@ -581,9 +632,21 @@ final class Store {
     }
 
     func refreshPullRequests() {
+        #if DEBUG
+        guard !Snapshot.usesBusySidebar else { return }
+
+        #endif
+
         let sessions = pinnedSessions + groups.flatMap(\.sessions) + archivedSessions
         let branches = Set(sessions.flatMap(pullRequestBranches))
-        let linked = Set(sessions.flatMap(\.pullRequests).filter { [nil, .open, .draft].contains(linkedPullRequests[$0]?.state) })
+        let watched = transcriptWatches.compactMap { id, watch -> PullRequestLink? in
+            guard let number = watch.number,
+                  let repo = watch.repository ?? sessionsByID[id].flatMap({ repositoryRoots[$0.checkout] }).flatMap({ repositories[$0] ?? nil })
+            else { return nil }
+
+            return PullRequestLink(repository: repo.lowercased(), number: number)
+        }
+        let linked = Set((sessions.flatMap(\.pullRequests) + watched).filter { [nil, .open, .draft].contains(linkedPullRequests[$0]?.state) })
         guard !branches.isEmpty || !linked.isEmpty, pullRequestsFetchedAt.timeIntervalSinceNow < -60 else { return }
 
         pullRequestsFetchedAt = .now
@@ -600,13 +663,39 @@ final class Store {
     }
 
     func refreshPlanUsage() async {
-        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey), planUsageFetchedAt.timeIntervalSinceNow < -60 else { return }
+        guard Snapshot.output == nil, UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey) else { return }
+
+        let resetSinceFetch = planUsage?.windows.contains { $0.resetsAt.map { $0 > planUsageFetchedAt && $0 <= .now } ?? false } ?? false
+        guard planUsageFetchedAt.timeIntervalSinceNow < -60 || resetSinceFetch else { return }
 
         planUsageFetchedAt = .now
         let usage = await Task.detached { await PlanUsageFetch.fetch() }.value
         guard let usage else { return }
 
         planUsage = usage
+        planUsageResetRefetch?.cancel()
+        guard let nextReset = usage.windows.compactMap(\.resetsAt).filter({ $0 > .now }).min() else { return }
+
+        planUsageResetRefetch = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(nextReset.timeIntervalSinceNow + 5))
+            guard !Task.isCancelled else { return }
+
+            await self?.refreshPlanUsage()
+        }
+    }
+
+    func refreshCodexUsage() async {
+        guard Snapshot.output == nil else { return }
+        guard UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey), isCodexEnabled else {
+            codexUsage = nil
+            codexUsageReadAt = .distantPast
+            return
+        }
+        guard codexUsageReadAt.timeIntervalSinceNow < -20 else { return }
+
+        codexUsageReadAt = .now
+        let usage = await Task.detached { [directory = Self.codexDirectory] in CodexUsage.latest(in: directory) }.value
+        if usage != codexUsage { codexUsage = usage }
     }
 
     func refreshInbox() {
@@ -663,11 +752,16 @@ final class Store {
             .sorted { $0.lastActivity > $1.lastActivity }
     }
 
-    func opening(of pullRequest: PullRequestLink) -> PullRequestOpening {
-        if let session = sessions(for: pullRequest).first { return .session(session) }
+    func opening(of pullRequest: PullRequestLink, prompt: PullRequestPrompt = .summarize) -> PullRequestOpening {
+        let matching = sessions(for: pullRequest)
+        if prompt == .summarize, let session = matching.first { return .session(session) }
+        let claude = matching.filter { $0.agent == .claude }
+        if let session = claude.first(where: { tab(forSession: $0.id) != nil }) { return .session(session) }
         let repository = pullRequest.repository.lowercased()
         let link = PullRequestLink(repository: repository, number: pullRequest.number)
         if let id = pullRequestTabs[link], tabs.contains(where: { $0.id == id }) { return .tab(id) }
+
+        if let session = claude.first { return .session(session) }
 
         return localCheckout(of: repository).map(PullRequestOpening.worktree) ?? .noCheckout
     }
@@ -684,17 +778,17 @@ final class Store {
     }
 
     @discardableResult
-    func openPullRequest(_ link: PullRequestLink, url: URL, opening: PullRequestOpening, selectsTab: Bool = true) -> Bool {
+    func openPullRequest(_ link: PullRequestLink, url: URL, opening: PullRequestOpening, prompt: PullRequestPrompt = .summarize, selectsTab: Bool = true) -> Bool {
+        let existing: SidebarItem
         switch opening {
-        case let .session(session): return activate(.session(session.id), selectsTab: selectsTab)
-        case let .tab(id): return activate(.tab(id), selectsTab: selectsTab)
+        case let .session(session): existing = .session(session.id)
+        case let .tab(id): existing = .tab(id)
         case .noCheckout: return false
         case let .worktree(root):
             let key = PullRequestLink(repository: link.repository.lowercased(), number: link.number)
             guard !preparingPullRequests.contains(key) else { return true }
 
-            let prompt = "Summarize PR #\(link.number) (\(url.absoluteString))."
-            if opensAreProbed { return startPullRequestSession(key, in: root, prompt: prompt, selectsTab: selectsTab) }
+            if opensAreProbed { return startPullRequestSession(key, in: root, url: url, prompt: prompt, selectsTab: selectsTab) }
 
             preparingPullRequests.append(key)
             let previous = pullRequestPreparation
@@ -715,29 +809,49 @@ final class Store {
 
                         path = try await PullRequestCheckout.prepare(root: root, number: key.number, head: head)
                     }
-                    startPullRequestSession(key, in: path, prompt: prompt, selectsTab: selectsTab)
+                    startPullRequestSession(key, in: path, url: url, prompt: prompt, selectsTab: selectsTab)
                 } catch {
                     pullRequestFailure = (error as? PullRequestCheckout.Failure)?.message ?? "Couldn’t prepare a worktree for PR #\(key.number)."
                 }
             }
             return true
         }
+        guard activate(existing, selectsTab: selectsTab) else { return false }
+        guard prompt == .steward else { return true }
+
+        let reused: Tab? = switch existing {
+        case let .session(id): tab(forSession: id)
+        case let .tab(id): tabs.first { $0.id == id }
+        default: nil
+        }
+        guard let tab = reused, tab.agent == .claude, let sessionID = tab.sessionID else {
+            pullRequestFailure = "Open the Claude session first, then choose Steward with Claude again"
+            return false
+        }
+
+        if selectedTabID == tab.id { setConversation(false) }
+        Task { await paste(prompt.text(for: link, url: url), intoStartingSession: sessionID, tab: tab.id) }
+        return true
     }
 
     private var opensAreProbed: Bool {
         #if DEBUG
-        Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || Snapshot.issueInboxQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil || UserDefaults.standard.bool(forKey: "snapshotControl")
+        Snapshot.showsPullRequestActions || Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || Snapshot.issueInboxQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil || UserDefaults.standard.bool(forKey: "snapshotControl")
         #else
         false
         #endif
     }
 
     @discardableResult
-    private func startPullRequestSession(_ key: PullRequestLink, in folder: String, prompt: String, selectsTab: Bool) -> Bool {
-        guard let id = openSession(cwd: folder, checkout: .main, pasting: prompt, selectsTab: selectsTab) else { return false }
+    private func startPullRequestSession(_ key: PullRequestLink, in folder: String, url: URL, prompt: PullRequestPrompt, selectsTab: Bool) -> Bool {
+        let text = prompt.text(for: key, url: url)
+        guard let id = openSession(cwd: folder, checkout: .main, pasting: text.isEmpty ? nil : text, selectsTab: selectsTab) else { return false }
 
         pullRequestTabs[key] = id
-        if selectsTab { isHarborShown = false }
+        if selectsTab {
+            isHarborShown = false
+            if prompt == .steward, selectedTabID == id { setConversation(false) }
+        }
         return true
     }
 
@@ -765,6 +879,31 @@ final class Store {
         let linked = session.pullRequests.compactMap { link in linkedPullRequests[link].map { SessionPullRequest(repository: link.repository, pullRequest: $0, head: $0.headRefName) } }
         let looked = repository.map { repository in session.branches.compactMap { branch in (pullRequests[PullRequestBranch(repository: repository, branch: branch)] ?? nil).map { SessionPullRequest(repository: repository, pullRequest: $0, head: branch) } } } ?? []
         return PullRequestSelection.order(linked + looked, currentRepository: repository, branches: session.branches)
+    }
+
+    func pullRequestWatch(for sessionID: String) -> PullRequestWatch? {
+        #if DEBUG
+        if let fixture = fakeWatches[sessionID] { return fixture }
+        #endif
+        guard let watch = transcriptWatches[sessionID], let live = liveBySession[sessionID],
+              watch.since >= (live.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .distantPast),
+              Date.now < watch.expiresAt
+        else { return nil }
+
+        let session = sessionsByID[sessionID]
+        let repo = watch.repository ?? session.flatMap { repositoryRoots[$0.checkout] }.flatMap { repositories[$0] ?? nil }
+        let target = if let number = watch.number {
+            repo.flatMap { linkedPullRequests[PullRequestLink(repository: $0.lowercased(), number: number)] }
+                ?? session.flatMap { pullRequests(of: $0).first { $0.number == number && (repo == nil || $0.repository.lowercased() == repo?.lowercased()) }?.pullRequest }
+        } else {
+            session.flatMap { pullRequest(for: $0) }
+        }
+        if let target, [.merged, .closed].contains(target.state) {
+            if watch.number != nil || target.closedAt.map({ $0 >= watch.since }) == true { return nil }
+
+            return watch
+        }
+        return PullRequestWatch(number: watch.number ?? target?.number, repository: repo, since: watch.since)
     }
 
     func pullRequest(for session: SessionSummary) -> PullRequest? {
@@ -823,13 +962,14 @@ final class Store {
         #else
         let fakeContexts: [String: SessionContext] = [:]
         #endif
+        let claudeEnabled = Self.isEnabled(.claude)
         let codexEnabled = isCodexEnabled
         refreshTask = Task { [previous = refreshTask, index, startingCodex = codexIndex] in
             await previous?.value
             let (updated, updatedCodex, summaries, roots, checkouts, catalog) = await Task.detached { [roots = repositoryRoots, checkouts = checkouts, known = catalogModels, fixtures = Snapshot.fixtureSessions, catalogDirectory = Self.claudeDirectory.appending(path: "cache/model-catalog")] () -> (TranscriptIndex, CodexIndex, [SessionSummary], [String: String], [String: String], [String: (window: Int?, name: String?)]) in
                 var index = index
                 var codex = startingCodex
-                let refreshed = index.refresh() + (codexEnabled ? codex.refresh() : [])
+                let refreshed = (claudeEnabled ? index.refresh() : []) + (codexEnabled ? codex.refresh() : [])
                 let unchecked = Set((fixtures ?? refreshed).map(\.cwd)).filter { checkouts[$0] == nil && FileManager.default.fileExists(atPath: $0) }
                 let checkouts = checkouts.merging(unchecked.map { ($0, RepositoryRoot.checkout($0)) }) { $1 }
                 let missing = Set(refreshed.filter { $0.agent.harness.supports(.contextSize) && $0.context?.window == nil }.compactMap(\.context?.model)).subtracting(known.keys)
@@ -880,6 +1020,7 @@ final class Store {
             if !hasScanned { hasScanned = true }
             formTasks()
             refreshLive()
+            refreshPullRequestWatches()
             if searchIndexTask != nil { updateSearchIndex() }
             resolvePullRequests()
             refreshLocalClones()
@@ -913,7 +1054,7 @@ final class Store {
 
     func refreshLive() {
         let live = fakeLive + Harness.all.flatMap { harness -> [LiveSession] in
-            guard !harness.isOptIn || isCodexEnabled else { return [] }
+            guard Self.isEnabled(harness.agent) else { return [] }
 
             let openTabs: [LiveProbe.Tab] = harness.liveSource == .tabSignals ? tabs.compactMap { tab in
                 guard tab.agent == harness.agent, let sessionID = tab.sessionID else { return nil }
@@ -925,7 +1066,9 @@ final class Store {
         }
         let byID = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
         if byID != liveBySession {
+            let previous = liveBySession
             liveBySession = byID
+            if previous.mapValues(\.pid) != byID.mapValues(\.pid) || previous.mapValues(\.startedAt) != byID.mapValues(\.startedAt) { refreshPullRequestWatches() }
             refreshConversations()
             if groupingMode.hasActive || !snoozes.isEmpty { applyGroups() }
         }
@@ -962,9 +1105,7 @@ final class Store {
         let lastClaude = recentTabIDs.first { id in tabs.contains { $0.id == id && $0.kind == .claude && $0.agent.harness.supports(.idleUnload) } }
         let candidates = tabs.filter { $0.kind == .claude && $0.agent.harness.supports(.idleUnload) && $0.id != lastClaude }.compactMap { tab in tab.sessionID.map { (id: tab.id, sessionID: $0, touched: restoredTabIDs.contains(tab.id) ? tabTouches[tab.id] ?? .distantPast : max(tab.opened, tabTouches[tab.id] ?? .distantPast)) } }
         let lastActivity = Dictionary(activeSessions.map { ($0.id, $0.lastActivity) }) { first, _ in first }
-        for id in IdleTabs.unloadable(candidates, live: liveBySession, lastActivity: lastActivity, pinned: Set(pinnedIDs), selected: selectedTabID, now: .now, threshold: threshold) {
-            close(id)
-        }
+        for id in IdleTabs.unloadable(candidates, live: liveBySession, lastActivity: lastActivity, pinned: Set(pinnedIDs), selected: selectedTabID, now: .now, threshold: threshold) where tabs.first(where: { $0.id == id })?.sessionID.flatMap(pullRequestWatch(for:)) == nil { close(id) }
     }
 
     private var fakeLive: [LiveSession] {
@@ -1196,16 +1337,24 @@ final class Store {
     }
 
     func syncConversations() {
-        let shown = Set(tabs.filter { $0.id == selectedTabID && !isHarborShown && showsConversation($0) }.map(\.id))
-        for id in conversationModels.keys where !shown.contains(id) {
+        let shown = tabs.first { $0.id == selectedTabID && !isHarborShown && showsConversation($0) }
+        recentConversationModels = recentConversationModels.filter { id, recent in
+            tabs.contains { $0.id == id && $0.sessionID == recent.sessionID && $0.agent == recent.agent }
+        }
+        for id in conversationModels.keys where id != shown?.id || recentConversationModels[id] == nil {
             conversationModels[id]?.stop()
             conversationModels[id] = nil
         }
-        for id in shown where conversationModels[id] == nil {
-            let model = ConversationModel(tabID: id, store: self)
-            conversationModels[id] = model
-            model.start()
+        guard let shown, conversationModels[shown.id] == nil else { return }
+
+        let model = recentConversationModels[shown.id]?.model ?? ConversationModel(tabID: shown.id, store: self)
+        recentConversationModels[shown.id] = (model, shown.sessionID, shown.agent, .now)
+        if recentConversationModels.count > 4,
+           let oldest = recentConversationModels.min(by: { $0.value.shownAt < $1.value.shownAt }) {
+            recentConversationModels[oldest.key] = nil
         }
+        conversationModels[shown.id] = model
+        model.start()
     }
 
     func refreshConversations() {
@@ -1261,7 +1410,141 @@ final class Store {
     var sessionReviewModels: [ReviewModel] {
         guard let sessionID = selectedSessionID else { return [] }
 
-        return ([reviewModels[sessionID]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
+        return ([reviewModels[sessionID], reviewModels[Self.reviewKey(sessionID, root: Self.sessionFilesRoot)]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
+    }
+
+    func showPullRequestInReview(number: Int, repository: String?, repositoryPath: String? = nil, in tabID: Tab.ID) async -> Result<PullRequestLink, ReviewPullRequestFailure> {
+        guard UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return .failure(.init(message: "Enable Review in Settings to show a pull request")) }
+        guard let caller = tabs.first(where: { $0.id == tabID }),
+              let target = caller.kind == .claude ? caller : tabs.first(where: { $0.id == caller.parentTabID && $0.kind == .claude }),
+              let sessionID = target.sessionID
+        else { return .failure(.init(message: "Select a session tab or run berth show-pr from a session or its terminal")) }
+        guard number > 0, repository.map({ PullRequestLink.validatedRepository($0) != nil }) ?? true else {
+            return .failure(.init(message: "Pass a positive PR number or a GitHub pull request URL"))
+        }
+
+        let location: ReviewPullRequestLocation
+        do {
+            location = try await resolveReviewPullRequest(number: number, repository: repository, path: repositoryPath, caller: caller.folder, session: target.folder)
+        } catch {
+            return .failure(error)
+        }
+
+        let link = location.link
+        let pullRequest: PullRequest? = if Snapshot.output != nil {
+            Snapshot.fixtureShownPullRequests[link] ?? Snapshot.fixtureLinkedPullRequests[link]
+        } else {
+            await PullRequestStatus.fetch([], linked: [link]).linked[link]
+        }
+        guard let pullRequest else {
+            return .failure(.init(message: "Couldn’t load \(link.repository) PR #\(number). Check the PR number and that gh is signed in with access to the repository"))
+        }
+        guard UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return .failure(.init(message: "Enable Review in Settings to show a pull request")) }
+        guard activate(.tab(target.id)) else { return .failure(.init(message: "The session tab closed. Open it and try again")) }
+
+        if !showsReviewPanel { showsReviewPanel = true }
+        guard let model = reviewModels[sessionID] else { return .failure(.init(message: "Review couldn’t open for this session tab")) }
+
+        let entry = ReviewPullRequest(location: location, pullRequest: pullRequest)
+        let document: ReviewDocument
+        let contents: ReviewContents
+        do {
+            let loaded = try await model.loadPullRequestFiles(entry)
+            guard let first = loaded.files.first else { return .failure(.init(message: "PR #\(number) has no changed files")) }
+
+            document = ReviewDocument(path: first.path, compare: loaded.compare, root: location.root, pullRequestLink: link)
+            contents = try await model.pullRequestContents(document)
+        } catch {
+            return .failure(.init(message: "Couldn’t load changed files for \(link.repository) PR #\(number). \(ReviewModel.describe(error))"))
+        }
+        guard UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return .failure(.init(message: "Enable Review in Settings to show a pull request")) }
+        guard activate(.tab(target.id)) else { return .failure(.init(message: "The session tab closed. Open it and try again")) }
+
+        if !showsReviewPanel { showsReviewPanel = true }
+        guard reviewModels[sessionID] === model else {
+            return .failure(.init(message: "The session’s Review changed while loading the PR. Try again"))
+        }
+
+        shownReviewPullRequests[sessionID, default: [:]][link] = entry
+        model.slimExpansionOverrides["otherPullRequests"] = true
+        model.expandedPullRequests.insert(link)
+        model.slimScopeOverride = .changes
+        model.open(document, loaded: contents)
+        return .success(link)
+    }
+
+    private func resolveReviewPullRequest(number: Int, repository: String?, path: String?, caller: String, session: String) async throws(ReviewPullRequestFailure) -> ReviewPullRequestLocation {
+        if let path {
+            var isDirectory: ObjCBool = false
+            guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                throw .init(message: "Pass an existing local clone folder to --repo")
+            }
+
+            let root = RepositoryRoot.resolve(path)
+            guard let origin = await RepositoryRoot.gitHubRepository(at: root) else {
+                throw .init(message: "Pass a local clone with a GitHub origin to --repo")
+            }
+            guard repository == nil || origin.lowercased() == repository?.lowercased() else {
+                throw .init(message: "The --repo folder has origin \(origin). Pass a clone of \(repository ?? origin)")
+            }
+
+            return ReviewPullRequestLocation(link: PullRequestLink(repository: origin.lowercased(), number: number), root: root)
+        }
+
+        let callerRoot = RepositoryRoot.resolve(caller)
+        let sessionRoot = RepositoryRoot.resolve(session)
+        let roots = callerRoot == sessionRoot ? [callerRoot] : [callerRoot, sessionRoot]
+        for root in roots {
+            if let origin = await RepositoryRoot.gitHubRepository(at: root)?.lowercased(), repository == nil || origin == repository?.lowercased() {
+                return ReviewPullRequestLocation(link: PullRequestLink(repository: origin, number: number), root: root)
+            }
+        }
+        guard let repository = repository?.lowercased() else {
+            throw .init(message: "This tab has no GitHub origin. Pass a pull request URL or use --repo <path>")
+        }
+
+        refreshLocalClones()
+        await waitForLocalClones()
+        let link = PullRequestLink(repository: repository, number: number)
+        if let clone = localCheckout(of: repository), await RepositoryRoot.gitHubRepository(at: clone)?.lowercased() == repository {
+            return ReviewPullRequestLocation(link: link, root: clone)
+        }
+
+        let siblings = await RepositoryRoot.gitHubSiblingClones(of: Set(roots))
+        if let clone = siblings.values.flatMap({ $0.filter { $0.value == repository }.keys }).min() {
+            return ReviewPullRequestLocation(link: link, root: clone)
+        }
+        throw .init(message: "No local clone of \(repository). Pass --repo <path> or clone the repository")
+    }
+
+    func sessionReviewPullRequests(of sessionID: String, changes: ReviewChanges?, excluding branchNumber: Int?) -> [ReviewPullRequest] {
+        var entries = shownReviewPullRequests[sessionID] ?? [:]
+        if let changes, let root = repositoryRoot(ofSession: sessionID),
+           let repository = pullRequestBranch(inRoot: root, branch: changes.branch)?.repository.lowercased() {
+            for pullRequest in pullRequests(inRoot: nil, of: sessionID, branch: changes.branch) where pullRequest.number != branchNumber {
+                let link = PullRequestLink(repository: repository, number: pullRequest.number)
+                if entries[link] == nil { entries[link] = ReviewPullRequest(location: ReviewPullRequestLocation(link: link, root: changes.root), pullRequest: pullRequest) }
+            }
+        }
+        return entries.values.sorted { ($0.id.number, $0.id.repository) < ($1.id.number, $1.id.repository) }
+    }
+
+    func showChanges(opening paths: [String]) {
+        showsReviewPanel = true
+        isHarborShown = false
+        prepareReviewModel()
+        Task {
+            for model in sessionReviewModels { await model.load() }
+
+            for path in paths.map({ URL(filePath: $0).resolvingSymlinksInPath().path }) {
+                for model in sessionReviewModels {
+                    guard let root = model.changes.map({ URL(filePath: $0.root).resolvingSymlinksInPath().path }), path.hasPrefix(root + "/"), let document = model.changedDocument(at: String(path.dropFirst(root.count + 1))) else { continue }
+
+                    model.open(document)
+                    return
+                }
+            }
+        }
     }
 
     func prepareReviewModel() {
@@ -1299,7 +1582,15 @@ final class Store {
             if activeReviewRoots[sessionID] == repository.root { activeReviewRoots[sessionID] = nil }
         }
         let prefix = sessionID + "\n"
-        for key in reviewModels.keys where key.hasPrefix(prefix) && !shown.contains(where: { Self.reviewKey(sessionID, root: $0.root) == key }) { reviewModels[key] = nil }
+        let filesKey = Self.reviewKey(sessionID, root: Self.sessionFilesRoot)
+        for key in reviewModels.keys where key.hasPrefix(prefix) && key != filesKey && !shown.contains(where: { Self.reviewKey(sessionID, root: $0.root) == key }) { reviewModels[key] = nil }
+        if editedFiles[sessionID]?.isEmpty ?? true {
+            reviewModels[filesKey] = nil
+        } else if reviewModels[filesKey] == nil {
+            let model = ReviewModel()
+            model.onOpen = { [weak self] in self?.activeReviewRoots[sessionID] = Self.sessionFilesRoot }
+            reviewModels[filesKey] = model
+        }
         if reviewRepositories[sessionID] ?? [] != shown { reviewRepositories[sessionID] = shown }
     }
 
@@ -1344,16 +1635,17 @@ final class Store {
         editedTask = Task { [previous = editedTask] in
             await previous?.value
             let cached = editedTranscripts[sessionID].flatMap { $0.url == url ? $0.edits : nil } ?? TranscriptEdits()
-            let edits = await Task.detached {
+            let (edits, files) = await Task.detached {
                 var edits = cached
                 edits.read(url)
-                return edits
+                return (edits, edits.existingFiles)
             }.value
             let open = Set(tabs.compactMap(\.sessionID))
             editedTranscripts = editedTranscripts.filter { open.contains($0.key) }.merging([sessionID: (url, edits)]) { $1 }
-            guard editedRepositories[sessionID] ?? [:] != edits.repositories else { return }
+            guard editedRepositories[sessionID] ?? [:] != edits.repositories || editedFiles[sessionID] ?? [] != files else { return }
 
             editedRepositories[sessionID] = edits.repositories
+            editedFiles[sessionID] = files
             prepareReviewModel()
             resolvePullRequests()
         }
@@ -1518,7 +1810,7 @@ final class Store {
     }
 
     @discardableResult
-    func openSession(_ agent: Agent = .claude, cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil, selectsTab: Bool = true) -> Tab.ID? {
+    func openSession(_ agent: Agent = Store.defaultAgent, cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil, selectsTab: Bool = true) -> Tab.ID? {
         let harness = agent.harness
         let session = sessionID ?? (harness.claimsNewSession ? nil : UUID().uuidString.lowercased())
         let attachID = session.flatMap { liveBySession[$0]?.attachID }
@@ -1576,13 +1868,32 @@ final class Store {
     }
 
     var isCodexEnabled: Bool {
-        UserDefaults.standard.bool(forKey: GeneralSettings.codexKey)
+        Self.isEnabled(.codex)
+    }
+
+    static func isEnabled(_ agent: Agent) -> Bool {
+        let key = "\(agent.rawValue)Enabled"
+        return UserDefaults.standard.object(forKey: key) == nil ? !agent.harness.isOptIn : UserDefaults.standard.bool(forKey: key)
+    }
+
+    static var defaultAgent: Agent {
+        let enabled = Agent.allCases.filter(isEnabled)
+        let chosen = UserDefaults.standard.string(forKey: GeneralSettings.defaultAgentKey).flatMap(Agent.init(rawValue:))
+        return chosen.flatMap { enabled.contains($0) ? $0 : nil } ?? enabled.first ?? .claude
+    }
+
+    static var otherAgent: Agent? {
+        Agent.allCases.first { $0 != defaultAgent && isEnabled($0) }
     }
 
     func applyCodexSetting() {
         let paths = ["sessions", "session_index.jsonl"].map { Self.codexDirectory.appending(path: $0).path }
-        codexWatcher = isCodexEnabled ? FileWatcher(paths: paths, latency: 1) { [weak self] _ in self?.refresh() } : nil
+        codexWatcher = isCodexEnabled ? FileWatcher(paths: paths, latency: 1) { [weak self] _ in
+            self?.refresh()
+            Task { await self?.refreshCodexUsage() }
+        } : nil
         refresh()
+        Task { await refreshCodexUsage() }
     }
 
     private func paste(_ prompt: String, intoStartingSession sessionID: String, tab id: Tab.ID) async {
@@ -1601,7 +1912,10 @@ final class Store {
             terminal.sendKey(clear)
             try? await Task.sleep(for: .milliseconds(200))
         }
-        guard terminal.paste(text: prompt) else { return }
+        refreshLive()
+        guard tabs.contains(where: { $0.id == id && $0.sessionID == sessionID }),
+              liveBySession[sessionID].map({ $0.status != "waiting" }) == true, terminal.paste(text: prompt)
+        else { return }
 
         if selectedTabID == id, launcherMode == nil { terminal.requestFocus() }
     }
@@ -1763,8 +2077,10 @@ final class Store {
         if let sessionID {
             reviewModels = reviewModels.filter { $0.key != sessionID && !$0.key.hasPrefix(sessionID + "\n") }
             activeReviewRoots[sessionID] = nil
+            shownReviewPullRequests[sessionID] = nil
             reviewRepositories[sessionID] = nil
             editedRepositories[sessionID] = nil
+            editedFiles[sessionID] = nil
         }
         conversationTabIDs.remove(id)
         conversationSuspended.remove(id)

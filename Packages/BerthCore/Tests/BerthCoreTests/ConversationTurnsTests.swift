@@ -1,6 +1,33 @@
 @testable import BerthCore
 import Testing
 
+@Test func textContinuationKeepsEarlierCallsAndHandlesTheNextPrompt() throws {
+    let entries = [
+        RemoteEntry(id: "prompt", kind: .prompt, text: "Check the docs"),
+        RemoteEntry(id: "read", kind: .toolUse, text: "{}", toolID: "tool", name: "Read"),
+        RemoteEntry(id: "output", kind: .toolResult, text: "docs", toolID: "tool"),
+    ]
+    let initial = Turn.turns(from: entries)
+    let appended = [
+        RemoteEntry(id: "reply", kind: .reply, text: "Checked"),
+        RemoteEntry(id: "stop", kind: .prompt, text: "[Request interrupted by user]"),
+        RemoteEntry(id: "next", kind: .prompt, text: "Check again"),
+    ]
+    let updated = try #require(Turn.continuing(initial, with: appended))
+
+    #expect(updated.map(\.id) == ["prompt", "next"])
+    #expect(updated[0].parts.map(\.id) == ["read", "reply"])
+    #expect(updated[0].isInterrupted)
+    #expect(initial[0].parts.map(\.id) == ["read"])
+    guard case let .work(calls) = updated[0].parts.first else {
+        Issue.record("Expected the earlier call")
+        return
+    }
+
+    #expect(calls.first?.result?.text == "docs")
+    #expect(Turn.continuing(updated, with: [RemoteEntry(id: "late", kind: .toolResult, text: "updated", toolID: "tool")]) == nil)
+}
+
 @Test func pollIsNotATurnPartAndReplyKeepsItsPlace() {
     let entries = [
         RemoteEntry(id: "p", kind: .prompt, text: "go"),

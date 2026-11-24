@@ -44,7 +44,9 @@ public struct TranscriptIndex: SessionIndex {
     }
 
     public func url(ofSession id: String) -> URL? {
-        entries.first { $0.value.summary?.id == id }.map { URL(filePath: $0.key) }
+        entries.first { path, entry in
+            entry.summary?.id == id || entry.summary == nil && path.hasSuffix("/\(id).jsonl")
+        }.map { URL(filePath: $0.key) }
     }
 
     public var searchSources: [TranscriptSearchIndex.Source] {

@@ -34,12 +34,14 @@ Nested subagents' tasks are not counted. Context is the last non-sidechain, non-
 
 Agent and background-shell calls render as cards (`TaskCards.swift`, matched to running `RemoteTask`s by tool use id, else start time and title) that stay outside the folded turn; the header capsule holds Changes and Pull Request; elapsed times use `ElapsedText` ("5m 8s", never a `.timer` colon); typing while a session waits sends Esc, then the draft once it leaves waiting. The transcript is a plain `VStack`: a `LazyVStack` re-placed its items forever (main thread at 100%) when the keyboard came up or a turn expanded while scrolled up.
 
+Sessions can also carry an optional `pullRequestWatch` with the PR number and repository when known and the date watching began. The phone shows it in idle session rows. Older session payloads decode without the field.
+
 ## Queued prompts
 
 Prompts queued mid-turn come from `queue-operation` records (enqueue, dequeue, remove by content, popAll; `<`-tagged ones are notifications), folded per client across reads and sent as the transcript message's optional `queued`.
 
 ## Feature-gated requests
 
-Feature-gated requests: `sessions` carries `features` (`upload`, `pullRequest`, `search`, `changes`); the phone sends a request only when its feature is advertised and the Mac replies only to the requester (an old peer drops the connection on a message it can't decode). `pullRequest` fills the PR sheet (`PullRequestSheet`), `search` is transcript search in the session list (3+ characters, results and indexing state), `changes` and `changeDiff` are the changes viewer (`ChangesSheet`: Uncommitted and Committed files, then one file's diff; at most 200 files and 300 KB a diff).
+Feature-gated requests: `sessions` carries `features` (`upload`, `pullRequest`, `search`, `changes`); the phone sends a request only when its feature is advertised and the Mac replies only to the requester (an old peer drops the connection on a message it can't decode). `pullRequest` fills the PR sheet (`PullRequestSheet`), `search` is transcript search in the session list (3+ characters, results and indexing state), `changes` and `changeDiff` are the changes viewer (`ChangesSheet`: Uncommitted and Committed files, then one file's diff; at most 200 files and 300 KB a diff). `codexUsage` (advertised with `usage` when Codex is on) is Codex's plan usage beside Claude's in the usage meter: the phone asks once after connecting, the Mac replies and then pushes to askers whenever it changes, and the phone dims it once `recordedAt` is over an hour old.
 
 The composer has quick replies and slash commands (`QuickReplyTray`, `quickReplies` in `@AppStorage`) and per-session drafts (`drafts` in UserDefaults, put back when a notice follows a send within 5 s). App Intents (`Intents.swift`): Open Session, Send Prompt to Session, Sessions That Need Me and New Session, as App Shortcuts.

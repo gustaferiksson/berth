@@ -11,18 +11,20 @@ public struct RemoteAgent: Codable, Sendable, Hashable {
     public let asset: String
     public let canChangeSettings: Bool
     public let canAttach: Bool
+    public let canRunBash: Bool?
     public let approvalKeys: RemoteApprovalKeys?
 
     private enum CodingKeys: String, CodingKey {
-        case name, canChangeSettings, canAttach, approvalKeys
+        case name, canChangeSettings, canAttach, canRunBash, approvalKeys
         case asset = "glyph"
     }
 
-    public init(name: String, asset: String, canChangeSettings: Bool, canAttach: Bool, approvalKeys: RemoteApprovalKeys? = nil) {
+    public init(name: String, asset: String, canChangeSettings: Bool, canAttach: Bool, canRunBash: Bool? = nil, approvalKeys: RemoteApprovalKeys? = nil) {
         self.name = name
         self.asset = asset
         self.canChangeSettings = canChangeSettings
         self.canAttach = canAttach
+        self.canRunBash = canRunBash
         self.approvalKeys = approvalKeys
     }
 }
@@ -43,8 +45,9 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let isUnread: Bool?
     public let turnStartedAt: Date?
     public let agent: RemoteAgent?
+    public let pullRequestWatch: PullRequestWatch?
 
-    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil) {
+    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil, pullRequestWatch: PullRequestWatch? = nil) {
         self.id = id
         self.title = title
         self.folder = folder
@@ -60,6 +63,25 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
         self.isUnread = isUnread
         self.turnStartedAt = turnStartedAt
         self.agent = agent
+        self.pullRequestWatch = pullRequestWatch
+    }
+}
+
+public struct PullRequestWatch: Codable, Sendable, Hashable {
+    public let number: Int?
+    public let repository: String?
+    public let since: Date
+
+    public init(number: Int?, repository: String? = nil, since: Date) {
+        self.number = number
+        self.repository = repository
+        self.since = since
+    }
+
+    public var expiresAt: Date { since.addingTimeInterval(7 * 86_400) }
+
+    public var title: String {
+        number.map { "Watching #\($0)" } ?? "Watching PR"
     }
 }
 
@@ -147,11 +169,12 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
     public let date: Date?
     public let detail: String?
     public let images: [Data]?
+    public let imageNumbers: [Int]?
     public var imageRefs: [RemoteImageRef]?
     public var shellOutput: String?
     public var shellError: String?
 
-    public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false, date: Date? = nil, detail: String? = nil, images: [Data]? = nil, imageRefs: [RemoteImageRef]? = nil) {
+    public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false, date: Date? = nil, detail: String? = nil, images: [Data]? = nil, imageNumbers: [Int]? = nil, imageRefs: [RemoteImageRef]? = nil) {
         self.id = id
         self.kind = kind
         self.text = text
@@ -165,6 +188,7 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
         self.date = date
         self.detail = detail
         self.images = images
+        self.imageNumbers = imageNumbers
         self.imageRefs = imageRefs
     }
 }
@@ -395,6 +419,10 @@ public nonisolated enum RemoteUsageFeature {
     public static let name = "usage"
 }
 
+public nonisolated enum RemoteCodexUsageFeature {
+    public static let name = "codexUsage"
+}
+
 public nonisolated enum RemoteChangesFeature {
     public static let name = "changes"
     public static let maxFiles = 200
@@ -479,6 +507,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case changes(sessionID: String)
     case changeDiff(sessionID: String, path: String, isCommitted: Bool)
     case usage
+    case codexUsage
     case taskDetail(sessionID: String, taskID: String)
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
@@ -496,6 +525,7 @@ public enum RemoteServerMessage: Codable, Sendable {
     case changes(sessionID: String, changes: RemoteChanges?)
     case changeDiff(sessionID: String, path: String, isCommitted: Bool, diff: RemoteFileDiff?)
     case usage(PlanUsage?)
+    case codexUsage(CodexUsage?)
     case taskDetail(sessionID: String, taskID: String, detail: RemoteTaskDetail?)
     case image(sessionID: String, id: String, variant: RemoteImageVariant, data: Data?)
 }

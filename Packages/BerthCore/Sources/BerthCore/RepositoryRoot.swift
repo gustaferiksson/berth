@@ -68,8 +68,8 @@ public enum RepositoryRoot {
         return FileManager.default.fileExists(atPath: folder.appending(path: ".git").path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
-    private static func gitHubRepository(at root: String) async -> String? {
-        guard let remote = try? await ReviewGit.git(["remote", "get-url", "origin"], in: root) else { return nil }
+    public static func gitHubRepository(at root: String) async -> String? {
+        guard let remote = try? await ReviewGit.git(["config", "--get", "remote.origin.url"], in: root) else { return nil }
 
         return gitHubRepository(remoteURL: String(decoding: remote, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
     }

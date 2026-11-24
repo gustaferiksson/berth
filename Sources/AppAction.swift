@@ -3,15 +3,15 @@ import GhosttyTerminal
 import SwiftUI
 
 enum AppAction: Hashable {
-    case commandPalette, filterSidebar, newSession, pullRequests, searchSessions, newTerminal, newTerminalForSession, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
+    case commandPalette, filterSidebar, newSession, pullRequests, showPullRequestInReview, searchSessions, newTerminal, newTerminalForSession, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, wrapLines, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
+    case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, wrapLines, showRenderedMarkdown, showMarkdownSource, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
     case goBack, goForward, previousChange, nextChange
     case caret(CaretAction)
 
-    static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
+    static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .showPullRequestInReview, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
-        + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .wrapLines, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
+        + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
     static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward, .previousChange, .nextChange]).filter { $0.shortcut != nil }
 
@@ -21,6 +21,7 @@ enum AppAction: Hashable {
         case .filterSidebar: "Filter Sidebar"
         case .newSession: "New Session…"
         case .pullRequests: "Open Pull Request…"
+        case .showPullRequestInReview: "Show Pull Request in Review…"
         case .searchSessions: "Search Sessions…"
         case .newTerminal: "New Terminal"
         case .newTerminalForSession: "New Terminal for Session"
@@ -44,6 +45,8 @@ enum AppAction: Hashable {
         case .showSideBySide: "Show Side by Side"
         case .showInline: "Show Inline"
         case .wrapLines: "Wrap Lines"
+        case .showRenderedMarkdown: "Show Rendered Markdown"
+        case .showMarkdownSource: "Show Markdown Source"
         case .showClaudeBelow: "Show Claude Below Diff"
         case .showClaudeBeside: "Show Claude Beside Diff"
         case .showConversation: "Show Conversation"
@@ -63,6 +66,7 @@ enum AppAction: Hashable {
         switch self {
         case .newSession: "claude start folder"
         case .pullRequests: "github pr review requested mine assigned checkout worktree"
+        case .showPullRequestInReview: "github pr diff changes current tab"
         case .filterSidebar: "search sessions tasks terminals narrow"
         case .searchSessions: "find transcripts"
         case .newTerminal, .newTerminalForSession: "shell tab"
@@ -79,6 +83,7 @@ enum AppAction: Hashable {
         case .openPreview: "browser web localhost dev server pick element review"
         case .showSideBySide, .showInline: "review diff layout split unified inline toggle"
         case .wrapLines: "review diff soft wrap long lines word wrap horizontal scroll"
+        case .showRenderedMarkdown, .showMarkdownSource: "review file viewer markdown md render rendered preview source raw toggle"
         case .showClaudeBelow, .showClaudeBeside: "review terminal claude diff layout below beside under vertical horizontal"
         case .showConversation, .showTerminal: "conversation chat gui transcript terminal claude view"
         case .save: "review file edits write disk"
@@ -93,7 +98,7 @@ enum AppAction: Hashable {
         case .commandPalette: "command"
         case .filterSidebar: "line.3.horizontal.decrease"
         case .newSession: "plus.bubble"
-        case .pullRequests: "arrow.triangle.pull"
+        case .pullRequests, .showPullRequestInReview: "arrow.triangle.pull"
         case .searchSessions: "magnifyingglass"
         case .newTerminal, .newTerminalForSession: "plus.rectangle"
         case .switchTerminal: "apple.terminal"
@@ -114,6 +119,8 @@ enum AppAction: Hashable {
         case .showSideBySide: "rectangle.split.2x1"
         case .showInline: "rectangle"
         case .wrapLines: "arrow.turn.down.left"
+        case .showRenderedMarkdown: "doc.richtext"
+        case .showMarkdownSource: "doc.plaintext"
         case .showClaudeBelow: "rectangle.bottomhalf.inset.filled"
         case .showClaudeBeside: "rectangle.righthalf.inset.filled"
         case .showConversation: "text.bubble"
@@ -134,6 +141,7 @@ enum AppAction: Hashable {
         case .commandPalette: KeyboardShortcut("k")
         case .filterSidebar: KeyboardShortcut("f", modifiers: [.command, .option])
         case .newSession: KeyboardShortcut("n")
+        case .showPullRequestInReview: KeyboardShortcut("r", modifiers: [.command, .option])
         case .searchSessions: KeyboardShortcut("f", modifiers: [.command, .shift])
         case .newTerminal: KeyboardShortcut("t")
         case .switchTerminal: KeyboardShortcut("j")
@@ -143,6 +151,7 @@ enum AppAction: Hashable {
         case .showStats: KeyboardShortcut("s", modifiers: [.command, .shift])
         case .showChanges, .hideChanges: KeyboardShortcut("r", modifiers: [.command, .shift])
         case .wrapLines: KeyboardShortcut("z", modifiers: [.command, .option])
+        case .showRenderedMarkdown, .showMarkdownSource: KeyboardShortcut("m", modifiers: [.command, .shift])
         case .showConversation, .showTerminal: KeyboardShortcut("j", modifiers: [.command, .option])
         case .save: KeyboardShortcut("s")
         case .settings: KeyboardShortcut(",")
@@ -157,6 +166,7 @@ enum AppAction: Hashable {
 
     func isAvailable(in store: Store) -> Bool {
         switch self {
+        case .showPullRequestInReview: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.selectedSessionID != nil
         case .newTerminalForSession: store.tabs.contains { $0.id == store.selectedTabID && $0.kind == .claude }
         case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown && !store.selectedShowsConversation
         case .clearTerminal: store.focusedTerminal != nil
@@ -170,11 +180,13 @@ enum AppAction: Hashable {
         case .showSideBySide, .showInline:
             Self.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocumentHasBothSides == true && store.isReviewDiffUnified == (self == .showSideBySide)
         case .wrapLines: Self.hideChanges.isAvailable(in: store)
+        case .showRenderedMarkdown, .showMarkdownSource:
+            Self.hideChanges.isAvailable(in: store) && store.reviewModel?.selectedDocument?.isMarkdown == true && store.rendersMarkdown == (self == .showMarkdownSource)
         case .showClaudeBelow, .showClaudeBeside:
             Self.hideChanges.isAvailable(in: store) && UserDefaults.standard.bool(forKey: GeneralSettings.terminalBelowKey) == (self == .showClaudeBeside)
         case .showConversation: store.canShowConversation && !store.selectedShowsConversation
         case .showTerminal: store.canShowConversation && store.selectedShowsConversation
-        case .save: Self.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { $0.compare?.isCommit == true ? nil : model.drafts[$0.path] } } != nil
+        case .save: Self.hideChanges.isAvailable(in: store) && store.reviewModel.flatMap { model in model.selectedDocument.flatMap { $0.compare?.isHistorical == true ? nil : model.drafts[$0.path] } } != nil
         case .goBack, .goForward: store.isReviewTextFocused && store.reviewModel?.selectedTab.map { $0.history.indices.contains($0.index + (self == .goBack ? -1 : 1)) } == true
         case .previousChange, .nextChange: store.isReviewTextFocused && store.reviewModel?.selectedDocument?.compare != nil
         case .caret: store.isReviewTextFocused
@@ -194,6 +206,8 @@ enum AppAction: Hashable {
         case .newSession: store.launcherMode = .newSession
 
         case .pullRequests: store.launcherMode = .pullRequests
+
+        case .showPullRequestInReview: if isAvailable(in: store) { store.launcherMode = .showPullRequestInReview }
 
         case .searchSessions: store.launcherMode = .search
 
@@ -241,6 +255,8 @@ enum AppAction: Hashable {
         case .showInline: UserDefaults.standard.set(ReviewDiffLayout.inline.rawValue, forKey: ReviewDiffLayout.key)
 
         case .wrapLines: UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: ReviewStyle.wrapsLinesKey), forKey: ReviewStyle.wrapsLinesKey)
+
+        case .showRenderedMarkdown, .showMarkdownSource: store.rendersMarkdown = self == .showRenderedMarkdown
 
         case .showClaudeBelow, .showClaudeBeside: UserDefaults.standard.set(self == .showClaudeBelow, forKey: GeneralSettings.terminalBelowKey)
 
