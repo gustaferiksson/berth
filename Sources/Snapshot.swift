@@ -33,6 +33,10 @@ enum Snapshot {
         PullRequestLink(repository: "acme/billing", number: 4823): PullRequest(number: 4823, url: URL(string: "https://github.com/acme/billing/pull/4823")!, title: "Export ledger entries", state: .open, headRefName: "feature/ledger-export", checks: .passed, reviewDecision: .approved),
     ] : [:]
     private static let linkedFixtureLinks = linkedFixtures.keys.sorted { $0.number > $1.number }
+    private static let showsReviewSessionPullRequests = UserDefaults.standard.bool(forKey: "snapshotReviewSessionPullRequests")
+    private static let reviewSessionPullRequests: [PullRequestLink: PullRequest] = showsReviewSessionPullRequests ? [
+        PullRequestLink(repository: fixtureRepository, number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/\(fixtureRepository)/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase"), headRefName: "feature/approved-reviewers"),
+    ] : [:]
 
     private static let longNames: [(session: SessionSummary, pullRequest: PullRequest?)] = {
         let code = NSTemporaryDirectory() + "berth-long-names"
@@ -56,7 +60,7 @@ enum Snapshot {
         let branch: String
         if let requested = UserDefaults.standard.string(forKey: "snapshotReviewPullRequest") {
             branch = requested
-        } else if UserDefaults.standard.bool(forKey: "snapshotReviewThreads") {
+        } else if UserDefaults.standard.bool(forKey: "snapshotReviewThreads") || showsReviewSessionPullRequests {
             let git = Process()
             let output = Pipe()
             git.executableURL = URL(filePath: "/usr/bin/git")
@@ -72,7 +76,7 @@ enum Snapshot {
             return []
         }
 
-        let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch, pullRequests: linkedFixtureLinks)
+        let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch, pullRequests: linkedFixtureLinks + reviewSessionPullRequests.keys)
         let state = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestState") ?? "Open"
         return [(session, PullRequestState(rawValue: state.capitalized).map { PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries against settlement exports and flag every mismatch", state: $0, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase")) })]
     }()
@@ -431,7 +435,7 @@ enum Snapshot {
         }
     }) { first, _ in first }
     static let fixtureInbox = launcherLoading ? nil : inboxFixtures?.inbox
-    static let fixtureLinkedPullRequests = linkedFixtures
+    static let fixtureLinkedPullRequests = linkedFixtures.merging(reviewSessionPullRequests) { _, fixture in fixture }
     #else
     static let fixtureSessions: [SessionSummary]? = nil
     static let fixtureTasks: TaskState? = nil
@@ -532,14 +536,22 @@ enum Snapshot {
             store.planUsage = PlanUsage(windows: windows)
         }
         let graphCommitIndex = UserDefaults.standard.string(forKey: "snapshotReviewGraphCommit").flatMap(Int.init)
+        let expandedPullRequestNumber = UserDefaults.standard.string(forKey: "snapshotReviewExpandPullRequest").flatMap(Int.init)
         let showsReviewThreads = UserDefaults.standard.bool(forKey: "snapshotReviewThreads")
         let reviewPanelTab = UserDefaults.standard.string(forKey: "snapshotReviewPanelTab") ?? graphCommitIndex.map { _ in "graph" }
-        if showsReviewThreads || reviewPanelTab != nil {
+        if showsReviewThreads || reviewPanelTab != nil || showsReviewSessionPullRequests || expandedPullRequestNumber != nil {
             var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
             arguments["reviewPanelTab"] = reviewPanelTab ?? "changes"
+            var sections = (UserDefaults.standard.string(forKey: "collapsedReviewSections") ?? "").split(separator: ",").map(String.init)
             if showsReviewThreads {
-                arguments["collapsedReviewSections"] = (UserDefaults.standard.string(forKey: "collapsedReviewSections") ?? "").split(separator: ",").filter { $0 != "reviewThreads" && $0 != "pullRequest" }.joined(separator: ",")
+                sections.removeAll { $0 == "reviewThreads" || $0 == "pullRequest" }
             }
+            if showsReviewSessionPullRequests || expandedPullRequestNumber != nil {
+                arguments["reviewSlimScope"] = ReviewSlimScope.changes.rawValue
+                sections.removeAll { $0 == "pullRequest" || $0 == "otherPullRequests" || $0 == "+otherPullRequests" }
+                sections.append("+otherPullRequests")
+            }
+            arguments["collapsedReviewSections"] = sections.joined(separator: ",")
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         }
         await store.waitForScan()
@@ -866,7 +878,17 @@ enum Snapshot {
         if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotReviewCommitsExpanded") { store.reviewModels["snapshot-review"]?.showsCommits = true }
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30
-            if let index = graphCommitIndex, index >= 0 {
+            if let number = expandedPullRequestNumber {
+                while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                if let changes = model.changes, let repository = store.repositoryRoot(ofSession: "snapshot-review").flatMap({ store.pullRequestBranch(inRoot: $0, branch: changes.branch)?.repository }),
+                   let pullRequest = store.pullRequests(inRoot: nil, of: "snapshot-review", branch: changes.branch).first(where: { $0.number == number }) {
+                    await model.expandPullRequest(pullRequest, repository: repository)
+                    if let loaded = model.pullRequestFiles[number], let first = loaded.files.first {
+                        model.open(ReviewDocument(path: first.path, compare: loaded.compare, pullRequestNumber: number))
+                    }
+                }
+                print("review selected PR #\(number), expanded \(model.expandedPullRequests.contains(number)), files \(model.pullRequestFiles[number]?.files.count ?? 0), notice \(model.notice ?? "-")")
+            } else if let index = graphCommitIndex, index >= 0 {
                 while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
                 if !model.graphHasLoaded { await model.loadGraph() }
                 while Date.now < deadline, index >= model.graphCommits.count, model.graphHasMore, model.graphError == nil {
@@ -880,7 +902,7 @@ enum Snapshot {
             if let changedFiles { store.showChanges(opening: changedFiles.split(separator: ",").map(String.init)) }
             while Date.now < deadline, model.error == nil, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
                 if let changes = model.changes, model.selectedTab == nil, changedFiles == nil {
-                    if graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
+                    if expandedPullRequestNumber != nil || graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
                     let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
                     if requested == nil, showsReviewThreads, let thread = fixturePullRequestDetail?.threads.first(where: { $0.path == "README.md" && $0.line != nil }) {
                         model.open(thread)
@@ -994,7 +1016,7 @@ enum Snapshot {
                 let unchanged = zip((0..<diff.original.lineCount).filter { !diff.original.changedLines.contains($0) }, (0..<diff.modified.lineCount).filter { !diff.modified.changedLines.contains($0) })
                 let shifted = unchanged.count(where: { pair in rows[0][pair.0].flatMap { left in rows[1][pair.1].map { left != $0 } } ?? false })
                 let arithmetic = unchanged.count(where: { pair in rows[1][pair.1].map { $0 != sides[1].top(ofRow: (sides[1].side ?? diff.modified).rows[pair.1]) } ?? false })
-                let draft = model.selectedDocument.flatMap { $0.compare?.isCommit == true ? nil : model.drafts[$0.path] }
+                let draft = model.selectedDocument.flatMap { $0.compare?.isHistorical == true ? nil : model.drafts[$0.path] }
                 print("\(label) \(sides[1].unifiedOriginal == nil ? "side by side" : "unified, width \(sides[1].frame.width) for \(sides[1].minimumWidth), text is the file \(sides[1].string == draft ?? model.selectedDocument.flatMap { model.contents[$0]?.modified }.flatMap { if case let .text(text) = $0 { text } else { nil } } ?? "")"), height \(sides[1].frame.height) for top(ofRow: rowCount) \(sides[1].top(ofRow: sides[1].side?.rowCount ?? 0)), pane \(sides[1].enclosingScrollView?.superview?.frame.width ?? -1) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.count(where: { $0.1 != $0.2 })), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
             }
             report("review")
@@ -1046,7 +1068,7 @@ enum Snapshot {
                 // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                 UserDefaults.standard.set(saved, forKey: "reviewSplitRatio")
             }
-            if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument, file.compare?.isCommit != true {
+            if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument, file.compare?.isHistorical != true {
                 let right = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last }
                 let point = { (textView: ReviewTextView, spec: String) -> NSPoint? in
                     let numbers = spec.split(separator: ":").compactMap { Int($0) }
@@ -1356,7 +1378,7 @@ enum Snapshot {
                     }
                 }
             }
-            if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last, model.selectedDocument?.compare?.isCommit != true {
+            if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last, model.selectedDocument?.compare?.isHistorical != true {
                 window.makeFirstResponder(right)
                 right.setSelectedRange(NSRange(location: 0, length: 0))
                 right.insertText(edit, replacementRange: right.selectedRange())
@@ -1954,7 +1976,7 @@ enum Snapshot {
                     let document = target.count == 3 ? ["u": ReviewDocument(path: target[2], compare: .uncommitted), "c": ReviewDocument(path: target[2], compare: .committed)][target[1]] ?? model.workingDocument(target[2]) : nil
                     if spec == "refresh" { await store.refreshReview() }
                     if spec == "keep" { model.selectedTabID.map(model.keep) }
-                    if spec == "save", let document = model.selectedDocument, document.compare?.isCommit != true, let draft = model.drafts[document.path] { model.save(draft, to: document.path) }
+                    if spec == "save", let document = model.selectedDocument, document.compare?.isHistorical != true, let draft = model.drafts[document.path] { model.save(draft, to: document.path) }
                     if spec == "back" || spec == "forward" { model.go(by: spec == "back" ? -1 : 1) }
                     if spec == "reveal" { model.filesReveal = model.selectedDocument?.path }
                     if spec.hasPrefix("file"), let index = Int(spec.dropFirst(4)), let file = model.changes.map({ $0.uncommitted.map { ReviewDocument(path: $0.path, compare: .uncommitted) } + $0.committed.map { ReviewDocument(path: $0.path, compare: .committed) } })?.dropFirst(index).first { model.open(file) }
@@ -2101,7 +2123,13 @@ enum Snapshot {
 
         return "tabs " + model.tabs.map { tab in
             let document = tab.document
-            let name = if case let .commit(sha) = document.compare { "commit \(sha.prefix(7)):\(document.path)" } else { document.path + (document.compare.map { " \($0)" } ?? " file") }
+            let name = if let number = document.pullRequestNumber {
+                "PR #\(number):\(document.path)"
+            } else if case let .commit(sha) = document.compare {
+                "commit \(sha.prefix(7)):\(document.path)"
+            } else {
+                document.path + (document.compare.map { " \($0)" } ?? " file")
+            }
             return "\(tab.id == model.selectedTabID ? "[" : "")\(name) \(tab.isPreview ? "preview" : "kept") \(tab.index + 1)/\(tab.history.count)\(tab.id == model.selectedTabID ? "]" : "")"
         }.joined(separator: ", ")
     }

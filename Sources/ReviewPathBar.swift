@@ -24,6 +24,7 @@ struct ReviewPathBar: View {
 
     private func bar(_ folders: [(name: String, children: [ReviewFileTree])]) -> some View {
         let name = (document.path as NSString).lastPathComponent
+        let title = document.pullRequestNumber.map { "PR #\($0):\(name)" } ?? name
         return HStack(spacing: 4) {
             if model.isSessionFiles {
                 Text(sessionFolder)
@@ -35,13 +36,16 @@ struct ReviewPathBar: View {
                 }
             }
             chevron
-            segment(name, children: children(of: (document.path as NSString).deletingLastPathComponent), icon: NSImage(size: NSSize(width: 13, height: 13), flipped: false) { NSWorkspace.shared.icon(for: UTType(filenameExtension: (name as NSString).pathExtension) ?? .data).draw(in: $0); return true })
+            segment(title, children: children(of: (document.path as NSString).deletingLastPathComponent), icon: NSImage(size: NSSize(width: 13, height: 13), flipped: false) { NSWorkspace.shared.icon(for: UTType(filenameExtension: (name as NSString).pathExtension) ?? .data).draw(in: $0); return true })
             Spacer(minLength: 8)
             switch document.compare {
             case .uncommitted: Text("Uncommitted")
+
             case .committed: Text("Committed")
+
             case let .commit(sha): Text("Commit \(sha.prefix(7))")
-            case nil: EmptyView()
+
+            case .range, nil: EmptyView()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
