@@ -25,6 +25,12 @@ struct BerthRemoteApp: App {
             .environment(updates)
             .preferredColorScheme(colorScheme == "light" ? .light : colorScheme == "dark" ? .dark : nil)
             .task(id: scenePhase) {
+                #if DEBUG
+                if UserDefaults.standard.bool(forKey: "snapshotDemo") {
+                    if scenePhase == .active, client.state != .connected { client.seedDemo() }
+                    return
+                }
+                #endif
                 if scenePhase == .background { return client.suspend() }
                 guard scenePhase == .active else { return }
 
