@@ -21,6 +21,8 @@ struct ConversationComposer: View {
     @State private var width: CGFloat = 0
     @State private var settledHeight: CGFloat = 0
     @State private var slashPicker = ConversationSlashPicker()
+    @State private var shellCompleter = ConversationShellCompleter()
+    @AppStorage(ConversationShellCompleter.enabledKey) private var completesShell = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -40,6 +42,7 @@ struct ConversationComposer: View {
         let placeholder = model.blocksSending ? "Wait for \(harness.name) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harness.name)"
         let slashScope = isShell || slashPicker.query == nil ? nil : ConversationSlashPicker.Scope(folder: folder, agent: harness.agent)
         let matches = slashScope == nil ? [] : slashPicker.matches
+        let shellCompletes = isShell && completesShell && shellCompleter.isShowing
 
         GlassEffectContainer(spacing: 8) {
             VStack(spacing: 8) {
@@ -59,6 +62,8 @@ struct ConversationComposer: View {
                 }
                 if !matches.isEmpty {
                     ConversationSlashMenu(picker: slashPicker, matches: matches)
+                } else if shellCompletes {
+                    ConversationShellMenu(completer: shellCompleter)
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     if !draft.files.isEmpty {
@@ -96,6 +101,7 @@ struct ConversationComposer: View {
                             focusRequest: focusRequest,
                             layoutWidth: fieldWidth,
                             slashPicker: isShell ? nil : slashPicker,
+                            shellCompleter: isShell && completesShell ? shellCompleter : nil,
                             submit: send,
                             attach: { canAttach ? model.attach($0) : "" },
                             recall: recallQueued
@@ -139,7 +145,13 @@ struct ConversationComposer: View {
             slashPicker.commands = commands
         }
         .onChange(of: isShell) {
-            if isShell { slashPicker.update(query: nil) }
+            if isShell { slashPicker.update(query: nil) } else { shellCompleter.reset() }
+        }
+        .onChange(of: completesShell) {
+            if !completesShell { shellCompleter.reset() }
+        }
+        .onChange(of: folder, initial: true) {
+            shellCompleter.folder = folder
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             model.append((try? result.get()) ?? [])

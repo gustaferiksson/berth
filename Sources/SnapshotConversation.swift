@@ -14,11 +14,37 @@ extension Snapshot {
     private static var showsCodexApproval: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexApproval") }
     private static var showsCodexTasks: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexTasks") }
     private static var showsSlashCommands: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationSlashCommands") }
+    private static var showsShellCompletions: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationShellCompletions") }
+
+    private nonisolated(unsafe) static var tineStub: TineStubServer?
     private static var usesCodexConversation: Bool {
         showsCodexApproval || showsCodexTasks || UserDefaults.standard.string(forKey: "snapshotConversationAgent") == "codex"
     }
 
     private static var conversationStart: Date { Date.now.addingTimeInterval(-420) }
+
+    private static func startTineStub() {
+        let items = [
+            ("checkout", "Switch branches or restore working tree files", "subcommand", false, "checkout "),
+            ("cherry-pick", "Apply the changes from existing commits", "subcommand", false, "cherry-pick "),
+            ("clean", "Remove untracked files from the working tree", "subcommand", true, "clean "),
+            ("changelog.md", "", "file", false, "changelog.md "),
+            ("git checkout main", "", "history", false, "git checkout main "),
+        ]
+        let json = items.map { name, description, kind, dangerous, text in
+            #"{"name":"\#(name)","description":"\#(description)","kind":"\#(kind)","dangerous":\#(dangerous),"matches":[0,1],"edit":{"start":4,"end":6,"text":"\#(text)","cursor":\#(4 + text.utf16.count)}}"#
+        }
+        let path = "/tmp/berth-tine-\(ProcessInfo.processInfo.processIdentifier).sock"
+        let stub = TineStubServer(path: path) { _ in #"{"version":1,"pending":false,"items":[\#(json.joined(separator: ","))]}"# }
+        do { try stub.start() } catch {
+            FileHandle.standardError.write(Data("snapshot: could not start the fake tine socket: \(error)\n".utf8))
+            exit(1)
+        }
+
+        tineStub = stub
+        UserDefaults.standard.register(defaults: ["snapshotTineSocket": path, ConversationShellCompleter.enabledKey: true])
+    }
+
     static var heavyConversationTurns: Int { UserDefaults.standard.integer(forKey: "snapshotConversationHeavy") }
 
     static var conversationTranscript: URL {
@@ -52,6 +78,7 @@ extension Snapshot {
             try? FileManager.default.createDirectory(at: commands, withIntermediateDirectories: true)
             try? "---\ndescription: Compare two ledger exports\n---\nCompare the totals in both reports.".write(to: commands.appending(path: "compare-exports.md"), atomically: true, encoding: .utf8)
         }
+        if showsShellCompletions { startTineStub() }
         if heavyConversationTurns > 0 {
             guard Store.claudeDirectory.resolvingSymlinksInPath().path == URL(filePath: fixtureHome).appending(path: ".claude").resolvingSymlinksInPath().path else {
                 conversationPerfFailure("heavy fixture requires the fixture home's .claude directory")
@@ -485,7 +512,7 @@ extension Snapshot {
 
             try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
         }
-        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? (showsEmptyConversation || showsWatching || showsSlashCommands ? "idle" : "busy")
+        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? (showsEmptyConversation || showsWatching || showsSlashCommands || showsShellCompletions ? "idle" : "busy")
         let rawLog = UserDefaults.standard.string(forKey: "snapshotConversationRawLog")
         let title = UserDefaults.standard.string(forKey: "snapshotTerminalTitle") ?? (showsCodexApproval ? "[ ! ] Action Required" : showsCodexTasks ? "Ready" : "")
         let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'printf \"\\033]0;\(title)\\007\"; echo the terminal is still running; sleep 600'"
@@ -525,6 +552,7 @@ extension Snapshot {
             try? await Task.sleep(for: .milliseconds(100))
         }
         if showsSlashCommands { store.conversationModels[tab.id]?.setText("/co") }
+        if showsShellCompletions { store.conversationModels[tab.id]?.setText("!git ch") }
         try? await Task.sleep(for: .seconds(2))
         surface("in conversation")
         print("switch visibility: toolbar button \(store.canShowConversation), footer \(store.selectedStatusBarIsReachable)")

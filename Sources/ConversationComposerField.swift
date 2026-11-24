@@ -10,6 +10,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let focusRequest: Int
     let layoutWidth: CGFloat
     let slashPicker: ConversationSlashPicker?
+    let shellCompleter: ConversationShellCompleter?
     let submit: () -> Void
     let attach: ([URL]) -> String
     let recall: () -> Bool
@@ -76,6 +77,8 @@ struct ConversationComposerField: NSViewRepresentable {
         textView.onSubmit = submit
         textView.onAttach = attach
         textView.onRecall = recall
+        textView.shellCompleter = shellCompleter
+        shellCompleter?.field = textView
         if textView.slashPicker !== slashPicker || textView.string != text {
             textView.slashPicker = slashPicker
             slashPicker?.field = textView
@@ -89,7 +92,7 @@ struct ConversationComposerField: NSViewRepresentable {
             DispatchQueue.main.async { [weak textView] in
                 guard let textView else { return }
 
-                textView.slashPicker?.update(query: textView.slashCompletion?.query)
+                textView.refreshCompletions()
             }
         }
         if let promptColor, text.hasPrefix("!") {
@@ -132,13 +135,13 @@ struct ConversationComposerField: NSViewRepresentable {
             guard !isUpdatingText, let textView = notification.object as? ComposerTextView else { return }
 
             parent.text = textView.string
-            textView.slashPicker?.update(query: textView.slashCompletion?.query)
+            textView.refreshCompletions()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard !isUpdatingText, let textView = notification.object as? ComposerTextView else { return }
 
-            textView.slashPicker?.update(query: textView.slashCompletion?.query)
+            textView.refreshCompletions()
         }
     }
 }
@@ -149,6 +152,7 @@ final class ComposerTextView: NSTextView {
     var onAttach: ([URL]) -> String = { _ in "" }
     var onRecall: () -> Bool = { false }
     weak var slashPicker: ConversationSlashPicker?
+    weak var shellCompleter: ConversationShellCompleter?
 
     var slashCompletion: (query: String, replacementRange: NSRange)? {
         let selection = selectedRange()
@@ -161,6 +165,13 @@ final class ComposerTextView: NSTextView {
 
         let replacesSpace = text[word.endIndex...].hasPrefix(" ")
         return ((text as NSString).substring(to: selection.location), NSRange(location: 0, length: wordEnd + (replacesSpace ? 1 : 0)))
+    }
+
+    func refreshCompletions() {
+        slashPicker?.update(query: slashCompletion?.query)
+        guard let shellCompleter, !hasMarkedText(), selectedRange().length == 0 else { return }
+
+        shellCompleter.update(draft: string, caret: selectedRange().location)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -187,13 +198,13 @@ final class ComposerTextView: NSTextView {
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
-        slashPicker?.update(query: slashCompletion?.query)
+        refreshCompletions()
         needsDisplay = true
     }
 
     override func unmarkText() {
         super.unmarkText()
-        slashPicker?.update(query: slashCompletion?.query)
+        refreshCompletions()
         needsDisplay = true
     }
 
@@ -211,6 +222,15 @@ final class ComposerTextView: NSTextView {
                 if event.keyCode == 53, slashPicker.dismiss() { return }
             }
             if submits || isUnmodified && event.keyCode == 48, slashPicker.accept() { return }
+        }
+        if let shellCompleter, shellCompleter.isShowing, isUnmodified {
+            if event.keyCode == 126, shellCompleter.move(by: -1) { return }
+            if event.keyCode == 125, shellCompleter.move(by: 1) { return }
+            if event.keyCode == 53, shellCompleter.dismiss() { return }
+            if event.keyCode == 48 {
+                _ = shellCompleter.accept()
+                return
+            }
         }
         if event.keyCode == 126, isUnmodified, string.isEmpty, onRecall() { return }
         guard isReturn else { return super.keyDown(with: event) }
