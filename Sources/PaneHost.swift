@@ -2,14 +2,14 @@ import GhosttyTerminal
 import SwiftUI
 
 enum SessionPane: String, CaseIterable {
-    case changes, terminal
+    case changes, files, terminal
 
-    var title: String {
-        self == .changes ? "Changes" : "Terminal"
-    }
+    var title: String { rawValue.capitalized }
 
     var action: AppAction {
-        self == .changes ? .showChangesPane : .switchTerminal
+        if self == .files { return .showFilesPane }
+
+        return self == .changes ? .showChangesPane : .switchTerminal
     }
 }
 
@@ -19,7 +19,7 @@ struct PaneHost: View {
     var body: some View {
         let isTerminal = store.sessionPane == .terminal
         ZStack {
-            ReviewDiffColumn(store: store)
+            ReviewDiffColumn(store: store, isFiles: store.sessionPane == .files)
                 .opacity(isTerminal ? 0 : 1)
                 .allowsHitTesting(!isTerminal)
             VStack(spacing: 0) {
@@ -72,6 +72,8 @@ struct SessionPanel: View {
     var body: some View {
         if store.sessionPane == .terminal {
             TerminalList()
+        } else if store.sessionPane == .files {
+            FilesPanel()
         } else {
             ReviewPanel()
         }
@@ -85,9 +87,9 @@ struct ModeSwitcher: View {
     var body: some View {
         ControlGroup {
             ForEach(isReviewEnabled ? SessionPane.allCases : [.terminal], id: \.self) { mode in
-                let keys = mode == .changes ? "⇧⌘D" : "⌘J"
+                let keys = ["changes": "⇧⌘D", "files": "⇧⌘E", "terminal": "⌘J"][mode.rawValue] ?? ""
                 Toggle(mode.title, systemImage: mode.action.symbol, isOn: Binding(get: { store.shownPane == mode }, set: { isOn in
-                    if !isOn { store.hideSessionPanel() } else if mode == .terminal { store.showTerminalPane() } else { store.showChangesPane() }
+                    if !isOn { store.hideSessionPanel() } else if mode == .terminal { store.showTerminalPane() } else if mode == .files { store.showFilesPane() } else { store.showChangesPane() }
                 }))
                 .help("\(mode.title) (\(keys))")
             }

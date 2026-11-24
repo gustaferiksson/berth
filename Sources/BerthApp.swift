@@ -75,6 +75,8 @@ struct BerthApp: App {
                 if isReviewEnabled {
                     AppAction.showChangesPane.menuButton(appDelegate.store)
                         .disabled(!AppAction.showChangesPane.isAvailable(in: appDelegate.store))
+                    AppAction.showFilesPane.menuButton(appDelegate.store)
+                        .disabled(!AppAction.showFilesPane.isAvailable(in: appDelegate.store))
                 }
                 if isConversationEnabled {
                     (AppAction.showTerminal.isAvailable(in: appDelegate.store) ? AppAction.showTerminal : .showConversation).menuButton(appDelegate.store)
@@ -202,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let responder = event.window?.firstResponder as? NSView
             let ancestors = responder.map { Array(sequence(first: $0, next: \.superview)) } ?? []
-            if flags == .command, event.charactersIgnoringModifiers == "f", store.sessionPane == .changes, ancestors.contains(where: { $0 is NSHostingView<PaneHost> }) {
+            if flags == .command, event.charactersIgnoringModifiers == "f", store.sessionPane != .terminal, ancestors.contains(where: { $0 is NSHostingView<PaneHost> }) {
                 let textView = ancestors.lazy.compactMap { $0 as? ReviewTextView }.first
                 if let textView, textView.selectedRanges.count == 1, textView.selectedRange().length > 0, textView.textStorage?.mutableString.rangeOfCharacter(from: .newlines, options: [], range: textView.selectedRange()).location == NSNotFound {
                     let setSearchString = NSMenuItem()
@@ -220,7 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
             let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showPullRequestInReview, .showChanges, .hideChanges, .showChangesPane, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showPullRequestInReview, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil
             }

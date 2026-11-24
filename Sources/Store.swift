@@ -119,6 +119,7 @@ final class Store {
 
     var lockedSessionID: String?
     var sessionPanes: [Tab.ID: SessionPane] = [:]
+    @ObservationIgnored var filesModels: [Tab.ID: FilesModel] = [:]
     var paneTerminalIDs: [Tab.ID: Tab.ID] = [:]
     var conversationTabIDs: Set<Tab.ID> = [] {
         didSet { syncConversations() }
@@ -1436,7 +1437,31 @@ final class Store {
     var shownPane: SessionPane? {
         if isHarborShown { return nil }
         if sessionPane == .terminal { return .terminal }
-        return UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && showsReviewPanel ? .changes : nil
+        return UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && showsReviewPanel ? sessionPane : nil
+    }
+
+    func showFilesPane() {
+        guard let session = sessionTab, UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return }
+
+        showsReviewPanel = true
+        isHarborShown = false
+        leaveTerminalPane(of: session)
+        sessionPanes[session.id] = .files
+    }
+
+    func filesModel(for session: Tab) -> FilesModel {
+        if let model = filesModels[session.id] { return model }
+
+        let model = FilesModel()
+        filesModels[session.id] = model
+        return model
+    }
+
+    func openFile(_ path: String, in files: FilesModel, review: ReviewModel) {
+        files.selected = path
+        files.cursor = path
+        review.open(ReviewDocument(path: path, compare: nil))
+        if let session = sessionTab { sessionPanes[session.id] = .files }
     }
 
     func showChangesPane() {
@@ -2165,6 +2190,7 @@ final class Store {
         conversationSuspended.remove(id)
         conversationDrafts[id] = nil
         sessionPanes[id] = nil
+        filesModels[id] = nil
         paneTerminalIDs[id] = nil
         tabs.removeAll { $0.id == id }
         if let parent, !tabs.contains(where: { $0.parentTabID == parent }) { sessionPanes[parent] = nil }

@@ -33,6 +33,8 @@ Add `-snapshotItemPreview "pr|issue|pr-checks"` with one of the three values to 
 
 It also prints the mode: side by side, or unified with the right side's width and `minimumWidth`, whether its text equals the file (or the draft), and its height against `top(ofRow: rowCount)` (2 pt short in both modes, the last row's bottom padding; a row more for a file deleted without a trailing newline, whose absent side's one empty line is an added row nothing draws). `-snapshotReviewFile <path>` opens that path instead, Files-tab style (its Uncommitted compare when listed, else the plain file; `committed:<path>` opens its Committed compare), `-snapshotReviewHoverRow <path>` (Debug) forces the Open File overlay on that Changes row as if hovered, `-snapshotReviewChangedFiles "/abs/a,/abs/b"` opens no default file and instead runs the Conversation card's Review Changes action with those edited paths (the first one listed in Changes opens in the diff column; pair with `-snapshotReviewHidePanel YES` for the hidden panel start), `-snapshotReviewNoFile YES` opens no file, so the diff column shows No File Open.
 
+`-snapshotFiles YES` (with `-snapshotReview /abs/repo -snapshotReviewNoFile YES`) switches to Files mode and prints the shown pane, tree rows, filter matches and selection. `-snapshotFilesExpand "a;a/b"` expands those folders, `-snapshotFilesOpen <path>` selects and opens that file (add `-rendersMarkdown YES` for the rendered Markdown), `-snapshotFilesFilter <text>` fills the filter field.
+
 Review pull request fixtures use these flags.
 
 - `-snapshotReviewPullRequest "<branch>"` adds fixture PR #4821 for the named branch.

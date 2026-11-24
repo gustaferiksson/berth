@@ -2062,6 +2062,7 @@ private struct GlassCapsuleButtonStyle: ButtonStyle {
 
 struct ReviewDiffColumn: View {
     let store: Store
+    var isFiles = false
     @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.terminal
     @AppStorage(ReviewStyle.syntaxColorsKey) private var syntaxColors = SyntaxColorSource.terminal
     @AppStorage(ReviewStyle.fontFamilyKey) private var fontFamily = ""
@@ -2078,13 +2079,13 @@ struct ReviewDiffColumn: View {
     var body: some View {
         let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme).withSyntaxColors(syntaxColors)
         Group {
-            if let model = store.reviewModel, model.isPreviewSelected {
+            if let model = store.reviewModel, model.isPreviewSelected, !isFiles {
                 VStack(spacing: 0) {
                     strip(model, tab: nil, style: style)
                     Divider()
                     ReviewPreviewView(model: model, rootPID: store.selectedSessionID.flatMap { store.liveBySession[$0]?.pid })
                 }
-            } else if let model = store.reviewModel, let tab = model.selectedTab, tab.document.pullRequestTab == .details,
+            } else if let model = store.reviewModel, let tab = shownTab(of: model), tab.document.pullRequestTab == .details,
                       let link = tab.document.pullRequestLink, let pullRequest = model.pullRequestsForDetails[link] {
                 VStack(spacing: 0) {
                     strip(model, tab: tab, style: style)
@@ -2092,13 +2093,13 @@ struct ReviewDiffColumn: View {
                     ReviewPullRequestDetails(pullRequest: pullRequest)
                         .id(link)
                 }
-            } else if let model = store.reviewModel, let tab = model.selectedTab, tab.document.pullRequestTab == .diff, tab.document.path.isEmpty {
+            } else if let model = store.reviewModel, let tab = shownTab(of: model), tab.document.pullRequestTab == .diff, tab.document.path.isEmpty {
                 VStack(spacing: 0) {
                     strip(model, tab: tab, style: style)
                     Divider()
                     ContentUnavailableView("No changed files", systemImage: "doc")
                 }
-            } else if let model = store.reviewModel, let tab = model.selectedTab {
+            } else if let model = store.reviewModel, let tab = shownTab(of: model) {
                 let document = tab.document
                 let path = document.path
                 let sessionID = store.selectedSessionID
@@ -2110,12 +2111,18 @@ struct ReviewDiffColumn: View {
                 let revealLine = model.revealLine.flatMap { $0.document == document ? (line: $0.line, side: $0.side) : nil }
                 let isReadOnly = model.isReadOnly(document)
                 VStack(spacing: 0) {
-                    strip(model, tab: tab, style: style)
-                    Divider()
+                    if !isFiles {
+                        strip(model, tab: tab, style: style)
+                        Divider()
+                    }
                     ReviewPathBar(model: model, document: document, style: style)
+                        .overlay(alignment: .trailing) { if isFiles { filesActions(document: document, style: style) } }
                     Divider()
                     if !isReadOnly, model.hasDiskConflict(path) { ReviewDiskChangeBar(model: model, path: path) }
-                    if let contents = model.contents[document], isReadOnly || model.editors[path] != nil {
+                    if isFiles, document.isImage {
+                        FilesImageView(url: URL(filePath: model.changes?.root ?? model.folder).appending(path: path))
+                            .id(path)
+                    } else if let contents = model.contents[document], isReadOnly || model.editors[path] != nil {
                         ReviewDiffPane(
                             path: path,
                             compare: document.compare,
@@ -2177,8 +2184,10 @@ struct ReviewDiffColumn: View {
                 }
             } else {
                 VStack(spacing: 0) {
-                    if let model = store.reviewModel { strip(model, tab: nil, style: style) } else { Spacer().frame(height: 32) }
-                    Divider()
+                    if !isFiles {
+                        if let model = store.reviewModel { strip(model, tab: nil, style: style) } else { Spacer().frame(height: 32) }
+                        Divider()
+                    }
                     Text("No File Open")
                         .font(.title2)
                         .foregroundStyle(Color(nsColor: style.secondary))
@@ -2200,6 +2209,36 @@ struct ReviewDiffColumn: View {
         .onChange(of: isUnified, initial: true) { store.isReviewDiffUnified = isUnified }
         .environment(store)
         .environment(\.ghosttyTheme, store.theme)
+    }
+
+    private func shownTab(of model: ReviewModel) -> ReviewTab? {
+        guard isFiles else { return model.selectedTab }
+
+        return model.selectedTab.flatMap { $0.document.compare == nil && $0.document.pullRequestLink == nil && $0.document.root == nil ? $0 : nil }
+    }
+
+    private func filesActions(document: ReviewDocument, style: ReviewStyle) -> some View {
+        HStack(spacing: 8) {
+            if document.isMarkdown {
+                let action = store.rendersMarkdown ? AppAction.showMarkdownSource : .showRenderedMarkdown
+                Button(action.title, systemImage: action.symbol) { action.perform(on: store) }
+                    .foregroundStyle(store.rendersMarkdown ? Color.accentColor : Color(nsColor: style.secondary))
+                    .help("\(action.title) (⇧⌘M)")
+            }
+            if !document.isMarkdown || !store.rendersMarkdown {
+                Button("Wrap Lines", systemImage: "arrow.turn.down.left") { wrapsLines.toggle() }
+                    .foregroundStyle(wrapsLines ? Color.accentColor : Color(nsColor: style.secondary))
+                    .help("Wrap Lines")
+            }
+            if AppAction.save.isAvailable(in: store) {
+                Button(AppAction.save.title, systemImage: AppAction.save.symbol) { AppAction.save.perform(on: store) }
+                    .help("\(AppAction.save.title) (⌘S)")
+            }
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .font(.caption)
+        .padding(.horizontal, 10)
     }
 
     private func strip(_ model: ReviewModel, tab: ReviewTab?, style: ReviewStyle) -> some View {
