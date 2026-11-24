@@ -6,7 +6,9 @@ struct ReviewDocument: Hashable {
     let path: String
     let compare: ReviewCompare?
     var root: String?
-    var pullRequestNumber: Int?
+    var pullRequestLink: PullRequestLink?
+
+    var pullRequestNumber: Int? { pullRequestLink?.number }
 }
 
 struct ReviewTab: Identifiable {
@@ -62,9 +64,11 @@ final class ReviewModel {
     private(set) var graphError: String?
     private(set) var selectedCommit: String?
     private(set) var commitFiles: [String: [ReviewFile]] = [:]
-    private(set) var pullRequestFiles: [Int: (compare: ReviewCompare, files: [ReviewFile])] = [:]
-    private(set) var loadingPullRequests: Set<Int> = []
-    var expandedPullRequests: Set<Int> = []
+    private(set) var pullRequestFiles: [ReviewPullRequestLocation: ReviewPullRequestFiles] = [:]
+    private(set) var loadingPullRequests: [ReviewPullRequestLocation: Task<ReviewPullRequestFiles, any Error>] = [:]
+    var expandedPullRequests: Set<PullRequestLink> = []
+    var slimExpansionOverrides: [String: Bool] = [:]
+    var slimScopeOverride: ReviewSlimScope?
     var selectedTabID: UUID? {
         didSet { if selectedTabID != nil { isPreviewSelected = false } }
     }
@@ -96,7 +100,7 @@ final class ReviewModel {
     @ObservationIgnored private var queuedLoad: Task<Void, Never>?
     @ObservationIgnored private var graphLoading: Task<Void, Never>?
     @ObservationIgnored private var commitSelection = 0
-    @ObservationIgnored private var rangeFiles: [ReviewCompare: [ReviewFile]] = [:]
+    @ObservationIgnored private var rangeFiles: [ReviewDocument: ReviewFile] = [:]
     @ObservationIgnored private(set) var loadCount = 0
     @ObservationIgnored private var loadedTexts: [String: String] = [:]
     @ObservationIgnored private var blameCache: [ReviewBlameKey: Task<ReviewBlameSnapshot?, Never>] = [:]
@@ -108,9 +112,9 @@ final class ReviewModel {
     var selectedTab: ReviewTab? { tabs.first { $0.id == selectedTabID } }
     var selectedDocument: ReviewDocument? { selectedTab?.document }
     var selectedDocumentHasBothSides: Bool {
-        guard let document = selectedDocument, let changes else { return false }
+        guard let document = selectedDocument else { return false }
 
-        let status = listedFile(for: document, in: changes)?.status
+        let status = listedFile(for: document)?.status
         return status != nil && status != .added && status != .deleted
     }
 
@@ -175,7 +179,7 @@ final class ReviewModel {
             contents = contents.filter { $0.key == selectedDocument }
 
             let existing = { (document: ReviewDocument) -> ReviewDocument? in
-                if document.compare?.isHistorical == true || self.listedFile(for: document, in: changes) != nil { return document }
+                if document.compare?.isHistorical == true || self.listedFile(for: document) != nil { return document }
                 return FileManager.default.fileExists(atPath: URL(filePath: changes.root).appending(path: document.path).path) ? ReviewDocument(path: document.path, compare: nil) : nil
             }
             tabs = tabs.compactMap { tab in
@@ -259,20 +263,42 @@ final class ReviewModel {
         }
     }
 
-    func expandPullRequest(_ pullRequest: PullRequest, repository: String) async {
-        let number = pullRequest.number
-        guard let root = changes?.root, expandedPullRequests.insert(number).inserted, loadingPullRequests.insert(number).inserted else { return }
+    func loadPullRequestFiles(_ entry: ReviewPullRequest) async throws -> ReviewPullRequestFiles {
+        let location = entry.location
+        let link = location.link
+        if let pending = loadingPullRequests[location] { return try await pending.value }
 
-        defer { loadingPullRequests.remove(number) }
-        pullRequestFiles[number] = nil
-        do {
-            let result = try await ReviewGit.pullRequestFiles(number: number, repository: repository, base: pullRequest.baseRefName, in: root)
-            let compare = ReviewCompare.range(base: result.base, head: result.head)
-            rangeFiles[compare] = result.files
-            pullRequestFiles[number] = (compare, result.files)
-        } catch {
-            notice = "Couldn’t read PR #\(number). \(Self.describe(error))"
+        let task = Task {
+            defer { loadingPullRequests[location] = nil }
+            let result = try await ReviewGit.pullRequestFiles(number: link.number, repository: link.repository, base: entry.pullRequest.baseRefName, in: location.root)
+            let loaded = ReviewPullRequestFiles(compare: .range(base: result.base, head: result.head), files: result.files)
+            for file in loaded.files {
+                rangeFiles[ReviewDocument(path: file.path, compare: loaded.compare, root: location.root, pullRequestLink: link)] = file
+            }
+            pullRequestFiles[location] = loaded
+            return loaded
         }
+        loadingPullRequests[location] = task
+        return try await task.value
+    }
+
+    func expandPullRequest(_ entry: ReviewPullRequest) async {
+        guard expandedPullRequests.insert(entry.id).inserted else { return }
+
+        do {
+            _ = try await loadPullRequestFiles(entry)
+        } catch {
+            expandedPullRequests.remove(entry.id)
+            notice = "Couldn’t read PR #\(entry.id.number). \(Self.describe(error))"
+        }
+    }
+
+    func pullRequestContents(_ document: ReviewDocument) async throws -> ReviewContents {
+        guard let file = rangeFiles[document], let root = document.root, case let .range(base, head) = document.compare else {
+            throw ReviewGitError.notARepository
+        }
+
+        return try await ReviewGit.contents(of: file, base: base, head: head, in: root)
     }
 
     func pickBase(_ ref: String) {
@@ -284,7 +310,8 @@ final class ReviewModel {
         Task { await load() }
     }
 
-    func open(_ document: ReviewDocument) {
+    func open(_ document: ReviewDocument, loaded: ReviewContents? = nil) {
+        if let loaded { contents[document] = loaded }
         revealLine = nil
         onOpen()
         if let shown = tabs.first(where: { $0.document == document }) {
@@ -434,13 +461,13 @@ final class ReviewModel {
         return await task.value
     }
 
-    private func listedFile(for document: ReviewDocument, in changes: ReviewChanges) -> ReviewFile? {
+    private func listedFile(for document: ReviewDocument) -> ReviewFile? {
         let files: [ReviewFile]
         switch document.compare {
-        case .uncommitted: files = changes.uncommitted
-        case .committed: files = changes.committed
+        case .uncommitted: files = changes?.uncommitted ?? []
+        case .committed: files = changes?.committed ?? []
         case let .commit(sha): files = commitFiles[sha] ?? []
-        case .range: files = document.compare.flatMap { rangeFiles[$0] } ?? []
+        case .range: return rangeFiles[document]
         case nil: return nil
         }
         return files.first { $0.path == document.path }
@@ -465,11 +492,16 @@ final class ReviewModel {
             }
             return
         }
-        guard let changes else { return }
-
         do {
+            if document.pullRequestLink != nil {
+                contents[document] = try await pullRequestContents(document)
+                return
+            }
+
+            guard let changes else { return }
+
             let loaded: ReviewContents
-            if let listed = listedFile(for: document, in: changes), let compare = document.compare {
+            if let listed = listedFile(for: document), let compare = document.compare {
                 loaded = try await ReviewGit.contents(of: listed, compare: compare, in: changes)
             } else {
                 guard document.compare?.isHistorical != true else { return }
@@ -607,9 +639,7 @@ struct ReviewFileList: View {
     @Environment(\.ghosttyTheme) var theme
     @AppStorage(GeneralSettings.reviewSlimPanelKey) private var reviewSlimPanel = false
     @AppStorage("reviewSlimScope") private var storedSlimScope = ReviewSlimScope.changes
-    @State private var slimScopeOverride: ReviewSlimScope?
     @State private var showsSlimHistory = false
-    @State private var slimExpansionOverrides: [String: Bool] = [:]
     @AppStorage("collapsedReviewSections") private var collapsedSections = ""
     @AppStorage("reviewChangesAsTree") private var changesAsTree = false
     @AppStorage("reviewBottomPane") private var storedBottomPane = ReviewBottomPane.files
@@ -629,9 +659,14 @@ struct ReviewFileList: View {
 
     var slimScope: Binding<ReviewSlimScope> {
         Binding {
-            slimScopeOverride ?? storedSlimScope
+            model.slimScopeOverride ?? storedSlimScope
         } set: { scope in
-            if store.persistsTabs { storedSlimScope = scope } else { slimScopeOverride = scope }
+            if store.persistsTabs {
+                model.slimScopeOverride = nil
+                storedSlimScope = scope
+            } else {
+                model.slimScopeOverride = scope
+            }
         }
     }
 
@@ -687,8 +722,8 @@ struct ReviewFileList: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let changes = model.changes {
-            tabs(changes)
+        if model.changes != nil || !store.shownReviewPullRequests[sessionID, default: [:]].isEmpty {
+            tabs(model.changes)
         } else if let error = model.error, case ReviewGitError.notARepository = error, !extras.isEmpty || !sessionFiles.isEmpty {
             tabs(nil)
         } else if let error = model.error, case ReviewGitError.notARepository = error {
@@ -839,7 +874,11 @@ struct ReviewFileList: View {
 
     private var selection: ReviewDocument? {
         let active = store.reviewModel ?? model
-        return active.selectedDocument.map { ReviewDocument(path: $0.path, compare: $0.compare, root: active === model ? nil : store.activeReviewRoots[sessionID]) }
+        return active.selectedDocument.map { document in
+            if document.pullRequestLink != nil { return document }
+
+            return ReviewDocument(path: document.path, compare: document.compare, root: active === model ? nil : store.activeReviewRoots[sessionID])
+        }
     }
 
     @ViewBuilder
@@ -1026,8 +1065,14 @@ struct ReviewFileList: View {
 
     @ViewBuilder
     private func otherPullRequests(in model: ReviewModel, root: String?, branch: String, shown: Int?) -> some View {
-        if let repository = store.pullRequestBranch(inRoot: root ?? ownRoot, branch: branch)?.repository {
-            ReviewOtherPullRequests(pullRequests: store.pullRequests(inRoot: root, of: sessionID, branch: branch).filter { $0.number != shown }, repository: repository, model: model)
+        if let repository = store.pullRequestBranch(inRoot: root ?? ownRoot, branch: branch)?.repository, let clone = model.changes?.root {
+            let entries = store.pullRequests(inRoot: root, of: sessionID, branch: branch).compactMap { pullRequest -> ReviewPullRequest? in
+                let link = PullRequestLink(repository: repository.lowercased(), number: pullRequest.number)
+                guard pullRequest.number != shown, store.shownReviewPullRequests[sessionID]?[link] == nil else { return nil }
+
+                return ReviewPullRequest(location: ReviewPullRequestLocation(link: link, root: clone), pullRequest: pullRequest)
+            }
+            ReviewOtherPullRequests(entries: entries, model: model)
         }
     }
 
@@ -1234,6 +1279,9 @@ struct ReviewFileList: View {
                 slimChangeSections(changes)
             } else {
                 pullRequestSection(changes)
+                if !store.shownReviewPullRequests[sessionID, default: [:]].isEmpty {
+                    sessionPullRequestSection(changes, includesLinked: !isStacked)
+                }
                 if let shownRepo {
                     repoRows(shownRepo)
                 } else if isStacked {
@@ -1262,7 +1310,9 @@ struct ReviewFileList: View {
             if expansion(of: "pullRequest").wrappedValue {
                 branchCard(changes, model.status ?? .unknown)
                     .reviewRow(bottom: 6)
-                otherPullRequests(in: model, root: nil, branch: changes.branch, shown: shown?.pullRequest?.number)
+                if isStacked || store.shownReviewPullRequests[sessionID, default: [:]].isEmpty {
+                    otherPullRequests(in: model, root: nil, branch: changes.branch, shown: shown?.pullRequest?.number)
+                }
             }
         } else if let shownRepo, let extra = extras.first(where: { $0.repository.root == shownRepo }), let changes = extra.model.changes {
             let shown = shownPullRequest(root: extra.repository.root, branch: changes.branch)
@@ -1286,14 +1336,14 @@ struct ReviewFileList: View {
     func expansion(of id: String, defaultExpanded: Bool = true) -> Binding<Bool> {
         Binding {
             let sections = collapsedSections.split(separator: ",")
+            if let expanded = model.slimExpansionOverrides[id] { return expanded }
             if usesSlimPanel {
-                if let expanded = slimExpansionOverrides[id] { return expanded }
                 if sections.contains(where: { $0 == "+" + id }) { return true }
             }
             return defaultExpanded && !sections.contains { $0 == id }
         } set: { expanded in
-            if usesSlimPanel, !store.persistsTabs {
-                slimExpansionOverrides[id] = expanded
+            if model.slimExpansionOverrides[id] != nil || usesSlimPanel && !store.persistsTabs {
+                model.slimExpansionOverrides[id] = expanded
                 return
             }
             let others = collapsedSections.split(separator: ",").filter { $0 != id && $0 != "+" + id }.map(String.init)
@@ -2179,6 +2229,7 @@ struct ReviewDiffColumn: View {
                 let target = sessionID.flatMap { store.shownReviewPullRequest(for: model, sessionID: $0, root: root) }
                 let number = target?.pullRequest?.number
                 let detail = number.flatMap { model.pullRequestDetails[$0] }
+                let isOtherClone = document.root.map { $0 != model.changes?.root } == true
                 let revealLine = model.revealLine.flatMap { $0.document == document ? (line: $0.line, side: $0.side) : nil }
                 let isReadOnly = model.isReadOnly(document)
                 VStack(spacing: 0) {
@@ -2230,13 +2281,13 @@ struct ReviewDiffColumn: View {
                                 let repository = root.map { (URL(filePath: $0).lastPathComponent, model.changes?.root ?? $0) }
                                 store.sendReviewPrompt(ReviewThread.prompt(for: thread, repository: repository), sessionID: sessionID, noticeIn: model)
                             },
-                            onSendComment: detail?.id != nil ? { comment in
+                            onSendComment: document.compare?.isHistorical != true && detail?.id != nil ? { comment in
                                 guard let target, let number else { return }
 
                                 Task { await model.sendToPullRequest(comment, repository: target.repository, number: number) }
                             } : nil,
                             workingText: { model.workingText(path) },
-                            markdown: store.rendersMarkdown && document.isMarkdown ? ReviewMarkdownContext(root: URL(filePath: model.changes?.root ?? model.folder), open: { model.open(model.workingDocument($0)) }) : nil
+                            markdown: store.rendersMarkdown && document.isMarkdown && !isOtherClone ? ReviewMarkdownContext(root: URL(filePath: model.changes?.root ?? model.folder), open: { model.open(model.workingDocument($0)) }) : nil
                         )
                         .id(document)
                         .id(isReadOnly)
@@ -2388,7 +2439,7 @@ struct ReviewDiffColumn: View {
         case .range: document.pullRequestNumber.map { " (PR #\($0))" } ?? ""
         case nil: ""
         }
-        let title = if let number = document.pullRequestNumber { "PR #\(number):\(name)" } else if document.compare?.isHistorical == true { name + compare } else { name }
+        let title = if let number = document.pullRequestNumber { "PR #\(number) · \(name)" } else if document.compare?.isHistorical == true { name + compare } else { name }
         let previewHint = if !tab.isPreview { "" } else if document.compare?.isHistorical == true { ". Double-click to keep this preview tab." } else { ". Double-click or edit to keep this preview tab." }
         return HStack(spacing: 6) {
             Image(systemName: document.compare == nil ? "doc" : "plus.forwardslash.minus")
@@ -2417,7 +2468,7 @@ struct ReviewDiffColumn: View {
         .simultaneousGesture(TapGesture(count: 2).onEnded { model.keep(tab.id) })
         .help("\(document.path)\(compare)\(previewHint)")
         .contextMenu {
-            let absolute = model.changes.map { ($0.root as NSString).appendingPathComponent(document.path) }
+            let absolute = (document.root ?? model.changes?.root).map { ($0 as NSString).appendingPathComponent(document.path) }
             if let absolute {
                 Button("Copy Path") {
                     NSPasteboard.general.clearContents()
@@ -2432,7 +2483,7 @@ struct ReviewDiffColumn: View {
                 model.selectedTabID = tab.id
                 model.filesReveal = document.path
             }
-            .disabled(model !== store.primaryReviewModel || !FileManager.default.fileExists(atPath: absolute ?? ""))
+            .disabled(document.pullRequestLink != nil || model !== store.primaryReviewModel || !FileManager.default.fileExists(atPath: absolute ?? ""))
             Divider()
             Button("Close") { store.closeDiff(tab: tab.id) }
             Button("Close Others") {

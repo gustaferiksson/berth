@@ -188,7 +188,7 @@ public enum ReviewGit {
 
     public static func pullRequestFiles(number: Int, repository: String, base: String?, in root: String) async throws -> (base: String, head: String, files: [ReviewFile]) {
         let remoteArguments = ["config", "--get", "remote.origin.url"]
-        guard !repository.isEmpty, let origin = try? await line(remoteArguments, in: root), origin.lowercased().contains(repository.lowercased()) else {
+        guard !repository.isEmpty, await RepositoryRoot.gitHubRepository(at: root)?.lowercased() == repository.lowercased() else {
             throw ReviewGitError.git(arguments: remoteArguments, message: "Origin does not point to \(repository).")
         }
 
@@ -342,15 +342,23 @@ public enum ReviewGit {
             revisions = ("\(sha)^", sha)
 
         case let .range(base, head):
-            try validateCommitSHA(base)
-            try validateCommitSHA(head)
-            revisions = (base, head)
+            return try await contents(of: file, base: base, head: head, in: changes.root)
         }
-        let original = try await (file.status == .added ? nil : blob(revisions.original, path: file.oldPath ?? file.path, in: changes.root))
+        return try await contents(of: file, revisions: revisions, in: changes.root)
+    }
+
+    public static func contents(of file: ReviewFile, base: String, head: String, in root: String) async throws -> ReviewContents {
+        try validateCommitSHA(base)
+        try validateCommitSHA(head)
+        return try await contents(of: file, revisions: (base, head), in: root)
+    }
+
+    private static func contents(of file: ReviewFile, revisions: (original: String, modified: String?), in root: String) async throws -> ReviewContents {
+        let original = try await (file.status == .added ? nil : blob(revisions.original, path: file.oldPath ?? file.path, in: root))
 
         if file.status == .deleted { return ReviewContents(original: original, modified: nil) }
-        if let modified = revisions.modified { return try await ReviewContents(original: original, modified: blob(modified, path: file.path, in: changes.root)) }
-        return try ReviewContents(original: original, modified: workingTreeText(file.path, in: changes.root))
+        if let modified = revisions.modified { return try await ReviewContents(original: original, modified: blob(modified, path: file.path, in: root)) }
+        return try ReviewContents(original: original, modified: workingTreeText(file.path, in: root))
     }
 
     public static func workingTreeText(_ path: String, in root: String) throws -> ReviewText {

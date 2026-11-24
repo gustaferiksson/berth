@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 public enum ControlOp: String, Codable, Sendable {
-    case list = "ls", open, openSession = "open-session", openPath = "open-path", send, capture, close, wait
+    case list = "ls", open, openSession = "open-session", openPath = "open-path", send, capture, close, wait, showPullRequest = "show-pr"
 }
 
 public struct ControlRequest: Codable, Equatable, Sendable {
@@ -17,8 +17,11 @@ public struct ControlRequest: Codable, Equatable, Sendable {
     public var enter: Bool?
     public var background: Bool?
     public var timeout: Double?
+    public var pullRequest: Int?
+    public var repository: String?
+    public var repositoryPath: String?
 
-    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil) {
+    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil, pullRequest: Int? = nil, repository: String? = nil, repositoryPath: String? = nil) {
         self.token = token
         self.caller = caller
         self.operation = operation
@@ -30,6 +33,9 @@ public struct ControlRequest: Codable, Equatable, Sendable {
         self.enter = enter
         self.background = background
         self.timeout = timeout
+        self.pullRequest = pullRequest
+        self.repository = repository
+        self.repositoryPath = repositoryPath
     }
 }
 

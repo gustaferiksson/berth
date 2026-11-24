@@ -43,7 +43,9 @@ It also prints each changed file per section, the file tree's top level and its 
 
 `-snapshotReviewPanelTab graph` expands the Graph pane. `-snapshotReviewGraphCommit <n>` selects the zero-based commit in graph order, loading more pages as needed, and opens its first changed file as a preview. This flag selects Graph by default. The `review selected` line reports the loaded graph count, selected commit SHA and tabs. Historical tabs appear as `commit <sha7>:<path>`.
 
-`-snapshotReviewSessionPullRequests YES` links open PR #1445 “Let Margo switch between approved reviewers” to the fixture session and opens the Session pull requests section in the slim panel (`-reviewSlimPanel YES`). The full panel shows the row under Other pull requests. Add `-snapshotReviewExpandPullRequest 1445` to expand that row and open its first changed file. For the expanded snapshot, point `origin` at a fixture repo whose URL contains `acme/billing` (or the value of `-snapshotReviewRepository`) and exposes `refs/pull/1445/head`. The PR uses `-snapshotReviewPullRequestBase <branch>` when supplied, or the repository’s default base. The `review selected` output reports the file count and shows the selected tab as `PR #1445:<path>`.
+`-snapshotReviewSessionPullRequests YES` links open PR #1445 “Let Margo switch between approved reviewers” to the fixture session and opens the Session pull requests section in the slim panel (`-reviewSlimPanel YES`). The full panel shows the row under Other pull requests. Add `-snapshotReviewExpandPullRequest 1445` to expand that row and open its first changed file. For the expanded snapshot, use a checkout whose GitHub `origin` matches `acme/billing` (or the value of `-snapshotReviewRepository`) and serves `refs/pull/1445/head`. The local URL rewrite in the fixture recipe below lets Git fetch from a local repo. The PR uses `-snapshotReviewPullRequestBase <branch>` when supplied, or the repository’s default base. The `review selected` output reports the file count and shows the selected tab as `PR #1445:<path>`.
+
+Use `-snapshotReview /abs/api -snapshotReviewShowPullRequest /abs/billing -reviewSlimPanel YES -languageServersEnabled NO` to show fixture PR `acme/billing#1445` in the API session and open its first changed file. Add `-snapshotReviewShowPullRequestLauncher YES` for the launcher in Show in Review mode over that diff. Use the clone fixture recipe in the Agent control section.
 
 ## Review: edit, scroll, minimap, gutter and comments
 
@@ -184,7 +186,34 @@ With `-snapshotConversation YES -codexEnabled YES`, `-snapshotConversationCodexA
 Snapshot mode never uses the session host (no hosted launch, reattach or hang-up, whatever `keepsSessionsRunning` says), so a snapshot can't spawn or touch the real hosts in Application Support; only `-snapshotHost` enables it, and that already requires a temp `CFFIXED_USER_HOME`.
 
 `-snapshotHost new|reattach|close -snapshotHostID <uuid> -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`; end with `close`).
+
+### Agent control
+
 `-snapshotControl YES -controlEnabled YES -keepsSessionsRunning YES` (short `CFFIXED_USER_HOME`) runs the embedded `berth-cli` against the live control socket from a fake caller tab and prints `ls`, `open-terminal`, `wait` (exit status), `send`, `capture`, a refused send and close on the caller, a close, a wrong token and a missing environment. It first plants a stale skill and hook in the temp home and prints whether launch refreshed them, and it runs `open` on a folder, a file, a missing path and no path.
+
+Add `-snapshotControlSessionClone "$fixture/api" -snapshotControlPullRequestClone "$fixture/billing" -reviewEnabled YES` to exercise `show-pr` via the embedded CLI. The probe sends a number from an owned terminal, opens a URL from another clone using `--repo`, checks the no-clone error, and repeats the URL with different capitalization. It verifies that the session tab stays the target, that each repository’s PR #1445 appears once and is expanded, and that the selected read-only diff comes from the billing clone.
+
+Create both fixture clones in the caller shell, before launching the snapshot with `env -i PATH=/usr/bin:/bin`. The URL rewrite keeps the fixture fetches local while the configured origins exercise GitHub repository matching.
+
+```sh
+fixture=$(mktemp -d /tmp/berth-pr.XXXXXX)
+for name in api billing; do
+  producer="$fixture/$name-origin"; clone="$fixture/$name"; github="https://github.com/acme/$name.git"
+  git init -q -b main "$producer"
+  printf 'Current behavior in %s\n' "$name" > "$producer/$name.txt"
+  git -C "$producer" add "$name.txt"
+  git -C "$producer" commit -q -m Base
+  git -C "$producer" switch -q -c proposal
+  printf 'Proposed behavior in %s\n' "$name" >> "$producer/$name.txt"
+  git -C "$producer" commit -q -am "Proposed change"
+  git -C "$producer" update-ref refs/pull/1445/head proposal
+  git -C "$producer" switch -q main
+  git -C "$producer" branch -q -D proposal
+  git clone -q "$producer" "$clone"
+  git -C "$clone" config remote.origin.url "$github"
+  git -C "$clone" config "url.$producer.insteadOf" "$github"
+done
+```
 
 It also runs `open-session --cwd <dir> --background -- "hello"` with the system temporary directory and a missing folder inside it. Expect exit 0 with an 8 hex tab id for the existing folder, exit 1 with `No folder` for the missing folder, and one `probeOpened` call for a new Claude session in the temporary directory. The DEBUG probe returns before launching Claude.
 

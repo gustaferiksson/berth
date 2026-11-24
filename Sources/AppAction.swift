@@ -3,13 +3,13 @@ import GhosttyTerminal
 import SwiftUI
 
 enum AppAction: Hashable {
-    case commandPalette, filterSidebar, newSession, pullRequests, searchSessions, newTerminal, newTerminalForSession, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
+    case commandPalette, filterSidebar, newSession, pullRequests, showPullRequestInReview, searchSessions, newTerminal, newTerminalForSession, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
     case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, openPreview, showSideBySide, showInline, wrapLines, showRenderedMarkdown, showMarkdownSource, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
     case goBack, goForward, previousChange, nextChange
     case caret(CaretAction)
 
-    static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
+    static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .showPullRequestInReview, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
         + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .openPreview, .showSideBySide, .showInline, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
     static let carets = CaretAction.allCases.map(Self.caret)
@@ -21,6 +21,7 @@ enum AppAction: Hashable {
         case .filterSidebar: "Filter Sidebar"
         case .newSession: "New Session…"
         case .pullRequests: "Open Pull Request…"
+        case .showPullRequestInReview: "Show Pull Request in Review…"
         case .searchSessions: "Search Sessions…"
         case .newTerminal: "New Terminal"
         case .newTerminalForSession: "New Terminal for Session"
@@ -65,6 +66,7 @@ enum AppAction: Hashable {
         switch self {
         case .newSession: "claude start folder"
         case .pullRequests: "github pr review requested mine assigned checkout worktree"
+        case .showPullRequestInReview: "github pr diff changes current tab"
         case .filterSidebar: "search sessions tasks terminals narrow"
         case .searchSessions: "find transcripts"
         case .newTerminal, .newTerminalForSession: "shell tab"
@@ -96,7 +98,7 @@ enum AppAction: Hashable {
         case .commandPalette: "command"
         case .filterSidebar: "line.3.horizontal.decrease"
         case .newSession: "plus.bubble"
-        case .pullRequests: "arrow.triangle.pull"
+        case .pullRequests, .showPullRequestInReview: "arrow.triangle.pull"
         case .searchSessions: "magnifyingglass"
         case .newTerminal, .newTerminalForSession: "plus.rectangle"
         case .switchTerminal: "apple.terminal"
@@ -139,6 +141,7 @@ enum AppAction: Hashable {
         case .commandPalette: KeyboardShortcut("k")
         case .filterSidebar: KeyboardShortcut("f", modifiers: [.command, .option])
         case .newSession: KeyboardShortcut("n")
+        case .showPullRequestInReview: KeyboardShortcut("r", modifiers: [.command, .option])
         case .searchSessions: KeyboardShortcut("f", modifiers: [.command, .shift])
         case .newTerminal: KeyboardShortcut("t")
         case .switchTerminal: KeyboardShortcut("j")
@@ -163,6 +166,7 @@ enum AppAction: Hashable {
 
     func isAvailable(in store: Store) -> Bool {
         switch self {
+        case .showPullRequestInReview: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.selectedSessionID != nil
         case .newTerminalForSession: store.tabs.contains { $0.id == store.selectedTabID && $0.kind == .claude }
         case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown && !store.selectedShowsConversation
         case .clearTerminal: store.focusedTerminal != nil
@@ -202,6 +206,8 @@ enum AppAction: Hashable {
         case .newSession: store.launcherMode = .newSession
 
         case .pullRequests: store.launcherMode = .pullRequests
+
+        case .showPullRequestInReview: if isAvailable(in: store) { store.launcherMode = .showPullRequestInReview }
 
         case .searchSessions: store.launcherMode = .search
 

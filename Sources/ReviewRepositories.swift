@@ -1,4 +1,5 @@
 import BerthCore
+import Foundation
 import SwiftUI
 
 struct ReviewTaskHeader: View {
@@ -136,29 +137,53 @@ struct ReviewRepoRows: View {
     }
 }
 
+struct ReviewPullRequestFailure: LocalizedError {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
+nonisolated struct ReviewPullRequestLocation: Hashable, Sendable {
+    let link: PullRequestLink
+    let root: String
+}
+
+struct ReviewPullRequest: Identifiable {
+    let location: ReviewPullRequestLocation
+    let pullRequest: PullRequest
+
+    var id: PullRequestLink { location.link }
+}
+
+nonisolated struct ReviewPullRequestFiles: Sendable {
+    let compare: ReviewCompare
+    let files: [ReviewFile]
+}
+
 struct ReviewOtherPullRequests: View {
-    let pullRequests: [PullRequest]
-    let repository: String
+    let entries: [ReviewPullRequest]
     let model: ReviewModel
     var showsHeading = true
+    var showsRepository = false
     @Environment(\.openURL) private var openURL
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        if showsHeading, !pullRequests.isEmpty {
+        if showsHeading, !entries.isEmpty {
             Text("Other pull requests")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Color.secondary)
                 .reviewRow(bottom: 6)
         }
-        ForEach(pullRequests, id: \.number) { pullRequest in
-            let number = pullRequest.number
-            let isExpanded = model.expandedPullRequests.contains(number)
+        ForEach(entries) { entry in
+            let link = entry.id
+            let pullRequest = entry.pullRequest
+            let isExpanded = model.expandedPullRequests.contains(link)
             Button {
                 if isExpanded {
-                    model.expandedPullRequests.remove(number)
+                    model.expandedPullRequests.remove(link)
                 } else {
-                    Task { await model.expandPullRequest(pullRequest, repository: repository) }
+                    Task { await model.expandPullRequest(entry) }
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -167,9 +192,16 @@ struct ReviewOtherPullRequests: View {
                         .foregroundStyle(theme.secondary)
                         .frame(width: 10)
                         .accessibilityHidden(true)
-                    Text(pullRequest.title)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(pullRequest.title)
+                        if showsRepository {
+                            Text(link.repository)
+                                .font(.caption2)
+                                .foregroundStyle(theme.secondary)
+                        }
+                    }
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     PullRequestTag(pullRequest: pullRequest, opensOnGitHub: false)
                         .fixedSize()
                 }
@@ -182,20 +214,20 @@ struct ReviewOtherPullRequests: View {
             .contextMenu {
                 Button("Open on GitHub") { openURL(pullRequest.url) }
                 if [.open, .draft].contains(pullRequest.state) {
-                    StewardPullRequestButton(link: PullRequestLink(repository: repository, number: number), url: pullRequest.url)
+                    StewardPullRequestButton(link: link, url: pullRequest.url)
                 }
             }
             .reviewRow()
             if isExpanded {
-                if model.loadingPullRequests.contains(number) {
+                if model.loadingPullRequests[entry.location] != nil {
                     ProgressView()
                         .controlSize(.small)
                         .accessibilityLabel("Loading Changed Files")
                         .frame(height: 24)
                         .reviewRow(leading: ReviewInset.tree)
-                } else if let loaded = model.pullRequestFiles[number], !loaded.files.isEmpty {
+                } else if let loaded = model.pullRequestFiles[entry.location], !loaded.files.isEmpty {
                     ForEach(loaded.files, id: \.path) { file in
-                        let document = ReviewDocument(path: file.path, compare: loaded.compare, pullRequestNumber: number)
+                        let document = ReviewDocument(path: file.path, compare: loaded.compare, root: entry.location.root, pullRequestLink: link)
                         ReviewHistoricalFileButton(file: file, document: document, model: model)
                             .reviewRow(leading: ReviewInset.tree)
                     }

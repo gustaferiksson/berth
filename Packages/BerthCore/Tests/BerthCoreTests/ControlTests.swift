@@ -163,8 +163,43 @@ struct ControlTests {
         #expect(try JSONDecoder().decode(ControlRequest.self, from: data) == request)
     }
 
+    @Test func showPullRequestParsesNumbersURLsAndClonePaths() throws {
+        let environment = [ControlEnvironment.socket: "/s.sock", ControlEnvironment.token: "tok", ControlEnvironment.tab: "me"]
+        let number = try ControlCommand.parse(["show-pr", "42"], environment: environment, currentDirectory: "/work/app")
+        #expect(number.request == ControlRequest(token: "tok", caller: "me", operation: .showPullRequest, pullRequest: 42))
+
+        let url = try ControlCommand.parse(["show-pr", "https://github.com/Acme/api.v2/pull/42?tab=files#changes", "--repo", "../api", "--json"], environment: environment, currentDirectory: "/work/app")
+        #expect(url.request == ControlRequest(token: "tok", caller: "me", operation: .showPullRequest, pullRequest: 42, repository: "Acme/api.v2", repositoryPath: "/work/api"))
+        #expect(url.json)
+
+        for arguments in [
+            ["0"], ["-1"], ["999999999999999999999999999"], ["42", "43"], ["42", "--repo"], ["42", "--repo", "--json"],
+            ["https://github.com/acme/api/pull/0"], ["http://github.com/acme/api/pull/42"], ["https://example.com/acme/api/pull/42"],
+            ["https://github.com/-acme/api/pull/42"], ["https://github.com/acme/../pull/42"], ["https://github.com/acme/a%2Fb/pull/42"],
+            ["https://github.com/acme/api/issues/42"],
+        ] {
+            #expect(throws: ControlCommand.UsageError.self) { try ControlCommand.parse(["show-pr"] + arguments, environment: environment, currentDirectory: "/work/app") }
+        }
+    }
+
+    @Test func showPullRequestRequestRoundTripsThroughJSON() throws {
+        let request = ControlRequest(token: "tok", caller: "me", operation: .showPullRequest, pullRequest: 42, repository: "acme/api", repositoryPath: "/work/api")
+        let data = try JSONEncoder().encode(request)
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["operation"] as? String == "show-pr")
+        #expect(try JSONDecoder().decode(ControlRequest.self, from: data) == request)
+
+        let legacy = Data(#"{"token":"tok","caller":"me","operation":"ls"}"#.utf8)
+        #expect(try JSONDecoder().decode(ControlRequest.self, from: legacy) == ControlRequest(token: "tok", caller: "me", operation: .list))
+    }
+
     @Test func usageAndSkillDescribeOpeningSessions() {
         #expect(ControlCommand.usage.contains("berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]"))
+        let showSyntax = "berth show-pr <number|url> [--repo <path>] [--json]"
+        #expect(ControlCommand.usage.contains(showSyntax))
+        #expect(ControlInstall.skill.contains(showSyntax))
+        #expect(ControlInstall.skill.contains("If the user asks for a separate working session"))
+        #expect(ControlInstall.hookCommand.contains("berth show-pr"))
         #expect(ControlInstall.skill.contains(#"berth open-session --cwd <worktree> --background -- "<prompt>""#))
     }
 

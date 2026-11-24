@@ -226,17 +226,24 @@ extension ReviewFileList {
                     .foregroundStyle(theme.secondary)
                     .reviewRow(top: 6, bottom: 6)
             }
-            let shown = shownPullRequest(root: nil, branch: changes.branch)
-            let branchNumber = shown?.pullRequest?.number
-            let other = store.pullRequests(inRoot: nil, of: sessionID, branch: changes.branch).filter { $0.number != branchNumber }
-            if !other.isEmpty {
-                let expanded = expansion(of: "otherPullRequests", defaultExpanded: false)
-                let help = branchNumber == nil ? "Pull requests linked to this session" : "Pull requests linked to this session other than the branch’s pull request"
-                ReviewSlimSectionHeader(title: "Session pull requests", count: other.count, expansion: expanded, help: help)
-                if expanded.wrappedValue,
-                   let repository = shown?.repository ?? store.pullRequestBranch(inRoot: store.repositoryRoot(ofSession: sessionID) ?? model.folder, branch: changes.branch)?.repository {
-                    ReviewOtherPullRequests(pullRequests: other, repository: repository, model: model, showsHeading: false)
-                }
+        }
+        sessionPullRequestSection(changes)
+    }
+
+    func sessionPullRequestSection(_ changes: ReviewChanges?, includesLinked: Bool = true) -> some View {
+        let shown = changes.flatMap { shownPullRequest(root: nil, branch: $0.branch) }
+        let entries = store.sessionReviewPullRequests(of: sessionID, changes: includesLinked ? changes : nil, excluding: shown?.pullRequest?.number)
+        let expanded = expansion(of: "otherPullRequests", defaultExpanded: false)
+        return Group {
+            ReviewSlimSectionHeader(
+                title: "Session pull requests",
+                count: entries.count,
+                expansion: entries.isEmpty ? nil : expanded,
+                help: "Pull requests linked to this session or added to Review",
+                addPullRequest: { AppAction.showPullRequestInReview.perform(on: store) }
+            )
+            if expanded.wrappedValue {
+                ReviewOtherPullRequests(entries: entries, model: model, showsHeading: false, showsRepository: !store.shownReviewPullRequests[sessionID, default: [:]].isEmpty)
             }
         }
     }
@@ -304,23 +311,32 @@ struct ReviewSlimSectionHeader: View {
     var expansion: Binding<Bool>?
     var totals: (additions: Int, deletions: Int)?
     var help: String?
+    var addPullRequest: (() -> Void)?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        Group {
-            if let expansion {
-                Button {
-                    expansion.wrappedValue.toggle()
-                } label: {
+        HStack(spacing: 8) {
+            Group {
+                if let expansion {
+                    Button {
+                        expansion.wrappedValue.toggle()
+                    } label: {
+                        label
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityValue(expansion.wrappedValue ? "Expanded" : "Collapsed")
+                } else {
                     label
                 }
-                .buttonStyle(.plain)
-                .accessibilityValue(expansion.wrappedValue ? "Expanded" : "Collapsed")
-            } else {
-                label
+            }
+            .help(help ?? "")
+            if let addPullRequest {
+                Button("Add a pull request to Review", systemImage: "plus", action: addPullRequest)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("Add a pull request to Review")
             }
         }
-        .help(help ?? "")
         .reviewRow(top: 6, bottom: 3)
     }
 
