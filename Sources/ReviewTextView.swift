@@ -44,6 +44,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             guard blame?.id != oldValue?.id else { return }
 
             if hoverBlame != nil { dismissHover() }
+            restartBlameDelay()
             needsDisplay = true
         }
     }
@@ -73,6 +74,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     private var hoverTarget: PointerTarget?
     private var hoverDiagnostics: [LanguageServerDiagnostic] = []
     private var hoverBlame: ReviewBlame?
+    private var hoverActions: [() -> Void] = []
+    private var isBlameVisible = false
+    private var blameDelay: Task<Void, Never>?
     private var hoverTask: Task<Void, Never>?
     private var hoverCard: NSView?
     private var hoverClickMonitor: Any?
@@ -105,6 +109,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         isStale = true
         countLines()
         dismissHover()
+        restartBlameDelay()
         link = nil
         occurrenceSearch?.cancel()
         occurrences = []
@@ -229,12 +234,27 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         scrollVertically(to: top(ofRow: row) - (enclosingScrollView?.contentView.bounds.height ?? 0) / 3)
     }
 
+    private func restartBlameDelay() {
+        blameDelay?.cancel()
+        isBlameVisible = false
+        guard blame != nil else { return }
+
+        blameDelay = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+
+            self?.isBlameVisible = true
+            self?.needsDisplay = true
+        }
+    }
+
     func dismissHover() {
         hoverTask?.cancel()
         hoverTask = nil
         hoverTarget = nil
         hoverDiagnostics = []
         hoverBlame = nil
+        hoverActions = []
         hoverClickMonitor.map(NSEvent.removeMonitor)
         hoverClickMonitor = nil
         if let hoverCard, let responder = window?.firstResponder as? NSView, responder.isDescendant(of: hoverCard) { window?.makeFirstResponder(self) }
@@ -278,7 +298,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         hoverTarget = target
         hoverDiagnostics = problems.map(\.diagnostic)
         hoverBlame = entry
-        let blameRoot = blame?.root
+        let blameSnapshot = blame
         let onHover = target?.textView.onHover
         let location = target?.range.location ?? 0
         let diagnostics = hoverDiagnostics
@@ -288,16 +308,27 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
 
-            if let entry, let blameRoot {
+            if let entry, let blameSnapshot {
                 if entry.isUncommitted {
-                    self?.showHover("You · Not committed yet", diagnostics: [], below: anchor)
+                    self?.showHover("You • Uncommitted changes", diagnostics: [], below: anchor)
                     return
                 }
-                let message = await ReviewGit.blameMessage(entry.hash, in: blameRoot) ?? entry.summary
+                let message = await ReviewGit.blameMessage(entry.hash, in: blameSnapshot.root) ?? entry.summary
                 guard !Task.isCancelled else { return }
 
-                let date = entry.authorTime.formatted(date: .abbreviated, time: .standard)
-                self?.showHover("\(entry.hash)\n\(entry.author)\n\(date)\n\n\(message)", diagnostics: [], below: anchor, parsesCodeFences: false)
+                let author = entry.author == blameSnapshot.currentUser ? "You" : entry.author
+                let date = entry.authorTime.formatted(date: .complete, time: .shortened)
+                var actions: [(title: String, run: () -> Void)] = [
+                    ("Open Commit", { blameSnapshot.openCommit?(entry.hash) }),
+                    ("Copy SHA", {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(entry.hash, forType: .string)
+                    }),
+                ]
+                if let repository = blameSnapshot.repository, let url = URL(string: "https://github.com/\(repository)/commit/\(entry.hash)") {
+                    actions.append(("Open on GitHub", { NSWorkspace.shared.open(url) }))
+                }
+                self?.showHover("\(author)\n\(date)\n\(entry.hash.prefix(7))\n\n\(message)", diagnostics: [], below: anchor, parsesCodeFences: false, actions: actions)
                 return
             }
             let markdown = await onHover?(location)
@@ -339,7 +370,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         return nil
     }
 
-    private func showHover(_ markdown: String?, diagnostics: [LanguageServerDiagnostic], below anchor: NSRect, parsesCodeFences: Bool = true) {
+    private func showHover(_ markdown: String?, diagnostics: [LanguageServerDiagnostic], below anchor: NSRect, parsesCodeFences: Bool = true, actions: [(title: String, run: () -> Void)] = []) {
         hoverTask = nil
         let small = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         let problems = NSMutableAttributedString()
@@ -379,8 +410,19 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             label.textContainer?.containerSize.width = label.frame.width
             return label
         }
-        let width = (labels.map(\.frame.width).max() ?? 0) + 20
-        let card = NSView(frame: NSRect(x: 0, y: 0, width: width, height: labels.map { $0.frame.height + 16 }.reduce(0, +)))
+        hoverActions = actions.map(\.run)
+        let buttons = actions.enumerated().map { index, action in
+            let button = NSButton(title: action.title, target: self, action: #selector(runHoverAction(_:)))
+            button.tag = index
+            button.bezelStyle = .accessoryBarAction
+            button.controlSize = .small
+            button.sizeToFit()
+            return button
+        }
+        let buttonsWidth = buttons.map { $0.frame.width + 4 }.reduce(12, +)
+        let actionsHeight: CGFloat = buttons.isEmpty ? 0 : 32
+        let width = max((labels.map(\.frame.width).max() ?? 0) + 20, buttonsWidth)
+        let card = NSView(frame: NSRect(x: 0, y: 0, width: width, height: labels.map { $0.frame.height + 16 }.reduce(actionsHeight, +)))
         card.setAccessibilityElement(true)
         card.setAccessibilityRole(.group)
         card.setAccessibilityLabel("Hover information")
@@ -401,6 +443,18 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             card.addSubview(label)
             top -= label.frame.height + 16
         }
+        if !buttons.isEmpty {
+            let separator = NSView(frame: NSRect(x: 0, y: actionsHeight, width: width, height: 1))
+            separator.wantsLayer = true
+            separator.layer?.backgroundColor = style.commentBorder.cgColor
+            card.addSubview(separator)
+            var x: CGFloat = 8
+            for button in buttons {
+                button.frame.origin = NSPoint(x: x, y: (actionsHeight - button.frame.height) / 2)
+                card.addSubview(button)
+                x += button.frame.width + 4
+            }
+        }
         let below = anchor.maxY + 4
         card.frame.origin = NSPoint(x: max(min(anchor.minX, visibleRect.maxX - card.frame.width - 8), visibleRect.minX), y: below + card.frame.height > visibleRect.maxY ? anchor.minY - card.frame.height - 4 : below)
         addSubview(card)
@@ -411,6 +465,12 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             dismissHover()
             return event
         }
+    }
+
+    @objc private func runHoverAction(_ sender: NSButton) {
+        let actions = hoverActions
+        dismissHover()
+        if actions.indices.contains(sender.tag) { actions[sender.tag]() }
     }
 
     private func identifier(at point: NSPoint) -> NSRange? {
@@ -488,6 +548,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         gutter?.needsDisplay = true
         if blame != nil {
             if hoverBlame != nil { dismissHover() }
+            restartBlameDelay()
             needsDisplay = true
         }
         occurrenceSearch?.cancel()
@@ -791,7 +852,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     }
 
     private func blameAnnotation(in rect: NSRect) -> (entry: ReviewBlame, label: NSAttributedString, rect: NSRect)? {
-        guard let blame, blame.lineCount == lineStarts.count, isEditable, !isAbsent, window?.firstResponder === self,
+        guard let blame, isBlameVisible, blame.lineCount == lineStarts.count, isEditable, !isAbsent, window?.firstResponder === self,
               selectedRanges.count == 1, carets.ranges.count == 1, !hasMarkedText(),
               let side, side.lineCount == lineStarts.count
         else { return nil }
@@ -806,19 +867,30 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         let top = textContainerInset.height + CGFloat(row) * rowHeight + reserved.filter { $0.key < row }.values.reduce(0, +) + extra(before: row)
         guard rect.maxY > top, rect.minY < top + rowHeight + alignedExtras[row, default: 0], let storage = textContentStorage,
               let location = storage.location(storage.documentRange.location, offsetBy: lineStarts[line]),
-              let fragment = textLayoutManager?.textLayoutFragment(for: location), let textLine = fragment.textLineFragments.last
+              let fragment = textLayoutManager?.textLayoutFragment(for: location),
+              let textLineIndex = fragment.textLineFragments.lastIndex(where: { $0.characterRange.length > 0 }) ?? fragment.textLineFragments.indices.last
         else { return nil }
 
-        let x = textContainerInset.width + fragment.layoutFragmentFrame.minX + textLine.typographicBounds.maxX + 12
-        guard x < rect.maxX else { return nil }
+        let x = textContainerInset.width + fragment.layoutFragmentFrame.minX + fragment.textLineFragments[textLineIndex].typographicBounds.maxX + style.font.pointSize * 3.5
+        let available = visibleRect.maxX - 8 - x
+        guard available >= 60 else { return nil }
 
-        let text = if entry.isUncommitted { "You · Not committed yet" } else {
-            "\(entry.author), \(Self.relativeBlameDate.localizedString(for: entry.authorTime, relativeTo: .now)) · \(entry.summary)"
+        let author = entry.author == blame.currentUser ? "You" : entry.author
+        let text = if entry.isUncommitted { "You • Uncommitted changes" } else {
+            "\(author), \(Self.relativeBlameDate.localizedString(for: entry.authorTime, relativeTo: .now)) • \(entry.summary)"
         }
-        let font = NSFont.systemFont(ofSize: style.font.pointSize * 0.85)
-        let label = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: style.secondary])
+        let smaller = NSFont(descriptor: style.font.fontDescriptor, size: style.font.pointSize - 1) ?? style.font
+        let font = NSFontManager.shared.convert(smaller, toHaveTrait: .italicFontMask)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let label = NSAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: style.foreground.withAlphaComponent(0.35),
+            .obliqueness: font.fontDescriptor.symbolicTraits.contains(.italic) ? 0 : 0.2,
+            .paragraphStyle: paragraph,
+        ])
         let size = label.size()
-        let frame = NSRect(x: x, y: top + CGFloat(fragment.textLineFragments.count - 1) * (rowHeight - rowPadding) + (rowHeight - size.height) / 2, width: size.width, height: size.height)
+        let frame = NSRect(x: x, y: top + CGFloat(textLineIndex) * (rowHeight - rowPadding) + (rowHeight - size.height) / 2, width: min(size.width.rounded(.up), available), height: size.height.rounded(.up))
         guard frame.intersects(rect) else { return nil }
 
         return (entry, label, frame)
@@ -903,7 +975,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             style.link.setFill()
             for segment in link.textView === self ? segments(of: link.range) : link.segments { NSRect(x: segment.rect.minX, y: segment.baseline + 2, width: segment.rect.width, height: 1).fill() }
         }
-        if let annotation = blameAnnotation(in: rect) { annotation.label.draw(at: annotation.rect.origin) }
+        if let annotation = blameAnnotation(in: rect) { annotation.label.draw(with: annotation.rect, options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]) }
         drawCarets(in: rect)
     }
 

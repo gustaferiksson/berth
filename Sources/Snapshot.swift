@@ -1059,7 +1059,7 @@ enum Snapshot {
                     window.makeFirstResponder(right)
                     right.setSelectedRange(NSRange(location: right.lineStarts[line - 1], length: 0))
                     right.scrollVertically(to: right.top(ofRow: rows[line - 1]) - right.visibleRect.height / 3)
-                    try? await Task.sleep(for: .milliseconds(400))
+                    try? await Task.sleep(for: .milliseconds(700))
                     save(".blame.png")
                 }
             }
