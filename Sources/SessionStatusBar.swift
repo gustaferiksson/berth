@@ -86,7 +86,7 @@ struct SessionStatusBar: View {
 private struct StatusLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 5) {
-            configuration.icon.frame(width: 14)
+            configuration.icon
             configuration.title
         }
     }
