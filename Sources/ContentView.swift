@@ -313,7 +313,8 @@ private struct PanedSplit: View {
     @State private var columnFrame = CGRect.zero
 
     var body: some View {
-        TerminalSplit(store: store, isDiffLeading: isDiffLeading, isDiffCollapsed: isDiffCollapsed, isTerminalBelow: isTerminalBelow) { frame in
+        let browserURL = store.shownPane == .browser ? store.browser.shownTab?.url : nil
+        TerminalSplit(store: store, browserURL: browserURL, isDiffLeading: isDiffLeading, isDiffCollapsed: isDiffCollapsed, isTerminalBelow: isTerminalBelow) { frame in
             if columnFrame != frame { columnFrame = frame }
         }
         .overlay(alignment: .topLeading) { PaneTerminals(store: store, column: columnFrame) }
@@ -327,6 +328,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     static let gap = 8.0
 
     let store: Store
+    let browserURL: URL?
     let isDiffLeading: Bool
     let isDiffCollapsed: Bool
     let isTerminalBelow: Bool
@@ -362,6 +364,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
 
     func updateNSViewController(_ split: TerminalSplitController, context _: Context) {
         split.onColumnFrame = onColumnFrame
+        split.browserURL = browserURL
         guard let diff = split.diff else { return }
 
         let leadsDiff = isDiffLeading || isTerminalBelow
@@ -402,6 +405,7 @@ private final class TerminalSplitController: NSSplitViewController {
     }
 
     var onColumnFrame: (CGRect) -> Void = { _ in }
+    var browserURL: URL? { didSet { updateBrowserURL() } }
     private var laidOutSize = CGSize.zero
 
     override func splitViewDidResizeSubviews(_ notification: Notification) {
@@ -414,12 +418,21 @@ private final class TerminalSplitController: NSSplitViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        updateBrowserURL()
         reportColumnFrame()
         guard splitView.bounds.size != laidOutSize else { return }
 
         let preferred: CGFloat? = laidOutSize == .zero ? 760 : nil
         laidOutSize = splitView.bounds.size
         DispatchQueue.main.async { [weak self] in self?.fitDiff(preferring: preferred) }
+    }
+
+    private func updateBrowserURL() {
+        let url = browserURL.flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
+        guard let window = view.window, window.representedURL != url else { return }
+
+        window.representedURL = url
+        window.setAccessibilityDocument(url?.absoluteString)
     }
 
     override func splitView(_ splitView: NSSplitView, constrainSplitPosition proposed: CGFloat, ofSubviewAt _: Int) -> CGFloat {

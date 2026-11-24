@@ -58,7 +58,9 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
+        #if DEBUG
         view.isInspectable = true
+        #endif
         observations = [
             view.observe(\.title) { [weak self] view, _ in MainActor.assumeIsolated { if let title = view.title, !title.isEmpty { self?.title = title } } },
             view.observe(\.url) { [weak self] view, _ in MainActor.assumeIsolated { if let url = view.url { self?.url = url } } },
