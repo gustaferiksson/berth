@@ -306,6 +306,16 @@ private struct Composer: View {
         }
         #if DEBUG
         .task { await attachForSnapshot() }
+        #if DEBUG
+        .task {
+            guard UserDefaults.standard.bool(forKey: "snapshotDemoFocus") else { return }
+
+            try? await Task.sleep(for: .milliseconds(1500))
+            guard !Task.isCancelled else { return }
+
+            isFocused = true
+        }
+        #endif
         .task {
             guard focusesAndExpands else { return }
 

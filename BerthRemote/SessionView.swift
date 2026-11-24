@@ -3,7 +3,7 @@ import SwiftUI
 struct SessionView: View {
     let sessionID: String
 
-    private static let controlsInset: CGFloat = 12
+    private static let controlsInset: CGFloat = 24
 
     @Environment(RemoteClient.self) private var client
     @Environment(\.openURL) private var openURL
