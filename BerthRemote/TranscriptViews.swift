@@ -202,6 +202,7 @@ private struct PromptBubble: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isExpanded = false
+    @State private var viewerStart: ViewerImage?
     @ScaledMetric(relativeTo: .subheadline) private var markerWidth = 16
     @ScaledMetric(relativeTo: .caption2) private var imageTagDescent = 2.0
 
@@ -216,6 +217,7 @@ private struct PromptBubble: View {
         let text = (attachments == nil ? entry.text.replacing(uploads, with: "") : entry.text).trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = PromptTextPart.split(text)
         let numbers = imageNumbers(parts: parts, count: images.count)
+        let viewerImages = images.enumerated().map { ViewerImage(id: String($0.offset), data: $0.element) }
         let showsText = !text.isEmpty && !(!images.isEmpty && text.replacing(PromptTextPart.imageToken, with: "").allSatisfy(\.isWhitespace))
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 4, topTrailingRadius: 20, style: .continuous)
 
@@ -225,16 +227,20 @@ private struct PromptBubble: View {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
                         let number = numbers[index]
                         if let image = UIImage(data: data), image.size.height > 0 {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: min(200, 120 * image.size.width / image.size.height), height: 120)
-                                .clipShape(.rect(cornerRadius: 14))
-                                .overlay(alignment: .bottomLeading) {
-                                    PromptImageTag(number: number)
-                                        .padding(4)
-                                }
-                                .accessibilityLabel("Image \(String(number))")
+                            Button { viewerStart = viewerImages[index] } label: {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: min(200, 120 * image.size.width / image.size.height), height: 120)
+                                    .clipShape(.rect(cornerRadius: 14))
+                                    .overlay(alignment: .bottomLeading) {
+                                        PromptImageTag(number: number)
+                                            .padding(4)
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityHint("Opens the image full screen")
+                            .accessibilityLabel("Image \(String(number))")
                         }
                     }
                 }
@@ -256,6 +262,8 @@ private struct PromptBubble: View {
             }
         }
         .opacity(isQueued ? 0.6 : 1)
+        .fullScreenCover(item: $viewerStart) { ImageViewer(images: viewerImages, start: $0) }
+        .task { if UserDefaults.standard.bool(forKey: "snapshotOpenImageViewer") { viewerStart = viewerImages.first } }
         .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.85 }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }

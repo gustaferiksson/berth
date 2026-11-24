@@ -182,7 +182,7 @@ final class RemoteClient {
         codexUsage = CodexUsage(usage: PlanUsage(windows: [
             UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.18, resetsAt: resets),
             UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: 0.47, resetsAt: resets.addingTimeInterval(3 * 86_400)),
-        ]), recordedAt: .now)
+        ]), recordedAt: .now.addingTimeInterval(-2 * 3600))
         if UserDefaults.standard.bool(forKey: "snapshotDemoSlashCommands") {
             slashCommands[session.id] = SlashCommand.claudeBuiltIns + [
                 SlashCommand(RemoteSlashCommand(name: "/compare", summary: "Compare two revisions", source: "project", requiresArguments: false, argumentHint: "<revision>")),
