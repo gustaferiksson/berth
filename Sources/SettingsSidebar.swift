@@ -6,7 +6,9 @@ struct SidebarSettings: View {
     @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
     @AppStorage("showsSessionUsageDivisions") private var showsSessionUsageDivisions = false
     @AppStorage("showsWeeklyUsageDivisions") private var showsWeeklyUsageDivisions = false
+    @AppStorage(SidebarStyle.key) private var style = SidebarStyle.classic
     @AppStorage(SidebarDensity.key) private var density = SidebarDensity.comfortable
+    @AppStorage(ItemPreviewSetting.key) private var richPreviews = false
 
     var body: some View {
         Form {
@@ -16,15 +18,26 @@ struct SidebarSettings: View {
                     Text("Right").tag(SidebarPosition.right)
                 }
                 .pickerStyle(.segmented)
-                Picker("Density", selection: $density) {
-                    ForEach(SidebarDensity.allCases, id: \.self) { Text($0.title).tag($0) }
+                Picker("Style", selection: $style) {
+                    ForEach(SidebarStyle.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                SidebarDensityPreview(density: density)
+                if style == .classic {
+                    Picker("Density", selection: $density) {
+                        ForEach(SidebarDensity.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    SidebarDensityPreview(density: density)
+                }
             } header: {
                 Text("Layout")
             } footer: {
-                Text("Compact shows one line per session, with the pull request beside the title.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Slim puts each session on one line with the status glyph first, a small trailing pull request glyph, and actions on hover.")
+                    if style == .classic {
+                        Text("Compact shows one line per session, with the pull request beside the title.")
+                    }
+                }
             }
             Section {
                 Toggle("Show plan usage", isOn: $showsPlanUsage)
@@ -35,12 +48,24 @@ struct SidebarSettings: View {
             } header: {
                 Text("Usage")
             } footer: {
-                Text("Shows the 5-hour and weekly limits with a pace marker. Berth reads Claude Code’s sign-in from the Keychain (macOS may ask once), asks Anthropic for your usage at most once a minute and never stores the token.")
+                Text("Shows the 5-hour and weekly limits with a pace marker. Berth reads Claude Code’s sign-in from the Keychain (macOS may ask once), asks Anthropic for your usage at most once a minute and never stores the token. With Codex on, it adds Codex’s limits from your latest session, which only update while Codex runs.")
+            }
+            Section {
+                Toggle("Rich previews", isOn: $richPreviews)
+            } header: {
+                Text("Previews")
+            } footer: {
+                Text("Hover a pull request in the sidebar or a row in the launcher, or press Space on a launcher row, for a preview with checks, reviews and the description. Berth asks GitHub through the gh CLI.")
             }
         }
         .formStyle(.grouped)
-        .frame(height: 570)
-        .onChange(of: showsPlanUsage) { Task { await store.refreshPlanUsage() } }
+        .frame(height: 740)
+        .onChange(of: showsPlanUsage) {
+            Task {
+                await store.refreshPlanUsage()
+                await store.refreshCodexUsage()
+            }
+        }
     }
 }
 

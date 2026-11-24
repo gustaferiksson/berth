@@ -30,6 +30,7 @@ struct ReviewDiffPane: View {
     let onSendThread: (ReviewThread) -> Void
     let onSendComment: ((ReviewComment) -> Void)?
     let workingText: () -> String?
+    let markdown: ReviewMarkdownContext?
     @AppStorage(ReviewStyle.showsMinimapKey) private var showsMinimap = true
     @AppStorage(ReviewStyle.showsBlameKey) private var showsBlame = true
     @AppStorage(ReviewStyle.wrapsLinesKey) private var wrapsLines = false
@@ -46,11 +47,13 @@ struct ReviewDiffPane: View {
                 if case let .tooLarge(bytes) = unavailable { Text(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let markdown, case let .text(loaded)? = contents.modified {
+            ReviewMarkdownView(text: draft ?? loaded, path: path, context: markdown, style: style)
         } else {
             let original = if case let .text(text)? = contents.original { text } else { "" }
             let loaded = if case let .text(text)? = contents.modified { text } else { "" }
             let modified = draft ?? loaded
-            let language = compare?.isCommit == true || contents.modified == nil ? nil : language
+            let language = compare?.isHistorical == true || contents.modified == nil ? nil : language
             ReviewDiffViews(
                 path: path,
                 compare: compare,
@@ -614,7 +617,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         }
 
         private func comment(on textView: ReviewTextView, lines: ClosedRange<Int>) {
-            guard let parent, parent.compare?.isCommit != true, let rows = textView.side?.rows, rows.indices.contains(lines.upperBound) else { return }
+            guard let parent, parent.compare?.isHistorical != true, parent.editor != nil || parent.compare != nil, let rows = textView.side?.rows, rows.indices.contains(lines.upperBound) else { return }
 
             let isRemoval = textView === left && lines.contains { left.side?.changedLines.contains($0) == true }
             let numbered = textView === left && !isRemoval ? right : textView

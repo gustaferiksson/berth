@@ -1,7 +1,8 @@
+import Darwin
 import Foundation
 
 public enum ControlOp: String, Codable, Sendable {
-    case list = "ls", open, openSession = "open-session", send, capture, close, wait
+    case list = "ls", open, openSession = "open-session", openPath = "open-path", send, capture, close, wait, showPullRequest = "show-pr"
 }
 
 public struct ControlRequest: Codable, Equatable, Sendable {
@@ -10,23 +11,31 @@ public struct ControlRequest: Codable, Equatable, Sendable {
     public var operation: ControlOp
     public var tab: String?
     public var cwd: String?
+    public var path: String?
     public var command: String?
     public var text: String?
     public var enter: Bool?
     public var background: Bool?
     public var timeout: Double?
+    public var pullRequest: Int?
+    public var repository: String?
+    public var repositoryPath: String?
 
-    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil) {
+    public init(token: String, caller: String, operation: ControlOp, tab: String? = nil, cwd: String? = nil, path: String? = nil, command: String? = nil, text: String? = nil, enter: Bool? = nil, background: Bool? = nil, timeout: Double? = nil, pullRequest: Int? = nil, repository: String? = nil, repositoryPath: String? = nil) {
         self.token = token
         self.caller = caller
         self.operation = operation
         self.tab = tab
         self.cwd = cwd
+        self.path = path
         self.command = command
         self.text = text
         self.enter = enter
         self.background = background
         self.timeout = timeout
+        self.pullRequest = pullRequest
+        self.repository = repository
+        self.repositoryPath = repositoryPath
     }
 }
 
@@ -89,9 +98,32 @@ public enum ControlEnvironment {
         directory + "/control.sock"
     }
 
-    /// A fresh unguessable per-launch secret.
+    /// A fresh unguessable control token for a new or invalid token file.
     public static func makeToken() -> String {
         (0..<32).map { _ in String(format: "%02x", UInt8.random(in: .min ... .max)) }.joined()
+    }
+
+    public static func persistentToken(directory: String) throws -> String {
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        guard chmod(directory, 0o700) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+
+        let descriptor = open(directory + "/token", O_RDWR | O_CREAT | O_EXLOCK | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+
+        let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? file.close() }
+
+        guard fchmod(descriptor, 0o600) == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+
+        if let data = try file.read(upToCount: 65), let saved = String(data: data, encoding: .utf8), saved.wholeMatch(of: /[0-9A-Fa-f]{64}/) != nil {
+            return saved
+        }
+
+        let token = makeToken()
+        try file.seek(toOffset: 0)
+        try file.truncate(atOffset: 0)
+        try file.write(contentsOf: Data(token.utf8))
+        return token
     }
 
     public static func variables(socketPath: String, token: String, tab: String) -> [String: String] {

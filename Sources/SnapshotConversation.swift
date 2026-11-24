@@ -10,6 +10,7 @@ extension Snapshot {
 
     private static let codexConversationSession = "5b34c260-0c36-4721-bcfa-d56c78a9ce31"
     private static let codexConversationChild = "e6883ec6-0344-4bec-8511-cf586a4e2efc"
+    private static var showsEmptyConversation: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationEmpty") }
     private static var showsCodexApproval: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexApproval") }
     private static var showsCodexTasks: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexTasks") }
     private static var usesCodexConversation: Bool {
@@ -63,8 +64,15 @@ extension Snapshot {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let effort = UserDefaults.standard.string(forKey: "snapshotConversationEffort").map { [#"{"type":"api-request","querySource":"repl_main_thread","params":{"model":"claude-sonnet-4-5","output_config":{"effort":"\#($0)"}}}"#] } ?? []
         let mode = UserDefaults.standard.string(forKey: "snapshotConversationMode") ?? "auto"
-        let lines = effort + [#"{"type":"permission-mode","permissionMode":"\#(mode)","sessionId":"\#(conversationSession)"}"#] + conversationRecords().map { String(decoding: (try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data(), as: UTF8.self) }
+        let records = showsEmptyConversation ? [] : conversationRecords()
+        var lines = effort + [#"{"type":"permission-mode","permissionMode":"\#(mode)","sessionId":"\#(conversationSession)"}"#] + records.map { String(decoding: (try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data(), as: UTF8.self) }
+        if showsWatching, !showsEmptyConversation {
+            let timestamp = Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+            lines.append(#"{"type":"user","uuid":"steward-fixture","sessionId":"\#(conversationSession)","cwd":"\#(conversationFolder)","timestamp":"\#(timestamp)","message":{"role":"user","content":"<command-name>/steward</command-name>\n<command-args>https://github.com/acme/billing/pull/4821</command-args>"}}"#)
+        }
         try? (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        guard !showsEmptyConversation else { return }
+
         let subagents = directory.appending(path: "\(conversationSession)/subagents")
         try? FileManager.default.createDirectory(at: subagents, withIntermediateDirectories: true)
         let subagentLines = [
@@ -172,9 +180,11 @@ extension Snapshot {
         let directory = Store.codexDirectory.appending(path: "sessions/2026/01/02")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let timestamp = Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
-        let payloads: [(String, String)] = [
+        let metadata: [(String, String)] = [
             ("session_meta", #"{"id":"\#(codexConversationSession)","cwd":"\#(conversationFolder)","timestamp":"\#(timestamp)","originator":"codex-tui","thread_source":"user"}"#),
             ("turn_context", #"{"cwd":"\#(conversationFolder)","model":"gpt-test","effort":"high"}"#),
+        ]
+        let payloads: [(String, String)] = [
             ("event_msg", #"{"type":"task_started"}"#),
             ("event_msg", #"{"type":"user_message","message":"Fix the usage export and add a plan name column."}"#),
             ("event_msg", #"{"type":"agent_message","phase":"commentary","message":"I'll check the export tests, then update the formatter and column list."}"#),
@@ -188,7 +198,9 @@ extension Snapshot {
             ("event_msg", #"{"type":"token_count","info":{"last_token_usage":{"input_tokens":61000},"model_context_window":258400}}"#),
         ]
         let tail: [(String, String)]
-        if showsCodexApproval {
+        if showsEmptyConversation {
+            tail = []
+        } else if showsCodexApproval {
             tail = [
                 ("event_msg", #"{"type":"item_completed","item":{"type":"AgentMessage","id":"fixture-note","content":[{"type":"text","text":"I’ll run the export verification script next."}]}}"#),
                 ("response_item", #"{"type":"custom_tool_call","call_id":"fixture-approval","name":"exec","input":"await tools.exec_command({cmd:\"./scripts/check-export.sh\", sandbox_permissions:\"require_escalated\", justification:\"Run the export verification script against the generated fixture.\"})"}"#),
@@ -211,8 +223,9 @@ extension Snapshot {
             tail = (UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? "busy") == "busy" ? [] : [("event_msg", #"{"type":"task_complete"}"#)]
         }
         let now = Date.now
-        let lines = (payloads + tail).enumerated().map { index, record in
-            let date = now.addingTimeInterval(Double(min(index - payloads.count + 2, 0))).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+        let records = metadata + (showsEmptyConversation ? [] : payloads + tail)
+        let lines = records.enumerated().map { index, record in
+            let date = now.addingTimeInterval(Double(min(index - metadata.count - payloads.count + 2, 0))).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
             return #"{"timestamp":"\#(date)","type":"\#(record.0)","payload":\#(record.1)}"#
         }
         let url = directory.appending(path: "rollout-2026-01-02T10-00-00-\(codexConversationSession).jsonl")
@@ -266,7 +279,7 @@ extension Snapshot {
             """, 1),
             prompt("<bash-input>ls missing-dir</bash-input>", 2),
             prompt("<bash-stderr>ls: missing-dir: No such file or directory</bash-stderr>", 1),
-            base("user", 90, ["role": "user", "content": [["type": "text", "text": "Nice. Now add a plan name column, start the slow migration check in the background and have an agent review the docs."], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]]]),
+            base("user", 90, ["role": "user", "content": [["type": "text", "text": "Nice. Now add a plan name column, start the slow migration check in the background and have an agent review the docs. [Image #12] [Image #13]"], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]]]),
             assistant(5, [text("I'll add the column, then run both checks in parallel.")]),
             assistant(4, [use("t5", "Read", ["file_path": file])]),
             result("t5", (1...60).map { "\($0)\tline \($0)" }.joined(separator: "\n"), 1, [:]),
@@ -400,7 +413,10 @@ extension Snapshot {
                 print("switch visibility at \(argument): toolbar button \(store.canShowConversation), footer \(store.selectedStatusBarIsReachable), suspended \(store.conversationSuspended.contains(tab.id))")
                 save(".\(argument).png")
 
-            case "preview": if let data = store.conversationModels[tab.id]?.turns.lazy.compactMap({ $0.prompt?.images?.first }).first { ConversationImagePreview.shared.show(data) }
+            case "preview":
+                guard let model = store.conversationModels[tab.id], let prompt = model.turns.lazy.compactMap(\.prompt).first(where: { $0.images != nil }) else { break }
+
+                if let data = await model.promptImage(entryID: prompt.id, index: 0) { ConversationImagePreview.shared.showOriginal(data) }
 
             case "log": log()
 
@@ -412,14 +428,39 @@ extension Snapshot {
         log()
     }
 
+    private static func textViews(in view: NSView) -> [ConversationNSTextView] {
+        (view as? ConversationNSTextView).map { [$0] } ?? view.subviews.flatMap { textViews(in: $0) }
+    }
+
+    private static func selectAcrossBlocks(window: NSWindow, save: (String) -> Void) async {
+        guard let content = window.contentView,
+              let view = textViews(in: content).first(where: { $0.string.contains("Fixed.") })
+        else { return print("select: no reply view found") }
+
+        let text = view.string as NSString
+        let start = text.range(of: "machine's time zone").location
+        let end = text.range(of: "UTC").upperBound
+        window.makeFirstResponder(view)
+        view.setSelectedRange(NSRange(location: start, length: end - start))
+        try? await Task.sleep(for: .milliseconds(500))
+        save(".selection.png")
+        let pasteboard = NSPasteboard.withUniqueName()
+        let written = view.writeSelection(to: pasteboard, types: view.writablePasteboardTypes)
+        print("select: wrote \(written), range \(view.selectedRange())")
+        print("select: uses TextKit 2 \(view.textLayoutManager != nil), pasteboard types \(pasteboard.types?.map(\.rawValue) ?? [])")
+        print("select: copied \(pasteboard.string(forType: .string)?.debugDescription ?? "nothing")")
+    }
+
     static func captureConversation(store: Store, window: NSWindow, output: URL) async {
-        window.setContentSize(NSSize(width: 1100, height: UserDefaults.standard.double(forKey: "snapshotConversationHeight") > 0 ? UserDefaults.standard.double(forKey: "snapshotConversationHeight") : 900))
+        let width = UserDefaults.standard.double(forKey: "snapshotConversationWidth")
+        let height = UserDefaults.standard.double(forKey: "snapshotConversationHeight")
+        window.setContentSize(NSSize(width: width > 0 ? width : 1100, height: height > 0 ? height : 900))
         let save = { (suffix: String) in
             guard let image = image(of: window) else { return }
 
             try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
         }
-        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? "busy"
+        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? (showsEmptyConversation || showsWatching ? "idle" : "busy")
         let rawLog = UserDefaults.standard.string(forKey: "snapshotConversationRawLog")
         let title = UserDefaults.standard.string(forKey: "snapshotTerminalTitle") ?? (showsCodexApproval ? "[ ! ] Action Required" : showsCodexTasks ? "Ready" : "")
         let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'printf \"\\033]0;\(title)\\007\"; echo the terminal is still running; sleep 600'"
@@ -455,11 +496,14 @@ extension Snapshot {
         }
         AppAction.showConversation.perform(on: store)
         let deadline = Date.now + 20
-        while Date.now < deadline, store.conversationModels[tab.id]?.turns.isEmpty ?? true { try? await Task.sleep(for: .milliseconds(100)) }
+        while Date.now < deadline, store.conversationModels[tab.id].map({ showsEmptyConversation ? !$0.hasLoaded : $0.turns.isEmpty }) ?? true {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
         try? await Task.sleep(for: .seconds(2))
         surface("in conversation")
         print("switch visibility: toolbar button \(store.canShowConversation), footer \(store.selectedStatusBarIsReachable)")
         if let model = store.conversationModels[tab.id] {
+            if showsWatching { print("conversation watch \(model.pullRequestWatch?.title ?? "none")") }
             print("conversation shows \(model.entryCount) entries in \(model.turns.count) turns, \(model.tasks.count) running tasks, queued \(model.queued.count), context \(model.context.map { "\($0.model) \($0.tokens ?? 0) tokens" } ?? "none")")
             for turn in model.turns {
                 let parts = turn.parts.map { part -> String in
@@ -482,6 +526,11 @@ extension Snapshot {
             try? await Task.sleep(for: .seconds(1))
         }
         save(".conversation.png")
+        if UserDefaults.standard.bool(forKey: "snapshotConversationSelect") {
+            await selectAcrossBlocks(window: window, save: save)
+            ProcessAncestry.hangUpDescendants()
+            exit(0)
+        }
         if let script = UserDefaults.standard.string(forKey: "snapshotConversationDrive") {
             await driveConversation(script, store: store, tab: tab, rawLog: rawLog, save: save)
             ProcessAncestry.hangUpDescendants()

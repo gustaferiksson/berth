@@ -4,8 +4,11 @@ import GhosttyTerminal
 import SwiftUI
 import WebKit
 
+// swiftlint:disable:next type_body_length
 enum Snapshot {
     #if DEBUG
+    static let showsWatching = UserDefaults.standard.bool(forKey: "snapshotWatching")
+    static let showsPullRequestActions = UserDefaults.standard.bool(forKey: "snapshotPullRequestActions")
     static let output = UserDefaults.standard.string(forKey: "snapshot").map { URL(filePath: $0) }
     #else
     static let output: URL? = nil
@@ -30,6 +33,15 @@ enum Snapshot {
         PullRequestLink(repository: "acme/billing", number: 4823): PullRequest(number: 4823, url: URL(string: "https://github.com/acme/billing/pull/4823")!, title: "Export ledger entries", state: .open, headRefName: "feature/ledger-export", checks: .passed, reviewDecision: .approved),
     ] : [:]
     private static let linkedFixtureLinks = linkedFixtures.keys.sorted { $0.number > $1.number }
+    private static let showsReviewSessionPullRequests = UserDefaults.standard.bool(forKey: "snapshotReviewSessionPullRequests")
+    private static let reviewSessionPullRequests: [PullRequestLink: PullRequest] = showsReviewSessionPullRequests ? [
+        PullRequestLink(repository: fixtureRepository, number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/\(fixtureRepository)/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase"), headRefName: "feature/approved-reviewers"),
+    ] : [:]
+
+    static let fixtureShownPullRequests: [PullRequestLink: PullRequest] = [
+        PullRequestLink(repository: "acme/billing", number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/acme/billing/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: "main", headRefName: "feature/approved-reviewers"),
+        PullRequestLink(repository: "acme/api", number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/acme/api/pull/1445")!, title: "Document webhook retry behavior", state: .open, baseRefName: "main", headRefName: "feature/webhook-retries"),
+    ]
 
     private static let longNames: [(session: SessionSummary, pullRequest: PullRequest?)] = {
         let code = NSTemporaryDirectory() + "berth-long-names"
@@ -53,7 +65,7 @@ enum Snapshot {
         let branch: String
         if let requested = UserDefaults.standard.string(forKey: "snapshotReviewPullRequest") {
             branch = requested
-        } else if UserDefaults.standard.bool(forKey: "snapshotReviewThreads") {
+        } else if UserDefaults.standard.bool(forKey: "snapshotReviewThreads") || showsReviewSessionPullRequests {
             let git = Process()
             let output = Pipe()
             git.executableURL = URL(filePath: "/usr/bin/git")
@@ -69,7 +81,7 @@ enum Snapshot {
             return []
         }
 
-        let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch, pullRequests: linkedFixtureLinks)
+        let session = SessionSummary(id: "snapshot-review", cwd: folder, title: "Review fixture", lastActivity: .now, branch: branch, pullRequests: linkedFixtureLinks + reviewSessionPullRequests.keys)
         let state = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestState") ?? "Open"
         return [(session, PullRequestState(rawValue: state.capitalized).map { PullRequest(number: 4821, url: URL(string: "https://github.com/acme/billing/pull/4821")!, title: "Reconcile ledger entries against settlement exports and flag every mismatch", state: $0, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase")) })]
     }()
@@ -99,6 +111,7 @@ enum Snapshot {
     static let launcherKeys = UserDefaults.standard.string(forKey: "snapshotLauncherKeys")
     static let issueQuery = UserDefaults.standard.string(forKey: "snapshotIssue")
     static let issueInboxQuery = UserDefaults.standard.string(forKey: "snapshotIssues")
+    static let launcherLoading = output != nil && UserDefaults.standard.bool(forKey: "snapshotLauncherLoading")
 
     private static let hubFolders: [SessionSummary] = {
         let code = NSTemporaryDirectory() + "berth-launcher-keys"
@@ -138,7 +151,8 @@ enum Snapshot {
         case "acme/web#12":
             [("acme/web", 13, "Fix the flaky login test", false)]
 
-        case "acme/billing#57", "acme/infra#42", "acme/billing#49": []
+        case "acme/billing#57", "acme/infra#42", "acme/billing#49", "acme/web#1742",
+             "acme/web#1204", "acme/billing#68", "acme/api#23", "acme/web#25": []
 
         default: nil
         }
@@ -171,26 +185,46 @@ enum Snapshot {
     }
 
     static let fixtureIssueInbox: [InboxIssue]? = {
-        guard issueInboxQuery != nil else { return nil }
+        guard issueInboxQuery != nil, !launcherLoading else { return nil }
 
-        let entries: [(id: String, title: String, age: TimeInterval)] = [
-            ("acme/web#21", "Let billing administrators download usage reports for any closed billing period from the dashboard", 60),
-            ("acme/billing#57", "Fix invoice rounding", 1200),
-            ("acme/web#12", "Fix the flaky login test", 3600),
-            ("acme/infra#42", "Rotate the export bucket key", 7200),
-            ("acme/billing#49", "Drop the legacy CSV importer", 45 * 86_400),
+        let bug = ("bug", "d73a4a")
+        let enhancement = ("enhancement", "a2eeef")
+        let billing = ("billing", "0e8a16")
+        let goodFirstIssue = ("good first issue", "7057ff")
+        let entries: [InboxIssue.Role: [(id: String, title: String, age: TimeInterval, author: String, labels: [(String, String)])]] = [
+            .assigned: [
+                ("acme/web#21", "Let billing administrators download usage reports for any closed billing period from the dashboard", 60, "lee", [enhancement, billing, ("reports", "1d76db"), ("frontend", "5319e7")]),
+                ("acme/billing#57", "Fix invoice rounding", 1200, "sam", [bug, billing]),
+                ("acme/web#12", "Fix the flaky login test", 3600, "kim", [bug, goodFirstIssue]),
+                ("acme/infra#42", "Rotate the export bucket key", 7200, "lee", []),
+                ("acme/web#1742", "Paginate the audit log", 1800, "kim", [enhancement]),
+                ("acme/billing#49", "Drop the legacy CSV importer", 45 * 86_400, "sam", [enhancement]),
+            ],
+            .mine: [
+                ("acme/web#1204", "Save dashboard filters between visits", 900, "me", [enhancement]),
+                ("acme/billing#68", "Show invoice dates in the account time zone", 28_800, "me", [bug, billing]),
+            ],
+            .mentioned: [
+                ("acme/api#23", "Document usage API pagination", 1800, "lee", [goodFirstIssue]),
+                ("acme/web#25", "Improve keyboard navigation in the account menu", 10_800, "kim", [enhancement]),
+            ],
         ]
-        let nodes = entries.compactMap { entry -> String? in
-            guard let issue = IssueReference.parse(entry.id), let linked = issueFixtureLinks(issue) else { return nil }
+        let now = Date.now
+        let aliases = InboxIssue.Role.allCases.map { role in
+            let nodes = entries[role, default: []].compactMap { entry -> String? in
+                guard let issue = IssueReference.parse(entry.id), let linked = issueFixtureLinks(issue) else { return nil }
 
-            return #"{"number":\#(issue.number),"title":"\#(entry.title)","url":"\#(issue.url)","updatedAt":"\#((Date.now - entry.age).ISO8601Format())","repository":{"nameWithOwner":"\#(issue.repository)"},"timelineItems":{"nodes":[\#(issueFixtureEvents(linked))]}}"#
+                let labels = entry.labels.map { name, color in #"{"name":"\#(name)","color":"\#(color)"}"# }
+                return #"{"number":\#(issue.number),"title":"\#(entry.title)","url":"\#(issue.url)","updatedAt":"\#((now - entry.age).ISO8601Format())","author":{"login":"\#(entry.author)"},"labels":{"nodes":[\#(labels.joined(separator: ","))]},"repository":{"nameWithOwner":"\#(issue.repository)"},"timelineItems":{"nodes":[\#(issueFixtureEvents(linked))]}}"#
+            }
+            return #""\#(role.rawValue)":{"nodes":[\#(nodes.joined(separator: ","))]}"#
         }
-        let json = #"{"data":{"assigned":{"nodes":[\#(nodes.joined(separator: ","))]}}}"#
+        let json = #"{"data":{\#(aliases.joined(separator: ","))}}"#
         return IssueInbox.parse(Data(json.utf8))
     }()
 
     private static let inboxFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: [PullRequestBranch: PullRequest?], inbox: [InboxPullRequest]?)? = {
-        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil else { return nil }
+        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil || showsPullRequestActions || UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") else { return nil }
 
         let code = NSTemporaryDirectory() + "berth-pull-requests"
         for name in ["billing/.git", "web/.git"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) }
@@ -201,10 +235,14 @@ enum Snapshot {
             let reviewDecision = decision.isEmpty ? "null" : #""\#(decision)""#
             return #"{"number":\#(number),"title":"\#(title)","url":"https://github.com/\#(repository)/pull/\#(number)","isDraft":\#(draft),"updatedAt":"\#((Date.now - hours * 3600).ISO8601Format())","headRefName":"\#(branch)","reviewDecision":\#(reviewDecision),"author":{"login":"\#(author)"},"repository":{"nameWithOwner":"\#(repository)"},"statusCheckRollup":\#(rollup)}"#
         }
-        let reviewRequested = [
-            node(88, "acme/web", "Add usage export page", "lee/usage-export-page", "lee", 3, false, "SUCCESS", "REVIEW_REQUIRED"),
-            node(415, "northwind/infra", "Rotate the state bucket key", "sam/rotate-key", "sam", 26, false, "PENDING", ""),
-        ]
+        let reviewRequested = if UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") {
+            [node(1445, "acme/billing", "Let Margo switch between approved reviewers", "feature/approved-reviewers", "lee", 1, false, "SUCCESS", "REVIEW_REQUIRED")]
+        } else {
+            [
+                node(88, "acme/web", "Add usage export page", "lee/usage-export-page", "lee", 3, false, "SUCCESS", "REVIEW_REQUIRED"),
+                node(415, "northwind/infra", "Rotate the state bucket key", "sam/rotate-key", "sam", 26, false, "PENDING", ""),
+            ]
+        }
         let mine = [
             node(212, "acme/billing", "Fix rounding in invoice totals", "fix/invoice-rounding", "me", 0.01, false, "FAILURE", "CHANGES_REQUESTED"),
             node(214, "acme/billing", "Usage export API", "feat/usage-export-api", "me", 2, false, "SUCCESS", "APPROVED"),
@@ -293,7 +331,87 @@ enum Snapshot {
         return rows.map { SessionSummary(id: $0.id, cwd: "\(code)/\($0.folder)", title: $0.title, lastActivity: .now - $0.minutes * 60) }
     }()
 
-    static let fixtureTasks = taskFixtures?.tasks
+    private struct BusySidebarFixture {
+        let sessions: [SessionSummary]
+        let repositories: [String: String?]
+        let pullRequests: [PullRequestBranch: PullRequest?]
+
+        static let exportTask = "task:busy-export"
+        static let releaseTask = "task:busy-release"
+        static let exportIssue = IssueRef(repository: "acme/billing", number: 57)
+
+        var tasks: TaskState {
+            TaskState(tasks: [
+                StoredTask(id: Self.exportTask, name: "Usage export", issue: Self.exportIssue, origin: .local, sessionIDs: ["busy-export-api", "busy-export-tests"]),
+                StoredTask(id: Self.releaseTask, name: "Release packaging", origin: .local, sessionIDs: ["busy-release-signing", "busy-release-notes"]),
+            ])
+        }
+    }
+
+    static let usesBusySidebar = UserDefaults.standard.bool(forKey: "snapshotBusySidebar")
+
+    private static let busySidebar: BusySidebarFixture? = {
+        guard usesBusySidebar else { return nil }
+
+        let root = NSTemporaryDirectory() + "berth-busy-sidebar"
+        let rows: [(id: String, project: String, title: String)] = [
+            ("rounding", "acme/billing", "Reconcile ledger entries against settlement exports and flag every mismatch"),
+            ("passed", "acme/billing", "Fix pagination when an invoice has more than a hundred line items"),
+            ("export-api", "acme/billing", "Add the usage export CSV endpoint"),
+            ("export-tests", "acme/billing", "Cover settlement cutoffs in the CSV export tests"),
+            ("invoice-copy", "acme/billing", "Clarify the invoice adjustment wording"),
+            ("tax-rates", "acme/billing", "Refresh the regional tax rate table"),
+            ("retry-export", "acme/billing", "Retry the export when the object store is unavailable"),
+            ("ledger-index", "acme/billing", "Add an index for nightly ledger lookups"),
+            ("credits", "acme/billing", "Audit how imported credits are applied"),
+            ("draft", "acme/web", "Draft the accessible keyboard flow for the account switcher"),
+            ("web-needs", "acme/web", "Investigate the flaky checkout test"),
+            ("web-unread", "acme/web", "Update the onboarding walkthrough"),
+            ("infra-working", "acme/infra", "Rotate the staging credentials"),
+            ("merged", "acme/infra", "Reduce CI queue times with a shared build cache"),
+            ("infra-shell", "acme/infra", "Watch the deploy canary"),
+            ("closed", "acme/api", "Remove the legacy redirect middleware"),
+            ("api-needs", "acme/api", "Trace intermittent webhook signature mismatches"),
+            ("api-pin", "acme/api", "Keep the API migration checklist handy"),
+            ("docs-unread", "docs", "Document the recovery workflow for interrupted exports"),
+            ("docs-snoozed", "docs", "Review the release guide tomorrow"),
+            ("docs-done", "docs", "Publish the audit log reference"),
+            ("release-signing", "desktop", "Update the signing configuration"),
+            ("release-notes", "desktop", "Draft the next release notes"),
+            ("desktop-unread", "desktop", "Check the layout with long window titles"),
+            ("mobile-working", "mobile", "Profile first launch on a cold device"),
+            ("mobile-pin", "mobile", "Track accessibility fixes before the next release"),
+            ("agent-done", "automation", "Remove the old smoke test"),
+            ("agent-logs", "automation", "Summarize the nightly run failures"),
+        ]
+        let pullRequestStates: [String: (PullRequestState, PullRequestChecks.State?)] = [
+            "rounding": (.open, .failed), "passed": (.open, .passed), "draft": (.draft, .running),
+            "merged": (.merged, nil), "closed": (.closed, nil),
+        ]
+        var repositories: [String: String?] = [:]
+        var pullRequests: [PullRequestBranch: PullRequest?] = [:]
+        let now = Date.now
+        let sessions = rows.enumerated().map { index, row in
+            let folder = "\(root)/\(row.project)"
+            let hasRepository = row.project.hasPrefix("acme/")
+            try? FileManager.default.createDirectory(atPath: hasRepository ? folder + "/.git" : folder, withIntermediateDirectories: true)
+            if hasRepository { repositories[RepositoryRoot.resolve(folder)] = row.project }
+
+            let branch = pullRequestStates[row.id].map { _ in "work/\(row.id)" }
+            if let branch, let (state, checks) = pullRequestStates[row.id] {
+                let number = 4800 + index
+                let url = URL(string: "https://github.com/\(row.project)/pull/\(number)")!
+                pullRequests[PullRequestBranch(repository: row.project, branch: branch)] =
+                    PullRequest(number: number, url: url, title: row.title, state: state, headRefName: branch, checks: checks, viewerDidAuthor: true)
+            }
+            let issueRefs = ["export-api", "export-tests", "retry-export"].contains(row.id) ? [BusySidebarFixture.exportIssue] : []
+            let context = row.id == "rounding" ? SessionContext(model: "fixture", tokens: 162_000, window: 200_000) : nil
+            return SessionSummary(id: "busy-\(row.id)", cwd: folder, title: row.title, lastActivity: now - Double(2 + index * index * index) * 60, branch: branch, issueRefs: issueRefs, context: context)
+        }
+        return BusySidebarFixture(sessions: sessions, repositories: repositories, pullRequests: pullRequests)
+    }()
+
+    static let fixtureTasks = busySidebar?.tasks ?? taskFixtures?.tasks
     private static let sessionTerminalFixtures: [SessionSummary]? = {
         guard UserDefaults.standard.bool(forKey: "snapshotSessionTerminals") else { return nil }
 
@@ -303,15 +421,21 @@ enum Snapshot {
     }()
 
     static let fixtureSessions: [SessionSummary]? = {
+        if let busySidebar { return busySidebar.sessions }
         if let issueFixtures { return issueFixtures.sessions }
 
-        return triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures ?? (!pullRequestFixtures.isEmpty ? pullRequestFixtures.map(\.session) : launcherKeys != nil ? hubFolders : nil)
+        if let fixtures = triageFixtures ?? inboxFixtures?.sessions ?? taskFixtures?.sessions ?? sessionTerminalFixtures { return fixtures }
+        if !pullRequestFixtures.isEmpty { return pullRequestFixtures.map(\.session) }
+        if launcherKeys != nil { return hubFolders }
+        if showsWatching, !UserDefaults.standard.bool(forKey: "snapshotConversation") { return longNames.map(\.session) }
+
+        return nil
     }()
 
     private static let fixtureRepository = UserDefaults.standard.string(forKey: "snapshotReviewRepository") ?? "acme/billing"
-    static let fixtureRepositories = issueFixtures?.repositories ?? inboxFixtures?.repositories ?? taskFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
+    static let fixtureRepositories = busySidebar?.repositories ?? issueFixtures?.repositories ?? inboxFixtures?.repositories ?? taskFixtures?.repositories ?? Dictionary(pullRequestFixtures.map { (RepositoryRoot.resolve($0.session.cwd), String?.some(fixtureRepository)) }) { first, _ in first }
     private static let fixtureChecks = (UserDefaults.standard.string(forKey: "snapshotChecks") ?? "").split(separator: "|", omittingEmptySubsequences: false).map { PullRequestChecks.State(rawValue: String($0)) }
-    static let fixturePullRequests = inboxFixtures?.pullRequests ?? taskFixtures?.pullRequests ?? Dictionary(pullRequestFixtures.enumerated().compactMap { index, item in
+    static let fixturePullRequests = busySidebar?.pullRequests ?? inboxFixtures?.pullRequests ?? taskFixtures?.pullRequests ?? Dictionary(pullRequestFixtures.enumerated().compactMap { index, item in
         item.session.branch.map { branch in
             var pullRequest = item.pullRequest
             pullRequest?.checks = index < fixtureChecks.count ? fixtureChecks[index] : nil
@@ -319,8 +443,8 @@ enum Snapshot {
             return (PullRequestBranch(repository: fixtureRepository, branch: branch), pullRequest)
         }
     }) { first, _ in first }
-    static let fixtureInbox = inboxFixtures?.inbox
-    static let fixtureLinkedPullRequests = linkedFixtures
+    static let fixtureInbox = launcherLoading ? nil : inboxFixtures?.inbox
+    static let fixtureLinkedPullRequests = linkedFixtures.merging(reviewSessionPullRequests) { _, fixture in fixture }
     #else
     static let fixtureSessions: [SessionSummary]? = nil
     static let fixtureTasks: TaskState? = nil
@@ -329,8 +453,10 @@ enum Snapshot {
     static let fixturePullRequests: [PullRequestBranch: PullRequest?] = [:]
     static let fixtureInbox: [InboxPullRequest]? = nil
     static let fixtureIssueInbox: [InboxIssue]? = nil
+    static let launcherLoading = false
     static let fixtureLinkedPullRequests: [PullRequestLink: PullRequest] = [:]
     static let fixturePullRequestDetail: PullRequestDetail? = nil
+    static let fixtureShownPullRequests: [PullRequestLink: PullRequest] = [:]
     #endif
 
     static func forcedSelection(in groups: [SessionGroup]) -> SidebarItem? {
@@ -358,6 +484,41 @@ enum Snapshot {
     static let expandedGroups: Set<String> = []
     #endif
 
+    #if DEBUG
+    private static func prepareBusySidebar(_ fixture: BusySidebarFixture, store: Store) {
+        let activity: [String: (Int32, String, String?)] = [
+            "busy-rounding": (0, "waiting", "Permission prompt"),
+            "busy-web-needs": (1, "waiting", "Test credentials"),
+            "busy-api-needs": (0, "waiting", "Approval to retry"),
+            "busy-infra-working": (0, "busy", nil),
+            "busy-mobile-working": (0, "busy", nil),
+            "busy-infra-shell": (0, "shell", nil),
+        ]
+        store.fakeLiveSessions = fixture.sessions.compactMap { session in
+            activity[session.id].map { pid, status, reason in
+                LiveSession(pid: pid, sessionId: session.id, cwd: session.cwd, status: status, waitingFor: reason)
+            }
+        }
+        store.refreshLive()
+        for id in ["busy-web-unread", "busy-docs-unread", "busy-desktop-unread"] { store.markUnread(id) }
+        for id in ["busy-rounding", "busy-ledger-index"] { store.flag(id) }
+        for id in ["busy-api-pin", "busy-mobile-pin"] { store.pin(id) }
+        store.snooze("busy-docs-snoozed", .until(.now.addingTimeInterval(3600)))
+        for id in ["busy-docs-done", "busy-agent-done"] { store.archive(id) }
+        for session in fixture.sessions where ["busy-infra-shell", "busy-agent-logs"].contains(session.id) {
+            store.openShell(cwd: session.cwd)
+        }
+
+        var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        arguments["showsTriage"] = arguments["showsTriage"] ?? true
+        arguments["snoozedExpanded"] = arguments["snoozedExpanded"] ?? true
+        arguments["archivedExpanded"] = arguments["archivedExpanded"] ?? true
+        UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        store.showsTriage = UserDefaults.standard.bool(forKey: "showsTriage")
+    }
+    #endif
+
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     static func capture(to output: URL, store: Store) async {
         #if DEBUG
         NSApp.setActivationPolicy(.accessory)
@@ -372,6 +533,10 @@ enum Snapshot {
         }
         if let fixture = UserDefaults.standard.string(forKey: "snapshotUsage") {
             let windows = fixture.split(separator: "|").enumerated().compactMap { index, part -> UsageWindow? in
+                if part == "idle", index < PlanUsage.windows.count {
+                    let (key, title, length) = PlanUsage.windows[index]
+                    return UsageWindow(id: key, title: title, length: length, used: 0, resetsAt: nil)
+                }
                 let numbers = part.split(separator: ":").compactMap { Double($0) }
                 guard numbers.count == 2, index < PlanUsage.windows.count else { return nil }
 
@@ -381,17 +546,26 @@ enum Snapshot {
             store.planUsage = PlanUsage(windows: windows)
         }
         let graphCommitIndex = UserDefaults.standard.string(forKey: "snapshotReviewGraphCommit").flatMap(Int.init)
+        let expandedPullRequestNumber = UserDefaults.standard.string(forKey: "snapshotReviewExpandPullRequest").flatMap(Int.init)
         let showsReviewThreads = UserDefaults.standard.bool(forKey: "snapshotReviewThreads")
         let reviewPanelTab = UserDefaults.standard.string(forKey: "snapshotReviewPanelTab") ?? graphCommitIndex.map { _ in "graph" }
-        if showsReviewThreads || reviewPanelTab != nil {
+        if showsReviewThreads || reviewPanelTab != nil || showsReviewSessionPullRequests || expandedPullRequestNumber != nil {
             var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
             arguments["reviewPanelTab"] = reviewPanelTab ?? "changes"
+            var sections = (UserDefaults.standard.string(forKey: "collapsedReviewSections") ?? "").split(separator: ",").map(String.init)
             if showsReviewThreads {
-                arguments["collapsedReviewSections"] = (UserDefaults.standard.string(forKey: "collapsedReviewSections") ?? "").split(separator: ",").filter { $0 != "reviewThreads" && $0 != "pullRequest" }.joined(separator: ",")
+                sections.removeAll { $0 == "reviewThreads" || $0 == "pullRequest" }
             }
+            if showsReviewSessionPullRequests || expandedPullRequestNumber != nil {
+                arguments["reviewSlimScope"] = ReviewSlimScope.changes.rawValue
+                sections.removeAll { $0 == "pullRequest" || $0 == "otherPullRequests" || $0 == "+otherPullRequests" }
+                sections.append("+otherPullRequests")
+            }
+            arguments["collapsedReviewSections"] = sections.joined(separator: ",")
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         }
         await store.waitForScan()
+        if let busySidebar { prepareBusySidebar(busySidebar, store: store) }
         if UserDefaults.standard.bool(forKey: "snapshotRemote") { store.remote.update() }
         if UserDefaults.standard.bool(forKey: "snapshotFakeWaiting") {
             for (step, waiting) in [false, true, true, false, true].enumerated() {
@@ -418,6 +592,7 @@ enum Snapshot {
             store.openShell(cwd: session.cwd, parent: parent)
             store.openShell(cwd: session.cwd)
             store.activate(.tab(parent))
+            if UserDefaults.standard.bool(forKey: "snapshotSelectNestedTerminal"), let nested = store.tabs.first(where: { $0.parentTabID == parent }) { store.activate(.tab(nested.id)) }
         }
         if UserDefaults.standard.bool(forKey: "snapshotClaudeTab") {
             store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
@@ -438,6 +613,18 @@ enum Snapshot {
             for session in store.groups.compactMap(\.sessions.first).suffix(2).reversed() { store.pin(session.id) }
         }
         let topSessions = store.groups.first { !$0.sessions.isEmpty }?.sessions ?? []
+        if showsWatching, !UserDefaults.standard.bool(forKey: "snapshotConversation"),
+           let session = store.groups.flatMap(\.sessions).first(where: { session in
+               let activity = store.liveBySession[session.id]?.activity
+               return activity == nil || activity == .idle
+           }) ?? topSessions.first {
+            let target = store.pullRequest(for: session)
+            store.fakeWatches[session.id] = PullRequestWatch(number: target?.number ?? 4821, since: .now - 60)
+            if store.liveBySession[session.id] == nil {
+                store.fakeLiveSessions.append(LiveSession(pid: 0, sessionId: session.id, cwd: session.cwd, status: "idle"))
+                store.refreshLive()
+            }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotFlagged") {
             for session in topSessions.enumerated().filter({ [0, 2].contains($0.offset) }).map(\.element) { store.flag(session.id) }
         }
@@ -456,15 +643,17 @@ enum Snapshot {
             print("sidebar: \(store.sidebarGroups.map { "\($0.group.title) \($0.entries.map { "\($0)" })" })")
         }
         if let status = UserDefaults.standard.string(forKey: "snapshotSidebarStatus").flatMap(SidebarStatus.init(rawValue:)) { store.sidebarStatus = status }
+        captureItemPreview(to: output, theme: store.theme)
         for session in store.sessionsByID.values.filter({ forcedHover.contains($0.title) }) {
             let isOpen = store.tab(forSession: session.id) != nil || store.liveBySession[session.id] != nil
-            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."))
+            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, watch: store.pullRequestWatch(for: session.id), excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."), projectStatuses: store.projects.statusLabels(for: store.pullRequests(of: session)))
                 .environment(\.ghosttyTheme, store.theme)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
                 .background(store.theme.background ?? .black, in: .rect(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(store.theme.foreground.opacity(0.15)))
                 .padding(8)
+            // swiftlint:disable:next hosting_without_sizing_options - throwaway view measured for fittingSize, never shown
             let size = NSHostingView(rootView: card).fittingSize
             let screen = NSRect(x: 0, y: 0, width: 1800, height: 1100)
             for trailing in [true, false] {
@@ -518,6 +707,13 @@ enum Snapshot {
                 UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: ahead ? 0.55 : 0.42, resetsAt: .now.addingTimeInterval(ahead ? 3.5 * 3600 : 2 * 3600)),
                 UsageWindow(id: "seven_day", title: "Week", length: 7 * 86_400, used: ahead ? 0.66 : 0.81, resetsAt: .now.addingTimeInterval(ahead ? 4 * 86_400 : 3 * 86_400)),
             ])
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotCodexUsage") {
+            let stale = UserDefaults.standard.bool(forKey: "snapshotCodexUsageStale")
+            store.codexUsage = CodexUsage(usage: PlanUsage(windows: [
+                UsageWindow(id: "codex_primary", title: "Session", length: 5 * 3600, used: 0.18, resetsAt: .now.addingTimeInterval(3.5 * 3600)),
+                UsageWindow(id: "codex_secondary", title: "Week", length: 7 * 86_400, used: 0.47, resetsAt: .now.addingTimeInterval(3.5 * 86_400)),
+            ]), recordedAt: .now.addingTimeInterval(stale ? -3 * 3600 : -120))
         }
         if UserDefaults.standard.bool(forKey: "snapshotFakeContext") {
             let sessions = Array(topSessions.prefix(4))
@@ -585,6 +781,7 @@ enum Snapshot {
             store.activate(.session(sessionID))
         }
         let reviewFolder = UserDefaults.standard.string(forKey: "snapshotReview")
+        let shownPullRequestClone = UserDefaults.standard.string(forKey: "snapshotReviewShowPullRequest")
         if reviewFolder != nil, UserDefaults.standard.double(forKey: "snapshotReviewContext") > 0 {
             store.fakeContexts["snapshot-review"] = SessionContext(model: "claude-opus-5-5", tokens: Int(UserDefaults.standard.double(forKey: "snapshotReviewContext")), window: 200_000, modelName: "Opus 5.5")
             store.refresh()
@@ -603,6 +800,15 @@ enum Snapshot {
             if !UserDefaults.standard.bool(forKey: "snapshotReviewNoComment") { store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")] }
         }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { prepareTasksReview(store: store) }
+        if let files = UserDefaults.standard.string(forKey: "snapshotSessionFiles") {
+            store.editedFiles["snapshot-review"] = files.split(separator: ":").map { URL(filePath: String($0)).resolvingSymlinksInPath().path }
+            store.prepareReviewModel()
+            if let path = UserDefaults.standard.string(forKey: "snapshotSessionFileOpen"), let model = store.reviewModels[Store.reviewKey("snapshot-review", root: Store.sessionFilesRoot)] {
+                model.open(ReviewDocument(path: String(URL(filePath: path).resolvingSymlinksInPath().path.dropFirst()), compare: nil))
+                await model.loadSelectedContents()
+                print("session file /\(model.selectedDocument?.path ?? "-"), loaded \(model.selectedDocument.flatMap { model.contents[$0] } != nil), active root \(store.activeReviewRoots["snapshot-review"] ?? "own")")
+            }
+        }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
             store.openSession(cwd: cwd, checkout: .main)
         }
@@ -612,7 +818,7 @@ enum Snapshot {
         if UserDefaults.standard.string(forKey: "snapshotLauncher") != nil { store.launcherMode = .newSession }
         if UserDefaults.standard.string(forKey: "snapshotSearch") != nil { store.launcherMode = .search }
         if UserDefaults.standard.string(forKey: "snapshotPalette") != nil { store.launcherMode = .palette }
-        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") {
+        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") ?? (showsPullRequestActions ? "" : nil) {
             let ranked = PullRequestInbox.rank(query, in: store.inbox ?? [], now: .now)
             print("pull requests for \"\(query)\": \(ranked.pullRequests.count) shown, \(ranked.older) older hidden, toolbar count \(store.inbox?.count { $0.role == .reviewRequested } ?? 0)")
             for pullRequest in ranked.pullRequests {
@@ -628,8 +834,10 @@ enum Snapshot {
                 print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: link).map(\.id)) | enter: \(action)")
             }
             if UserDefaults.standard.string(forKey: "snapshotLauncherRole") == "reviewRequested" { store.launcherRole = .reviewRequested }
+            if showsPullRequestActions { print("pull request menu \(StewardPullRequestButton.title)") }
             if launcherKeys == nil { store.launcherMode = .pullRequests }
         }
+        if UserDefaults.standard.bool(forKey: "snapshotProjectsLauncher"), launcherKeys == nil { store.launcherMode = .projects }
         if let issueInboxQuery {
             let ranked = IssueInbox.rank(issueInboxQuery, in: store.issueInbox ?? [], now: .now)
             print("issues for \"\(issueInboxQuery)\": \(ranked.issues.count) shown, \(ranked.older) older hidden")
@@ -662,6 +870,7 @@ enum Snapshot {
         let showsStats = UserDefaults.standard.bool(forKey: "snapshotStats")
         let root = editedGroup.map { AnyView(GroupEditor(group: $0).environment(\.ghosttyTheme, store.theme).preferredColorScheme(store.theme.isDark ? .dark : .light)) }
             ?? editedServer.map { AnyView(LanguageServerEditor(server: $0, servers: .constant(servers)).preferredColorScheme(store.theme.isDark ? .dark : .light)) } ?? AnyView(showsStats ? AnyView(StatsView()) : AnyView(ContentView()))
+        // swiftlint:disable:next hosting_without_sizing_options - the offscreen window is sized by setContentSize
         let hosting = NSHostingController(rootView: root.environment(store).environment(\.openURL, OpenURLAction { url in
             print("snapshot openURL \(url)")
             return .handled
@@ -676,10 +885,34 @@ enum Snapshot {
         if let mode = UserDefaults.standard.string(forKey: "snapshotHost") { await captureHost(mode: mode, store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotConversation") { await captureConversation(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { await captureTasksReview(store: store, window: window, output: output) }
+        if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotMarkdownRendered") { store.rendersMarkdown = true }
         if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotReviewCommitsExpanded") { store.reviewModels["snapshot-review"]?.showsCommits = true }
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
             let deadline = Date.now + 30
-            if let index = graphCommitIndex, index >= 0 {
+            if let shownPullRequestClone, let tab = store.selectedTabID {
+                switch await store.showPullRequestInReview(number: 1445, repository: "acme/billing", repositoryPath: shownPullRequestClone, in: tab) {
+                case let .success(link):
+                    print("show-pr review selected \(link.repository) #\(link.number), \(describe(model))")
+                case let .failure(error):
+                    FileHandle.standardError.write(Data("show-pr snapshot failed. \(error.message)\n".utf8))
+                    exit(1)
+                }
+                if UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") {
+                    AppAction.showPullRequestInReview.perform(on: store)
+                }
+            } else if let number = expandedPullRequestNumber {
+                while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
+                let repository = model.changes.flatMap { changes in store.repositoryRoot(ofSession: "snapshot-review").flatMap { store.pullRequestBranch(inRoot: $0, branch: changes.branch)?.repository } }
+                let link = PullRequestLink(repository: repository?.lowercased() ?? fixtureRepository.lowercased(), number: number)
+                let location = model.changes.map { ReviewPullRequestLocation(link: link, root: $0.root) }
+                if let changes = model.changes, let location, let pullRequest = store.pullRequests(inRoot: nil, of: "snapshot-review", branch: changes.branch).first(where: { $0.number == number }) {
+                    await model.expandPullRequest(ReviewPullRequest(location: location, pullRequest: pullRequest))
+                    if let loaded = model.pullRequestFiles[location], let first = loaded.files.first {
+                        model.open(ReviewDocument(path: first.path, compare: loaded.compare, root: location.root, pullRequestLink: link))
+                    }
+                }
+                print("review selected PR #\(number), expanded \(model.expandedPullRequests.contains(link)), files \(location.flatMap { model.pullRequestFiles[$0]?.files.count } ?? 0), notice \(model.notice ?? "-")")
+            } else if let index = graphCommitIndex, index >= 0 {
                 while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
                 if !model.graphHasLoaded { await model.loadGraph() }
                 while Date.now < deadline, index >= model.graphCommits.count, model.graphHasMore, model.graphError == nil {
@@ -689,9 +922,11 @@ enum Snapshot {
                     await model.openCommit(model.graphCommits[index].sha)
                 }
             }
+            let changedFiles = UserDefaults.standard.string(forKey: "snapshotReviewChangedFiles")
+            if let changedFiles { store.showChanges(opening: changedFiles.split(separator: ",").map(String.init)) }
             while Date.now < deadline, model.error == nil, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
-                if let changes = model.changes, model.selectedTab == nil {
-                    if graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
+                if let changes = model.changes, model.selectedTab == nil, changedFiles == nil {
+                    if shownPullRequestClone != nil || expandedPullRequestNumber != nil || graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
                     let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
                     if requested == nil, showsReviewThreads, let thread = fixturePullRequestDetail?.threads.first(where: { $0.path == "README.md" && $0.line != nil }) {
                         model.open(thread)
@@ -805,7 +1040,7 @@ enum Snapshot {
                 let unchanged = zip((0..<diff.original.lineCount).filter { !diff.original.changedLines.contains($0) }, (0..<diff.modified.lineCount).filter { !diff.modified.changedLines.contains($0) })
                 let shifted = unchanged.count(where: { pair in rows[0][pair.0].flatMap { left in rows[1][pair.1].map { left != $0 } } ?? false })
                 let arithmetic = unchanged.count(where: { pair in rows[1][pair.1].map { $0 != sides[1].top(ofRow: (sides[1].side ?? diff.modified).rows[pair.1]) } ?? false })
-                let draft = model.selectedDocument.flatMap { $0.compare?.isCommit == true ? nil : model.drafts[$0.path] }
+                let draft = model.selectedDocument.flatMap { $0.compare?.isHistorical == true ? nil : model.drafts[$0.path] }
                 print("\(label) \(sides[1].unifiedOriginal == nil ? "side by side" : "unified, width \(sides[1].frame.width) for \(sides[1].minimumWidth), text is the file \(sides[1].string == draft ?? model.selectedDocument.flatMap { model.contents[$0]?.modified }.flatMap { if case let .text(text) = $0 { text } else { nil } } ?? "")"), height \(sides[1].frame.height) for top(ofRow: rowCount) \(sides[1].top(ofRow: sides[1].side?.rowCount ?? 0)), pane \(sides[1].enclosingScrollView?.superview?.frame.width ?? -1) hunks \(diff.hunks.count), checked \(checks.count), misaligned \(checks.count(where: { $0.1 != $0.2 })), unchanged pairs misaligned \(shifted), off top(ofRow:) \(arithmetic): " + checks.prefix(6).map { "\($0.0.originalLines)/\($0.0.modifiedLines) next row y \($0.1)/\($0.2)" }.joined(separator: ", "))
             }
             report("review")
@@ -854,9 +1089,10 @@ enum Snapshot {
                 state("double-clicked")
                 report("reset")
                 save(".split-reset.png")
+                // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                 UserDefaults.standard.set(saved, forKey: "reviewSplitRatio")
             }
-            if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument, file.compare?.isCommit != true {
+            if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument, file.compare?.isHistorical != true {
                 let right = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last }
                 let point = { (textView: ReviewTextView, spec: String) -> NSPoint? in
                     let numbers = spec.split(separator: ":").compactMap { Int($0) }
@@ -1090,6 +1326,7 @@ enum Snapshot {
                         drag(nil, 2)
                         try? await Task.sleep(for: .seconds(1))
                         state("double-clicked")
+                        // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                         UserDefaults.standard.set(saved, forKey: "reviewReferencesSplitRatio")
                     }
                     key(shown.list, 125, "\u{F701}", [])
@@ -1165,7 +1402,7 @@ enum Snapshot {
                     }
                 }
             }
-            if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last, model.selectedDocument?.compare?.isCommit != true {
+            if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last, model.selectedDocument?.compare?.isHistorical != true {
                 window.makeFirstResponder(right)
                 right.setSelectedRange(NSRange(location: 0, length: 0))
                 right.insertText(edit, replacementRange: right.selectedRange())
@@ -1255,12 +1492,15 @@ enum Snapshot {
                 if let spec = UserDefaults.standard.string(forKey: "snapshotReviewRestyle"), let separator = spec.firstIndex(of: ":") {
                     let keys = [ReviewStyle.colorSchemeKey, ReviewStyle.lineHeightKey]
                     let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     UserDefaults.standard.set(String(spec[..<separator]), forKey: keys[0])
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     UserDefaults.standard.set(Double(spec[spec.index(after: separator)...]) ?? 1.3, forKey: keys[1])
                     try? await Task.sleep(for: .milliseconds(800))
                     print("restyled \(spec): text view background \(sides[1].backgroundColor), row height \(sides[1].rowHeight), inline \(sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.map { "\($0.frame) \($0.appearance?.name.rawValue ?? "-")" })")
                     report("restyled")
                     save(".restyled.png")
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     for (key, value) in zip(keys, saved) { UserDefaults.standard.set(value, forKey: key) }
                 }
                 if UserDefaults.standard.bool(forKey: "snapshotReviewDelete") {
@@ -1405,7 +1645,7 @@ enum Snapshot {
                 }
                 let steps: [(String, () -> Void)] = [
                     ("close diff", { store.closeDiff() }),
-                    ("open diff", { file.map(model.open) }),
+                    ("open diff", { if let file { model.open(file) } }),
                     ("hide changes", { AppAction.hideChanges.perform(on: store) }),
                     ("show changes", { AppAction.showChanges.perform(on: store) }),
                     ("select terminal", { store.activate(store.terminals.first.map { SidebarItem.tab($0.id) }) }),
@@ -1426,7 +1666,7 @@ enum Snapshot {
                     }),
                     ("narrow to 1200", { window.setContentSize(NSSize(width: 1200, height: window.contentLayoutRect.height)) }),
                     ("close diff again", { store.closeDiff() }),
-                    ("reopen diff", { file.map(model.open) }),
+                    ("reopen diff", { if let file { model.open(file) } }),
                     ("close diff once more", { store.closeDiff() }),
                 ]
                 for (label, step) in steps {
@@ -1528,6 +1768,27 @@ enum Snapshot {
         }
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
         try? await Task.sleep(for: .seconds(UserDefaults.standard.integer(forKey: "snapshotHold")))
+        if UserDefaults.standard.bool(forKey: "snapshotCloseNested"), let nested = store.tabs.first(where: { $0.parentTabID != nil }) {
+            print("close nested: before \(store.tabs.count) tabs")
+            store.close(nested.id)
+            print("close nested: after \(store.tabs.count) tabs, parent kept \(store.tabs.contains { $0.id == nested.parentTabID })")
+        }
+        if let clicks = UserDefaults.standard.string(forKey: "snapshotClickAt") {
+            let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
+            let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
+            method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
+            method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
+            let tabs = { "\(store.tabs.map { "\($0.kind)/\($0.parentTabID == nil ? "top" : "nested")\($0.id == store.selectedTabID ? "*" : "")" })" }
+            for point in clicks.split(separator: ";").map({ $0.split(separator: ",").compactMap { Double($0) } }) where point.count == 2 {
+                let location = NSPoint(x: point[0], y: (window.contentView?.frame.height ?? 0) - point[1])
+                let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) }
+                let before = tabs()
+                event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
+                event(.leftMouseDown).map(window.sendEvent)
+                try? await Task.sleep(for: .seconds(1))
+                print("click at \(point): \(before) -> \(tabs())")
+            }
+        }
         if UserDefaults.standard.bool(forKey: "snapshotCloseTabs") {
             let processes = ProcessAncestry.descendants()
             print("before close: \(processes.map(\.pid).sorted())")
@@ -1703,6 +1964,7 @@ enum Snapshot {
                     continue
                 }
                 if spec.hasPrefix("layout:") {
+                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                     UserDefaults.standard.set(spec == "layout:auto" ? nil : String(spec.dropFirst(7)), forKey: ReviewDiffLayout.key)
                     try? await Task.sleep(for: .seconds(1))
                     print("\(spec) (writes reviewDiffLayout, restored after the run):\n  \(state())")
@@ -1738,7 +2000,7 @@ enum Snapshot {
                     let document = target.count == 3 ? ["u": ReviewDocument(path: target[2], compare: .uncommitted), "c": ReviewDocument(path: target[2], compare: .committed)][target[1]] ?? model.workingDocument(target[2]) : nil
                     if spec == "refresh" { await store.refreshReview() }
                     if spec == "keep" { model.selectedTabID.map(model.keep) }
-                    if spec == "save", let document = model.selectedDocument, document.compare?.isCommit != true, let draft = model.drafts[document.path] { model.save(draft, to: document.path) }
+                    if spec == "save", let document = model.selectedDocument, document.compare?.isHistorical != true, let draft = model.drafts[document.path] { model.save(draft, to: document.path) }
                     if spec == "back" || spec == "forward" { model.go(by: spec == "back" ? -1 : 1) }
                     if spec == "reveal" { model.filesReveal = model.selectedDocument?.path }
                     if spec.hasPrefix("file"), let index = Int(spec.dropFirst(4)), let file = model.changes.map({ $0.uncommitted.map { ReviewDocument(path: $0.path, compare: .uncommitted) } + $0.committed.map { ReviewDocument(path: $0.path, compare: .committed) } })?.dropFirst(index).first { model.open(file) }
@@ -1775,6 +2037,7 @@ enum Snapshot {
                 try? await Task.sleep(for: .milliseconds(100))
             }
             NotificationCenter.default.removeObserver(observer)
+            // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
             UserDefaults.standard.set(savedLayout, forKey: ReviewDiffLayout.key)
             if let savedPasteboard {
                 NSPasteboard.general.clearContents()
@@ -1884,7 +2147,13 @@ enum Snapshot {
 
         return "tabs " + model.tabs.map { tab in
             let document = tab.document
-            let name = if case let .commit(sha) = document.compare { "commit \(sha.prefix(7)):\(document.path)" } else { document.path + (document.compare.map { " \($0)" } ?? " file") }
+            let name = if let number = document.pullRequestNumber {
+                "PR #\(number):\(document.path)"
+            } else if case let .commit(sha) = document.compare {
+                "commit \(sha.prefix(7)):\(document.path)"
+            } else {
+                document.path + (document.compare.map { " \($0)" } ?? " file")
+            }
             return "\(tab.id == model.selectedTabID ? "[" : "")\(name) \(tab.isPreview ? "preview" : "kept") \(tab.index + 1)/\(tab.history.count)\(tab.id == model.selectedTabID ? "]" : "")"
         }.joined(separator: ", ")
     }
@@ -1907,7 +2176,7 @@ enum Snapshot {
         return output.split(separator: "\n").count(where: { $0.contains("/dev/ptmx") })
     }
 
-    private static func fail(_ message: String) -> Never {
+    static func fail(_ message: String) -> Never {
         ProcessAncestry.hangUpDescendants()
         FileHandle.standardError.write(Data("snapshot: \(message)\n".utf8))
         exit(1)

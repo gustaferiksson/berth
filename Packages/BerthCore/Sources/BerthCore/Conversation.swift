@@ -1,5 +1,26 @@
 import Foundation
 
+public enum PromptTextPart: Sendable {
+    case text(Substring)
+    case image(token: Substring, number: Int)
+
+    public static var imageToken: Regex<(Substring, Substring)> { /\[Image #(\d+)\]/ }
+
+    public static func split(_ text: String) -> [Self] {
+        var parts: [Self] = []
+        var start = text.startIndex
+        for match in text.matches(of: imageToken) {
+            guard let number = Int(match.output.1) else { continue }
+
+            if start < match.range.lowerBound { parts.append(.text(text[start..<match.range.lowerBound])) }
+            parts.append(.image(token: match.output.0, number: number))
+            start = match.range.upperBound
+        }
+        if start < text.endIndex { parts.append(.text(text[start...])) }
+        return parts
+    }
+}
+
 public struct ToolCall: Identifiable, Sendable {
     public let use: RemoteEntry
     public let result: RemoteEntry?
@@ -154,6 +175,7 @@ public enum TurnPart: Identifiable, Sendable {
 
 public struct FileChanges: Sendable {
     public let files: Int
+    public let paths: [String]
     public let added: Int?
     public let removed: Int?
 }
@@ -196,6 +218,7 @@ public struct Turn: Identifiable, Sendable {
         let diffs = edits.map { lines($0.use.newText).difference(from: lines($0.use.oldText)) }
         return FileChanges(
             files: Set(edits.map { $0.use.filePath ?? $0.id }).count,
+            paths: edits.compactMap(\.use.filePath).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } },
             added: isCounted ? diffs.map(\.insertions.count).reduce(0, +) : nil,
             removed: isCounted ? diffs.map(\.removals.count).reduce(0, +) : nil
         )

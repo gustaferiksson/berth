@@ -22,13 +22,13 @@ struct ConversationDraft {
         numbers[url].map { "[Image #\($0)]" } ?? "\0"
     }
 
-    mutating func attach(_ urls: [URL]) -> String {
+    mutating func attach(_ urls: [URL], afterImage lastSent: Int) -> String {
         var tokens: [String] = []
         for url in urls where !files.contains(url) {
             files.append(url)
             guard Self.isImage(url) else { continue }
 
-            numbers[url] = (numbers.values.max() ?? 0) + 1
+            numbers[url] = max(numbers.values.max() ?? 0, lastSent) + 1
             tokens.append(token(for: url))
         }
         return tokens.joined(separator: " ")
@@ -74,6 +74,7 @@ final class ConversationModel {
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var entries: [RemoteEntry] = []
     @ObservationIgnored private var url: URL?
+    @ObservationIgnored private var imageLines: [String: Range<Int>] = [:]
     @ObservationIgnored private var end: Int?
     @ObservationIgnored private var queue: [String] = []
     @ObservationIgnored private var activity = TranscriptActivity()
@@ -94,6 +95,19 @@ final class ConversationModel {
         guard let sessionID = tab.sessionID, let summary = store.sessionsByID[sessionID] else { return nil }
 
         return tab.agent.harness.summaryContext?(summary)
+    }
+
+    var pullRequestWatch: PullRequestWatch? {
+        sessionID.flatMap(store.pullRequestWatch(for:))
+    }
+
+    func stopWatching() async {
+        guard let sessionID, !isSending else { return }
+
+        isSending = true
+        notice = nil
+        defer { isSending = false }
+        if case let .refused(message) = await store.stopWatching(sessionID) { notice = message }
     }
 
     var tasks: [RemoteTask] {
@@ -126,7 +140,8 @@ final class ConversationModel {
 
     func attach(_ urls: [URL]) -> String {
         var draft = draft
-        let tokens = draft.attach(urls)
+        let lastSent = turns.lazy.compactMap { $0.prompt?.imageNumbers?.max() }.max() ?? 0
+        let tokens = draft.attach(urls, afterImage: lastSent)
         self.draft = draft
         return tokens
     }
@@ -262,6 +277,12 @@ final class ConversationModel {
         guard let sessionID, case let .refused(message) = store.press(key, in: sessionID, answering: waitingFor, since: since) else { return }
 
         notice = message
+    }
+
+    func promptImage(entryID: String, index: Int) async -> Data? {
+        guard let url, let line = imageLines[TranscriptImages.promptImageID(entryID: entryID, index: index)] else { return nil }
+
+        return await Task.detached { TranscriptImages.promptImage(entryID: entryID, index: index, in: url, line: line) }.value
     }
 
     func openAgent(agentID: String?, toolUseID: String?) {
@@ -405,6 +426,7 @@ final class ConversationModel {
         guard let chunk else { return }
 
         self.url = url
+        imageLines = (chunk.isContinuation ? imageLines : [:]).merging(chunk.imageLines) { $1 }
         end = chunk.end
         queue = chunk.queue
         if let result {

@@ -6,6 +6,7 @@ struct ConversationComposer: View {
     let model: ConversationModel
     let harnessName: String
     let canAttach: Bool
+    let isShell: Bool
     let isWorking: Bool
     let waiting: (waitingFor: String?, since: Double?)?
     let focusRequest: Int
@@ -19,11 +20,12 @@ struct ConversationComposer: View {
     var body: some View {
         let draft = model.draft
         let stops = isWorking && draft.isEmpty
-        let font = NSFont.systemFont(ofSize: theme.font.pointSize)
+        let font = isShell ? theme.font : NSFont.systemFont(ofSize: theme.font.pointSize)
         let singleRowWidth = ConversationComposerLayout.fieldBounds(in: width, isExpanded: false, canAttach: canAttach).width
         let isExpanded = !draft.files.isEmpty || draft.text.contains(where: \.isNewline) || width > 0 && (draft.text as NSString).size(withAttributes: [.font: font]).width > singleRowWidth
         let inset = ConversationComposerLayout.inset
         let controlSize = ConversationComposerLayout.controlSize
+        let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
         let placeholder = model.blocksSending ? "Wait for \(harnessName) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harnessName)"
 
         GlassEffectContainer(spacing: 8) {
@@ -72,6 +74,7 @@ struct ConversationComposer: View {
                             placeholder: placeholder,
                             font: font,
                             color: NSColor(theme.foreground),
+                            promptColor: isShell ? NSColor(theme.shellAttached) : nil,
                             focusRequest: focusRequest,
                             submit: send,
                             attach: { canAttach ? model.attach($0) : "" }
@@ -102,9 +105,11 @@ struct ConversationComposer: View {
                         }
                     }
                 }
-                .glassEffect(.regular, in: .rect(cornerRadius: controlSize / 2 + inset))
+                .overlay { shape.strokeBorder(theme.shellAttached.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
+                .glassEffect(.regular, in: shape)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
                 .animation(.smooth(duration: 0.2), value: isExpanded)
+                .animation(.smooth(duration: 0.2), value: isShell)
             }
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -123,7 +128,9 @@ struct ConversationComposer: View {
 private struct ConversationComposerLayout: Layout {
     static let inset: CGFloat = 10
     static let controlSize: CGFloat = 24
-    private static let fieldTop: CGFloat = 14
+    private static let expandedInset: CGFloat = 14
+    private static let fieldTop: CGFloat = 12
+    private static let fieldGap: CGFloat = 8
 
     let isExpanded: Bool
     let canAttach: Bool
@@ -139,20 +146,21 @@ private struct ConversationComposerLayout: Layout {
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 400
         let field = Self.fieldBounds(in: width, isExpanded: isExpanded, canAttach: canAttach)
         let fieldHeight = subviews[1].sizeThatFits(ProposedViewSize(width: field.width, height: nil)).height
-        let height = isExpanded ? Self.fieldTop + fieldHeight + Self.controlSize : max(fieldHeight, Self.controlSize)
-        return CGSize(width: width, height: height + 2 * Self.inset)
+        let height = isExpanded ? Self.fieldTop + fieldHeight + Self.fieldGap + Self.controlSize + Self.expandedInset : max(fieldHeight, Self.controlSize) + 2 * Self.inset
+        return CGSize(width: width, height: height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
         let field = Self.fieldBounds(in: bounds.width, isExpanded: isExpanded, canAttach: canAttach)
-        let controlsTop = isExpanded ? bounds.maxY - Self.inset - Self.controlSize : bounds.midY - Self.controlSize / 2
-        subviews[0].place(at: CGPoint(x: bounds.minX + Self.inset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
+        let controlsInset = isExpanded ? Self.expandedInset : Self.inset
+        let controlsTop = isExpanded ? bounds.maxY - controlsInset - Self.controlSize : bounds.midY - Self.controlSize / 2
+        subviews[0].place(at: CGPoint(x: bounds.minX + controlsInset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
         subviews[1].place(
             at: CGPoint(x: bounds.minX + field.leading, y: isExpanded ? bounds.minY + Self.fieldTop : bounds.midY),
             anchor: isExpanded ? .topLeading : .leading,
             proposal: ProposedViewSize(width: field.width, height: nil)
         )
-        subviews[2].place(at: CGPoint(x: bounds.maxX - Self.inset, y: controlsTop), anchor: .topTrailing, proposal: .unspecified)
+        subviews[2].place(at: CGPoint(x: bounds.maxX - controlsInset, y: controlsTop), anchor: .topTrailing, proposal: .unspecified)
     }
 }
 
@@ -184,12 +192,7 @@ private struct ConversationAttachmentTile: View {
         .clipShape(.rect(cornerRadius: radius))
         .overlay(alignment: .bottomLeading) {
             if let number {
-                Text(number, format: .number)
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.black.opacity(0.6), in: .capsule)
+                ConversationImageTag(number: number)
                     .padding(4)
             }
         }

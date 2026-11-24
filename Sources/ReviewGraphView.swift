@@ -1,49 +1,31 @@
 import BerthCore
 import SwiftUI
 
-struct ReviewGraphView: View {
+struct ReviewGraphView<Leading: View>: View {
     let model: ReviewModel
     let changes: ReviewChanges
+    let showsHistory: Bool?
+    @ViewBuilder let leading: Leading
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         Group {
-            if model.graphHasLoaded, model.graphCommits.isEmpty, model.graphError == nil, !model.isLoadingGraph {
+            if showsHistory == nil, isEmpty {
                 ContentUnavailableView("No Commits", systemImage: "point.3.connected.trianglepath.dotted")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     List {
-                        let gutterWidth = CGFloat(min(model.graphRows.map(\.laneCount).max() ?? 1, 8)) * 12
-                        ForEach(Array(zip(model.graphCommits, model.graphRows)), id: \.0.sha) { commit, row in
-                            ReviewGraphCommitRow(commit: commit, row: row, gutterWidth: gutterWidth, model: model, changes: changes)
-                                .id(commit.sha)
-                                .listRowInsets(EdgeInsets())
-                                .listRowSeparator(.hidden)
-                        }
-                        if let error = model.graphError, !model.isLoadingGraph {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Couldn’t Load Commits").font(.callout.weight(.semibold))
-                                Text(error).font(.caption).foregroundStyle(theme.secondary).lineLimit(3)
-                                Button("Try Again") { Task { await model.loadGraph() } }
+                        leading
+                        if showsHistory != false {
+                            if isEmpty {
+                                Text("No Commits")
+                                    .font(.caption)
+                                    .foregroundStyle(theme.secondary)
+                                    .reviewRow(top: 6, bottom: 6)
+                            } else {
+                                graphRows
                             }
-                            .padding(.vertical, 6)
-                            .listRowSeparator(.hidden)
-                        }
-                        if !model.graphHasLoaded, model.graphError == nil || model.isLoadingGraph {
-                            ProgressView()
-                                .controlSize(.small)
-                                .accessibilityLabel("Loading Commits")
-                                .frame(maxWidth: .infinity, minHeight: 36)
-                                .listRowSeparator(.hidden)
-                        }
-                        if model.graphHasMore {
-                            Button("Load More") { Task { await model.loadGraph(more: true) } }
-                                .buttonStyle(.plain)
-                                .foregroundStyle(theme.secondary)
-                                .frame(minHeight: 32)
-                                .disabled(model.isLoadingGraph)
-                                .listRowSeparator(.hidden)
                         }
                     }
                     .listStyle(.plain)
@@ -51,17 +33,61 @@ struct ReviewGraphView: View {
                     .scrollContentBackground(.hidden)
                     .scrollEdgeEffectStyle(.soft, for: .top)
                     .onChange(of: model.selectedCommit, initial: true) { _, sha in
-                        if let sha { proxy.scrollTo(sha) }
+                        if showsHistory != false, let sha { proxy.scrollTo(sha) }
                     }
                 }
             }
         }
         .foregroundStyle(theme.foreground)
-        .task {
-            guard !model.graphHasLoaded, model.graphError == nil else { return }
+        .task(id: showsHistory) {
+            guard showsHistory != false, !model.graphHasLoaded, model.graphError == nil else { return }
 
             await model.loadGraph()
         }
+    }
+
+    private var isEmpty: Bool {
+        model.graphHasLoaded && model.graphCommits.isEmpty && model.graphError == nil && !model.isLoadingGraph
+    }
+
+    @ViewBuilder private var graphRows: some View {
+        let gutterWidth = CGFloat(min(model.graphRows.map(\.laneCount).max() ?? 1, 8)) * 12
+        ForEach(Array(zip(model.graphCommits, model.graphRows)), id: \.0.sha) { commit, row in
+            ReviewGraphCommitRow(commit: commit, row: row, gutterWidth: gutterWidth, model: model, changes: changes)
+                .id(commit.sha)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+        }
+        if let error = model.graphError, !model.isLoadingGraph {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Couldn’t Load Commits").font(.callout.weight(.semibold))
+                Text(error).font(.caption).foregroundStyle(theme.secondary).lineLimit(3)
+                Button("Try Again") { Task { await model.loadGraph() } }
+            }
+            .padding(.vertical, 6)
+            .listRowSeparator(.hidden)
+        }
+        if !model.graphHasLoaded, model.graphError == nil || model.isLoadingGraph {
+            ProgressView()
+                .controlSize(.small)
+                .accessibilityLabel("Loading Commits")
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .listRowSeparator(.hidden)
+        }
+        if model.graphHasMore {
+            Button("Load More") { Task { await model.loadGraph(more: true) } }
+                .buttonStyle(.plain)
+                .foregroundStyle(theme.secondary)
+                .frame(minHeight: 32)
+                .disabled(model.isLoadingGraph)
+                .listRowSeparator(.hidden)
+        }
+    }
+}
+
+extension ReviewGraphView where Leading == EmptyView {
+    init(model: ReviewModel, changes: ReviewChanges) {
+        self.init(model: model, changes: changes, showsHistory: nil) { EmptyView() }
     }
 }
 
@@ -123,7 +149,7 @@ private struct ReviewGraphCommitRow: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if let files = model.commitFiles[commit.sha] {
                         ForEach(files, id: \.path) { file in
-                            fileButton(file)
+                            ReviewHistoricalFileButton(file: file, document: ReviewDocument(path: file.path, compare: .commit(commit.sha)), model: model)
                         }
                     } else {
                         ProgressView()
@@ -177,49 +203,6 @@ private struct ReviewGraphCommitRow: View {
                 RoundedRectangle(cornerRadius: 4).strokeBorder(theme.secondary)
             }
         }
-    }
-
-    private func fileButton(_ file: ReviewFile) -> some View {
-        let document = ReviewDocument(path: file.path, compare: .commit(commit.sha))
-        let isSelected = model.selectedDocument == document && !model.isPreviewSelected
-        let status = switch file.status {
-        case .added: "Added"
-        case .modified: "Modified"
-        case .deleted: "Deleted"
-        case .renamed: "Renamed"
-        }
-        return Button {
-            model.open(document)
-            if NSApp.currentEvent?.clickCount == 2 { model.selectedTabID.map(model.keep) }
-        } label: {
-            HStack(spacing: 5) {
-                Text(file.status.rawValue)
-                    .font(.caption2.weight(.medium).monospaced())
-                    .foregroundStyle(file.status.color(in: theme))
-                    .frame(width: 12)
-                    .accessibilityLabel(status)
-                Text((file.path as NSString).lastPathComponent)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .accessibilityLabel(file.path)
-                Spacer(minLength: 0)
-                if let additions = file.additions, additions > 0 {
-                    Text("+\(additions)").foregroundStyle(theme.working).accessibilityLabel("\(additions) additions")
-                }
-                if let deletions = file.deletions, deletions > 0 {
-                    Text("−\(deletions)").foregroundStyle(theme.closed).accessibilityLabel("\(deletions) deletions")
-                }
-            }
-            .font(.caption)
-            .monospacedDigit()
-            .padding(.horizontal, 4)
-            .frame(minHeight: 22)
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .background(theme.foreground.opacity(isSelected ? 0.1 : 0), in: .rect(cornerRadius: 4))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 
     private var lanes: some View {
@@ -276,5 +259,54 @@ extension ReviewFile.Status {
         case .deleted: theme.closed
         case .renamed: theme.branch
         }
+    }
+}
+
+struct ReviewHistoricalFileButton: View {
+    let file: ReviewFile
+    let document: ReviewDocument
+    let model: ReviewModel
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        let isSelected = model.selectedDocument == document && !model.isPreviewSelected
+        let status = switch file.status {
+        case .added: "Added"
+        case .modified: "Modified"
+        case .deleted: "Deleted"
+        case .renamed: "Renamed"
+        }
+        return Button {
+            model.open(document)
+            if NSApp.currentEvent?.clickCount == 2 { model.selectedTabID.map(model.keep) }
+        } label: {
+            HStack(spacing: 5) {
+                Text(file.status.rawValue)
+                    .font(.caption2.weight(.medium).monospaced())
+                    .foregroundStyle(file.status.color(in: theme))
+                    .frame(width: 12)
+                    .accessibilityLabel(status)
+                Text((file.path as NSString).lastPathComponent)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityLabel(file.path)
+                Spacer(minLength: 0)
+                if let additions = file.additions, additions > 0 {
+                    Text("+\(additions)").foregroundStyle(theme.working).accessibilityLabel("\(additions) additions")
+                }
+                if let deletions = file.deletions, deletions > 0 {
+                    Text("−\(deletions)").foregroundStyle(theme.closed).accessibilityLabel("\(deletions) deletions")
+                }
+            }
+            .font(.caption)
+            .monospacedDigit()
+            .padding(.horizontal, 4)
+            .frame(minHeight: 22)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .background(theme.foreground.opacity(isSelected ? 0.1 : 0), in: .rect(cornerRadius: 4))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .help(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
     }
 }
