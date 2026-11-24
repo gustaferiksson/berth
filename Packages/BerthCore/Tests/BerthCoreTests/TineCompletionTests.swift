@@ -63,6 +63,19 @@ struct TineCompletionTests {
         #expect(parsed.items[0].replacement == NSRange(location: 1, length: 2))
     }
 
+    @Test func parsesARealTineReply() throws {
+        let request = try #require(TineRequest(draft: "!git ch", caret: 7, cwd: "/tmp"))
+        let items = try completion(request.parse(Data(#"{"version":1,"pending":false,"items":[{"name":"checkout","dangerous":false,"matches":[0,1],"description":"Switch branches or restore working tree files","kind":"subcommand","edit":{"text":"checkout","cursor":12,"end":6,"start":4}},{"name":"cherry-pick","dangerous":false,"matches":[0,1],"description":"Apply the changes introduced by some existing commits","kind":"subcommand","edit":{"text":"cherry-pick ","cursor":16,"end":6,"start":4}},{"name":"fetch","matches":[3,4],"kind":"subcommand","edit":{"text":"fetch","cursor":9,"end":6,"start":4}},{"name":"--exec-path","dangerous":false,"matches":[5,10],"description":"Get or set GIT_EXEC_PATH for core Git programs","kind":"option","edit":{"text":"--exec-path","cursor":15,"end":6,"start":4}}]}"#.utf8))).items
+
+        #expect(items.map(\.name) == ["checkout", "cherry-pick", "fetch", "--exec-path"])
+        #expect(items[2].matches == [3, 4])
+        #expect(items[3].matches == [5, 10])
+        #expect(items[3].description == "Get or set GIT_EXEC_PATH for core Git programs")
+        #expect(items[1].replacement == NSRange(location: 5, length: 2))
+        #expect(items[1].caret == 17)
+        #expect(("!git ch" as NSString).replacingCharacters(in: items[1].replacement, with: items[1].text) == "!git cherry-pick ")
+    }
+
     @Test func emptyReplyHasNoItems() throws {
         let request = try #require(TineRequest(draft: "!zz", caret: 3, cwd: "/"))
 

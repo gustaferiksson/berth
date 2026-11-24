@@ -171,7 +171,7 @@ Add `-snapshotConversationEmpty YES` to open a session with zero turns, and use 
 
 Add `-snapshotConversationSlashCommands YES` to capture the Claude composer with `/co` and the picker open. The flag seeds a command in the fixture home.
 
-Add `-snapshotConversationShellCompletions YES` to capture bash mode with `!git ch` and the tine completion popover open. A fake tine socket in a temp path answers with invented items, so the real tine is never contacted.
+Add `-snapshotConversationShellCompletions YES` to capture bash mode with `!git ch` and the tine completion popover open. A fake tine socket in a temp path answers with invented items, so the real tine is never contacted. Add `-snapshotTineReal YES` to query the installed tine instead.
 
 The Claude fixture includes bash-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
 

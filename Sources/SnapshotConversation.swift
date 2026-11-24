@@ -24,6 +24,12 @@ extension Snapshot {
     private static var conversationStart: Date { Date.now.addingTimeInterval(-420) }
 
     private static func startTineStub() {
+        guard !UserDefaults.standard.bool(forKey: "snapshotTineReal") else {
+            let socket = (getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? "") + "/.local/share/tine/tine.sock"
+            UserDefaults.standard.register(defaults: ["snapshotTineSocket": socket, ConversationShellCompleter.enabledKey: true])
+            return
+        }
+
         let items = [
             ("checkout", "Switch branches or restore working tree files", "subcommand", false, "checkout "),
             ("cherry-pick", "Apply the changes from existing commits", "subcommand", false, "cherry-pick "),
