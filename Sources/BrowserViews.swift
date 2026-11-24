@@ -32,7 +32,7 @@ struct BrowserPane: View {
 }
 
 private struct BrowserHeader: View {
-    static let controlSize: CGFloat = 30
+    static let controlSize: CGFloat = 32
     private static let wideSpacing: CGFloat = 8
     private static let compactSpacing: CGFloat = 6
     private static let compactThreshold: CGFloat = 640
@@ -44,6 +44,7 @@ private struct BrowserHeader: View {
     var body: some View {
         let pinned = browser.pinned
         let sessionTabs = browser.sessionKey.map(browser.tabs) ?? []
+        let selectedSession = sessionTabs.first { $0 === tab }
         let isCompact = width < Self.compactThreshold
         let spacing = isCompact ? Self.compactSpacing : Self.wideSpacing
         let pinnedWidth = min(
@@ -61,16 +62,28 @@ private struct BrowserHeader: View {
                         .disabled(tab?.canGoForward != true)
                         .help("Forward (⌘])")
                 }
-                if !pinned.isEmpty {
-                    pinnedTabs(pinned, spacing: spacing)
-                        .frame(width: pinnedWidth)
+                if !pinned.isEmpty || !sessionTabs.isEmpty {
+                    HStack(spacing: 2) {
+                        if !pinned.isEmpty {
+                            pinnedTabs(pinned, spacing: spacing)
+                                .frame(width: pinnedWidth)
+                            if !sessionTabs.isEmpty {
+                                Hairline(axis: .vertical)
+                                    .frame(height: 24)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        if !sessionTabs.isEmpty {
+                            BrowserSessionTabs(browser: browser, tabs: sessionTabs, selection: selectedSession, select: select, dropAtEnd: dropIntoSession)
+                        }
+                    }
+                    .layoutPriority(1)
                 }
-                if !sessionTabs.isEmpty {
-                    BrowserSessionTabs(browser: browser, tabs: sessionTabs, selection: tab, select: select, dropAtEnd: dropIntoSession)
-                        .layoutPriority(1)
+                if selectedSession == nil {
+                    BrowserAddressField(browser: browser, tab: tab, isMerged: false)
+                        .frame(minWidth: 110, idealWidth: 200, maxWidth: .infinity)
+                        .frame(height: Self.controlSize)
                 }
-                BrowserAddressField(browser: browser, tab: tab)
-                    .layoutPriority(0)
                 if !isCompact { shareMenu }
                 circleButton("New Tab", symbol: "plus") {
                     if let key = browser.sessionKey { browser.open(nil, in: key) }
@@ -183,6 +196,7 @@ private struct BrowserHeader: View {
 
     private func circleIcon(_ symbol: String) -> some View {
         Image(systemName: symbol)
+            .font(.system(size: 13, weight: .medium))
             .frame(width: Self.controlSize, height: Self.controlSize)
             .contentShape(.circle)
             .accessibilityHidden(true)
@@ -209,10 +223,9 @@ private struct BrowserHeader: View {
 }
 
 private struct BrowserSessionTabs: View {
-    private static let minimumTabWidth: CGFloat = 90
-    private static let idealTabWidth: CGFloat = 140
+    private static let minimumTabWidth: CGFloat = 100
     private static let capsuleInset: CGFloat = 3
-    private static let dropWidth: CGFloat = 10
+    private static let dropWidth: CGFloat = 6
     private static let fadeWidth: CGFloat = 16
 
     let browser: BrowserModel
@@ -221,9 +234,11 @@ private struct BrowserSessionTabs: View {
     let select: (BrowserTab) -> Void
     let dropAtEnd: ([String], CGPoint) -> Bool
     @State private var hasTrailingOverflow = false
+    @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let selectedID = tabs.first { $0 === selection }?.id
+        let selectedID = selection?.id
+        let standaloneWidth = CGFloat(tabs.count) * Self.minimumTabWidth + Self.dropWidth + 2 * Self.capsuleInset
         ScrollViewReader { proxy in
             HStack(spacing: 0) {
                 ScrollView(.horizontal) {
@@ -231,12 +246,12 @@ private struct BrowserSessionTabs: View {
                         ForEach(tabs.enumerated(), id: \.element.id) { index, tab in
                             BrowserHeaderTab(browser: browser, tab: tab, isPinned: false, isSelected: tab === selection) { select(tab) }
                                 .containerRelativeFrame(.horizontal) { width, _ in
-                                    min(Self.idealTabWidth, max(Self.minimumTabWidth, width / CGFloat(tabs.count)))
+                                    max(Self.minimumTabWidth, width / CGFloat(tabs.count))
                                 }
                                 .overlay(alignment: .leading) {
                                     if index > 0, tab !== selection, tabs[index - 1] !== selection {
                                         Hairline(axis: .vertical)
-                                            .frame(height: 14)
+                                            .frame(height: 20)
                                             .allowsHitTesting(false)
                                     }
                                 }
@@ -245,6 +260,7 @@ private struct BrowserSessionTabs: View {
                     }
                 }
                 .scrollIndicators(.hidden)
+                .frame(height: BrowserHeader.controlSize - 2)
                 .onScrollGeometryChange(for: Bool.self) { geometry in
                     geometry.visibleRect.maxX < geometry.contentSize.width - 1
                 } action: { _, hasOverflow in
@@ -273,10 +289,18 @@ private struct BrowserSessionTabs: View {
                     .dropDestination(for: String.self, action: dropAtEnd)
             }
             .padding(.horizontal, Self.capsuleInset)
-            .frame(minWidth: 0, maxWidth: CGFloat(tabs.count) * Self.idealTabWidth + Self.dropWidth + 2 * Self.capsuleInset)
-            .frame(height: BrowserHeader.controlSize)
+            .frame(minWidth: 0, maxWidth: selection == nil ? standaloneWidth : .infinity)
+            .frame(height: BrowserHeader.controlSize + 4)
             .clipShape(.capsule)
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .background {
+                if selection != nil {
+                    Capsule().fill(theme.foreground.opacity(0.10))
+                } else {
+                    Capsule()
+                        .fill(.clear)
+                        .glassEffect(.regular.interactive(), in: .capsule)
+                }
+            }
         }
     }
 }
@@ -294,6 +318,9 @@ private struct BrowserHeaderTab: View {
         Group {
             if isPinned {
                 pinnedButton
+            } else if isSelected {
+                BrowserAddressField(browser: browser, tab: tab, isMerged: true)
+                    .frame(height: BrowserHeader.controlSize - 2)
             } else {
                 sessionButton
                     .onHover { isHovering = $0 }
@@ -335,50 +362,42 @@ private struct BrowserHeaderTab: View {
     }
 
     private var sessionButton: some View {
-        let key = browser.sessionKey
-        let showsClose = key != nil && (isHovering || Snapshot.forcedHover.contains(tab.displayTitle))
-        return Button(action: select) {
-            HStack(spacing: 5) {
-                if !showsClose { BrowserFavicon(tab: tab, fallback: nil) }
-                Text(tab.displayTitle)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .padding(.leading, showsClose ? 22 : 5)
-            .padding(.trailing, 5)
-            .frame(maxWidth: .infinity)
-            .frame(height: BrowserHeader.controlSize)
-            .contentShape(.rect)
-        }
-        .font(.system(size: 12))
-        .accessibilityLabel(tab.displayTitle)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .background {
-            if isSelected || showsClose {
-                Capsule()
-                    .fill(theme.foreground.opacity(isSelected ? 0.18 : 0.08))
-                    .overlay {
-                        if isSelected, tab.isLoading {
-                            BrowserLoadProgress(progress: tab.progress, opacity: 0.08)
-                        }
+        let showsClose = browser.sessionKey != nil && (isHovering || Snapshot.forcedHover.contains(tab.displayTitle))
+        return HStack(spacing: 5) {
+            ZStack {
+                if showsClose, let key = browser.sessionKey {
+                    Button { browser.close(tab, in: key) } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .semibold))
+                            .frame(width: 16, height: 16)
+                            .contentShape(.rect)
                     }
-                    .padding(.horizontal, 2)
-                    .padding(.vertical, 3)
-            }
-        }
-        .overlay(alignment: .leading) {
-            if showsClose, let key {
-                Button { browser.close(tab, in: key) } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .frame(width: 16, height: 20)
-                        .contentShape(.rect)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Close Tab")
+                    .help("Close Tab")
+                } else {
+                    BrowserFavicon(tab: tab, fallback: nil)
+                        .allowsHitTesting(false)
                 }
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Close Tab")
-                .help("Close Tab")
-                .padding(.leading, 4)
             }
+            .frame(width: 16, height: 16)
+            Text(tab.displayTitle)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+        }
+        .font(.system(size: 13, weight: .medium))
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .frame(height: BrowserHeader.controlSize - 2)
+        .background {
+            Button(action: select) {
+                Capsule()
+                    .fill(theme.foreground.opacity(showsClose ? 0.08 : 0))
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel(tab.displayTitle)
         }
     }
 
@@ -397,71 +416,99 @@ private struct BrowserHeaderTab: View {
 
 private struct BrowserAddressField: View {
     private static let placeholder = "Search or enter address"
-    private static let minimumWidth: CGFloat = 110
-    private static let idealWidth: CGFloat = 200
-    private static let accessoryThreshold: CGFloat = 160
 
     let browser: BrowserModel
     let tab: BrowserTab?
+    let isMerged: Bool
     @State private var address = ""
     @State private var isEditing = false
     @State private var selection: TextSelection?
-    @State private var showsSearchIcon = false
+    @Environment(\.ghosttyTheme) private var theme
     @FocusState private var isFocused: Bool
     @AppStorage(BrowserModel.searchKey) private var search = BrowserSearch.duckDuckGo
 
     var body: some View {
-        HStack(spacing: showsSearchIcon ? 6 : 0) {
+        let accessoryWidth: CGFloat = isMerged ? 38 : 24
+        Group {
             if isEditing {
-                if showsSearchIcon { searchIcon }
-                TextField(Self.placeholder, text: $address, selection: $selection)
-                    .textFieldStyle(.plain)
-                    .frame(maxWidth: .infinity)
-                    .focused($isFocused)
-                    .onAppear { isFocused = true }
-                    .onSubmit(go)
-                    .onExitCommand {
-                        finishEditing()
-                        if let webView = tab?.loadedWebView { webView.window?.makeFirstResponder(webView) }
-                    }
+                HStack(spacing: 5) {
+                    Image(systemName: address.hasPrefix("https://") ? "lock.fill" : "magnifyingglass")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    TextField(Self.placeholder, text: $address, selection: $selection)
+                        .textFieldStyle(.plain)
+                        .focused($isFocused)
+                        .onAppear { isFocused = true }
+                        .onSubmit(go)
+                        .onExitCommand {
+                            finishEditing()
+                            if let webView = tab?.loadedWebView { webView.window?.makeFirstResponder(webView) }
+                        }
+                }
+                .padding(.leading, 9)
+                .padding(.trailing, accessoryWidth)
             } else {
                 Button(action: editAddress) {
-                    HStack(spacing: 6) {
-                        if showsSearchIcon { searchIcon }
-                        HStack(spacing: 4) {
-                            if tab?.url?.scheme == "https" {
-                                Image(systemName: "lock.fill")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(.secondary)
-                                    .accessibilityHidden(true)
-                            }
-                            Text(displayAddress)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                    HStack(spacing: 5) {
+                        if isMerged, let tab, tab.url != nil {
+                            BrowserFavicon(tab: tab, fallback: nil)
+                        } else if tab?.url == nil || tab?.url?.scheme == "https" {
+                            Image(systemName: tab?.url == nil ? "magnifyingglass" : "lock.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
                         }
-                        .frame(maxWidth: .infinity)
+                        Text(displayAddress)
+                            .lineLimit(1)
                     }
-                    .frame(height: BrowserHeader.controlSize)
+                    .padding(.leading, isMerged ? 8 : accessoryWidth)
+                    .padding(.trailing, accessoryWidth)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(.rect)
                 }
                 .accessibilityHint("Edit address")
+                .accessibilityAddTraits(isMerged ? .isSelected : [])
             }
-            reloadButton
-                .labelStyle(.iconOnly)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
         }
-        .font(.system(size: 12))
-        .padding(.horizontal, 8)
-        .frame(minWidth: Self.minimumWidth, idealWidth: Self.idealWidth, maxWidth: .infinity)
-        .frame(height: BrowserHeader.controlSize)
+        .font(.system(size: 13, weight: .medium))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .trailing) {
+            HStack(spacing: 3) {
+                if isMerged, let url = tab?.url {
+                    Menu {
+                        ShareLink(item: url)
+                        BrowserLinkActions(browser: browser, url: url)
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .medium))
+                            .frame(width: 14, height: 22)
+                            .contentShape(.rect)
+                            .accessibilityHidden(true)
+                    }
+                    .menuStyle(.button)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel("Page Actions")
+                }
+                reloadButton
+                    .labelStyle(.iconOnly)
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.trailing, 5)
+        }
         .background {
+            if isMerged {
+                Capsule()
+                    .fill(theme.foreground.opacity(0.05))
+                    .strokeBorder(theme.foreground.opacity(0.14), lineWidth: 0.5)
+            }
             if let tab, tab.isLoading {
                 BrowserLoadProgress(progress: tab.progress, opacity: 0.2)
             }
         }
         .glassEffect(.regular.interactive(), in: .capsule)
-        .onGeometryChange(for: Bool.self) { $0.size.width >= Self.accessoryThreshold } action: { showsSearchIcon = $0 }
         .onChange(of: tab?.id, initial: true) {
             if let tab, tab.url == nil { editAddress() } else { finishEditing() }
         }
@@ -475,12 +522,6 @@ private struct BrowserAddressField: View {
         guard let tab, let url = tab.url else { return Self.placeholder }
 
         return url.host(percentEncoded: false) ?? tab.displayTitle
-    }
-
-    private var searchIcon: some View {
-        Image(systemName: "magnifyingglass")
-            .foregroundStyle(.secondary)
-            .accessibilityHidden(true)
     }
 
     private var reloadButton: some View {
