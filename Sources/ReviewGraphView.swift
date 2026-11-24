@@ -219,6 +219,8 @@ struct ReviewHistoricalFileButton: View {
     let document: ReviewDocument
     let model: ReviewModel
     var openFile: (() -> Void)?
+    var minHeight = 22.0
+    var trailingPadding = 4.0
     @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
 
@@ -251,8 +253,9 @@ struct ReviewHistoricalFileButton: View {
                 ReviewFileStats(file: file)
             }
             .font(.caption)
-            .padding(.horizontal, 4)
-            .frame(minHeight: 22)
+            .padding(.leading, 4)
+            .padding(.trailing, trailingPadding)
+            .frame(minHeight: minHeight)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)

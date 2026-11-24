@@ -258,7 +258,7 @@ struct ReviewCompactPullRequestRow: View {
     var isThisBranch = false
     var isExpanded = false
     var toggleExpansion: (() -> Void)?
-    @State private var isHovering = false
+    @State private var isHovering = UserDefaults.standard.bool(forKey: "snapshotHoverPullRequestRows")
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
@@ -272,6 +272,7 @@ struct ReviewCompactPullRequestRow: View {
         let decisionLabel = decision?.reviewAppearance(in: theme).label ?? "No review decision"
         let checksLabel = checks.map { "Checks \($0.rawValue)" } ?? "No checks"
         let idleFill = isThisBranch ? 0.025 : 0
+        let rowHeight = toggleExpansion == nil ? 25.0 : 28.0
         let tint = if checks == .failed || decision == .changesRequested {
             theme.closed
         } else if checks == .running || decision == .reviewRequired {
@@ -286,7 +287,7 @@ struct ReviewCompactPullRequestRow: View {
                 Button(action: toggleExpansion) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
-                        .frame(width: 12, height: 22)
+                        .frame(width: 12, height: rowHeight)
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
@@ -316,36 +317,42 @@ struct ReviewCompactPullRequestRow: View {
                         .layoutPriority(1)
                         .help(pullRequest.title)
                     Spacer(minLength: 0)
-                    Circle()
-                        .fill(tint)
-                        .frame(width: 6, height: 6)
-                        .help("\(checksLabel) · \(decisionLabel)")
-                        .accessibilityLabel("\(checksLabel), \(decisionLabel)")
-                    if pullRequest.commentCount > 0 {
-                        Label(pullRequest.commentCount.formatted(), systemImage: "bubble.left")
-                            .labelStyle(CompactLabel())
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .help("\(pullRequest.commentCount) comments")
-                            .fixedSize()
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(tint)
+                            .frame(width: 6, height: 6)
+                            .help("\(checksLabel) · \(decisionLabel)")
+                            .accessibilityLabel("\(checksLabel), \(decisionLabel)")
+                        if pullRequest.commentCount > 0 {
+                            Label(pullRequest.commentCount.formatted(), systemImage: "bubble.left")
+                                .labelStyle(CompactLabel())
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .help("\(pullRequest.commentCount) comments")
+                        }
                     }
+                    .frame(minWidth: 22, alignment: .trailing)
+                    .fixedSize()
+                    .opacity(isHovering ? 0 : 1)
+                    .allowsHitTesting(!isHovering)
+                    .accessibilityHidden(isHovering)
                 }
-                .frame(minHeight: 25)
+                .frame(minHeight: rowHeight)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityValue(isThisBranch ? "This branch" : "")
-            ReviewPullRequestMenu {
-                ReviewPullRequestActions(entry: entry, model: model)
+            .overlay(alignment: .trailing) {
+                if isHovering {
+                    ReviewPullRequestMenu {
+                        ReviewPullRequestActions(entry: entry, model: model)
+                    }
+                }
             }
-            .opacity(isHovering ? 1 : 0)
-            .allowsHitTesting(isHovering)
-            .accessibilityHidden(!isHovering)
         }
         .font(.caption)
         .padding(.leading, 5)
-        .padding(.trailing, 1)
         .contentShape(.rect)
         .onHover { isHovering = $0 }
         .listRowBackground(RowFill(opacity: selected ? 0.1 : isHovering ? 0.05 : idleFill, color: theme.foreground, cornerRadius: 4))
