@@ -208,9 +208,9 @@ Add `-snapshotConversationEmpty YES` to open a session with zero turns, and use 
 
 Add `-snapshotConversationSlashCommands YES` to capture the Claude composer with `/co` and the picker open. The flag seeds a command in the fixture home.
 
-Add `-snapshotConversationShellCompletions YES` to capture bash mode with `!git ch` and the tine completion popover open. A fake tine socket in a temp path answers with invented items, so the real tine is never contacted. Add `-snapshotTineReal YES` to query the installed tine instead.
+Add `-snapshotConversationShellCompletions YES` to capture shell mode with `!git ch` and the tine completion popover open. A fake tine socket in a temp path answers with invented items, so the real tine is never contacted. Add `-snapshotTineReal YES` to query the installed tine instead.
 
-The Claude fixture includes bash-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
+The Claude fixture includes shell-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
 
 `-snapshotConversationAgent codex` with `-codexEnabled YES` seeds an invented Codex rollout and opens a Codex conversation tab without fake live status. `-snapshotConversationStatus busy` leaves its final turn open; other statuses close it with task_complete. `-snapshotTerminalTitle "<text>"` sets the tab terminal's OSC title, so `[ ! ] Action Required`, `Thinking` or `Ready` drives the Codex live status. The fixture includes command output, updated and added files, a web search, a plan, a final reply, context usage and a pull request URL.
 
