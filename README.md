@@ -40,4 +40,4 @@ swift test --package-path Packages/BerthCore
 
 ## License
 
-MIT
+[PolyForm Noncommercial 1.0.0](LICENSE)
