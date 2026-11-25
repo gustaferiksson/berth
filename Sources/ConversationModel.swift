@@ -169,9 +169,9 @@ final class ConversationModel {
     func send() async {
         let sent = draft
         guard let sessionID, !sent.isEmpty, !isSending, allowsSendingCommand(sent.text) else { return }
-        guard !blocksSending else {
-            let name = store.tabs.first { $0.id == tabID }?.agent.harness.name ?? "Agent"
-            notice = "\(name) is working, so the message wasn’t sent. Stop it or wait for it to finish."
+
+        if let refusal = workingRefusal {
+            notice = refusal
             return
         }
 
@@ -190,6 +190,28 @@ final class ConversationModel {
 
         notice = message
         if draft.isEmpty { draft = sent }
+    }
+
+    func send(prompt: String) async -> String? {
+        guard let sessionID, !isSending else { return "The previous message is still being sent" }
+
+        if let refusal = workingRefusal { return refusal }
+
+        isSending = true
+        defer { isSending = false }
+
+        let sentAt = Date.now
+        if case let .refused(message) = await store.submit(prompt, files: [], to: sessionID) { return message }
+
+        show(pending: prompt.trimmingCharacters(in: .whitespacesAndNewlines), sentAt: sentAt)
+        return nil
+    }
+
+    private var workingRefusal: String? {
+        guard blocksSending else { return nil }
+
+        let name = store.tabs.first { $0.id == tabID }?.agent.harness.name ?? "Agent"
+        return "\(name) is working, so the message wasn’t sent. Stop it or wait for it to finish."
     }
 
     var canRecallQueued: Bool {
