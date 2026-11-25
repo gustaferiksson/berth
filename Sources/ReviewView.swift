@@ -1963,7 +1963,7 @@ private struct ReviewChangeRow: View {
     }
 
     @ViewBuilder private var openFileSlot: some View {
-        if showsOpenFile {
+        if file.status != .deleted {
             Button("Open File", systemImage: "doc") { model.open(ReviewDocument(path: file.path, compare: nil)) }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
@@ -1971,6 +1971,9 @@ private struct ReviewChangeRow: View {
                 .help("Open File")
                 .fixedSize()
                 .padding(.trailing, 2)
+                .opacity(showsOpenFile ? 1 : 0)
+                .allowsHitTesting(showsOpenFile)
+                .accessibilityHidden(!showsOpenFile)
         }
     }
 }
@@ -2063,7 +2066,7 @@ struct PullRequestStatePill: View {
             .foregroundStyle(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
+            .background(color.opacity(isHovering ? 0.28 : 0.16), in: PillKind.pullRequest.shape)
     }
 }
 

@@ -63,7 +63,7 @@ final class ItemPreviewCache {
 }
 
 enum ItemPreviewPlacement {
-    case sidebar, launcher
+    case sidebar, launcher, review
 }
 
 @MainActor
@@ -362,7 +362,11 @@ struct ItemPreviewTrigger: ViewModifier {
         panel.claimHover(owner: owner)
         pending = Task { @MainActor in
             if !panel.isShowing { try? await Task.sleep(for: .milliseconds(600)) }
-            let side: ItemPreviewPanel.Side = placement == .launcher || sidebarPosition == .left ? .trailing : .leading
+            let side: ItemPreviewPanel.Side = switch placement {
+            case .launcher: .trailing
+            case .sidebar: sidebarPosition == .left ? .trailing : .leading
+            case .review: sidebarPosition == .left ? .leading : .trailing
+            }
             guard !Task.isCancelled, let anchor, let position = ItemPreviewPanel.Anchor(view: anchor, side: side) else { return }
 
             panel.show(reference: reference, owner: owner, store: store, beside: position, theme: theme, presentation: .hover)

@@ -1225,7 +1225,7 @@ struct IssueStatePill: View {
                     .foregroundStyle(color)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
-                    .background(color.opacity(isHovering ? 0.28 : 0.16), in: .capsule)
+                    .background(color.opacity(isHovering ? 0.28 : 0.16), in: PillKind.issue.shape)
             }
             .buttonStyle(.plain)
             .onHover { isHovering = $0 }
@@ -1418,7 +1418,7 @@ struct PullRequestTag: View {
         .foregroundStyle(color)
         .padding(.horizontal, 4)
         .frame(height: 16)
-        .background(color.opacity(isHovering ? 0.28 : 0.16), in: .rect(cornerRadius: 4))
+        .background(color.opacity(isHovering ? 0.28 : 0.16), in: PillKind.pullRequest.shape)
     }
 }
 
