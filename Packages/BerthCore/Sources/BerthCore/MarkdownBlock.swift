@@ -16,6 +16,15 @@ public struct MarkdownBlock: Sendable {
         return parsed.transformingAttributes(\.link) { $0.value = nil }
     }
 
+    public static func compact(_ text: String) -> AttributedString {
+        let lines = blocks(in: text.replacing(/!\[[^\]]*\]\([^)]*\)/, with: "")).flatMap { block -> [String] in
+            if case let .item(marker, depth) = block.kind { return [String(repeating: "  ", count: depth) + marker + " " + block.lines.joined(separator: " ")] }
+            if block.kind == .paragraph { return [block.lines.joined(separator: " ")] }
+            return block.lines
+        }
+        return inline(lines.joined(separator: "\n"))
+    }
+
     public static func blocks(in text: String) -> [Self] {
         var blocks: [Self] = []
         var isInFence = false

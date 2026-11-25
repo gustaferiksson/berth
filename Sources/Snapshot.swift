@@ -735,7 +735,7 @@ enum Snapshot {
         captureItemPreview(to: output, theme: store.theme)
         for session in store.sessionsByID.values.filter({ forcedHover.contains($0.title) }) {
             let isOpen = store.tab(forSession: session.id) != nil || store.liveBySession[session.id] != nil
-            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, watch: store.pullRequestWatch(for: session.id), excerpt: HoverExcerpt(prompt: "Reconcile the ledger entries against the settlement exports and flag every mismatch over one cent.", reply: "Found 14 mismatches across 3 exports. Most come from rounding half-cents differently, so I changed the ledger to round half up and re-ran the comparison."), projectStatuses: store.projects.statusLabels(for: store.pullRequests(of: session)))
+            let card = SessionHoverCard(session: session, pullRequests: store.pullRequests(of: session), context: isOpen ? session.context : nil, watch: store.pullRequestWatch(for: session.id), excerpt: HoverExcerpt(prompt: "Reconcile the **ledger entries** against the `settlement` exports and flag every mismatch over one cent.", reply: "## Result\nFound **14 mismatches** across 3 exports:\n- rounding half-cents differently\n- *stale* rows"), projectStatuses: store.projects.statusLabels(for: store.pullRequests(of: session)))
                 .environment(\.ghosttyTheme, store.theme)
                 .environment(\.colorScheme, store.theme.isDark ? .dark : .light)
                 .background(store.theme.background ?? .black, in: .rect(cornerRadius: 12))
