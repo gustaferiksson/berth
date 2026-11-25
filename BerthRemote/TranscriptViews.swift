@@ -314,7 +314,7 @@ private struct PromptBubble: View {
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(verbatim: "!")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.pink)
                     .frame(width: markerWidth, alignment: .leading)
                     .accessibilityHidden(true)
                 Text(verbatim: entry.text)
