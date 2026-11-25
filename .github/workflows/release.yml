@@ -22,7 +22,14 @@ jobs:
       cask: berth
       runner: xcode-27
       signed_by_build: true
+      # Restore-only: main's CI saves the unsigned Release build, the release never saves the signed one.
+      cache_paths: .build
+      cache_key: mac-Release-${{ github.sha }}
+      cache_restore_keys: mac-Release-
       build: |
+        curl -fsSL -o "$RUNNER_TEMP/git-restore-mtime" https://raw.githubusercontent.com/MestreLion/git-tools/b5822d297b3ca4a3b6574e78327a464790b14937/git-restore-mtime
+        echo "8cdae72ea524e7c79c5a61bdfb5004cdab0082074f5fb558f1dba270f91e26b2  $RUNNER_TEMP/git-restore-mtime" | shasum -a 256 -c
+        python3 "$RUNNER_TEMP/git-restore-mtime" --quiet
         HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install xcodegen
         CODE_SIGN_IDENTITY="Developer ID Application" DEVELOPMENT_TEAM=82K3YC8HVF \
           MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" ./build.sh
@@ -36,6 +43,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ios-Release-${{ github.sha }}
+          restore-keys: ios-Release-
 
       - name: Preflight, every iOS secret is set
         env:
