@@ -56,7 +56,7 @@ extension Snapshot {
         return tallest
     }
 
-    private static func scrollEndpoints(_ scroll: NSScrollView) -> (top: CGFloat, bottom: CGFloat)? {
+    static func scrollEndpoints(_ scroll: NSScrollView) -> (top: CGFloat, bottom: CGFloat)? {
         guard let document = scroll.documentView else { return nil }
 
         let clip = scroll.contentView

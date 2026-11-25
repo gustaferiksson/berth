@@ -16,11 +16,14 @@ struct ConversationView: View {
     @State private var now = Date.now
     @FocusState private var isFocused: Bool
     @State private var selection: ConversationSelection
+    @State private var expansion: ConversationExpansion
 
     init(model: ConversationModel, tab: Tab) {
         self.model = model
         self.tab = tab
-        _selection = State(initialValue: ConversationSelection { [model] in model.turns })
+        let expansion = ConversationExpansion()
+        _expansion = State(initialValue: expansion)
+        _selection = State(initialValue: ConversationSelection(expansion: expansion) { [model] in model.turns })
     }
 
     var body: some View {
@@ -146,7 +149,7 @@ struct ConversationView: View {
                     if let command = prompt.shellCommand {
                         ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: command, name: "bash", command: command), isShellRunning: true)
                     } else {
-                        ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text))
+                        ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text), expansionID: "pending:\(prompt.sentAt)")
                             .opacity(0.6)
                     }
                 }
@@ -161,7 +164,16 @@ struct ConversationView: View {
         .defaultScrollAnchor(.bottom)
         .scrollEdgeEffectHidden(true, for: .bottom)
         .environment(\.conversationSelection, selection)
-        .onChange(of: ObjectIdentifier(model)) { selection = ConversationSelection { [model] in model.turns } }
+        .environment(\.conversationExpansion, expansion)
+        #if DEBUG
+        .onChange(of: conversationExpandsAll ? model.turns.map(\.id) : [], initial: true) { previous, current in
+            guard conversationExpandsAll else { return }
+
+            let seen = Set(previous == current ? [] : previous)
+            expansion.expand(model.turns.filter { !seen.contains($0.id) })
+        }
+        #endif
+        .onChange(of: ObjectIdentifier(model)) { selection = ConversationSelection(expansion: expansion) { [model] in model.turns } }
         .onScrollGeometryChange(for: ConversationScrollState.self) { geometry in
             ConversationScrollState(height: geometry.contentSize.height, isAtBottom: geometry.visibleRect.maxY >= geometry.contentSize.height + geometry.contentInsets.bottom - 40)
         } action: { old, new in
@@ -234,7 +246,7 @@ private struct QueuedPrompt: View {
     let text: String
 
     var body: some View {
-        ConversationPrompt(entry: RemoteEntry(id: text, kind: .prompt, text: text))
+        ConversationPrompt(entry: RemoteEntry(id: text, kind: .prompt, text: text), expansionID: "queued:\(text)")
             .opacity(0.5)
     }
 }

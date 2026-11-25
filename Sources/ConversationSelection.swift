@@ -4,6 +4,34 @@ import SwiftUI
 
 extension EnvironmentValues {
     @Entry var conversationSelection: ConversationSelection?
+    @Entry var conversationExpansion: ConversationExpansion?
+}
+
+@Observable
+final class ConversationExpansion {
+    var keys: Set<String> = []
+
+    func toggle(_ key: String) {
+        if keys.remove(key) == nil { keys.insert(key) }
+    }
+
+    #if DEBUG
+    func expand(_ turns: [Turn]) {
+        for turn in turns {
+            if let prompt = turn.prompt {
+                let id = "prompt:\(turn.id)"
+                keys.insert(id + "#bubble")
+                for index in prompt.text.matches(of: ConversationPrompt.fence).indices { keys.insert(id + "#code\(index)") }
+            }
+            for part in turn.parts {
+                guard case let .reply(entry) = part else { continue }
+
+                let blocks = MarkdownAttributedString.codeBlocks(in: MarkdownBlock.blocks(in: entry.text))
+                for index in blocks.indices { keys.insert("reply:\(entry.id)#code\(index)") }
+            }
+        }
+    }
+    #endif
 }
 
 extension NSAttributedString.Key {
@@ -22,17 +50,20 @@ final class ConversationSelection {
         let text: () -> NSAttributedString
     }
 
+    private let expansion: ConversationExpansion
     private let turns: () -> [Turn]
     private let views = NSHashTable<ConversationNSTextView>.weakObjects()
     private var order: [String: Int] = [:]
     private var anchor: Position?
     private var focus: Position?
+    private var displayScale: CGFloat?
     private var theme = GhosttyTheme(values: [:])
     private var monitor: Any?
     private var lastDrag: NSEvent?
     private var autoscrolling: Task<Void, Never>?
 
-    init(turns: @escaping () -> [Turn]) {
+    init(expansion: ConversationExpansion, turns: @escaping () -> [Turn]) {
+        self.expansion = expansion
         self.turns = turns
     }
 
@@ -50,7 +81,8 @@ final class ConversationSelection {
         return result
     }
 
-    func register(_ view: ConversationNSTextView) {
+    func register(_ view: ConversationNSTextView, displayScale: CGFloat) {
+        self.displayScale = displayScale
         views.add(view)
         theme = view.theme
         view.showSelection(range(for: view))
@@ -98,10 +130,14 @@ final class ConversationSelection {
         Task { [weak self, weak window = view.window] in
             guard let self, (window?.firstResponder as? ConversationNSTextView)?.selection !== self else { return }
 
-            anchor = nil
-            focus = nil
-            apply()
+            clear()
         }
+    }
+
+    func clear() {
+        anchor = nil
+        focus = nil
+        apply()
     }
 
     func copiedText() -> String {
@@ -166,14 +202,20 @@ final class ConversationSelection {
     @discardableResult
     private func refresh() -> [Item] {
         let theme = theme
+        let displayScale = displayScale
+        let expanded = expansion.keys
         let items = turns().flatMap { turn -> [Item] in
-            let prompt = turn.prompt.flatMap { entry in
-                entry.name == "bash" || entry.text.isEmpty ? nil : Item(id: "prompt:\(turn.id)") { ConversationPrompt.attributed(entry.text, theme: theme) }
+            let prompt = turn.prompt.flatMap { entry -> Item? in
+                guard entry.name != "bash", !entry.text.isEmpty else { return nil }
+
+                let id = "prompt:\(turn.id)"
+                return Item(id: id) { ConversationPrompt.attributed(entry.text, theme: theme, displayScale: displayScale, itemID: id, expanded: expanded) }
             }
             let replies = turn.parts.compactMap { part -> Item? in
                 guard case let .reply(entry) = part else { return nil }
 
-                return Item(id: "reply:\(entry.id)") { ConversationMarkdown.rendered(entry.text, theme: theme) }
+                let id = "reply:\(entry.id)"
+                return Item(id: id) { ConversationMarkdown.rendered(entry.text, theme: theme, itemID: id, expanded: expanded) }
             }
             return (prompt.map { [$0] } ?? []) + replies
         }

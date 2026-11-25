@@ -90,15 +90,37 @@ struct TranscriptTailTests {
         #expect(entries[0].text == "Checking the widget now.")
     }
 
-    @Test func capsEveryField() {
+    @Test func capsToolFieldsAndKeepsLongProse() {
         let long = String(repeating: "y", count: 5000)
         let capped = [
             #"{"type":"user","uuid":"u1","message":{"role":"user","content":"\#(long)"}}"#,
             #"{"type":"assistant","uuid":"a1","message":{"content":[{"type":"text","text":"\#(long)"},{"type":"tool_use","id":"\#(long)","name":"\#(long)","input":{"file_path":"\#(long)"}}]}}"#,
         ]
         let entries = TranscriptTail.entries(in: Data((capped.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: []).entries
-        let fields = entries.flatMap { [$0.text, $0.toolID, $0.name, $0.filePath].compactMap(\.self) }
-        #expect(entries.count == 3 && fields.count == 6 && fields.allSatisfy { $0.count == TranscriptTail.maxText })
+        let fields = entries.filter { $0.kind == .toolUse }.flatMap { [$0.text, $0.toolID, $0.name, $0.filePath].compactMap(\.self) }
+        #expect(entries.map(\.kind) == [.prompt, .reply, .toolUse])
+        #expect(entries.prefix(2).map(\.text) == [long, long])
+        #expect(fields.count == 4 && fields.allSatisfy { $0.count == TranscriptTail.maxText })
+    }
+
+    @Test func keepsImageTagsInlineWhenTheTranscriptSplitsTheText() {
+        let line = #"{"type":"user","uuid":"u1","message":{"content":[{"type":"text","text":"get these in "},{"type":"text","text":"[Image #3]"},{"type":"text","text":" tables"},{"type":"text","text":"and last "},{"type":"text","text":"[Image #4]"}]}}"#
+        let entries = TranscriptTail.entries(in: Data((line + "\n").utf8), dropFirst: false, queue: []).entries
+        #expect(entries.map(\.text) == ["get these in [Image #3] tables\nand last [Image #4]"])
+    }
+
+    @Test func capsProseAndMarksTheDroppedCharacters() {
+        let limit = String(repeating: "é", count: 100_000)
+        let long = limit + "🧑‍💻abc"
+        let records = [
+            #"{"type":"user","uuid":"u1","message":{"role":"user","content":"\#(long)"}}"#,
+            #"{"type":"attachment","uuid":"u2","attachment":{"type":"queued_command","commandMode":"prompt","humanTurn":true,"prompt":"\#(long)"}}"#,
+            #"{"type":"assistant","uuid":"a1","message":{"content":[{"type":"text","text":"\#(long)"}]}}"#,
+            #"{"type":"assistant","uuid":"a2","message":{"content":[{"type":"text","text":"\#(limit)"}]}}"#,
+        ]
+        let entries = TranscriptTail.entries(in: Data((records.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: []).entries
+        let marked = limit + "\n\n[Message truncated, 4 more characters not shown]"
+        #expect(entries.map(\.text) == [marked, marked, marked, limit])
     }
 
     @Test func keepsOlderTurnsBehindHugeImageLines() throws {

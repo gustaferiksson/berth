@@ -8,6 +8,14 @@ public enum PromptTextPart: Sendable {
     public static var imageToken: Regex<(Substring, Substring)> { /\[Image #(\d+)\]/ }
     public static var pastedBlock: Regex<(Substring, Substring)> { /<pasted_content(?: id="[^"]*")?>(?s:(.*?))<\/pasted_content(?: id="[^"]*")?>/ }
 
+    public static func join(_ blocks: [String]) -> String {
+        let isTag = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines).wholeMatch(of: imageToken) != nil }
+        return blocks.enumerated().reduce(into: "") { result, entry in
+            if entry.offset > 0, !isTag(entry.element), !isTag(blocks[entry.offset - 1]) { result += "\n" }
+            result += entry.element
+        }
+    }
+
     public static func plain(_ text: String) -> String {
         text.replacing(pastedBlock) { String($0.output.1) }
     }
