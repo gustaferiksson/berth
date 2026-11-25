@@ -10,7 +10,7 @@ A listener failure shows in Settings. Prompts are `paste` then `sendKey(.enter)`
 
 Transcript tails are read off the main thread, one read per client at a time. Berth Remote keeps the token in the Keychain, accepts only `wss://` (plus `ws://127.0.0.1` in Debug), drops the socket in the background and reconnects on activation and after drops (1, 2, 5, 10 s).
 
-The phone derives Needs You, Working and Unread from live status and unread flags, then shows New, Pinned and the Mac’s groups in the order received. Each session appears in its first matching section.
+The sessions message carries the Mac sidebar’s sections in order (attention, active, working, unread, pinned, groups, snoozed, done) with optional `isCollapsed`, `visibleCount` and per-session `isPinned`. Older phones ignore these fields. Newer phones connected to older Macs infer pin state from the pinned group.
 
 ## Codex sessions
 

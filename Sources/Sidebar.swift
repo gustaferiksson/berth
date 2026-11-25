@@ -60,6 +60,7 @@ struct Sidebar: View, Equatable {
     static let attentionID = "attention"
     static let workingID = "working"
     static let unreadID = "unread"
+    static let pinnedID = "pinned"
 
     // Its property wrappers never compare equal, so SwiftUI would re-render it on every ContentView update.
     static func == (_: Self, _: Self) -> Bool { true }
@@ -174,8 +175,6 @@ private struct SidebarList: View, Equatable {
     @State private var browseRoot: String?
     @FocusState private var isFocused: Bool
 
-    private static let pinnedID = "pinned"
-
     private struct Group {
         let layout: SidebarLayout.Group
         let entries: [SidebarLayout.Entry]
@@ -232,7 +231,7 @@ private struct SidebarList: View, Equatable {
             + activeItems
             + (isCollapsed(Sidebar.workingID) ? [] : layout.workingIDs).map(SidebarItem.session)
             + (isCollapsed(Sidebar.unreadID) ? [] : layout.unreadIDs).map(SidebarItem.session)
-            + (isCollapsed(Self.pinnedID) ? [] : layout.pinnedIDs).map(SidebarItem.session)
+            + (isCollapsed(Sidebar.pinnedID) ? [] : layout.pinnedIDs).map(SidebarItem.session)
             + groups.filter { !isCollapsed($0.id) }.flatMap { $0.layout.tabIDs.map(SidebarItem.tab) + rows(of: $0.entries).map(\.item) }
             + (isSnoozedExpanded ? layout.snoozedIDs : []).map(SidebarItem.session)
             + (isArchiveExpanded ? layout.archivedIDs : []).map(SidebarItem.session)
@@ -273,7 +272,7 @@ private struct SidebarList: View, Equatable {
             triageSection(Sidebar.workingID, title: "Working", help: "Sessions that are working", ids: layout.workingIDs, tint: theme.working)
             triageSection(Sidebar.unreadID, title: "Unread", help: "Sessions with replies you haven’t seen", ids: layout.unreadIDs, tint: theme.unread)
             if !layout.pinnedIDs.isEmpty {
-                SidebarSection(title: "Pinned", help: "Pinned sessions", count: layout.pinnedIDs.count, isExpanded: expansion(of: Self.pinnedID)) {
+                SidebarSection(title: "Pinned", help: "Pinned sessions", count: layout.pinnedIDs.count, isExpanded: expansion(of: Sidebar.pinnedID)) {
                     ForEach(Array(layout.pinnedIDs.enumerated()), id: \.element) { index, id in
                         SessionItem(id: id, place: .pinned, select: select)
                             .id(SidebarItem.session(id))
@@ -470,7 +469,7 @@ private struct SidebarList: View, Equatable {
             return .handled
         }
         if case let .session(id) = item, layout.pinnedIDs.contains(id) {
-            expansion(of: Self.pinnedID).wrappedValue = expanded
+            expansion(of: Sidebar.pinnedID).wrappedValue = expanded
             return .handled
         }
         if case let .task(id) = item {

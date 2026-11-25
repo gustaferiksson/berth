@@ -9,7 +9,8 @@ enum Snapshot {
     #if DEBUG
     static let showsWatching = UserDefaults.standard.bool(forKey: "snapshotWatching")
     static let showsPullRequestActions = UserDefaults.standard.bool(forKey: "snapshotPullRequestActions")
-    static let output = UserDefaults.standard.string(forKey: "snapshot").map { URL(filePath: $0) }
+    private static let remoteSectionsOutput = UserDefaults.standard.string(forKey: "snapshotRemoteSections").map { URL(filePath: $0) }
+    static let output = UserDefaults.standard.string(forKey: "snapshot").map { URL(filePath: $0) } ?? remoteSectionsOutput
     #else
     static let output: URL? = nil
     #endif
@@ -880,6 +881,15 @@ enum Snapshot {
         }
         if let cwd = UserDefaults.standard.string(forKey: "snapshotClaude") {
             store.openSession(cwd: cwd, checkout: .main)
+        }
+        if let remoteSectionsOutput {
+            do {
+                try store.remote.exportSessionSections(to: remoteSectionsOutput)
+            } catch {
+                fail("could not write remote sections to \(remoteSectionsOutput.path): \(error)")
+            }
+            ProcessAncestry.hangUpDescendants()
+            exit(0)
         }
         if let version = UserDefaults.standard.string(forKey: "snapshotRestartBanner") {
             store.updater.showPendingRestart(version: version, deadline: .now + 18)
