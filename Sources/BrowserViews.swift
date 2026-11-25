@@ -59,15 +59,10 @@ private struct BrowserHeader: View {
             HStack(spacing: spacing) {
                 if !isCompact { navigationControls }
                 if !pinned.isEmpty || !sessionTabs.isEmpty {
-                    HStack(spacing: 2) {
+                    HStack(spacing: spacing) {
                         if !pinned.isEmpty {
                             pinnedTabs(pinned, spacing: spacing)
                                 .frame(width: pinnedWidth)
-                            if !sessionTabs.isEmpty {
-                                Hairline(axis: .vertical)
-                                    .frame(height: 24)
-                                    .allowsHitTesting(false)
-                            }
                         }
                         if !sessionTabs.isEmpty {
                             BrowserSessionTabs(browser: browser, tabs: sessionTabs, selection: selectedSession, isCompact: isCompact, select: select, dropAtEnd: dropIntoSession)
@@ -284,10 +279,6 @@ private struct BrowserSessionTabs: View {
             .background {
                 if selection != nil {
                     Capsule().fill(theme.foreground.opacity(0.10))
-                } else {
-                    Capsule()
-                        .fill(.clear)
-                        .glassEffect(.regular.interactive(), in: .capsule)
                 }
             }
     }
@@ -484,6 +475,7 @@ private struct BrowserAddressField: View {
                 addressIcon
                 TextField(Self.placeholder, text: $address, selection: $selection)
                     .textFieldStyle(.plain)
+                    .textContentType(.URL)
                     .focused($isFocused)
                     .onSubmit(go)
                     .onExitCommand {
