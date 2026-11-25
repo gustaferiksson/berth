@@ -5,14 +5,14 @@ import SwiftUI
 enum AppAction: Hashable {
     case commandPalette, filterSidebar, newSession, pullRequests, showPullRequestInReview, searchSessions, newTerminal, newTerminalForSession, switchTerminal, findInTerminal, clearTerminal, archiveCurrentSession, flagCurrentSession, unflagCurrentSession
     case groupBy(GroupingMode)
-    case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showChangesPane, showFilesPane, showBrowser, openPreview, showSideBySide, showInline, wrapLines, showRenderedMarkdown, showMarkdownSource, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
+    case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showChangesPane, showFilesPane, showTasksPane, showBrowser, openPreview, showSideBySide, showInline, wrapLines, showRenderedMarkdown, showMarkdownSource, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
     case goBack, goForward, previousChange, nextChange
     case openLocation, newBrowserTab, closeBrowserTab, reloadPage, browserBack, browserForward
     case caret(CaretAction)
 
     static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .showPullRequestInReview, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
-        + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showBrowser, .openPreview, .showSideBySide, .showInline, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
+        + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showTasksPane, .showBrowser, .openPreview, .showSideBySide, .showInline, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
     static let browser: [Self] = [.openLocation, .newBrowserTab, .closeBrowserTab, .reloadPage, .browserBack, .browserForward]
     static let carets = CaretAction.allCases.map(Self.caret)
     static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward, .previousChange, .nextChange]).filter { $0.shortcut != nil }
@@ -45,6 +45,7 @@ enum AppAction: Hashable {
         case .hideChanges: "Hide Changes"
         case .showChangesPane: "Show Changes Pane"
         case .showFilesPane: "Show Files Pane"
+        case .showTasksPane: "Show Tasks Pane"
         case .showBrowser: "Show Browser"
         case .openLocation: "Open Location…"
         case .newBrowserTab: "New Browser Tab"
@@ -93,6 +94,7 @@ enum AppAction: Hashable {
         case .showChanges, .hideChanges: "review diff branch changes comments panel"
         case .showChangesPane: "review diff pane column"
         case .showFilesPane: "files folder tree explorer pane column"
+        case .showTasksPane: "background tasks agents shells output pane column"
         case .showBrowser: "web page url tabs pane localhost"
         case .openPreview: "browser web localhost dev server pick element review"
         case .showSideBySide, .showInline: "review diff layout split unified inline toggle"
@@ -130,6 +132,7 @@ enum AppAction: Hashable {
         case .harbor: "sailboat"
         case .showChanges, .hideChanges, .showChangesPane: "plus.forwardslash.minus"
         case .showFilesPane: "folder"
+        case .showTasksPane: "list.bullet.rectangle"
         case .openPreview, .showBrowser, .openLocation, .newBrowserTab, .closeBrowserTab, .reloadPage: "globe"
         case .browserBack: "chevron.backward"
         case .browserForward: "chevron.forward"
@@ -169,6 +172,7 @@ enum AppAction: Hashable {
         case .showChanges, .hideChanges: KeyboardShortcut("r", modifiers: [.command, .shift])
         case .showChangesPane: KeyboardShortcut("d", modifiers: [.command, .shift])
         case .showFilesPane: KeyboardShortcut("e", modifiers: [.command, .shift])
+        case .showTasksPane: KeyboardShortcut("a", modifiers: [.command, .shift])
         case .showBrowser: KeyboardShortcut("b", modifiers: [.command, .shift])
         case .openLocation: KeyboardShortcut("l")
         case .newBrowserTab: KeyboardShortcut("t")
@@ -203,6 +207,7 @@ enum AppAction: Hashable {
         case .showChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && (!store.showsReviewPanel || store.isHarborShown)
         case .hideChanges: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.showsReviewPanel && !store.isHarborShown
         case .showChangesPane, .showFilesPane: UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && store.sessionTab != nil
+        case .showTasksPane: store.canShowTasksPane
         case .showBrowser: store.sessionTab != nil
         case .openLocation: store.shownPane == .browser
         case .newBrowserTab, .closeBrowserTab, .reloadPage, .browserBack, .browserForward:
@@ -273,7 +278,7 @@ enum AppAction: Hashable {
 
         case .harbor: store.isHarborShown.toggle()
 
-        case .showChanges, .showChangesPane: store.showChangesPane()
+        case .showChanges, .showChangesPane, .showFilesPane: store.showReviewPane(self == .showFilesPane ? .files : .changes)
 
         case .showBrowser: if store.shownPane == .browser { store.hideSessionPanel() } else { store.showBrowserPane() }
 
@@ -281,7 +286,7 @@ enum AppAction: Hashable {
 
         case .hideChanges: store.hideSessionPanel()
 
-        case .showFilesPane: store.showFilesPane()
+        case .showTasksPane: store.showTasksPane()
 
         case .openPreview: store.reviewModel?.showPreview()
 

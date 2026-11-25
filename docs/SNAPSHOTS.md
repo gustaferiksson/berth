@@ -31,6 +31,8 @@ Add `-snapshotFakeStatus YES` to fake the top project's first three sessions as 
 
 Add `-snapshotItemPreview "pr|issue|pr-checks"` with one of the three values to render a standalone fixture card at 2×. The `pr-checks` variant expands the checks disclosure. With `-snapshot /abs/out.png`, the card is written to `/abs/out.png.preview-<value>.png`.
 
+`-snapshotBackgroundTasks YES -AppleInterfaceStyle Dark` opens Tasks mode with invented transcript, subagent and output files in a temporary directory. Use an empty `CFFIXED_USER_HOME` to isolate the sessions sidebar. The default capture selects the running shell and appends one line after the pane opens. Use `-snapshotBackgroundTask agent|finished|terminal` to select the corresponding row. The terminal variant checks surface identity and session width across mode switches. Pass `-snapshotWindowWidth 1500` for room for both sidebars.
+
 ## Launcher, palette, search, stats and dialogs
 
 `-snapshotLauncher "<query>"` (opens the ⌘N launcher with that query), `-snapshotPalette "<query>"` (opens the ⌘K palette with that query; add `-snapshotClaude /abs/dir` for an open tab in its Sessions section), `-snapshotSearch "<query>"` (opens search mode with that query and prints index build time, text size, memory footprint and the hits once the whole index, subagents included, is built: add `-snapshotHold 6` or it exits first), `-snapshotStats YES` (captures the Stats view in its own 960×800 window after the index is built and prints build time, footprint, the 30-day token totals and the tile values), `-snapshotEditGroup "<name>"` (captures the group editor for that group, or a new one for an unknown name, in its own window: a real `.sheet` moved the offscreen window onto the screen), `-snapshotRestartBanner "<version>"` (the update restart banner, 18 s deadline), and `-snapshotHold <s>` to keep the window up longer (for CPU checks).
@@ -326,4 +328,3 @@ It also runs `open-session --cwd <dir> --background -- "hello"` with the system 
 - `-snapshotReviewHidePanel`: design/flows-sidebar.md
 - `-snapshotReviewConversation`: design/flows-sidebar.md
 - `-snapshotPreview`: design/review-implementation.md
-- `-snapshotConversationTasks`: design/conversation.md

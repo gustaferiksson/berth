@@ -10,6 +10,9 @@ public struct TranscriptActivity: Sendable {
         var command: String?
         var agentType: String?
         var output: String?
+        var toolUseID: String?
+        var prompt: String?
+        var requestsBackground = false
     }
 
     struct Reply: Sendable {
@@ -47,16 +50,20 @@ public struct TranscriptActivity: Sendable {
     var watchBranch: String?
     var watchWorktree: String?
     private let watchOnly: Bool
+    private let keepsTaskHistory: Bool
+    var taskHistory: [String: SessionBackgroundTask] = [:]
+    var earlyTaskCompletions: [String: TaskCompletion] = [:]
 
-    public init(watchOnly: Bool = false) {
+    public init(watchOnly: Bool = false, keepsTaskHistory: Bool = false) {
         self.watchOnly = watchOnly
+        self.keepsTaskHistory = keepsTaskHistory
     }
 
     public mutating func read(_ url: URL) {
         guard let handle = try? FileHandle(forReadingFrom: url), let size = try? handle.seekToEnd() else { return }
 
         defer { try? handle.close() }
-        if Int(size) < end { self = Self(watchOnly: watchOnly) }
+        if Int(size) < end { self = Self(watchOnly: watchOnly, keepsTaskHistory: keepsTaskHistory) }
         guard (try? handle.seek(toOffset: UInt64(end))) != nil else { return }
 
         var buffer = Data()
@@ -93,8 +100,7 @@ public struct TranscriptActivity: Sendable {
     public func outputFile(of task: String) -> URL? {
         guard let path = running[task]?.output else { return nil }
 
-        let url = URL(filePath: path)
-        return url.lastPathComponent == "\(task).output" ? url : nil
+        return Self.taskOutputFile(path, id: task)
     }
 
     public var model: String? {
@@ -219,7 +225,17 @@ public struct TranscriptActivity: Sendable {
             let prompt = tool == "CronCreate" ? input["prompt"] as? String : nil
             let title = ["description", "summary", "command"].lazy.compactMap { input[$0] as? String }.first ?? prompt ?? tool
             let command = input["command"] as? String ?? prompt ?? (tool == "CronDelete" ? input["id"] as? String : nil)
-            let launch = Launch(tool: tool, title: title, started: date, branch: object["gitBranch"] as? String, command: command, agentType: input["subagent_type"] as? String)
+            let launch = Launch(
+                tool: tool,
+                title: title,
+                started: date,
+                branch: object["gitBranch"] as? String,
+                command: tool == "TaskStop" ? input["task_id"] as? String : command,
+                agentType: input["subagent_type"] as? String,
+                toolUseID: id,
+                prompt: keepsTaskHistory ? (input["prompt"] as? String).map { String($0.prefix(16 << 10)) } : nil,
+                requestsBackground: input["run_in_background"] as? Bool == true
+            )
             if !watchOnly || launch.tendPrompt != nil || ["TaskStop", "CronDelete"].contains(tool) { pending[id] = launch }
         }
     }
@@ -230,28 +246,42 @@ public struct TranscriptActivity: Sendable {
         let result = object["toolUseResult"] as? [String: Any] ?? [:]
         for block in blocks where block["type"] as? String == "tool_result" {
             guard let id = block["tool_use_id"] as? String,
-                  let launch = pending.removeValue(forKey: id) ?? Self.replLaunch(id: id, result: result, at: date),
-                  block["is_error"] as? Bool != true
+                  var launch = pending.removeValue(forKey: id) ?? Self.replLaunch(id: id, result: result, at: date)
             else { continue }
 
-            if launch.tool == "TaskStop", let task = result["task_id"] as? String {
+            launch.toolUseID = id
+            let isAgent = Self.agentTools.contains(launch.tool)
+            let isError = block["is_error"] as? Bool == true
+            let hasTaskOutput = isAgent || launch.tool == "Bash"
+            let content = hasTaskOutput ? block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n") : ""
+            if isError {
+                if keepsTaskHistory, isAgent || launch.requestsBackground {
+                    taskHistory[id] = launch.backgroundTask(id: id, status: .failed, result: content)
+                }
+                continue
+            }
+
+            if launch.tool == "TaskStop", let task = result["task_id"] as? String ?? launch.command {
                 end(task, at: date)
+                if keepsTaskHistory { finishTask(task, completion: TaskCompletion(status: .stopped, path: nil, result: nil), at: date) }
             } else if launch.tool == "CronDelete", let task = launch.command {
                 end(task, at: date)
             } else if launch.tool == "CronCreate", launch.tendPrompt != nil {
                 let task = result["id"] as? String ?? result["jobId"] as? String ?? result["taskId"] as? String ?? id
                 start(task, launch)
-            } else if Self.agentTools.contains(launch.tool), result["isAsync"] as? Bool == true, let agent = result["agentId"] as? String {
+            } else if isAgent, result["isAsync"] as? Bool == true || result["status"] as? String == "async_launched", let agent = result["agentId"] as? String {
                 agentTitles[agent] = launch.title
                 agentTypes[agent] = launch.agentType
                 start(agent, launch)
             } else if launch.tool == "SendMessage", let agent = result["resumedAgentId"] as? String {
-                start(agent, Launch(tool: "Agent", title: agentTitles[agent] ?? launch.title, started: launch.started, agentType: agentTypes[agent]))
-            } else if launch.tool == "Bash", let task = result["backgroundTaskId"] as? String {
-                let content = block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
-                var started = launch
-                started.output = content.firstMatch(of: /written to:? (\/[^\s;]+?)\.?(?:\s|;|$)/)?.1.description
-                start(task, started)
+                start(agent, Launch(tool: "Agent", title: agentTitles[agent] ?? launch.title, started: launch.started, agentType: agentTypes[agent], toolUseID: id, prompt: taskHistory[agent]?.prompt))
+            } else if launch.tool == "Bash", let task = (result["backgroundTaskId"] as? String)
+                ?? (keepsTaskHistory && launch.requestsBackground ? content.firstMatch(of: /^Command running in background with ID:? ([A-Za-z0-9_-]+)/)?.1.description : nil) {
+                launch.output = (result["outputFile"] as? String) ?? content.firstMatch(of: /written to:? (\/[^\s;]+?)\.?(?:\s|;|$)/)?.1.description
+                start(task, launch)
+            } else if keepsTaskHistory, isAgent {
+                let agent = (result["agentId"] as? String) ?? content.firstMatch(of: /agentId:\s*([A-Za-z0-9_-]+)/)?.1.description
+                taskHistory[id] = launch.backgroundTask(id: id, agentID: agent, status: .completed, result: content)
             } else if launch.tool == "Monitor", let task = result["taskId"] as? String {
                 let timeout = result["persistent"] as? Bool == true ? nil : result["timeoutMs"] as? Double
                 start(task, Launch(tool: launch.tool, title: launch.title, started: launch.started, deadline: timeout.map { launch.started + $0 / 1000 }, branch: launch.branch, command: launch.command))
@@ -266,14 +296,14 @@ public struct TranscriptActivity: Sendable {
         let title = result["description"] as? String ?? result["title"] as? String
         let cron = Launch(tool: "CronCreate", title: title ?? "Scheduled task", started: date, command: prompt)
         if cron.tendPrompt != nil { return cron }
-        if result["isAsync"] as? Bool == true, result["agentId"] != nil {
-            return Launch(tool: "Agent", title: title ?? "Agent", started: date, agentType: result["subagent_type"] as? String)
+        if result["isAsync"] as? Bool == true || result["status"] as? String == "async_launched", result["agentId"] != nil {
+            return Launch(tool: "Agent", title: title ?? "Agent", started: date, agentType: result["subagent_type"] as? String, prompt: prompt.map { String($0.prefix(16 << 10)) })
         }
         if result["resumedAgentId"] != nil {
             return Launch(tool: "SendMessage", title: "Agent", started: date)
         }
         if result["backgroundTaskId"] != nil {
-            return Launch(tool: "Bash", title: title ?? "Background shell", started: date)
+            return Launch(tool: "Bash", title: title ?? "Background shell", started: date, command: result["command"] as? String)
         }
         if result["taskId"] != nil {
             return Launch(tool: "Monitor", title: title ?? "Monitor", started: date)
@@ -295,7 +325,8 @@ public struct TranscriptActivity: Sendable {
         }
         let text = carried as? String ?? (carried as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
 
-        for notification in text.components(separatedBy: "<task-notification>").dropFirst() {
+        for envelope in text.components(separatedBy: "<task-notification>").dropFirst() {
+            let notification = envelope.components(separatedBy: "</task-notification>").first ?? envelope
             if let terminal = notification.firstMatch(of: /(?i)(?:PR|pull request)\s+#?([0-9]+)\s+(?:was |has been |is )?(?:merged|closed)\b/),
                let number = Int(terminal.1), commandWatch?.number == number
                || running.values.contains(where: { $0.tendPrompt.map { Self.watch(argument: $0.dropFirst(2).first, at: date).number == number } == true }) {
@@ -309,6 +340,9 @@ public struct TranscriptActivity: Sendable {
                    !notification.contains(/<status>\s*(?:completed|stopped|failed|killed|cancelled|canceled|expired)\s*<\/status>/),
                    !notification.contains(/<event>\s*\[Monitor (expired|timed out)/) { continue }
 
+                if keepsTaskHistory, let completion = TaskCompletion(notification) {
+                    finishTask(id, completion: completion, at: date)
+                }
                 end(id, at: date)
             }
         }
@@ -316,7 +350,14 @@ public struct TranscriptActivity: Sendable {
 
     mutating func start(_ id: String, _ launch: Launch) {
         let reusesID = Self.agentTools.contains(launch.tool)
-        guard ended[id].map({ reusesID && $0 < launch.started }) ?? true else { return }
+        let isActive = ended[id].map { reusesID && $0 < launch.started } ?? true
+        if keepsTaskHistory, reusesID || launch.tool == "Bash" {
+            taskHistory[id] = launch.backgroundTask(id: id, agentID: reusesID ? id : nil, status: isActive ? .running : .finished)
+            if let early = earlyTaskCompletions.removeValue(forKey: id), !isActive {
+                finishTask(id, completion: early, at: launch.started)
+            }
+        }
+        guard isActive else { return }
 
         if ["CronCreate", "Monitor"].contains(launch.tool), launch.tendPrompt != nil {
             guard launch.started >= watchEndedAt else { return }

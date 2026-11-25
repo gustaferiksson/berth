@@ -94,7 +94,7 @@ final class ControlService {
         guard openedBy[target.id] == caller else { return .failure("You can only send to or close tabs you opened") }
 
         if request.operation == .close {
-            store.close(target.id)
+            store.close(target.id, stopsTask: true)
             return ControlResponse()
         }
 
@@ -137,7 +137,7 @@ final class ControlService {
             try? FileManager.default.createDirectory(atPath: Self.exitsDirectory, withIntermediateDirectories: true)
             let callerTab = store.tabs.first { $0.id == caller }
             let parent = callerTab?.kind == .claude ? callerTab?.id : callerTab?.parentTabID
-            store.openShell(cwd: cwd, command: command, id: id, parent: parent)
+            store.openShell(cwd: cwd, command: command, id: id, parent: parent, taskTitle: request.command?.split(separator: "\n").first.map(String.init) ?? "Interactive terminal")
         }
         openedBy = openedBy.filter { opened in store.tabs.contains { $0.id == opened.key } }
         openedBy[id] = caller
@@ -403,9 +403,14 @@ final class ControlService {
         }
         defer { try? FileManager.default.removeItem(atPath: file) }
 
-        guard let status = (try? String(contentsOfFile: file, encoding: .utf8)).flatMap({ Int32($0) }) else { return .failure("The tab closed without an exit status") }
+        guard let status = Self.terminalExitStatus(of: id) else { return .failure("The tab closed without an exit status") }
 
+        if store.tabs.contains(where: { $0.id == id && $0.taskTitle != nil && $0.parentTabID != nil }) { store.terminalTaskExitStatuses[id] = status }
         return ControlResponse(exit: status)
+    }
+
+    static func terminalExitStatus(of id: UUID) -> Int32? {
+        (try? String(contentsOfFile: exitsDirectory + "/" + id.uuidString, encoding: .utf8)).flatMap(Int32.init)
     }
 
     private static func shortID(_ id: UUID) -> String {

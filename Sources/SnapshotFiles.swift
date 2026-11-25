@@ -7,7 +7,7 @@ extension Snapshot {
         let defaults = UserDefaults.standard
         guard defaults.bool(forKey: "snapshotFiles"), let session = store.sessionTab else { return }
 
-        store.showFilesPane()
+        store.showReviewPane(.files)
         let files = store.filesModel(for: session)
         files.attach(root: review.changes?.root ?? review.folder)
         files.expanded = Set((defaults.string(forKey: "snapshotFilesExpand") ?? "").split(separator: ";").map(String.init))

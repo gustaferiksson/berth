@@ -22,6 +22,7 @@ struct Tab: Identifiable {
     let terminal: TerminalViewState
     let opened = Date.now
     var isHosted = false
+    var taskTitle: String?
 }
 
 extension Tab {
@@ -127,6 +128,15 @@ final class Store {
     var sessionPanes: [Tab.ID: SessionPane] = [:]
     @ObservationIgnored var filesModels: [Tab.ID: FilesModel] = [:]
     var paneTerminalIDs: [Tab.ID: Tab.ID] = [:]
+    let backgroundTaskModel = BackgroundTaskModel()
+    var selectedBackgroundTaskIDs: [Tab.ID: String] = [:]
+    var finishedTerminalTasks: [Tab.ID: [SessionBackgroundTask]] = [:]
+    var terminalTaskExitStatuses: [Tab.ID: Int32] = [:]
+
+    #if DEBUG
+    var backgroundTaskFixture: BackgroundTaskSource?
+    #endif
+
     var conversationTabIDs: Set<Tab.ID> = [] {
         didSet { syncConversations() }
     }
@@ -1385,9 +1395,9 @@ final class Store {
         tabs.filter { $0.kind == .shell && $0.parentTabID == nil }
     }
 
-    func openShell(cwd: String, command: String? = nil, id: UUID = UUID(), parent: Tab.ID? = nil) {
+    func openShell(cwd: String, command: String? = nil, id: UUID = UUID(), parent: Tab.ID? = nil, taskTitle: String? = nil) {
         let launch = hostLaunch(command, id: id)
-        tabs.append(Tab(id: id, kind: .shell, cwd: cwd, sessionID: nil, parentTabID: parent, terminal: terminal(id: id, cwd: cwd, command: launch.command) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
+        tabs.append(Tab(id: id, kind: .shell, cwd: cwd, sessionID: nil, parentTabID: parent, terminal: terminal(id: id, cwd: cwd, command: launch.command) { [weak self] in self?.close(id) }, isHosted: launch.isHosted, taskTitle: taskTitle))
         selectedTabID = id
     }
 
@@ -1445,17 +1455,18 @@ final class Store {
 
     var shownPane: SessionPane? {
         if isHarborShown { return nil }
-        if sessionPane == .terminal || sessionPane == .browser { return sessionPane }
+        if [.terminal, .browser, .tasks].contains(sessionPane) { return sessionPane }
         return UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) && showsReviewPanel ? sessionPane : nil
     }
 
-    func showFilesPane() {
-        guard let session = sessionTab, UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return }
+    func showReviewPane(_ mode: SessionPane) {
+        let session = sessionTab
+        if mode == .files, session == nil || !UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) { return }
 
         showsReviewPanel = true
         isHarborShown = false
         leaveTerminalPane(of: session)
-        sessionPanes[session.id] = .files
+        if mode == .files, let session { sessionPanes[session.id] = .files }
     }
 
     func filesModel(for session: Tab) -> FilesModel {
@@ -1471,12 +1482,6 @@ final class Store {
         files.cursor = path
         review.open(ReviewDocument(path: path, compare: nil))
         if let session = sessionTab { sessionPanes[session.id] = .files }
-    }
-
-    func showChangesPane() {
-        showsReviewPanel = true
-        isHarborShown = false
-        leaveTerminalPane(of: sessionTab)
     }
 
     func showBrowserPane() {
@@ -1517,7 +1522,7 @@ final class Store {
         leaveTerminalPane(of: sessionTab)
     }
 
-    private func leaveTerminalPane(of session: Tab?) {
+    func leaveTerminalPane(of session: Tab?) {
         guard let session, sessionPanes[session.id] != nil else { return }
 
         sessionPanes[session.id] = nil
@@ -2207,9 +2212,15 @@ final class Store {
         applyGroups()
     }
 
-    func close(_ id: Tab.ID) {
+    func close(_ id: Tab.ID, stopsTask: Bool = false) {
         for terminal in tabs.filter({ $0.parentTabID == id }) { close(terminal.id) }
-        let parent = tabs.first { $0.id == id }?.parentTabID
+        let closingTab = tabs.first { $0.id == id }
+        let parent = closingTab?.parentTabID
+        if let closingTab, let parent, let title = closingTab.taskTitle {
+            let exit = terminalTaskExitStatuses.removeValue(forKey: id) ?? ControlService.terminalExitStatus(of: id)
+            let status: SessionBackgroundTask.Status = exit.map { .exit(Int($0)) } ?? (stopsTask ? .stopped : .finished)
+            finishedTerminalTasks[parent, default: []].append(SessionBackgroundTask(id: id.uuidString, kind: .terminal, title: title, started: closingTab.opened, status: status))
+        }
         let processes = ProcessAncestry.descendants()
         let sessionID = tabs.first { $0.id == id }?.sessionID
         if !isTerminating, tabs.first(where: { $0.id == id })?.isHosted == true { hangUpHost(of: id) }
@@ -2237,6 +2248,8 @@ final class Store {
         sessionPanes[id] = nil
         filesModels[id] = nil
         paneTerminalIDs[id] = nil
+        selectedBackgroundTaskIDs[id] = nil
+        finishedTerminalTasks[id] = nil
         tabs.removeAll { $0.id == id }
         if let parent, sessionPanes[parent] == .terminal, !tabs.contains(where: { $0.parentTabID == parent }) { sessionPanes[parent] = nil }
         pullRequestTabs = pullRequestTabs.filter { $0.value != id }
@@ -2259,20 +2272,21 @@ final class Store {
         let isSelected: Bool?
         let agent: Agent?
         let parentID: Tab.ID?
+        let isTaskTerminal: Bool?
     }
 
     func saveOpenTabs() {
         guard persistsTabs else { return }
 
-        let saved = tabs.map { SavedTab(id: $0.id, kind: $0.kind, cwd: $0.folder, sessionID: $0.sessionID, isSelected: $0.id == selectedTabID, agent: $0.agent, parentID: $0.parentTabID) }
+        let saved = tabs.map { SavedTab(id: $0.id, kind: $0.kind, cwd: $0.folder, sessionID: $0.sessionID, isSelected: $0.id == selectedTabID, agent: $0.agent, parentID: $0.parentTabID, isTaskTerminal: $0.taskTitle == nil ? nil : true) }
         UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: "openTabs")
     }
 
-    func reattach(id: UUID, kind: Tab.Kind, cwd: String, sessionID: String?, agent: Agent = .claude, parent: Tab.ID? = nil) {
+    func reattach(id: UUID, kind: Tab.Kind, cwd: String, sessionID: String?, agent: Agent = .claude, parent: Tab.ID? = nil, taskTitle: String? = nil) {
         guard let command = attachCommand(of: id) else { return }
 
         let environment = sessionID.map { [ClaudeLaunch.sessionVariable: $0] } ?? [:]
-        tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, agent: agent, parentTabID: parent, terminal: terminal(id: id, cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }, isHosted: true))
+        tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, agent: agent, parentTabID: parent, terminal: terminal(id: id, cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }, isHosted: true, taskTitle: taskTitle))
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
         if kind == .claude { restoredTabIDs.insert(id) }
@@ -2289,7 +2303,7 @@ final class Store {
         for tab in saved {
             let parent = tab.parentID.flatMap { restored[$0] }.flatMap { id in tabs.contains { $0.id == id && $0.kind == .claude } ? id : nil }
             if let id = tab.id, let socket = hostSocket(of: id), SessionHost.probe(socketPath: socket) != nil {
-                reattach(id: id, kind: tab.kind, cwd: tab.cwd, sessionID: tab.sessionID, agent: tab.agent ?? .claude, parent: parent)
+                reattach(id: id, kind: tab.kind, cwd: tab.cwd, sessionID: tab.sessionID, agent: tab.agent ?? .claude, parent: parent, taskTitle: tab.isTaskTerminal == true ? "Session terminal" : nil)
                 if tabs.contains(where: { $0.id == id }) { restored[id] = id }
                 if tab.isSelected == true { selected = id }
                 continue
