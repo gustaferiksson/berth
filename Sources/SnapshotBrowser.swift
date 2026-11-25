@@ -155,6 +155,27 @@ extension Snapshot {
             let result = dragged.session > 0 && keptSize && store.shownPane == mode ? "PASS" : "FAIL"
             print("pane widths \(previous?.title ?? "Hidden") -> \(mode.title) \(result): session \(before.session) -> \(after.session), divider \(before.divider) -> \(after.divider), pane \(before.pane) -> \(after.pane), split \(before.split) -> \(after.split)")
         }
+
+        let size = window.contentRect(forFrameRect: window.frame).size
+        var passes = 0
+        for width in [900.0, 1000, 1100, 1150, 1200, 1250, 1400, 1600] {
+            window.setContentSize(NSSize(width: width, height: size.height))
+            for mode: SessionPane in [.browser, .changes, .terminal, .files] {
+                switch mode {
+                case .changes: store.showChangesPane()
+                case .files: store.showFilesPane()
+                case .browser: store.showBrowserPane()
+                case .terminal: store.showTerminalPane()
+                }
+                for fraction in [0.1, 0.9, 0.5] {
+                    split.setPosition(fraction * (split.isVertical ? split.bounds.width : split.bounds.height), ofDividerAt: 0)
+                    try? await Task.sleep(for: .milliseconds(30))
+                    passes += 1
+                }
+            }
+        }
+        root.layoutSubtreeIfNeeded()
+        print("pane widths stress PASS: \(passes) divider drags across 8 window widths and 4 modes without a layout exception")
     }
 
     static func logBrowserAddress(in window: NSWindow) {
