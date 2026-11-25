@@ -46,8 +46,9 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let turnStartedAt: Date?
     public let agent: RemoteAgent?
     public let pullRequestWatch: PullRequestWatch?
+    public let isPinned: Bool?
 
-    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil, pullRequestWatch: PullRequestWatch? = nil) {
+    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil, pullRequestWatch: PullRequestWatch? = nil, isPinned: Bool? = nil) {
         self.id = id
         self.title = title
         self.folder = folder
@@ -64,6 +65,7 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
         self.turnStartedAt = turnStartedAt
         self.agent = agent
         self.pullRequestWatch = pullRequestWatch
+        self.isPinned = isPinned
     }
 }
 
@@ -143,11 +145,15 @@ public struct RemoteGroup: Codable, Sendable, Hashable, Identifiable {
     public let id: String
     public let title: String
     public let sessions: [RemoteSession]
+    public let isCollapsed: Bool?
+    public let visibleCount: Int?
 
-    public init(id: String, title: String, sessions: [RemoteSession]) {
+    public init(id: String, title: String, sessions: [RemoteSession], isCollapsed: Bool? = nil, visibleCount: Int? = nil) {
         self.id = id
         self.title = title
         self.sessions = sessions
+        self.isCollapsed = isCollapsed
+        self.visibleCount = visibleCount
     }
 }
 

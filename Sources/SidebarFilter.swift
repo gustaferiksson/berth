@@ -99,15 +99,17 @@ extension Store {
             .map(\.session)
     }
 
-    var sidebarLayout: SidebarLayout {
-        let words = sidebarFilter.split(whereSeparator: \.isWhitespace).map(String.init)
+    var sidebarLayout: SidebarLayout { sidebarLayout(filter: sidebarFilter, status: sidebarStatus) }
+
+    func sidebarLayout(filter: String, status: SidebarStatus) -> SidebarLayout {
+        let words = filter.split(whereSeparator: \.isWhitespace).map(String.init)
         let matches = { (fields: [String]) in words.allSatisfy { word in fields.contains { $0.localizedStandardContains(word) } } }
         let matchesSession = { (session: SessionSummary) in
-            self.matchesStatus(self.sidebarStatus, session) && (words.isEmpty || matches([session.title, URL(filePath: session.checkout).lastPathComponent] + session.branches + (self.pullRequest(for: session).map { ["#\($0.number)"] } ?? []) + session.issueRefs.map { "#\($0.number)" }))
+            self.matchesStatus(status, session) && (words.isEmpty || matches([session.title, URL(filePath: session.checkout).lastPathComponent] + session.branches + (self.pullRequest(for: session).map { ["#\($0.number)"] } ?? []) + session.issueRefs.map { "#\($0.number)" }))
         }
-        let isFiltering = !words.isEmpty || sidebarStatus != .all
+        let isFiltering = !words.isEmpty || status != .all
         let matchesTab = { (tab: Tab) in
-            self.sidebarStatus == .all && (words.isEmpty || matches([tab.title(terminalTitle: tab.terminal.title, sessionTitle: self.sessionTitle(of: tab)), URL(filePath: tab.folder).lastPathComponent]))
+            status == .all && (words.isEmpty || matches([tab.title(terminalTitle: tab.terminal.title, sessionTitle: self.sessionTitle(of: tab)), URL(filePath: tab.folder).lastPathComponent]))
         }
         let source = (sidebarActive.map { [$0] } ?? []) + sidebarGroups
         let attentionIDs = attentionSessions.filter(matchesSession).map(\.id)
@@ -125,7 +127,7 @@ extension Store {
                 case let .task(id):
                     let task = sessionTasks.first { $0.id == id }
                     let isTaskMatch = words.isEmpty || task.map { matches([$0.title] + ($0.issue.map { ["#\($0.number)"] } ?? [])) } == true
-                    let members = task?.sessions.filter { matchesStatus(sidebarStatus, $0) && (isTaskMatch || matchesSession($0)) }.map(\.id) ?? []
+                    let members = task?.sessions.filter { matchesStatus(status, $0) && (isTaskMatch || matchesSession($0)) }.map(\.id) ?? []
                     guard task?.sessions.count != 1 else { return members.first.map { .session($0) } }
 
                     return members.isEmpty ? nil : .task(id: id, memberIDs: members)
@@ -172,8 +174,8 @@ extension Store {
             isEmpty: isEmpty,
             isCaughtUp: showsTriage && hasScanned && !isEmpty && !isFiltering && attentionIDs.isEmpty && workingIDs.isEmpty && unreadIDs.isEmpty && pinnedIDs.isEmpty && sidebarGroups.isEmpty,
             showsTriage: showsTriage,
-            filter: sidebarFilter,
-            status: sidebarStatus,
+            filter: filter,
+            status: status,
             hasNoMatches: isFiltering && terminalIDs.isEmpty && attentionIDs.isEmpty && workingIDs.isEmpty && unreadIDs.isEmpty && pinnedIDs.isEmpty && sidebarGroups.isEmpty && snoozedIDs.isEmpty && archivedIDs.isEmpty
         )
     }

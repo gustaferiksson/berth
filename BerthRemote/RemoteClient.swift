@@ -97,7 +97,7 @@ final class RemoteClient {
     var draftTexts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:] {
         didSet {
             #if DEBUG
-            if UserDefaults.standard.bool(forKey: "snapshotDemo") { return }
+            if Self.isDemo { return }
             #endif
             UserDefaults.standard.set(draftTexts.filter { !$0.value.isEmpty }, forKey: "drafts")
         }
@@ -148,12 +148,24 @@ final class RemoteClient {
     }
 
     #if DEBUG
+    private static let demoSectionsFile = UserDefaults.standard.string(forKey: "snapshotDemoSectionsFile")
+    static let isDemo = UserDefaults.standard.bool(forKey: "snapshotDemo") || demoSectionsFile != nil
+    static let showsDemoList = UserDefaults.standard.bool(forKey: "snapshotDemoList") || demoSectionsFile != nil
+
     func seedDemo() {
-        let now = Date.now
-        let showsDemoList = UserDefaults.standard.bool(forKey: "snapshotDemoList")
-        let session = RemoteSession(id: "demo", title: "Refine the activity feed", folder: "/Projects/fieldnotes", branch: "main", lastActivity: now, status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, agent: .legacyClaude)
         state = .connected
-        groups = showsDemoList ? demoListGroups(session: session, now: now) : [RemoteGroup(id: "active", title: "Active", sessions: [session])]
+        if let file = Self.demoSectionsFile {
+            do {
+                groups = try JSONDecoder().decode([RemoteGroup].self, from: Data(contentsOf: URL(filePath: file)))
+            } catch {
+                print("Could not load demo sections from \(file): \(error)")
+            }
+            return
+        }
+
+        let now = Date.now
+        let session = RemoteSession(id: "demo", title: "Refine the activity feed", folder: "/Projects/fieldnotes", branch: "main", lastActivity: now, status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, agent: .legacyClaude)
+        groups = Self.showsDemoList ? demoListGroups(session: session, now: now) : [RemoteGroup(id: "recent:active", title: "Active", sessions: [session])]
         entries[session.id] = [
             RemoteEntry(id: "prompt-1", kind: .prompt, text: "Find out why the activity feed jumps when a new entry arrives."),
             RemoteEntry(id: "reply-1", kind: .reply, text: "The feed rebuilds every row when a new entry arrives. Because the rows use their positions as identifiers, inserting at the top changes the identity of every visible row."),
@@ -192,7 +204,7 @@ final class RemoteClient {
             ]
             draftTexts[session.id] = "/co"
         }
-        if !showsDemoList { openedSessionID = session.id }
+        if !Self.showsDemoList { openedSessionID = session.id }
     }
 
     private func demoListGroups(session: RemoteSession, now: Date) -> [RemoteGroup] {
@@ -204,20 +216,24 @@ final class RemoteClient {
         let atlasAPI = "/Projects/atlas-api"
         let yesterday = Calendar.current.startOfDay(for: now).addingTimeInterval(-12 * 3600)
         let waitingSince = now.addingTimeInterval(-46)
-        let new = [
-            RemoteSession(id: "demo-starting", title: "New Session", folder: harborLog, branch: nil, lastActivity: now, status: nil, waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false),
-        ]
-        let pinned = [
-            RemoteSession(id: "demo-pinned", title: "Add a printable harbor log", folder: harborLog, branch: "feature/print-log", lastActivity: now.addingTimeInterval(-18 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, pullRequest: RemotePullRequest(number: 28, state: "Merged", url: pullRequests.appending(path: "harbor-log/pull/28"))),
-        ]
-        let today = [
-            session,
-            RemoteSession(id: "demo-busy-index", title: "Rebuild the index", folder: atlasAPI, branch: "fix/rebuild-index", lastActivity: now.addingTimeInterval(-4), status: "busy", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, turnStartedAt: now.addingTimeInterval(-4)),
+        let attention = [
             RemoteSession(id: "demo-waiting", title: "Repair the import checks", folder: fieldnotes, branch: "fix/import-checks", lastActivity: waitingSince, status: "waiting", waitingFor: "permission", waitingSince: waitingSince.timeIntervalSince1970, isOpen: true, isLocked: false, pullRequest: RemotePullRequest(number: 142, state: "Open", url: pullRequests.appending(path: "fieldnotes/pull/142"), checks: "failed")),
+        ]
+        let working = [
+            RemoteSession(id: "demo-busy-index", title: "Rebuild the index", folder: atlasAPI, branch: "fix/rebuild-index", lastActivity: now.addingTimeInterval(-4), status: "busy", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, turnStartedAt: now.addingTimeInterval(-4)),
             RemoteSession(id: "demo-busy-charts", title: "Update the tide charts", folder: tidewater, branch: "feature/tide-charts", lastActivity: now.addingTimeInterval(-3 * 60), status: "busy", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, pullRequest: RemotePullRequest(number: 93, state: "Open", url: pullRequests.appending(path: "tidewater/pull/93"), checks: "running"), turnStartedAt: now.addingTimeInterval(-3 * 60)),
-            RemoteSession(id: "demo-shell", title: "Export the tide archive", folder: tidewater, branch: "main", lastActivity: now.addingTimeInterval(-6 * 60), status: "shell", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false),
+        ]
+        let unread = [
             RemoteSession(id: "demo-unread-feed", title: "Keep the feed anchored", folder: fieldnotes, branch: "feature/anchor-the-activity-feed-scroll-position-for-large-text", lastActivity: now.addingTimeInterval(-9 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, pullRequest: RemotePullRequest(number: 139, state: "Open", url: pullRequests.appending(path: "fieldnotes/pull/139"), checks: "passed"), isUnread: true),
             RemoteSession(id: "demo-unread-routes", title: "Review route naming", folder: atlasAPI, branch: "feature/route-names", lastActivity: now.addingTimeInterval(-12 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, isUnread: true),
+        ]
+        let pinned = [
+            RemoteSession(id: "demo-pinned", title: "Add a printable harbor log", folder: harborLog, branch: "feature/print-log", lastActivity: now.addingTimeInterval(-18 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, pullRequest: RemotePullRequest(number: 28, state: "Merged", url: pullRequests.appending(path: "harbor-log/pull/28")), isPinned: true),
+        ]
+        let today = [
+            RemoteSession(id: "demo-starting", title: "New Session", folder: harborLog, branch: nil, lastActivity: now, status: nil, waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false),
+            session,
+            RemoteSession(id: "demo-shell", title: "Export the tide archive", folder: tidewater, branch: "main", lastActivity: now.addingTimeInterval(-6 * 60), status: "shell", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false),
             RemoteSession(id: "demo-locked", title: "Reconcile vessel records", folder: harborLog, branch: "fix/vessel-records", lastActivity: now.addingTimeInterval(-21 * 60), status: nil, waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: true),
             RemoteSession(id: "demo-draft", title: "Sketch the offline cache", folder: atlasAPI, branch: "draft/offline-cache", lastActivity: now.addingTimeInterval(-28 * 60), status: nil, waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false, pullRequest: RemotePullRequest(number: 67, state: "Draft", url: pullRequests.appending(path: "atlas-api/pull/67"))),
             RemoteSession(id: "demo-closed", title: "Retire the old height table", folder: tidewater, branch: "cleanup/height-table", lastActivity: now.addingTimeInterval(-39 * 60), status: nil, waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false, pullRequest: RemotePullRequest(number: 83, state: "Closed", url: pullRequests.appending(path: "tidewater/pull/83"))),
@@ -233,11 +249,13 @@ final class RemoteClient {
             RemoteSession(id: "demo-older-fixtures", title: "Refresh the harbor fixtures", folder: harborLog, branch: "main", lastActivity: now.addingTimeInterval(-16 * 86_400), status: nil, waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false),
         ]
         return [
-            RemoteGroup(id: "starting", title: "New", sessions: new),
+            RemoteGroup(id: "attention", title: "Needs You", sessions: attention),
+            RemoteGroup(id: "working", title: "Working", sessions: working),
+            RemoteGroup(id: "unread", title: "Unread", sessions: unread),
             RemoteGroup(id: "pinned", title: "Pinned", sessions: pinned),
-            RemoteGroup(id: "recent:today", title: "Today", sessions: today),
-            RemoteGroup(id: "recent:yesterday", title: "Yesterday", sessions: previous),
-            RemoteGroup(id: "recent:older", title: "Older", sessions: older),
+            RemoteGroup(id: "recent:today", title: "Today", sessions: today, isCollapsed: false, visibleCount: 6),
+            RemoteGroup(id: "recent:yesterday", title: "Yesterday", sessions: previous, isCollapsed: false),
+            RemoteGroup(id: "recent:older", title: "Older", sessions: older, isCollapsed: true),
         ]
     }
     #endif

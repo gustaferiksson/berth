@@ -467,35 +467,76 @@ final class RemoteServer {
     }
 
     private var sessionsMessage: RemoteServerMessage {
+        let layout = store.sidebarLayout(filter: "", status: .all)
         let open = Set(store.tabs.compactMap(\.sessionID))
-        let remote = { (session: SessionSummary) in
-            let live = self.store.liveBySession[session.id]
-            return RemoteSession(
-                id: session.id,
-                title: session.title,
-                folder: session.checkout,
-                branch: session.branch,
-                lastActivity: session.lastActivity,
-                status: live?.status,
-                waitingFor: live?.waitingFor,
-                waitingSince: live?.status == "waiting" ? live?.statusUpdatedAt : nil,
-                isOpen: open.contains(session.id),
-                isLocked: self.store.isLockedElsewhere(live) && !open.contains(session.id),
-                lastPrompt: session.lastPrompt,
-                pullRequest: self.store.pullRequest(for: session).map { RemotePullRequest(number: $0.number, state: $0.state.rawValue, url: $0.url, checks: $0.checks?.rawValue) },
-                isUnread: self.store.isUnread(session),
-                turnStartedAt: self.store.turnStarts[session.id],
-                agent: RemoteAgent(harness: session.agent.harness),
-                pullRequestWatch: self.store.pullRequestWatch(for: session.id)
-            )
+        let pinned = Set(store.pinnedSessions.map(\.id))
+        let tabs = Dictionary(uniqueKeysWithValues: store.tabs.map { ($0.id, $0) })
+        func sessions(_ ids: [String]) -> [RemoteSession] {
+            ids.compactMap { id in
+                guard let session = store.sessionsByID[id], session.agent.harness.supports(.remote) else { return nil }
+
+                let live = store.liveBySession[id]
+                return RemoteSession(
+                    id: id,
+                    title: session.title,
+                    folder: session.checkout,
+                    branch: session.branch,
+                    lastActivity: session.lastActivity,
+                    status: live?.status,
+                    waitingFor: live?.waitingFor,
+                    waitingSince: live?.status == "waiting" ? live?.statusUpdatedAt : nil,
+                    isOpen: open.contains(id),
+                    isLocked: store.isLockedElsewhere(live) && !open.contains(id),
+                    lastPrompt: session.lastPrompt,
+                    pullRequest: store.pullRequest(for: session).map { RemotePullRequest(number: $0.number, state: $0.state.rawValue, url: $0.url, checks: $0.checks?.rawValue) },
+                    isUnread: store.isUnread(session),
+                    turnStartedAt: store.turnStarts[id],
+                    agent: RemoteAgent(harness: session.agent.harness),
+                    pullRequestWatch: store.pullRequestWatch(for: id),
+                    isPinned: pinned.contains(id)
+                )
+            }
         }
-        let starting = store.tabs.filter { $0.kind == .claude && $0.agent.harness.supports(.remote) && $0.sessionID.map { store.sessionsByID[$0] == nil } ?? false }.compactMap { tab in
-            tab.sessionID.map { RemoteSession(id: $0, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: store.liveBySession[$0]?.status, waitingFor: store.liveBySession[$0]?.waitingFor, waitingSince: store.liveBySession[$0].flatMap { $0.status == "waiting" ? $0.statusUpdatedAt : nil }, isOpen: true, isLocked: false, agent: RemoteAgent(harness: tab.agent.harness), pullRequestWatch: store.pullRequestWatch(for: $0)) }
+        func section(_ group: SidebarLayout.Group) -> RemoteGroup {
+            let starting = group.tabIDs.compactMap { tabID -> RemoteSession? in
+                guard let tab = tabs[tabID], tab.kind == .claude, tab.agent.harness.supports(.remote),
+                      let id = tab.sessionID, store.sessionsByID[id] == nil else { return nil }
+
+                let live = store.liveBySession[id]
+                return RemoteSession(id: id, title: "New Session", folder: tab.cwd, branch: nil, lastActivity: tab.opened, status: live?.status, waitingFor: live?.waitingFor, waitingSince: live?.status == "waiting" ? live?.statusUpdatedAt : nil, isOpen: true, isLocked: false, agent: RemoteAgent(harness: tab.agent.harness), pullRequestWatch: store.pullRequestWatch(for: id), isPinned: pinned.contains(id))
+            }
+            let entries = group.entries.map { entry in
+                switch entry {
+                case let .session(id): sessions([id])
+                case let .task(_, memberIDs): sessions(memberIDs)
+                }
+            }
+            let allSessions = starting + entries.flatMap(\.self)
+            let visibleCount = starting.count + entries.prefix(group.visibleLimit).reduce(0) { $0 + $1.count }
+            return RemoteGroup(id: group.id, title: group.source.title, sessions: allSessions, isCollapsed: Sidebar.collapsedByDefault.contains(group.id), visibleCount: visibleCount < allSessions.count ? visibleCount : nil)
         }
-        let groups = [RemoteGroup(id: "starting", title: "New", sessions: starting), RemoteGroup(id: "pinned", title: "Pinned", sessions: store.pinnedSessions.filter { $0.agent.harness.supports(.remote) }.map(remote))]
-            + store.groups.map { RemoteGroup(id: $0.id, title: $0.title, sessions: $0.sessions.filter { $0.agent.harness.supports(.remote) }.map(remote)) }
+        let attention = RemoteGroup(id: Sidebar.attentionID, title: layout.showsTriage ? "Needs You" : "Needs Attention", sessions: sessions(layout.attentionIDs))
+        let active = layout.active.map { [section($0)] } ?? []
+        let triage = [
+            RemoteGroup(id: Sidebar.workingID, title: "Working", sessions: sessions(layout.workingIDs)),
+            RemoteGroup(id: Sidebar.unreadID, title: "Unread", sessions: sessions(layout.unreadIDs)),
+            RemoteGroup(id: Sidebar.pinnedID, title: "Pinned", sessions: sessions(layout.pinnedIDs)),
+        ]
+        let hidden = [
+            RemoteGroup(id: "snoozed", title: "Snoozed", sessions: sessions(layout.snoozedIDs), isCollapsed: true),
+            RemoteGroup(id: "archived", title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
+        ]
+        let groups = [attention] + active + triage + layout.groups.map(section) + hidden
         return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature] + usageFeatures)
     }
+
+    #if DEBUG
+    func exportSessionSections(to output: URL) throws {
+        guard case let .sessions(groups, _, _) = sessionsMessage else { return }
+
+        try JSONEncoder().encode(groups).write(to: output, options: .atomic)
+    }
+    #endif
 
     private func observeSessions() {
         guard listener != nil else { return }

@@ -171,6 +171,8 @@ More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those
 
 `-snapshotDemo YES` opens a sample session without a Mac server. Add `-snapshotDemoImageOnly YES` to end the session with an image-only prompt. Add `-snapshotDemoList YES` to stay on the session list with Needs You, Working and Unread triage sections, PR tags with running, passed and failed checks, long branches, and Claude and Codex usage rows with stale Codex data. Add `-snapshotDemoFocus YES` to focus the composer after 1.5 seconds.
 
+On the Mac, run Berth with `-snapshotRemoteSections /abs/out.json -snapshotBusySidebar YES` to write the seeded sidebar sections as wire-format JSON and exit. In the iOS simulator, launch Berth Remote with `-snapshotDemoSectionsFile /abs/in.json` pointing to the exported file to open it in the demo session list.
+
 Add `-snapshotDemoSlashCommands YES` to seed `/co` and sample project and user commands. Capture each appearance with `xcrun simctl io booted screenshot /abs/out.png` after setting it with `xcrun simctl ui booted appearance light|dark`.
 
 ### Glass (see docs/adr/0005)

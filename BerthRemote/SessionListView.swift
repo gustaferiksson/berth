@@ -3,10 +3,17 @@ import SwiftUI
 struct SessionListView: View {
     @Environment(RemoteClient.self) private var client
     @Environment(UpdateCheck.self) private var updates
-    @State private var path: [String] = UserDefaults.standard.string(forKey: "remoteSession").map { [$0] } ?? []
+    @State private var path: [String] = {
+        #if DEBUG
+        if RemoteClient.isDemo, RemoteClient.showsDemoList { return [] }
+        #endif
+        return UserDefaults.standard.string(forKey: "remoteSession").map { [$0] } ?? []
+    }()
+
     @State private var isStartingSession = false
     @State private var query = UserDefaults.standard.string(forKey: "snapshotQuery") ?? ""
     @State private var expandedGroups: [String: Bool] = [:]
+    @State private var groupsShowingAll: Set<String> = []
     @State private var isShowingSettings = UserDefaults.standard.bool(forKey: "snapshotSettings")
     @State private var isShowingUsage = UserDefaults.standard.bool(forKey: "snapshotUsageSheet")
     @State private var feedback = ActionFeedback(count: 0, action: nil)
@@ -37,24 +44,47 @@ struct SessionListView: View {
                     }
                 }
                 ForEach(groups) { group in
+                    let isCollapsed = group.isCollapsed ?? (group.id == "recent:older")
                     let expansion = if query.isEmpty {
-                        Binding { expandedGroups[group.id, default: group.id != "recent:older"] } set: { expandedGroups[group.id] = $0 }
+                        Binding { expandedGroups[group.id, default: !isCollapsed] } set: { expandedGroups[group.id] = $0 }
                     } else {
                         Binding.constant(true)
                     }
+                    let count = group.sessions.count
+                    let limit = query.isEmpty ? max(0, group.visibleCount ?? count) : count
+                    let hiddenCount = max(0, count - limit)
+                    let showsAll = groupsShowingAll.contains(group.id)
                     Section {
                         if expansion.wrappedValue {
-                            ForEach(group.sessions) { session in
-                                SessionRow(session: session, isPinned: pinned.contains(session.id)) {
+                            ForEach(group.sessions.prefix(showsAll ? count : limit)) { session in
+                                SessionRow(session: session, isPinned: session.isPinned ?? pinned.contains(session.id)) {
                                     path.append(session.id)
                                 } didAct: { action in
                                     feedback = ActionFeedback(count: feedback.count + 1, action: action)
                                 }
                             }
+                            if hiddenCount > 0 {
+                                Button {
+                                    withAnimation {
+                                        if showsAll {
+                                            groupsShowingAll.remove(group.id)
+                                        } else {
+                                            groupsShowingAll.insert(group.id)
+                                        }
+                                    }
+                                } label: {
+                                    Text(showsAll ? "Show Less" : "Show More (\(hiddenCount))")
+                                        .font(.subheadline)
+                                        .foregroundStyle(Color.accentColor)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .contentShape(.rect)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     } header: {
                         if query.isEmpty {
-                            SessionSectionHeader(title: group.title, count: group.sessions.count, isExpanded: expansion)
+                            SessionSectionHeader(title: group.title, count: count, isExpanded: expansion)
                         } else {
                             Text(group.title)
                                 .font(.subheadline.weight(.semibold))
@@ -114,33 +144,17 @@ struct SessionListView: View {
     }
 
     private var visibleGroups: [RemoteGroup] {
+        guard !query.isEmpty else { return client.groups.filter { !$0.sessions.isEmpty } }
+
         let matches = { (session: RemoteSession) in
-            query.isEmpty || [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) }
+            [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) }
         }
-        let sessions = client.groups.flatMap(\.sessions)
-        let needsYou = sessions.filter { $0.status == "waiting" }.sorted { $0.lastActivity > $1.lastActivity }
-        let working = sessions.filter { $0.status == "busy" }.sorted { $0.lastActivity > $1.lastActivity }
-        let unread = sessions.filter { $0.isUnread == true }
-        let orderedGroups = [
-            RemoteGroup(id: "needsYou", title: "Needs You", sessions: needsYou),
-            RemoteGroup(id: "working", title: "Working", sessions: working),
-            RemoteGroup(id: "unread", title: "Unread", sessions: unread),
-        ] + client.groups.filter { $0.id == "starting" }
-            + client.groups.filter { $0.id == "pinned" }
-            + client.groups.filter { $0.id != "starting" && $0.id != "pinned" }
+        return client.groups.compactMap { group in
+            let sessions = group.sessions.filter(matches)
+            guard !sessions.isEmpty else { return nil }
 
-        var placed: Set<String> = []
-        var groups: [RemoteGroup] = []
-        for group in orderedGroups {
-            var sessions: [RemoteSession] = []
-            for session in group.sessions where matches(session) && placed.insert(session.id).inserted {
-                sessions.append(session)
-            }
-            guard !sessions.isEmpty else { continue }
-
-            groups.append(RemoteGroup(id: group.id, title: group.title, sessions: sessions))
+            return RemoteGroup(id: group.id, title: group.title, sessions: sessions, isCollapsed: group.isCollapsed, visibleCount: group.visibleCount)
         }
-        return groups
     }
 }
 
