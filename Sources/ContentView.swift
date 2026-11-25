@@ -135,7 +135,11 @@ struct ContentView: View {
                     .listStyle(.sidebar)
                     .glassSidebarTint(store.theme)
                     .background(ScrollPocketSeparatorRemover())
-                    .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs, $0 >= 220 { trailingSidebarWidth = $0 } }
+                    .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
+                        guard store.persistsTabs, width >= 220, abs(width - trailingSidebarWidth) >= 0.5 else { return }
+
+                        DispatchQueue.main.async { trailingSidebarWidth = width }
+                    }
                     .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
                     .toolbar {
                         if showsSessions { ToolbarItem(placement: .primaryAction) { sessionsToggle } }
@@ -246,7 +250,9 @@ extension ContentView {
     private var measuredSessionPanel: some View {
         SessionPanel()
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-                if showsPanelSidebar, width >= 220 { paneSidebarWidth = width }
+                guard showsPanelSidebar, width >= 220, abs(width - paneSidebarWidth) >= 0.5 else { return }
+
+                DispatchQueue.main.async { paneSidebarWidth = width }
             }
     }
 
@@ -395,7 +401,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         let insets = NSEdgeInsets(top: 0, left: isDiffLeading ? sessionInset : 0, bottom: 0, right: isDiffLeading ? 0 : sessionInset)
         let current = terminalView.additionalSafeAreaInsets
         if current.left != insets.left || current.right != insets.right {
-            terminalView.additionalSafeAreaInsets = insets
+            DispatchQueue.main.async { terminalView.additionalSafeAreaInsets = insets }
         }
         let leadsDiff = isDiffLeading || isTerminalBelow
         let flipsOrientation = split.splitView.isVertical == isTerminalBelow

@@ -174,6 +174,10 @@ extension Snapshot {
                 }
             }
         }
+        for round in 0..<50 {
+            if round.isMultiple(of: 2) { store.showBrowserPane() } else { store.showChangesPane() }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
         root.layoutSubtreeIfNeeded()
         print("pane widths stress PASS: \(passes) divider drags across 8 window widths and 4 modes without a layout exception")
     }
