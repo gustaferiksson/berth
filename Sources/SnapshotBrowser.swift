@@ -95,6 +95,8 @@ extension Snapshot {
         if let view = shown?.loadedWebView {
             let userAgent = try? await view.evaluateJavaScript("navigator.userAgent") as? String
             print("browser user agent \(userAgent ?? "unavailable")")
+            let scheme = try? await view.evaluateJavaScript("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'") as? String
+            print("browser prefers-color-scheme \(scheme ?? "unavailable")")
         }
         if UserDefaults.standard.bool(forKey: "snapshotPaneWidths") { await probePaneWidths(store: store, window: window) }
     }

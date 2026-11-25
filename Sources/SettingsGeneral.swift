@@ -39,6 +39,7 @@ struct GeneralSettings: View {
     @AppStorage(BrowserModel.persistentDataKey) private var keepsWebsiteData = false
     @AppStorage(BrowserModel.linksKey) private var linkTarget = BrowserLinkTarget.defaultBrowser
     @AppStorage(BrowserModel.githubLinksKey) private var opensGitHubInBerth = false
+    @AppStorage(BrowserModel.appearanceKey) private var browserAppearance = BrowserAppearance.auto
 
     private var codexModels: [CodexModel] { CodexModels.load(from: Store.codexDirectory) }
 
@@ -123,6 +124,9 @@ struct GeneralSettings: View {
                     Text("Berth’s browser").tag(BrowserLinkTarget.berth)
                 }
                 Toggle("Open GitHub links in Berth’s browser", isOn: $opensGitHubInBerth)
+                Picker("Web page appearance", selection: $browserAppearance) {
+                    ForEach(BrowserAppearance.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
                 Toggle("Keep website data between launches", isOn: $keepsWebsiteData)
             } header: {
                 Text("Browser")
