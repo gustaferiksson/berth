@@ -29,7 +29,7 @@ enum NeedsYouAlerts {
         }
     }
 
-    private static func post(_ request: UNNotificationRequest) {
+    static func post(_ request: UNNotificationRequest) {
         let authorization = authorization ?? Task { await (try? UNUserNotificationCenter.current().requestAuthorization(options: [.alert])) ?? false }
         Self.authorization = authorization
         Task {

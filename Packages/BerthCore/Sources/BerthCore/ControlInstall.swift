@@ -57,6 +57,8 @@ public enum ControlInstall {
 
     Browser commands see only the current session’s tabs and omit pinned tabs. `--tab` accepts a unique id prefix. When omitted, Berth uses the selected session tab or falls back to the last session tab.
 
+    The first browser command in a session may wait up to 2 minutes while the user approves it in Berth. Don't retry it meanwhile. If it fails because access was denied or agent browser control is off, tell the user instead of retrying.
+
     You can only send to and close terminal and session tabs you opened. Close them when you are done with them. Output of a command that has exited is gone, so redirect it to a file if you need it.
     """
 
