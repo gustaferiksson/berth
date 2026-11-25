@@ -141,7 +141,7 @@ struct ConversationPrompt: View {
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(verbatim: "!")
-                    .foregroundStyle(theme.secondary)
+                    .foregroundStyle(theme.shellAttached)
                     .fixedSize()
                     .frame(width: markerWidth - 8, alignment: .leading)
                     .accessibilityHidden(true)
