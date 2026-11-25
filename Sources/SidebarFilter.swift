@@ -95,7 +95,7 @@ extension Store {
 
                 return hasUndismissedFailure(session) ? (session, 1) : nil
             }
-            .sorted { ($0.rank, $1.session.lastActivity) < ($1.rank, $0.session.lastActivity) }
+            .sorted { ($0.rank, $1.session.lastPrompt, $0.session.id) < ($1.rank, $0.session.lastPrompt, $1.session.id) }
             .map(\.session)
     }
 

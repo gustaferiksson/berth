@@ -130,7 +130,7 @@ public struct SessionGrouping: Sendable {
 
     public func groups(_ sessions: [SessionSummary]) -> [SessionGroup] {
         let byKind = Dictionary(grouping: sessions) { kind(forFolder: $0.checkout, lastPrompt: $0.lastPrompt) }
-            .mapValues { $0.sorted { $0.lastPrompt > $1.lastPrompt } }
+            .mapValues { $0.sorted { ($0.lastPrompt, $1.id) > ($1.lastPrompt, $0.id) } }
         let custom = customGroups.map { SessionGroup(kind: .custom($0), sessions: byKind[.custom($0)] ?? []) }
         let automatic = byKind.filter { if case .custom = $0.key { false } else { true } }
             .map { SessionGroup(kind: $0.key, sessions: $0.value) }
@@ -145,10 +145,9 @@ public struct SessionGrouping: Sendable {
     public func active(_ sessions: [SessionSummary], live: [String: LiveSession]) -> [SessionSummary] {
         guard mode.hasActive else { return [] }
 
-        let rank = ["waiting": 0, "busy": 1, "shell": 2]
         return sessions
             .filter { live[$0.id]?.status != nil }
-            .sorted { (rank[live[$0.id]?.status ?? ""] ?? 3, $1.lastActivity) < (rank[live[$1.id]?.status ?? ""] ?? 3, $0.lastActivity) }
+            .sorted { ($0.lastPrompt, $1.id) > ($1.lastPrompt, $0.id) }
     }
 
     public static func place(_ custom: [SessionGroup], among automatic: [SessionGroup]) -> [SessionGroup] {

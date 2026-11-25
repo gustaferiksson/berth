@@ -481,13 +481,14 @@ private struct SessionTime: View {
     }
 
     private func age(at now: Date) -> String {
-        let seconds = now.timeIntervalSince(session.lastActivity)
+        let shown = session.lastPrompt ?? session.lastActivity
+        let seconds = now.timeIntervalSince(shown)
         if seconds < 60 { return "Now" }
         if seconds < 3600 { return "\(Int(seconds / 60))m" }
-        if seconds < 6 * 3600 || Calendar.current.isDateInToday(session.lastActivity) { return "\(Int(seconds / 3600))h" }
-        if Calendar.current.isDateInYesterday(session.lastActivity) { return "Yesterday" }
-        if seconds < 6 * 86_400 { return session.lastActivity.formatted(.dateTime.weekday(.wide)) }
-        return session.lastActivity.formatted(.dateTime.day().month(.abbreviated))
+        if seconds < 6 * 3600 || Calendar.current.isDateInToday(shown) { return "\(Int(seconds / 3600))h" }
+        if Calendar.current.isDateInYesterday(shown) { return "Yesterday" }
+        if seconds < 6 * 86_400 { return shown.formatted(.dateTime.weekday(.wide)) }
+        return shown.formatted(.dateTime.day().month(.abbreviated))
     }
 }
 
