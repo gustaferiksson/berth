@@ -66,6 +66,13 @@ final class ControlService {
 
         if request.operation == .openPath { return openPath(request, for: caller) }
 
+        let isBrowserCommand = request.operation == .openURL || request.operation == .browserOpen || request.operation.isBrowser
+        if isBrowserCommand, let session = browserSession(for: caller) {
+            let summary = session.sessionID.flatMap { store.sessionsByID[$0] }
+            let title = summary?.title ?? URL(filePath: session.cwd).lastPathComponent
+            if let denial = await store.browser.access.authorize(key: BrowserModel.key(of: session), title: title) { return .failure(denial) }
+        }
+
         if request.operation == .openURL || request.operation == .browserOpen { return openURL(request, for: caller) }
 
         if request.operation.isBrowser { return await browser(request, for: caller) }
@@ -175,7 +182,7 @@ final class ControlService {
         guard url.map(WebAddress.allows) == true || (request.operation == .browserOpen && request.url == nil) else { return .failure("Pass one http or https URL") }
         guard let session = browserSession(for: caller) else { return .failure(Self.noBrowserSession) }
 
-        store.browser.open(url, in: BrowserModel.key(of: session), selects: request.background != true)
+        store.browser.open(url, in: BrowserModel.key(of: session), selects: request.background != true).isDrivenByAgent = true
         if request.background != true {
             store.activate(.tab(session.id))
             store.showBrowserPane()
@@ -217,6 +224,7 @@ final class ControlService {
             tab = active
         }
 
+        tab.isDrivenByAgent = true
         switch request.operation {
         case .browserURL: return ControlResponse(text: tab.url?.absoluteString ?? "")
 

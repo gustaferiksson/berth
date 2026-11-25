@@ -232,6 +232,9 @@ private struct BrowserHeader: View {
                 }
                 .help(tab.displayTitle)
             }
+            if let key = browser.sessionKey {
+                BrowserAgentAccessButton(browser: browser, key: key)
+            }
         } label: {
             controlIcon("square.on.square")
         }
@@ -374,6 +377,47 @@ private struct BrowserSessionTabs: View {
     }
 }
 
+private struct BrowserAgentAccessButton: View {
+    let browser: BrowserModel
+    let key: String
+
+    var body: some View {
+        switch browser.access.decisions[key] {
+        case .denied:
+            Button("Allow Agent Access") { browser.setAgentAccess(.allowed, for: key) }
+
+        case .allowed:
+            Button("Stop Agent Access") { browser.setAgentAccess(.denied, for: key) }
+
+        case nil:
+            if browser.tabs(in: key).contains(where: \.isDrivenByAgent) {
+                Button("Stop Agent Access") { browser.setAgentAccess(.denied, for: key) }
+            }
+        }
+    }
+}
+
+private struct BrowserAgentBadge: View {
+    let browser: BrowserModel
+    let key: String
+
+    var body: some View {
+        Menu {
+            BrowserAgentAccessButton(browser: browser, key: key)
+        } label: {
+            Text("Agent")
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.tint.opacity(0.2), in: .capsule)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("An agent is driving this tab")
+    }
+}
+
 private struct BrowserCloseButton: View {
     let browser: BrowserModel
     let tab: BrowserTab
@@ -433,6 +477,7 @@ private struct BrowserHeaderTab: View {
                     Button("Pin Tab") { browser.pin(tab) }
                 }
                 if let url = tab.url { BrowserLinkActions(browser: browser, url: url) }
+                BrowserAgentAccessButton(browser: browser, key: key)
                 Divider()
                 Button("Close Tab") { browser.close(tab, in: key) }
             }
@@ -482,6 +527,9 @@ private struct BrowserHeaderTab: View {
         .accessibilityLabel(tab.displayTitle)
         .overlay(alignment: .leading) {
             if isHovered { BrowserCloseButton(browser: browser, tab: tab) }
+        }
+        .overlay(alignment: .trailing) {
+            if tab.isDrivenByAgent, showsTitle, let key = browser.sessionKey { BrowserAgentBadge(browser: browser, key: key).padding(.trailing, 4) }
         }
     }
 
@@ -556,6 +604,7 @@ private struct BrowserAddressField: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .trailing) {
             HStack(spacing: 3) {
+                if isMerged, tab?.isDrivenByAgent == true, let key = browser.sessionKey { BrowserAgentBadge(browser: browser, key: key) }
                 if showsPageActions, let url = tab?.url {
                     Menu {
                         if isCompact {

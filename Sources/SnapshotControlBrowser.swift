@@ -12,7 +12,7 @@ extension Snapshot {
         else { fail("-snapshotControlBrowser needs CFFIXED_USER_HOME, -controlEnabled YES and the embedded berth-cli") }
 
         do {
-            try await probeControlBrowser(store: store, tool: tool)
+            try await probeControlBrowser(store: store, tool: tool, window: window, output: output)
             guard let image = image(of: window), let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
                 fail("couldn’t capture the browser control window")
             }
@@ -27,7 +27,7 @@ extension Snapshot {
         exit(0)
     }
 
-    private static func probeControlBrowser(store: Store, tool: URL) async throws {
+    private static func probeControlBrowser(store: Store, tool: URL, window: NSWindow, output: URL) async throws {
         await store.browser.prepareSnapshotRules()
         let folder = FileManager.default.temporaryDirectory.appending(path: "berth-control-browser-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -123,6 +123,7 @@ extension Snapshot {
         let other = browser.open(simplePage, in: otherSession.uuidString, title: "Other Session Fixture")
         store.activate(.tab(session))
         store.showBrowserPane()
+        browser.setAgentAccess(.allowed, for: key)
         let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
         if active.webView.responds(to: selector) { active.webView.perform(selector, with: nil) }
 
@@ -259,6 +260,98 @@ extension Snapshot {
         guard accepted.status == 0 else { fail("browser navigate should accept an HTTPS URL") }
 
         try await probeBrowserInteractions({ await berth(appending: $0) }, first: loggedPage, second: simplePage)
+
+        try await probeBrowserAccess(store: store, tool: tool, folder: folder, window: window, promptOutput: output.deletingPathExtension().appendingPathExtension("prompt.png"), session: (session.uuidString, environment, active))
+        store.activate(.tab(session))
+        store.showBrowserPane()
+        browser.select(active, in: key)
+        try await Task.sleep(for: .seconds(1))
+    }
+
+    private static func probeBrowserAccess(store: Store, tool: URL, folder: URL, window: NSWindow, promptOutput: URL, session main: (key: String, environment: [String: String], tab: BrowserTab)) async throws {
+        let browser = store.browser
+        let access = browser.access
+        let denied = "berth: " + BrowserAccess.deniedMessage
+
+        func setPolicy(_ policy: AgentBrowserPolicy) {
+            var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            arguments[BrowserAccess.policyKey] = policy.rawValue
+            UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        }
+
+        func newSession() -> (key: String, environment: [String: String]) {
+            let id = UUID()
+            let caller = UUID()
+            store.openShell(cwd: folder.path, command: "exec cat", id: id)
+            store.tabs = store.tabs.map { tab in
+                guard tab.id == id else { return tab }
+
+                return Tab(id: id, kind: .claude, cwd: folder.path, sessionID: id.uuidString, terminal: tab.terminal)
+            }
+            store.openShell(cwd: folder.path, command: "exec cat", id: caller, parent: id)
+            return (id.uuidString, store.control.environment(for: caller))
+        }
+
+        func run(_ environment: [String: String], _ args: String...) async -> (status: Int32, output: String) {
+            let result = await runControlCLI(tool, arguments: ["browser"] + args, environment: environment)
+            print("browser access \(args.joined(separator: " ")) [\(result.status)] \(result.output)")
+            return result
+        }
+
+        func prompt() async -> BrowserAccess.Request {
+            for _ in 0..<100 {
+                if let request = access.requests.first { return request }
+
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            fail("the first browser command from a session should raise an approval prompt")
+        }
+
+        let approved = newSession()
+        let waiting = Task { await run(approved.environment, "tabs") }
+        let request = await prompt()
+        try? await Task.sleep(for: .milliseconds(600))
+        guard access.decisions[approved.key] == nil, access.requests.count == 1, request.key == approved.key else { fail("the command should wait for an answer") }
+        guard let sheet = window.attachedSheet, let image = image(of: sheet), let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+            fail("the approval prompt should be attached to the window")
+        }
+
+        try png.write(to: promptOutput)
+        access.resolve(request, with: .allowed)
+        guard await waiting.value.status == 0, await run(approved.environment, "tabs").status == 0, access.requests.isEmpty else { fail("an approved session should run commands without another prompt") }
+
+        let refused = newSession()
+        let refusal = Task { await run(refused.environment, "tabs") }
+        await access.resolve(prompt(), with: .denied)
+        let first = await refusal.value
+        let second = await run(refused.environment, "tabs")
+        guard first.status == 1, first.output == denied, second.status == 1, second.output == denied, access.requests.isEmpty else { fail("a denied session should fail without prompting again") }
+
+        browser.setAgentAccess(.allowed, for: refused.key)
+        guard await run(refused.environment, "tabs").status == 0 else { fail("re-allowing a session should let its commands run") }
+
+        BrowserAccess.promptTimeout = .milliseconds(300)
+        let silent = newSession()
+        let timedOut = await run(silent.environment, "tabs")
+        BrowserAccess.promptTimeout = .seconds(120)
+        guard timedOut.status == 1, timedOut.output == "berth: " + BrowserAccess.unansweredMessage, access.requests.isEmpty, access.decisions[silent.key] == nil else { fail("an unanswered prompt should time out") }
+        guard main.tab.isDrivenByAgent else { fail("a tab the agent used should be marked") }
+
+        browser.setAgentAccess(.denied, for: main.key)
+        let mainTabID = String(main.tab.id.uuidString.lowercased().prefix(8))
+        let revoked = await run(main.environment, "url", "--tab", mainTabID)
+        guard !main.tab.isDrivenByAgent, revoked.status == 1, revoked.output == denied else { fail("revoking should clear the mark and refuse commands") }
+
+        browser.setAgentAccess(.allowed, for: main.key)
+        guard await run(main.environment, "url", "--tab", mainTabID).status == 0, main.tab.isDrivenByAgent else { fail("re-allowing should let the agent drive again") }
+
+        setPolicy(.off)
+        let off = await run(approved.environment, "tabs")
+        guard off.status == 1, off.output == "berth: " + BrowserAccess.offMessage else { fail("Off should refuse every agent browser command") }
+
+        setPolicy(.allow)
+        let always = newSession()
+        guard await run(always.environment, "tabs").status == 0, access.requests.isEmpty else { fail("Always allow should skip the prompt") }
     }
 
     private static func probeBrowserInteractions(_ berth: ([String]) async -> (status: Int32, output: String), first: URL, second: URL) async throws {

@@ -49,6 +49,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     var progress = 0.0
     var canGoBack = false
     var canGoForward = false
+    var isDrivenByAgent = false
     @ObservationIgnored var needsPageFocus = false
     @ObservationIgnored private(set) var loadedWebView: WKWebView?
     @ObservationIgnored var isTakingScreenshot = false
@@ -324,6 +325,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     var selectedIDs: [String: BrowserTab.ID] = [:]
     var downloads: [BrowserDownload] = []
     var addressFocusRequests = 0
+    let access = BrowserAccess()
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var appearanceObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var snapshotRules: WKContentRuleList?
@@ -401,6 +403,13 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         if selects, url == nil { addressFocusRequests += 1 }
         save()
         return tab
+    }
+
+    func setAgentAccess(_ decision: BrowserAccess.Decision, for key: String) {
+        access.decide(decision, for: key)
+        guard decision == .denied else { return }
+
+        for tab in tabs(in: key) { tab.isDrivenByAgent = false }
     }
 
     func openFromPage(_ url: URL, opener: BrowserTab, selects: Bool = true) {
