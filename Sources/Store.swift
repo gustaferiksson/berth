@@ -1389,7 +1389,14 @@ final class Store {
     }
 
     var focusedTerminal: TerminalViewState? {
-        tabs.first { $0.id == selectedTabID }?.terminal
+        let responder = NSApp.keyWindow?.firstResponder
+        return (tabs.first { $0.terminal.attachedPlatformView === responder } ?? tabs.first { $0.id == selectedTabID })?.terminal
+    }
+
+    func selectFocusedSurface() {
+        guard let tab = tabs.first(where: { $0.terminal === focusedTerminal }), tab.id != selectedTabID else { return }
+
+        selectedTabID = tab.id
     }
 
     var terminals: [Tab] {
