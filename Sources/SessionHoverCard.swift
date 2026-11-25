@@ -256,12 +256,12 @@ struct SessionHoverCard: View {
 
     private func excerptRow(_ excerpt: HoverExcerpt) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(excerpt.prompt)
+            Text(MarkdownBlock.compact(excerpt.prompt))
                 .font(.callout)
                 .foregroundStyle(.primary)
                 .lineLimit(3)
             if let reply = excerpt.reply {
-                Text(reply)
+                Text(MarkdownBlock.compact(reply))
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
