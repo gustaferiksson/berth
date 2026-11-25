@@ -125,6 +125,54 @@ extension Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotPaneWidths") { await probePaneWidths(store: store, window: window) }
         if UserDefaults.standard.bool(forKey: "snapshotRememberedSizes") { await probeRememberedSizes(store: store, window: window) }
+        if UserDefaults.standard.bool(forKey: "snapshotModeSwitch") { await probeModeSwitch(store: store, window: window) }
+    }
+
+    private static func probeModeSwitch(store: Store, window: NSWindow) async {
+        guard let session = store.sessionTab else {
+            print("mode switch FAIL: no session")
+            return
+        }
+
+        func diffColumnIsCollapsed(in view: NSView) -> Bool? {
+            if let controller = (view as? NSSplitView)?.delegate as? TerminalSplitController { return controller.diff?.isCollapsed }
+            return view.subviews.lazy.compactMap(diffColumnIsCollapsed).first
+        }
+
+        func settle() async {
+            try? await Task.sleep(for: .milliseconds(400))
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+
+        func check(_ label: String, expects mode: SessionPane) async {
+            store.selectPane(mode)
+            await settle()
+            let isColumnShown = window.contentView.flatMap(diffColumnIsCollapsed) == false
+            print("mode switch \(label) -> \(mode.title) \(store.shownPane == mode && store.sessionPane == mode && isColumnShown ? "PASS" : "FAIL"): shown \(store.shownPane?.title ?? "hidden"), column \(isColumnShown ? "visible" : "collapsed")")
+        }
+
+        let key = BrowserModel.key(of: session)
+        let docs = store.browser.open(URL(string: "about:blank"), in: key, title: "Docs")
+        store.browser.pin(docs)
+        for step in ["opened tab", "navigated", "pinned selected", "session tab selected"] {
+            store.showBrowserPane()
+            switch step {
+            case "opened tab": store.browser.open(nil, in: key)
+            case "navigated": store.browser.shownTab?.load(URL(string: "about:blank")!)
+            case "pinned selected": store.browser.select(docs, in: key)
+            default: if let tab = store.browser.tabs(in: key).first { store.browser.select(tab, in: key) }
+            }
+            await settle()
+            await check("browser after \(step)", expects: .changes)
+        }
+
+        for from in SessionPane.allCases where from != .tasks {
+            for to in SessionPane.allCases where to != .tasks && to != from {
+                store.selectPane(from)
+                await settle()
+                await check(from.title, expects: to)
+            }
+        }
     }
 
     private static func probePaneWidths(store: Store, window: NSWindow) async {
