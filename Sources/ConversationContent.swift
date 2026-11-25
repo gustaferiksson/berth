@@ -732,20 +732,18 @@ private struct ConversationPromptImage: View {
                 ConversationImagePreview.shared.showOriginal(original)
             }
         } label: {
-            Group {
+            VStack(alignment: .trailing, spacing: 4) {
                 if let image {
+                    let scale = min(240 / image.size.width, 120 / image.size.height)
                     Image(nsImage: image)
                         .resizable()
-                        .scaledToFit()
+                        .frame(width: image.size.width * scale, height: image.size.height * scale)
+                        .clipShape(.rect(cornerRadius: 8, style: .continuous))
                 } else {
                     Color.clear
+                        .frame(width: 160, height: 120)
                 }
-            }
-            .frame(width: image.map { min(240, 120 * $0.size.width / max($0.size.height, 1)) } ?? 160, height: 120)
-            .clipShape(.rect(cornerRadius: 10))
-            .overlay(alignment: .bottomLeading) {
                 ConversationImageTag(number: number)
-                    .padding(4)
             }
         }
         .buttonStyle(.plain)
