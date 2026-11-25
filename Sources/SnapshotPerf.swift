@@ -34,7 +34,7 @@ extension Snapshot {
         return (seconds(usage.ru_utime) + seconds(usage.ru_stime)) * 1000
     }
 
-    private static func sidebarSplitController(in view: NSView) -> NSSplitViewController? {
+    static func sidebarSplitController(in view: NSView) -> NSSplitViewController? {
         let controller = (view as? NSSplitView)?.delegate as? NSSplitViewController
         if let controller, controller.splitViewItems.contains(where: { $0.behavior == .sidebar }) { return controller }
 
