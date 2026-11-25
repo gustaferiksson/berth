@@ -43,7 +43,7 @@ struct ReviewIssueCard: View {
                 .foregroundStyle(.secondary)
                 if let title {
                     Text(title)
-                        .font(.callout.weight(.medium))
+                        .font(.headline)
                         .lineLimit(2)
                 }
                 if preview?.assignees.isEmpty == false || preview?.labels.isEmpty == false || status != nil {
@@ -66,7 +66,7 @@ struct ReviewIssueCard: View {
                     .lineLimit(1)
                 }
             }
-            .modifier(ReviewPullRequestCardChrome(restingOpacity: 0.04))
+            .modifier(ReviewPullRequestCardChrome(tint: .indigo))
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -175,13 +175,13 @@ struct ReviewPullRequestCard: View {
 
 private struct ReviewPullRequestCardChrome: ViewModifier {
     var isSelected = false
-    var restingOpacity = 0.07
+    var tint: Color?
     @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
 
     private var fillOpacity: Double {
         if isSelected { return 0.14 }
-        return isHovering ? restingOpacity + 0.03 : restingOpacity
+        return isHovering ? 0.10 : 0.07
     }
 
     func body(content: Content) -> some View {
@@ -189,6 +189,7 @@ private struct ReviewPullRequestCardChrome: ViewModifier {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(theme.foreground.opacity(fillOpacity), in: .rect(cornerRadius: 12, style: .continuous))
+            .background(tint?.opacity(0.07) ?? .clear, in: .rect(cornerRadius: 12, style: .continuous))
             .contentShape(.rect(cornerRadius: 12, style: .continuous))
             .onHover { isHovering = $0 }
     }
