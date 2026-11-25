@@ -43,6 +43,7 @@ private struct BrowserHeader: View {
     let browser: BrowserModel
     let tab: BrowserTab?
     @State private var width: CGFloat = 0
+    @State private var pinnedViewportWidth: CGFloat = 0
 
     var body: some View {
         let pinned = browser.pinned
@@ -97,9 +98,27 @@ private struct BrowserHeader: View {
     }
 
     private func expandedPinnedTabs(_ pinned: [BrowserTab], spacing: CGFloat, isCompact: Bool) -> some View {
-        HStack(spacing: spacing) {
-            ForEach(pinned) { pinnedTab in
-                BrowserHeaderTab(browser: browser, tab: pinnedTab, isPinned: true, isSelected: pinnedTab === tab, isCompact: isCompact) { select(pinnedTab) }
+        let circlesWidth = CGFloat(pinned.count - 1) * (Self.controlSize + spacing)
+        let idealActive = min(BrowserSessionTabs.maximumActiveWidth, max(BrowserSessionTabs.minimumActiveWidth, BrowserSessionTabs.activeShare * BrowserSessionTabs.maximumTabWidth))
+        let activeWidth = min(idealActive, max(BrowserSessionTabs.minimumActiveWidth, pinnedViewportWidth - circlesWidth))
+        let selection = pinned.first { $0 === tab }?.id
+        return ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: spacing) {
+                    ForEach(pinned) { pinnedTab in
+                        let isSelected = pinnedTab === tab
+                        BrowserHeaderTab(browser: browser, tab: pinnedTab, isPinned: true, isSelected: isSelected, isCompact: isCompact) { select(pinnedTab) }
+                            .frame(width: isSelected ? activeWidth : Self.controlSize)
+                            .id(pinnedTab.id)
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .frame(minWidth: BrowserSessionTabs.minimumActiveWidth, maxWidth: circlesWidth + idealActive)
+            .frame(height: Self.controlSize)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pinnedViewportWidth = $0 }
+            .onChange(of: selection, initial: true) {
+                if let selection { proxy.scrollTo(selection, anchor: .center) }
             }
         }
     }
@@ -260,8 +279,8 @@ private struct BrowserHeader: View {
 private struct BrowserSessionTabs: View {
     private static let minimumTabWidth: CGFloat = 52
     static let minimumActiveWidth: CGFloat = 260
-    private static let activeShare: CGFloat = 1.6
-    private static let maximumTabWidth: CGFloat = 220
+    static let activeShare: CGFloat = 1.6
+    static let maximumTabWidth: CGFloat = 220
     static let maximumActiveWidth: CGFloat = 400
     private static let minimumTitleWidth: CGFloat = 120
     private static let capsuleInset: CGFloat = 3
@@ -282,7 +301,7 @@ private struct BrowserSessionTabs: View {
         let inactiveCount = CGFloat(tabs.count - (selection == nil ? 0 : 1))
         let maximumWidth = inactiveCount * Self.maximumTabWidth + (selection == nil ? 0 : Self.maximumActiveWidth) + 2 * Self.capsuleInset
         Color.clear
-            .frame(minWidth: selection == nil ? 0 : Self.minimumActiveWidth + 2 * Self.capsuleInset, maxWidth: maximumWidth)
+            .frame(minWidth: (selection == nil ? Self.minimumTabWidth : Self.minimumActiveWidth) + 2 * Self.capsuleInset, maxWidth: maximumWidth)
             .frame(height: BrowserHeader.controlSize + 4)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { stripWidth = $0 }
             .overlay {
