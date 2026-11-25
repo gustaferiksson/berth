@@ -234,13 +234,14 @@ private struct PromptBubble: View {
                         if let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 {
                             let scale = min(200 / image.size.width, 120 / image.size.height)
                             Button { viewerStart = viewerImages[index] } label: {
-                                VStack(alignment: .trailing, spacing: 4) {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .frame(width: image.size.width * scale, height: image.size.height * scale)
-                                        .clipShape(.rect(cornerRadius: 8, style: .continuous))
-                                    PromptImageTag(number: number)
-                                }
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .frame(width: image.size.width * scale, height: image.size.height * scale)
+                                    .clipShape(.rect(cornerRadius: 8, style: .continuous))
+                                    .overlay(alignment: .bottomLeading) {
+                                        PromptImageTag(number: number)
+                                            .padding(4)
+                                    }
                             }
                             .buttonStyle(.plain)
                             .accessibilityHint("Opens the image full screen")
