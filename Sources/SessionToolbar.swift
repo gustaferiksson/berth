@@ -3,7 +3,7 @@ import SwiftUI
 
 extension Store {
     var showsSessionToolbar: Bool {
-        !isHarborShown && (selectedSessionID != nil || shownPane == .browser)
+        !isHarborShown && (selectedSessionID != nil || shownPane == .browser || canShowTasksPane)
     }
 }
 

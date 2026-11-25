@@ -2,17 +2,20 @@ import GhosttyTerminal
 import SwiftUI
 
 enum SessionPane: String, CaseIterable {
-    case changes, files, browser, terminal
+    case changes, files, browser, terminal, tasks
 
     var title: String {
         rawValue.capitalized
     }
 
     var action: AppAction {
-        if self == .terminal { return .switchTerminal }
-        if self == .browser { return .showBrowser }
-        if self == .files { return .showFilesPane }
-        return .showChangesPane
+        switch self {
+        case .changes: .showChangesPane
+        case .files: .showFilesPane
+        case .browser: .showBrowser
+        case .terminal: .switchTerminal
+        case .tasks: .showTasksPane
+        }
     }
 }
 
@@ -36,6 +39,7 @@ struct PaneHost: View {
             .overlay { CardBorder() }
             .opacity(isTerminal ? 1 : 0)
             if store.sessionPane == .browser { BrowserPane(store: store) }
+            if store.shownPane == .tasks { BackgroundTaskPane(store: store) }
         }
         .environment(store)
         .environment(\.openURL, store.linkOpeningAction)
@@ -77,12 +81,11 @@ struct SessionPanel: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        if store.sessionPane == .terminal {
-            TerminalList()
-        } else if store.sessionPane == .files {
-            FilesPanel()
-        } else {
-            ReviewPanel()
+        switch store.sessionPane {
+        case .terminal: TerminalList()
+        case .files: FilesPanel()
+        case .tasks: BackgroundTaskSidebar(store: store)
+        case .changes, .browser: ReviewPanel()
         }
     }
 }
@@ -92,9 +95,21 @@ struct ModeSwitcher: View {
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
 
     var body: some View {
-        let modes = isReviewEnabled ? SessionPane.allCases : [.browser, .terminal]
+        let modes = SessionPane.allCases.filter { mode in
+            switch mode {
+            case .changes, .files: isReviewEnabled
+            case .browser, .terminal: true
+            case .tasks: store.canShowTasksPane
+            }
+        }
         ModeSegments(modes: modes, selected: store.shownPane) { mode in
-            if store.shownPane == mode { store.hideSessionPanel() } else if mode == .terminal { store.showTerminalPane() } else if mode == .browser { store.showBrowserPane() } else if mode == .files { store.showFilesPane() } else { store.showChangesPane() }
+            if store.shownPane == mode {
+                store.hideSessionPanel()
+            } else if mode == .terminal {
+                store.showTerminalPane()
+            } else {
+                mode.action.perform(on: store)
+            }
         }
         .frame(minWidth: CGFloat(modes.count) * 36, minHeight: 24)
         .fixedSize()
@@ -138,7 +153,7 @@ private struct ModeSegments: NSViewRepresentable {
         context.coordinator.choose = choose
         control.segmentCount = modes.count
         for (index, mode) in modes.enumerated() {
-            let keys = ["changes": "⇧⌘D", "files": "⇧⌘E", "browser": "⇧⌘B", "terminal": "⌘J"][mode.rawValue] ?? ""
+            let keys = ["changes": "⇧⌘D", "files": "⇧⌘E", "browser": "⇧⌘B", "terminal": "⌘J", "tasks": "⇧⌘A"][mode.rawValue] ?? ""
             control.setImage(NSImage(systemSymbolName: mode.action.symbol, accessibilityDescription: mode.title), forSegment: index)
             control.setToolTip("\(mode.title) (\(keys))", forSegment: index)
             control.setWidth(32, forSegment: index)

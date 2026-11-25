@@ -90,14 +90,6 @@ struct ConversationSubagentView: View {
     let back: () -> Void
 
     @Environment(\.ghosttyTheme) private var theme
-    @State private var selection: ConversationSelection
-
-    init(model: ConversationSubagentModel, back: @escaping () -> Void) {
-        self.model = model
-        self.back = back
-        _selection = State(initialValue: ConversationSelection { [model] in model.turns })
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 16) {
@@ -132,34 +124,52 @@ struct ConversationSubagentView: View {
             }
             .padding(18)
             Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
-                    ForEach(model.turns) { turn in
-                        let isCurrent = turn.id == model.turns.last?.id
-                        ConversationTurnView(
-                            turn: turn,
-                            isFinished: model.subagent.isFinished || !isCurrent,
-                            isWorking: !model.subagent.isFinished && isCurrent,
-                            agent: model.harness.agent,
-                            waitingFor: nil,
-                            since: turn.prompt?.date,
-                            tasks: [],
-                            details: model.details,
-                            reviewChanges: nil
-                        )
-                    }
-                }
-                .frame(maxWidth: theme.messageWidth, alignment: .leading)
-                .padding(18)
-                .frame(maxWidth: .infinity, alignment: .top)
-            }
-            .defaultScrollAnchor(.bottom)
-            .environment(\.conversationSelection, selection)
+            ConversationSubagentTranscript(model: model, isFinished: model.subagent.isFinished)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(theme.foreground)
         .background(theme.background ?? Color(nsColor: .textBackgroundColor))
         .onAppear { model.start() }
         .onDisappear { model.stop() }
+    }
+}
+
+struct ConversationSubagentTranscript: View {
+    let model: ConversationSubagentModel
+    let isFinished: Bool
+
+    @Environment(\.ghosttyTheme) private var theme
+    @State private var selection: ConversationSelection
+
+    init(model: ConversationSubagentModel, isFinished: Bool) {
+        self.model = model
+        self.isFinished = isFinished
+        _selection = State(initialValue: ConversationSelection { [model] in model.turns })
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                ForEach(model.turns) { turn in
+                    let isCurrent = turn.id == model.turns.last?.id
+                    ConversationTurnView(
+                        turn: turn,
+                        isFinished: isFinished || !isCurrent,
+                        isWorking: !isFinished && isCurrent,
+                        agent: model.harness.agent,
+                        waitingFor: nil,
+                        since: turn.prompt?.date,
+                        tasks: [],
+                        details: model.details,
+                        reviewChanges: nil
+                    )
+                }
+            }
+            .frame(maxWidth: theme.messageWidth, alignment: .leading)
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .modifier(FollowsLatestOutput())
+        .environment(\.conversationSelection, selection)
     }
 }

@@ -31,6 +31,8 @@ Add `-snapshotFakeStatus YES` to fake the top project's first three sessions as 
 
 Add `-snapshotItemPreview "pr|issue|pr-checks"` with one of the three values to render a standalone fixture card at 2×. The `pr-checks` variant expands the checks disclosure. With `-snapshot /abs/out.png`, the card is written to `/abs/out.png.preview-<value>.png`.
 
+`-snapshotBackgroundTasks YES -AppleInterfaceStyle Dark` opens Tasks mode with invented transcript, subagent and output files in a temporary directory. Use an empty `CFFIXED_USER_HOME` to isolate the sessions sidebar. The default capture selects the running shell and appends one line after the pane opens. Use `-snapshotBackgroundTask agent|finished|terminal` to select the corresponding row. The terminal variant checks surface identity and session width across mode switches. Pass `-snapshotWindowWidth 1500` for room for both sidebars.
+
 ## Launcher, palette, search, stats and dialogs
 
 `-snapshotLauncher "<query>"` (opens the ⌘N launcher with that query), `-snapshotPalette "<query>"` (opens the ⌘K palette with that query; add `-snapshotClaude /abs/dir` for an open tab in its Sessions section), `-snapshotSearch "<query>"` (opens search mode with that query and prints index build time, text size, memory footprint and the hits once the whole index, subagents included, is built: add `-snapshotHold 6` or it exits first), `-snapshotStats YES` (captures the Stats view in its own 960×800 window after the index is built and prints build time, footprint, the 30-day token totals and the tile values), `-snapshotEditGroup "<name>"` (captures the group editor for that group, or a new one for an unknown name, in its own window: a real `.sheet` moved the offscreen window onto the screen), `-snapshotRestartBanner "<version>"` (the update restart banner, 18 s deadline), and `-snapshotHold <s>` to keep the window up longer (for CPU checks).
@@ -170,6 +172,8 @@ Berth Remote's DEBUG `-snapshotExpanded YES` and `-snapshotExpandedCalls YES` op
 More DEBUG flags: `-snapshotPullRequest YES`, `-snapshotChanges YES` (open those sheets), `-snapshotQuery "<text>"` (list search), `-snapshotTray YES` (quick reply tray), `-snapshotIntent "<spec>"` with `-snapshotIntentConnect "<url>|<token>"` (runs an intent against a Mac and prints the result).
 
 `-snapshotDemo YES` opens a sample session without a Mac server. Add `-snapshotDemoImageOnly YES` to end the session with an image-only prompt. Add `-snapshotDemoList YES` to stay on the session list with Needs You, Working and Unread triage sections, PR tags with running, passed and failed checks, long branches, and Claude and Codex usage rows with stale Codex data. Add `-snapshotDemoFocus YES` to focus the composer after 1.5 seconds.
+
+Add `-snapshotDemoCode YES` to append a fenced code block with one long line and two multi-command shell rows with stdout and empty stderr. The longer output starts collapsed. Combine it with `-snapshotDemoImageOnly YES` to end the same transcript with the image-only prompt.
 
 On the Mac, run Berth with `-snapshotRemoteSections /abs/out.json -snapshotBusySidebar YES` to write the seeded sidebar sections as wire-format JSON and exit. In the iOS simulator, launch Berth Remote with `-snapshotDemoSectionsFile /abs/in.json` pointing to the exported file to open it in the demo session list.
 
@@ -326,4 +330,3 @@ It also runs `open-session --cwd <dir> --background -- "hello"` with the system 
 - `-snapshotReviewHidePanel`: design/flows-sidebar.md
 - `-snapshotReviewConversation`: design/flows-sidebar.md
 - `-snapshotPreview`: design/review-implementation.md
-- `-snapshotConversationTasks`: design/conversation.md

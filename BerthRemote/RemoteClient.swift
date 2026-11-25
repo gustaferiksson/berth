@@ -180,6 +180,18 @@ final class RemoteClient {
             Finally, reload the feed from an empty state and confirm that the first page appears at the top. If the entry you were reading has been deleted, the feed should restore the nearest remaining entry.
             """),
         ]
+        if UserDefaults.standard.bool(forKey: "snapshotDemoCode") {
+            let path = String(repeating: "/Users/x/Repos/berth/git/refs/heads/browser-read-access", count: 3)
+            let command = "cd /tmp && for i in 408 409 410 412 325; do gh issue close $i -R gustaferiksson/berth -r completed; done; gh pr close 381 -R gustaferiksson/berth; gh pr close 382 -R gustaferiksson/berth; gh api -X DELETE repos/gustaferiksson/berth/git/refs/heads/browser-read-access"
+            let output = [408, 409, 410, 412, 325].map { "Closed issue #\($0)" } + [381, 382].map { "Closed pull request #\($0)" }
+            entries[session.id]?.append(contentsOf: [
+                RemoteEntry(id: "reply-code", kind: .reply, text: "```\n\(path)\n```"),
+                RemoteEntry(id: "prompt-shell", kind: .prompt, text: command, name: "bash", command: command),
+                RemoteEntry(id: "output-shell", kind: .toolResult, text: output.prefix(3).joined(separator: "\n"), name: "bash-output"),
+                RemoteEntry(id: "prompt-shell-long", kind: .prompt, text: command, name: "bash", command: command),
+                RemoteEntry(id: "output-shell-long", kind: .toolResult, text: output.joined(separator: "\n"), name: "bash-output"),
+            ])
+        }
         if UserDefaults.standard.bool(forKey: "snapshotDemoImageOnly") {
             let image = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 160)).pngData { context in
                 UIColor.systemTeal.setFill()

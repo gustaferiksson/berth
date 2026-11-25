@@ -29,6 +29,7 @@ struct ContentView: View {
     var body: some View {
         @Bindable var store = store
         let selected = store.tabs.first { $0.id == store.selectedTabID }
+        let taskSource = store.backgroundTaskSource
         let isTrailing = sidebarPosition == .right
         let reviewRoots = showsPanel ? store.sessionReviewModels.compactMap { $0.changes?.root } : []
         let folderWithoutRepository: String? = if showsPanel, let model = store.primaryReviewModel, case ReviewGitError.notARepository? = model.error { model.folder } else { nil }
@@ -178,6 +179,11 @@ struct ContentView: View {
             guard showsPanel else { return }
 
             Task { for model in store.sessionReviewModels { await model.load() } }
+        }
+        .task(id: taskSource) {
+            if let taskSource, taskSource.agent.harness.usesTranscriptActivity {
+                await store.backgroundTaskModel.observe(taskSource, store: store)
+            }
         }
         .onChange(of: showsColumn) {
             guard !showsColumn else { return }

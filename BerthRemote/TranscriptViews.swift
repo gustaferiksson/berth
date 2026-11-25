@@ -150,8 +150,12 @@ struct PendingPromptBubble: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            PromptBubble(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text), attachments: attachments)
-                .opacity(0.6)
+            if attachments.isEmpty, let command = prompt.shellCommand {
+                PromptBubble(entry: RemoteEntry(id: "", kind: .prompt, text: command, name: "bash", command: command), isShellRunning: !prompt.isFailed)
+            } else {
+                PromptBubble(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text), attachments: attachments)
+                    .opacity(0.6)
+            }
             if prompt.isFailed {
                 HStack(spacing: 4) {
                     Text("Not sent")
@@ -197,6 +201,7 @@ private struct PromptBubble: View {
     let entry: RemoteEntry
     var isQueued = false
     var attachments: [Attachment]?
+    var isShellRunning = false
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
@@ -226,17 +231,16 @@ private struct PromptBubble: View {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
                         let number = numbers[index]
-                        if let image = UIImage(data: data), image.size.height > 0 {
+                        if let image = UIImage(data: data), image.size.width > 0, image.size.height > 0 {
+                            let scale = min(200 / image.size.width, 120 / image.size.height)
                             Button { viewerStart = viewerImages[index] } label: {
-                                Image(uiImage: image)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: min(200, 120 * image.size.width / image.size.height), height: 120)
-                                    .clipShape(.rect(cornerRadius: 14))
-                                    .overlay(alignment: .bottomLeading) {
-                                        PromptImageTag(number: number)
-                                            .padding(4)
-                                    }
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .frame(width: image.size.width * scale, height: image.size.height * scale)
+                                        .clipShape(.rect(cornerRadius: 8, style: .continuous))
+                                    PromptImageTag(number: number)
+                                }
                             }
                             .buttonStyle(.plain)
                             .accessibilityHint("Opens the image full screen")
@@ -315,6 +319,11 @@ private struct PromptBubble: View {
                     .accessibilityHidden(true)
                 Text(verbatim: entry.text)
                     .textSelection(.enabled)
+                if isShellRunning, entry.shellOutput == nil, entry.shellError == nil {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Running")
+                }
             }
             if !lines.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -451,28 +460,27 @@ struct CodeBox: View {
     @State private var isCopied = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !language.isEmpty {
-                Text(language)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 10)
+        HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                if !language.isEmpty {
+                    Text(language)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                }
+                ScrollView(maxHeight.isFinite ? [.horizontal, .vertical] : .horizontal) {
+                    HighlightedText(text: text, language: syntax ?? language)
+                        .font((codeSize == "small" ? Font.caption : codeSize == "large" ? .callout : .footnote).monospaced())
+                        .lineSpacing(1)
+                        .textSelection(.enabled)
+                        .padding(12)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
+                }
+                .frame(height: maxHeight.isFinite ? min(height, maxHeight) : nil)
+                .scrollIndicators(.hidden)
             }
-            ScrollView(maxHeight.isFinite ? [.horizontal, .vertical] : .horizontal) {
-                HighlightedText(text: text, language: syntax ?? language)
-                    .font((codeSize == "small" ? Font.caption : codeSize == "large" ? .callout : .footnote).monospaced())
-                    .lineSpacing(1)
-                    .padding(12)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-            }
-            .frame(height: maxHeight.isFinite ? min(height, maxHeight) : nil)
-            .scrollIndicators(.hidden)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.map { AnyShapeStyle($0.opacity(0.12)) } ?? AnyShapeStyle(.fill.quaternary), in: .rect(cornerRadius: 12))
-        .textSelection(.enabled)
-        .overlay(alignment: .topTrailing) {
+
             Button {
                 UIPasteboard.general.string = text
                 isCopied = true
@@ -485,11 +493,15 @@ struct CodeBox: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .frame(width: 44, height: 44)
+                    .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(isCopied ? "Copied" : "Copy")
             .sensoryFeedback(.success, trigger: isCopied) { _, copied in copied }
         }
+        .textSelection(.disabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.map { AnyShapeStyle($0.opacity(0.12)) } ?? AnyShapeStyle(.fill.quaternary), in: .rect(cornerRadius: 12))
     }
 }
 

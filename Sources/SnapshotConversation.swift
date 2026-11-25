@@ -318,6 +318,12 @@ extension Snapshot {
             """, 1),
             prompt("<bash-input>ls missing-dir</bash-input>", 2),
             prompt("<bash-stderr>ls: missing-dir: No such file or directory</bash-stderr>", 1),
+            prompt("<bash-input>cd /tmp && for i in 408 409 410 412 325; do gh issue close $i -R gustaferiksson/berth -r completed; done; gh pr close 381 -R gustaferiksson/berth; gh pr close 382 -R gustaferiksson/berth; gh api -X DELETE repos/gustaferiksson/berth/git/refs/heads/browser-read-access</bash-input>", 2),
+            prompt("""
+            <bash-stdout>Closed issue #408
+            Closed issue #409
+            Closed issue #410</bash-stdout><bash-stderr></bash-stderr>
+            """, 1),
             base("user", 90, ["role": "user", "content": [["type": "text", "text": "Nice. Now add a plan name column, start the slow migration check in the background and have an agent review the docs. [Image #12] [Image #13]"], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]]]),
             assistant(5, [text("I'll add the column, then run both checks in parallel.")]),
             assistant(4, [use("t5", "Read", ["file_path": file])]),
