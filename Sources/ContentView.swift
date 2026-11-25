@@ -433,6 +433,7 @@ private final class GapSplitView: NSSplitView {
 private final class TerminalSplitController: NSSplitViewController {
     static let belowRatioKey = "reviewTerminalBelowRatio"
     static let belowRatioDefault = 0.6
+    private static let sessionHoldingPriority: NSLayoutConstraint.Priority = .defaultLow + 1
 
     var diff: NSSplitViewItem? {
         splitViewItems.first { $0.viewController is NSHostingController<PaneHost> }
@@ -466,7 +467,7 @@ private final class TerminalSplitController: NSSplitViewController {
         guard splitView.bounds.size != laidOutSize else { return }
 
         let isInitialLayout = laidOutSize == .zero
-        let shouldFit = !splitView.isVertical || terminal?.holdingPriority != .defaultHigh || windowWidthChanged
+        let shouldFit = !splitView.isVertical || terminal?.holdingPriority != Self.sessionHoldingPriority || windowWidthChanged
         laidOutSize = splitView.bounds.size
         if shouldFit {
             DispatchQueue.main.async { [weak self] in self?.fitDiff(preferring: isInitialLayout ? 760 : nil) }
@@ -518,8 +519,8 @@ private final class TerminalSplitController: NSSplitViewController {
         if abs(size - current) >= 1 {
             splitView.setPosition(splitViewItems.first === diff ? size : available - size, ofDividerAt: 0)
         }
-        if !isBelow, let terminal, terminal.holdingPriority != .defaultHigh, terminal.viewController.view.frame.width > 0, current > 0 {
-            terminal.holdingPriority = .defaultHigh
+        if !isBelow, let terminal, terminal.holdingPriority != Self.sessionHoldingPriority, terminal.viewController.view.frame.width > 0, diff.viewController.view.frame.width > 0 {
+            terminal.holdingPriority = Self.sessionHoldingPriority
         }
     }
 }

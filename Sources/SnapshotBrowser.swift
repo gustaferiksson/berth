@@ -122,6 +122,23 @@ extension Snapshot {
             return (session.frame.width - insets.left - insets.right, split.isVertical ? divider.maxX : divider.minY, pane.frame.width, split.bounds.width)
         }
 
+        let windowSize = window.contentRect(forFrameRect: window.frame).size
+        for width in [windowSize.width + 1, windowSize.width] {
+            window.setContentSize(NSSize(width: width, height: windowSize.height))
+            root.layoutSubtreeIfNeeded()
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        let beforeDrag = widths()
+        let position = split.arrangedSubviews[0].frame
+        let target = split.isVertical ? position.width + (isPaneLeading ? 100 : -100) : position.height + 100
+        split.setPosition(target, ofDividerAt: 0)
+        root.layoutSubtreeIfNeeded()
+        try? await Task.sleep(for: .milliseconds(600))
+        root.layoutSubtreeIfNeeded()
+        let dragged = widths()
+        let moved = abs(abs(dragged.divider - beforeDrag.divider) - 100) < 1
+        print("pane widths drag \(moved ? "PASS" : "FAIL"): session \(beforeDrag.session) -> \(dragged.session), divider \(beforeDrag.divider) -> \(dragged.divider), pane \(beforeDrag.pane) -> \(dragged.pane), split \(beforeDrag.split) -> \(dragged.split)")
+
         for mode: SessionPane in [.changes, .files, .browser, .terminal, .changes, .browser, .files, .terminal, .browser, .changes, .terminal, .files, .changes, .browser] {
             let previous = store.shownPane
             let before = widths()
@@ -134,7 +151,8 @@ extension Snapshot {
             try? await Task.sleep(for: .milliseconds(600))
             root.layoutSubtreeIfNeeded()
             let after = widths()
-            let result = before.session > 0 && before.session == after.session && store.shownPane == mode ? "PASS" : "FAIL"
+            let keptSize = split.isVertical ? abs(dragged.session - after.session) < 1 : abs(dragged.divider - after.divider) < 1
+            let result = dragged.session > 0 && keptSize && store.shownPane == mode ? "PASS" : "FAIL"
             print("pane widths \(previous?.title ?? "Hidden") -> \(mode.title) \(result): session \(before.session) -> \(after.session), divider \(before.divider) -> \(after.divider), pane \(before.pane) -> \(after.pane), split \(before.split) -> \(after.split)")
         }
     }
