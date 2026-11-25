@@ -106,8 +106,10 @@ jobs:
           retention-days: 7
 
   publish:
-    # The shared workflow creates the release, so this job only uploads to it.
+    # The shared workflow creates the release, so this job only uploads to it (and fails if it is missing).
+    # It still runs when a late release step such as the cask bump fails, because the release job stays red.
     needs: [ release, ios ]
+    if: ${{ !cancelled() && needs.ios.result == 'success' }}
     name: IPA and install page
     runs-on: ubuntu-latest
     permissions:
@@ -134,6 +136,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           cp dist/BerthRemote.ipa "dist/BerthRemote-$version.ipa"
+          gh release view "$GITHUB_REF_NAME" >/dev/null
           gh release upload --clobber "$GITHUB_REF_NAME" "dist/BerthRemote-$version.ipa" dist/manifest.plist
 
       - name: Stage the install page

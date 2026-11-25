@@ -20,6 +20,8 @@ git tag v0.2.0  →  push  →  [release.yml]
                               └─ bump Casks/berth.rb in gustaferiksson/homebrew-tap
 ```
 
+The IPA and install page job runs even when the shared workflow's cask bump fails (the run stays red); the cask push retry belongs in `gustaferiksson/macos-release`.
+
 The Mac build and the IPA job restore main CI's `.build` cache (`mac-Release-*`, `ios-Release-*`) and never save one, so a release compiles only what changed since the last green main commit.
 
 The tag sets the version (`v0.2.0` → `CFBundleShortVersionString` `0.2.0`); the build number is the Actions run
