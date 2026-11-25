@@ -48,11 +48,21 @@ extension Snapshot {
         for index in 0..<extraTabs {
             store.browser.open(nil, in: session.id, title: "Document \(index + 1)", selects: false)
         }
-        for (index, page) in browserPages.enumerated() {
-            let tab = store.browser.open(folder.appending(path: page.file), in: session.id, title: page.title)
-            if index < 2 { store.browser.pin(tab) }
+        let scenario = UserDefaults.standard.string(forKey: "snapshotBrowserPin") ?? ""
+        if scenario == "single" || scenario == "pinOnly" {
+            let tab = store.browser.open(folder.appending(path: "invoices.html"), in: session.id, title: "Invoices")
+            if scenario == "pinOnly" { store.browser.pin(tab) }
+        } else if scenario == "pinnedActive" {
+            let docs = store.browser.open(folder.appending(path: "docs.html"), in: session.id, title: "Berth Docs")
+            store.browser.open(folder.appending(path: "invoices.html"), in: session.id, title: "Invoices", selects: false)
+            store.browser.pin(docs)
+        } else {
+            for (index, page) in browserPages.enumerated() {
+                let tab = store.browser.open(folder.appending(path: page.file), in: session.id, title: page.title)
+                if index < 2 { store.browser.pin(tab) }
+            }
+            store.browser.select(store.browser.tabs(in: session.id)[extraTabs], in: session.id)
         }
-        store.browser.select(store.browser.tabs(in: session.id)[extraTabs], in: session.id)
         store.showBrowserPane()
         for tab in store.browser.pinned + store.browser.tabs(in: session.id) where tab.url != nil {
             let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")

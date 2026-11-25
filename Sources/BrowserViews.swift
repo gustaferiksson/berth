@@ -245,7 +245,7 @@ private struct BrowserHeader: View {
 private struct BrowserSessionTabs: View {
     private static let minimumTabWidth: CGFloat = 52
     private static let minimumActiveWidth: CGFloat = 160
-    private static let minimumTitleWidth: CGFloat = 104
+    private static let minimumTitleWidth: CGFloat = 120
     private static let capsuleInset: CGFloat = 3
     private static let dropWidth: CGFloat = 6
     private static let fadeWidth: CGFloat = 16
@@ -336,6 +336,26 @@ private struct BrowserSessionTabs: View {
     }
 }
 
+private struct BrowserCloseButton: View {
+    let browser: BrowserModel
+    let tab: BrowserTab
+
+    var body: some View {
+        if let key = browser.sessionKey {
+            Button { browser.close(tab, in: key) } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 16, height: 22)
+                    .contentShape(.rect)
+            }
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Close Tab")
+            .help("Close Tab")
+            .padding(.leading, 8)
+        }
+    }
+}
+
 private struct BrowserHeaderTab: View {
     let browser: BrowserModel
     let tab: BrowserTab
@@ -352,11 +372,8 @@ private struct BrowserHeaderTab: View {
             if isPinned {
                 pinnedButton
             } else if isSelected {
-                BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact)
+                BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact, showsClose: isHovered)
                     .frame(height: BrowserHeader.controlSize - 2)
-                    .overlay(alignment: .leading) {
-                        if isHovered { closeButton }
-                    }
                     .onHover { isHovering = $0 }
             } else {
                 sessionButton
@@ -403,21 +420,6 @@ private struct BrowserHeaderTab: View {
         isHovering || Snapshot.forcedHover.contains(tab.displayTitle)
     }
 
-    @ViewBuilder private var closeButton: some View {
-        if let key = browser.sessionKey {
-            Button { browser.close(tab, in: key) } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 16, height: 22)
-                    .contentShape(.rect)
-            }
-            .foregroundStyle(.secondary)
-            .accessibilityLabel("Close Tab")
-            .help("Close Tab")
-            .padding(.leading, 3)
-        }
-    }
-
     private var sessionButton: some View {
         Button(action: select) {
             HStack(spacing: 5) {
@@ -428,7 +430,7 @@ private struct BrowserHeaderTab: View {
                         .accessibilityHidden(true)
                 }
             }
-            .padding(.horizontal, showsTitle ? 22 : 0)
+            .padding(.horizontal, showsTitle ? 28 : 0)
             .frame(maxWidth: .infinity)
             .frame(height: BrowserHeader.controlSize - 2)
             .background(theme.foreground.opacity(isHovered ? 0.10 : 0), in: .capsule)
@@ -437,7 +439,7 @@ private struct BrowserHeaderTab: View {
         .font(.system(size: 13, weight: .medium))
         .accessibilityLabel(tab.displayTitle)
         .overlay(alignment: .leading) {
-            if isHovered { closeButton }
+            if isHovered { BrowserCloseButton(browser: browser, tab: tab) }
         }
     }
 
@@ -461,6 +463,7 @@ private struct BrowserAddressField: View {
     let tab: BrowserTab?
     let isMerged: Bool
     let isCompact: Bool
+    var showsClose = false
     @State private var address = ""
     @State private var isEditing = false
     @State private var selection: TextSelection?
@@ -497,7 +500,7 @@ private struct BrowserAddressField: View {
                         Text(displayAddress)
                             .lineLimit(1)
                     }
-                    .padding(.leading, isMerged ? 24 : accessoryWidth)
+                    .padding(.leading, isMerged ? 30 : accessoryWidth)
                     .padding(.trailing, accessoryWidth)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(.rect)
@@ -555,6 +558,9 @@ private struct BrowserAddressField: View {
             if let tab, tab.isLoading {
                 BrowserLoadProgress(progress: tab.progress, opacity: 0.2)
             }
+        }
+        .overlay(alignment: .leading) {
+            if showsClose, let tab { BrowserCloseButton(browser: browser, tab: tab) }
         }
         .glassEffect(.regular.interactive(), in: .capsule)
         .onChange(of: tab?.id, initial: true) {
