@@ -442,6 +442,11 @@ extension Snapshot {
 
             case "send": await store.conversationModels[tab.id]?.send()
 
+            case "reviewComments":
+                let comments = argument.split(separator: ";").enumerated().map { ReviewComment(id: "drive-\($0.offset)", path: "README.md", line: $0.offset + 1, endLine: $0.offset + 1, text: String($0.element), snippet: "") }
+                let sent = await store.sendReviewPrompt(ReviewComment.prompt(for: comments, branch: "feature", base: "main"), sessionID: conversationSession, noticeIn: ReviewModel(folder: tab.folder))
+                print("review comments sent \(sent), conversation shown \(store.selectedShowsConversation)")
+
             case "decline": if let model = store.conversationModels[tab.id] { Task { await model.decline(waitingFor: shown?.waitingFor, since: shown?.since) } }
 
             case "stop": store.conversationModels[tab.id]?.interrupt()

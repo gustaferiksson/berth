@@ -731,17 +731,6 @@ private extension Store {
 
         return (repository, first)
     }
-
-    @discardableResult
-    func sendReviewPrompt(_ prompt: String, sessionID: String, noticeIn model: ReviewModel) -> Bool {
-        guard liveBySession[sessionID] != nil, let terminal = tab(forSession: sessionID)?.terminal, terminal.paste(text: prompt) else {
-            model.notice = "Claude isn’t running in this tab; comments kept"
-            return false
-        }
-
-        terminal.requestFocus()
-        return true
-    }
 }
 
 struct ReviewPanel: View {
@@ -1587,7 +1576,7 @@ struct ReviewFileList: View {
                     .foregroundStyle(theme.secondary)
                     .help(model.showsCommentList ? "Hide the comment list" : "Show the comment list")
                     Spacer(minLength: 4)
-                    Button(action: sendComments) {
+                    Button { Task { await sendComments() } } label: {
                         Text("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")")
                             .lineLimit(1)
                     }
@@ -1782,17 +1771,35 @@ struct ReviewFileList: View {
         return ("Can’t Read Changes", "exclamationmark.triangle", "Git couldn’t read the changes in \(folder).", ReviewModel.describe(error))
     }
 
-    private func sendComments() {
+    private func sendComments() async {
+        let sent = Set(owners.flatMap { $0.model.comments.map(\.id) })
         let prompt = owners.filter { !$0.model.comments.isEmpty }.map { owner in
             ReviewComment.prompt(for: owner.model.comments, branch: owner.model.changes?.branch ?? "HEAD", base: owner.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base } ?? "HEAD", repository: owner.repository.map { ($0.name, $0.root) })
         }.joined(separator: "\n\n")
-        guard store.sendReviewPrompt(prompt, sessionID: sessionID, noticeIn: model) else { return }
+        guard await store.sendReviewPrompt(prompt, sessionID: sessionID, noticeIn: model) else { return }
 
-        for owner in owners { owner.model.comments = [] }
+        for owner in owners { owner.model.comments.removeAll { sent.contains($0.id) } }
     }
 }
 
 extension Store {
+    @discardableResult
+    func sendReviewPrompt(_ prompt: String, sessionID: String, noticeIn model: ReviewModel) async -> Bool {
+        if let tab = tab(forSession: sessionID), showsConversation(tab), let conversation = conversationModels[tab.id] {
+            guard let refusal = await conversation.send(prompt: prompt) else { return true }
+
+            model.notice = "\(refusal); comments kept"
+            return false
+        }
+        guard liveBySession[sessionID] != nil, let terminal = tab(forSession: sessionID)?.terminal, terminal.paste(text: prompt) else {
+            model.notice = "Claude isn’t running in this tab; comments kept"
+            return false
+        }
+
+        terminal.requestFocus()
+        return true
+    }
+
     func createPullRequest(sessionID: String, model: ReviewModel) {
         let base = model.changes.flatMap { $0.base == $0.defaultBase ? nil : $0.base }.map { $0.hasPrefix("origin/") ? String($0.dropFirst("origin/".count)) : $0 }
         let prompt = base.map { "Push this branch and open a pull request for it against \($0) with gh (--base \($0))." } ?? "Push this branch and open a pull request for it with gh."
@@ -2203,7 +2210,7 @@ struct ReviewDiffColumn: View {
                                 guard let sessionID else { return }
 
                                 let repository = root.map { (URL(filePath: $0).lastPathComponent, model.changes?.root ?? $0) }
-                                store.sendReviewPrompt(ReviewThread.prompt(for: thread, repository: repository), sessionID: sessionID, noticeIn: model)
+                                Task { await store.sendReviewPrompt(ReviewThread.prompt(for: thread, repository: repository), sessionID: sessionID, noticeIn: model) }
                             },
                             onSendComment: document.compare?.isHistorical != true && detail?.id != nil ? { comment in
                                 guard let target, let number else { return }
