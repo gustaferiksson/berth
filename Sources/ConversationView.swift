@@ -586,6 +586,7 @@ private struct ConversationBottomBar: View {
                             Text("Still working, or waiting for you in the terminal.")
                             Button("Show Terminal") { AppAction.showTerminal.perform(on: store) }
                                 .buttonStyle(.plain)
+                                .pointerStyle(.link)
                         }
                         .font(.caption)
                         .foregroundStyle(theme.secondary)

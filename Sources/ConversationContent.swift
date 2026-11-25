@@ -254,6 +254,7 @@ struct ConversationPrompt: View {
                         if moreLines > 0 {
                             Button(isExpanded ? "Show less" : "Show \(moreLines) more lines") { isExpanded.toggle() }
                                 .buttonStyle(.borderless)
+                                .pointerStyle(.link)
                                 .font(.caption)
                                 .foregroundStyle(theme.secondary)
                         }
@@ -672,6 +673,7 @@ struct ConversationDiff: View {
             if rows.count > limit {
                 Button("Show \(rows.count - limit) more lines") { showsAll = true }
                     .buttonStyle(.borderless)
+                    .pointerStyle(.link)
                     .font(.caption)
                     .foregroundStyle(theme.secondary)
                     .padding(.horizontal, 10)
@@ -841,6 +843,7 @@ private struct ConversationPromptImage: View {
             }
         }
         .buttonStyle(.plain)
+        .pointerStyle(.link)
         .accessibilityLabel("Image \(number)")
         .accessibilityHint("Opens a preview")
         .contextMenu {

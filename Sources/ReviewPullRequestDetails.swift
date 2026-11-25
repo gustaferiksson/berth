@@ -71,6 +71,7 @@ struct ReviewPullRequestDetails: View {
                             Text(issue.title)
                         }
                     }
+                    .pointerStyle(.link)
                 } else {
                     Text("No linked issue").foregroundStyle(.secondary)
                 }
