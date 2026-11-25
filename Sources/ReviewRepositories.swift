@@ -167,10 +167,15 @@ nonisolated struct ReviewPullRequestFiles: Sendable {
 }
 
 extension ReviewModel {
-    func openPullRequestFile(_ file: ReviewFile, of entry: ReviewPullRequest, compare: ReviewCompare) {
+    func openPullRequestFile(_ file: ReviewFile, of entry: ReviewPullRequest, compare: ReviewCompare) async {
         guard file.status != .deleted, case let .range(_, head) = compare else { return }
 
         let root = entry.location.root
+        if let branch = entry.pullRequest.headRefName,
+           let worktree = await PullRequestCheckout.checkedOutWorktree(branch: branch, head: head, in: root),
+           await Store.shared.openWorktreeFile(file.path, in: worktree, origin: ReviewPullRequestOrigin(link: entry.id, behind: worktree.behind, ahead: worktree.ahead), from: self) {
+            return
+        }
         if changes?.root == root, FileManager.default.fileExists(atPath: (root as NSString).appendingPathComponent(file.path)) {
             open(workingDocument(file.path))
             return
@@ -278,7 +283,7 @@ private struct ReviewPullRequestFileRow: View {
     var body: some View {
         let root = entry.location.root
         let document = ReviewDocument(path: file.path, compare: compare, root: root, pullRequestLink: entry.id)
-        let open = { model.openPullRequestFile(file, of: entry, compare: compare) }
+        let open: () -> Void = { Task { await model.openPullRequestFile(file, of: entry, compare: compare) } }
         let local = model.changes?.root == root ? (root as NSString).appendingPathComponent(file.path) : nil
         ReviewHistoricalFileButton(file: file, document: document, model: model, openFile: file.status == .deleted ? nil : open, minHeight: 28, trailingPadding: 0)
             .reviewRow(leading: Double(depth) * ReviewInset.tree)

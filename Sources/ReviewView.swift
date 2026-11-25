@@ -12,8 +12,20 @@ struct ReviewDocument: Hashable {
     var root: String?
     var pullRequestLink: PullRequestLink?
     var pullRequestTab: PullRequestTab?
+    var pullRequestOrigin: ReviewPullRequestOrigin?
 
-    var pullRequestNumber: Int? { pullRequestLink?.number }
+    var pullRequestNumber: Int? { pullRequestLink?.number ?? pullRequestOrigin?.link.number }
+}
+
+struct ReviewPullRequestOrigin: Hashable {
+    let link: PullRequestLink
+    let behind: Int
+    let ahead: Int
+
+    var drift: String? {
+        let parts = [behind > 0 ? "\(behind) behind" : nil, ahead > 0 ? "\(ahead) ahead" : nil].compactMap(\.self)
+        return parts.isEmpty ? nil : parts.joined(separator: ", ") + (ahead == 0 ? " " : " of ") + "PR #\(link.number)"
+    }
 }
 
 struct ReviewTab: Identifiable {

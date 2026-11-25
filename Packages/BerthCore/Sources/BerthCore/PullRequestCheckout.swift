@@ -12,6 +12,12 @@ public struct PullRequestHead: Sendable, Equatable {
     }
 }
 
+public struct CheckedOutWorktree: Sendable, Equatable {
+    public let path: String
+    public let behind: Int
+    public let ahead: Int
+}
+
 public enum PullRequestCheckout {
     public struct Failure: Error, Equatable, Sendable {
         public let message: String
@@ -53,14 +59,27 @@ public enum PullRequestCheckout {
         return main.deletingLastPathComponent().appending(path: "\(main.lastPathComponent).worktrees").appending(path: folder).path
     }
 
-    static func worktrees(porcelain: String) -> [(path: String, branch: String?)] {
+    static func worktrees(porcelain: String) -> [(path: String, branch: String?, head: String?)] {
         porcelain.components(separatedBy: "\n\n").compactMap { block in
             let lines = block.split(separator: "\n")
             guard let path = lines.first(where: { $0.hasPrefix("worktree ") }) else { return nil }
 
             let branch = lines.first { $0.hasPrefix("branch refs/heads/") }
-            return (String(path.dropFirst("worktree ".count)), branch.map { String($0.dropFirst("branch refs/heads/".count)) })
+            let head = lines.first { $0.hasPrefix("HEAD ") }
+            return (String(path.dropFirst("worktree ".count)), branch.map { String($0.dropFirst("branch refs/heads/".count)) }, head.map { String($0.dropFirst("HEAD ".count)) })
         }
+    }
+
+    public static func checkedOutWorktree(branch: String, head: String, in root: String) async -> CheckedOutWorktree? {
+        guard let porcelain = try? await line(["worktree", "list", "--porcelain"], in: root) else { return nil }
+
+        let entries = worktrees(porcelain: porcelain).filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard let held = entries.first(where: { $0.branch == branch }) ?? entries.first(where: { $0.head == head }),
+              let counts = try? await line(["rev-list", "--left-right", "--count", "\(head)...HEAD"], in: held.path).split(whereSeparator: \.isWhitespace).compactMap({ Int($0) }),
+              counts.count == 2
+        else { return nil }
+
+        return CheckedOutWorktree(path: held.path, behind: counts[0], ahead: counts[1])
     }
 
     public static func prepare(root: String, number: Int, worktrunk: String) async throws -> String {
@@ -120,7 +139,7 @@ public enum PullRequestCheckout {
         }
     }
 
-    private static func localBranch(for head: PullRequestHead, root: String, entries: [(path: String, branch: String?)]) async throws -> String {
+    private static func localBranch(for head: PullRequestHead, root: String, entries: [(path: String, branch: String?, head: String?)]) async throws -> String {
         let own = URL(filePath: worktreePath(root: root, branch: head.branch)).resolvingSymlinksInPath().path
         let isOurs = entries.contains { $0.branch == head.branch && URL(filePath: $0.path).resolvingSymlinksInPath().path == own }
         guard head.isCrossRepository, let owner = head.owner, !isOurs,

@@ -59,6 +59,7 @@ struct ReviewPathBar: View {
                 segment(title, children: document.pullRequestLink == nil ? children(of: (document.path as NSString).deletingLastPathComponent) : [], icon: NSImage(size: NSSize(width: 13, height: 13), flipped: false) { NSWorkspace.shared.icon(for: UTType(filenameExtension: (name as NSString).pathExtension) ?? .data).draw(in: $0); return true })
             }
             Spacer(minLength: 8)
+            if let drift = document.pullRequestOrigin?.drift { Text(drift) }
             switch document.compare {
             case .uncommitted: Text("Uncommitted")
 
@@ -66,7 +67,12 @@ struct ReviewPathBar: View {
 
             case let .commit(sha): Text("Commit \(sha.prefix(7))")
 
-            case .range, nil: EmptyView()
+            case .range:
+                if document.pullRequestLink != nil, document.pullRequestTab != .details {
+                    Text("Check out the branch for language features")
+                }
+
+            case nil: EmptyView()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

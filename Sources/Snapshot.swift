@@ -507,6 +507,24 @@ enum Snapshot {
         guard let changes = model.changes else { return }
 
         let repository = fixtureRepository.lowercased()
+        if let path = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestFile"), let pullRequest = reviewPullRequestFixture {
+            let head = UserDefaults.standard.string(forKey: "snapshotReviewPullRequestHead") ?? String(repeating: "1", count: 40)
+            let file = ReviewFile(path: path, oldPath: nil, status: .modified, additions: nil, deletions: nil)
+            await model.openPullRequestFile(file, of: ReviewPullRequest(pullRequest: pullRequest, repository: repository, root: changes.root), compare: .range(base: head, head: head))
+            let active = Store.shared.reviewModel ?? model
+            while let document = active.selectedDocument, active.contents[document] == nil { try? await Task.sleep(for: .milliseconds(100)) }
+            let document = active.selectedDocument
+            print("PR file opened in root \(active.changes?.root ?? "-"), path \(document?.path ?? "-"), PR #\(document?.pullRequestNumber ?? 0), drift \(document?.pullRequestOrigin?.drift ?? "none"), read only \(document.map(active.isReadOnly) ?? true), editor \(active.editors[path] != nil)")
+            let numbers = (UserDefaults.standard.string(forKey: "snapshotReviewPullRequestDefinition") ?? "").split(separator: ":").compactMap { Int($0) }
+            if numbers.count == 2, let text = active.workingText(path) {
+                var location: LanguageServerLocation?
+                for _ in 0..<30 where location == nil {
+                    location = await active.language?.definition(path, text: text, at: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1))
+                    if location == nil { try? await Task.sleep(for: .seconds(1)) }
+                }
+                print("PR file definition at \(numbers[0]):\(numbers[1]) resolves to \(location.map { "\($0.url.path) at \($0.range.start.line + 1):\($0.range.start.character + 1)" } ?? "nothing")")
+            }
+        }
         if let number = reviewSelectedPullRequestNumber {
             let related = reviewStackFixture.map { [$0.parent].compactMap(\.self) + $0.children } ?? []
             let candidates = [reviewPullRequestFixture].compactMap(\.self) + related + Array(reviewSessionPullRequests.values)
@@ -994,14 +1012,14 @@ enum Snapshot {
                     await model.expandPullRequest(ReviewPullRequest(location: location, pullRequest: pullRequest))
                     if let loaded = model.pullRequestFiles[location], let first = loaded.files.first {
                         if UserDefaults.standard.bool(forKey: "snapshotReviewCommandClick") {
-                            model.openPullRequestFile(first, of: ReviewPullRequest(location: location, pullRequest: pullRequest), compare: loaded.compare)
+                            await model.openPullRequestFile(first, of: ReviewPullRequest(location: location, pullRequest: pullRequest), compare: loaded.compare)
                         } else {
                             model.open(ReviewDocument(path: first.path, compare: loaded.compare, root: location.root, pullRequestLink: link))
                         }
                     }
                 }
                 print("review selected PR #\(number), expanded \(model.expandedPullRequests.contains(link)), files \(location.flatMap { model.pullRequestFiles[$0]?.files.count } ?? 0), notice \(model.notice ?? "-")")
-            } else if showsReviewPullRequestDetails || reviewSelectedPullRequestNumber != nil {
+            } else if showsReviewPullRequestDetails || reviewSelectedPullRequestNumber != nil || UserDefaults.standard.string(forKey: "snapshotReviewPullRequestFile") != nil {
                 await openReviewPullRequestFixture(in: model)
             } else if let index = graphCommitIndex, index >= 0 {
                 while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
@@ -1015,7 +1033,7 @@ enum Snapshot {
             if let changedFiles { store.showChanges(opening: changedFiles.split(separator: ",").map(String.init)) }
             while Date.now < deadline, model.error == nil, model.selectedDocument?.pullRequestTab != .details, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
                 if let changes = model.changes, model.selectedTab == nil, changedFiles == nil {
-                    if shownPullRequestClone != nil || expandedPullRequestNumber != nil || reviewSelectedPullRequestNumber != nil || showsReviewPullRequestDetails || graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
+                    if shownPullRequestClone != nil || expandedPullRequestNumber != nil || reviewSelectedPullRequestNumber != nil || UserDefaults.standard.string(forKey: "snapshotReviewPullRequestFile") != nil || showsReviewPullRequestDetails || graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
                     let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
                     if requested == nil, showsReviewThreads, let thread = fixturePullRequestDetail?.threads.first(where: { $0.path == "README.md" && $0.line != nil }) {
                         model.open(thread)
