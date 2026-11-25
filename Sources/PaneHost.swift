@@ -72,6 +72,8 @@ private struct TerminalPathBar: View {
 }
 
 struct SessionPanel: View {
+    static let idealWidth = 272.0
+
     @Environment(Store.self) private var store
 
     var body: some View {
@@ -90,9 +92,11 @@ struct ModeSwitcher: View {
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
 
     var body: some View {
-        ModeSegments(modes: isReviewEnabled ? SessionPane.allCases : [.browser, .terminal], selected: store.shownPane) { mode in
+        let modes = isReviewEnabled ? SessionPane.allCases : [.browser, .terminal]
+        ModeSegments(modes: modes, selected: store.shownPane) { mode in
             if store.shownPane == mode { store.hideSessionPanel() } else if mode == .terminal { store.showTerminalPane() } else if mode == .browser { store.showBrowserPane() } else if mode == .files { store.showFilesPane() } else { store.showChangesPane() }
         }
+        .frame(minWidth: CGFloat(modes.count) * 36, minHeight: 24)
         .fixedSize()
     }
 }
@@ -121,7 +125,12 @@ private struct ModeSegments: NSViewRepresentable {
     func makeNSView(context: Context) -> NSSegmentedControl {
         let control = NSSegmentedControl(labels: [], trackingMode: .selectOne, target: context.coordinator, action: #selector(Coordinator.pick))
         control.segmentStyle = .automatic
+        updateNSView(control, context: context)
         return control
+    }
+
+    func sizeThatFits(_: ProposedViewSize, nsView control: NSSegmentedControl, context _: Context) -> CGSize? {
+        control.intrinsicContentSize
     }
 
     func updateNSView(_ control: NSSegmentedControl, context: Context) {

@@ -27,7 +27,7 @@ struct ChangesToolbar: ToolbarContent {
     var body: some ToolbarContent {
         if store.showsSessionToolbar {
             ToolbarSpacer(.flexible, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) { ModeSwitcher(store: store) }
+            ToolbarItem(id: "session-mode-switcher", placement: .primaryAction) { ModeSwitcher(store: store) }
         }
     }
 }
