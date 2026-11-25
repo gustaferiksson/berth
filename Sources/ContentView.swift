@@ -506,10 +506,15 @@ private final class TerminalSplitController: NSSplitViewController {
     }
 
     private func reportColumnFrame() {
-        let column = diff.flatMap { $0.isCollapsed ? nil : $0.viewController.view }
-        let rect = column.map { $0.convert($0.bounds, to: view) } ?? .zero
-        let frame = view.isFlipped || rect.isEmpty ? rect : CGRect(x: rect.minX, y: view.bounds.height - rect.maxY, width: rect.width, height: rect.height)
-        DispatchQueue.main.async { [weak self] in self?.onColumnFrame(frame) }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+
+            let column = diff.flatMap { $0.isCollapsed ? nil : $0.viewController.view }
+            let rect = column.map { $0.convert($0.bounds, to: view) } ?? .zero
+            if column != nil, rect.width < 1 || rect.height < 1 { return }
+
+            onColumnFrame(view.isFlipped || rect.isEmpty ? rect : CGRect(x: rect.minX, y: view.bounds.height - rect.maxY, width: rect.width, height: rect.height))
+        }
     }
 
     func fitDiff(preferring preferred: CGFloat?) {
