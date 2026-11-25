@@ -79,6 +79,7 @@ private struct BrowserHeader: View {
                         .frame(minWidth: 0, idealWidth: 200, maxWidth: .infinity)
                         .frame(height: Self.controlSize)
                 }
+                if selectedSession != nil || selectedPinned != nil { Spacer(minLength: 0) }
                 trailingActions(tabs: pinned + sessionTabs)
                 BrowserDownloadsButton(browser: browser)
                     .fixedSize()
@@ -258,7 +259,10 @@ private struct BrowserHeader: View {
 
 private struct BrowserSessionTabs: View {
     private static let minimumTabWidth: CGFloat = 52
-    private static let minimumActiveWidth: CGFloat = 160
+    static let minimumActiveWidth: CGFloat = 260
+    private static let activeShare: CGFloat = 1.6
+    private static let maximumTabWidth: CGFloat = 220
+    static let maximumActiveWidth: CGFloat = 400
     private static let minimumTitleWidth: CGFloat = 120
     private static let capsuleInset: CGFloat = 3
     private static let dropWidth: CGFloat = 6
@@ -275,9 +279,10 @@ private struct BrowserSessionTabs: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let standaloneWidth = CGFloat(tabs.count) * Self.minimumTitleWidth + 2 * Self.capsuleInset
+        let inactiveCount = CGFloat(tabs.count - (selection == nil ? 0 : 1))
+        let maximumWidth = inactiveCount * Self.maximumTabWidth + (selection == nil ? 0 : Self.maximumActiveWidth) + 2 * Self.capsuleInset
         Color.clear
-            .frame(minWidth: 0, maxWidth: selection == nil ? standaloneWidth : .infinity)
+            .frame(minWidth: selection == nil ? 0 : Self.minimumActiveWidth + 2 * Self.capsuleInset, maxWidth: maximumWidth)
             .frame(height: BrowserHeader.controlSize + 4)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { stripWidth = $0 }
             .overlay {
@@ -299,9 +304,9 @@ private struct BrowserSessionTabs: View {
 
     private func tabStrip(width: CGFloat) -> some View {
         let selectedID = selection?.id
-        let activeWidth = selection == nil ? 0 : max(Self.minimumActiveWidth, width / CGFloat(tabs.count))
         let inactiveCount = CGFloat(tabs.count - (selection == nil ? 0 : 1))
-        let inactiveWidth = max(Self.minimumTabWidth, (width - activeWidth) / max(1, inactiveCount))
+        let activeWidth = selection == nil ? 0 : min(Self.maximumActiveWidth, max(Self.minimumActiveWidth, width * Self.activeShare / (inactiveCount + Self.activeShare)))
+        let inactiveWidth = min(Self.maximumTabWidth, max(Self.minimumTabWidth, (width - activeWidth) / max(1, inactiveCount)))
         return ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
@@ -387,7 +392,7 @@ private struct BrowserHeaderTab: View {
                 pinnedButton
             } else if isPinned {
                 BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact)
-                    .frame(minWidth: 160, idealWidth: 240, maxWidth: .infinity)
+                    .frame(minWidth: BrowserSessionTabs.minimumActiveWidth, idealWidth: 240, maxWidth: BrowserSessionTabs.maximumActiveWidth)
                     .frame(height: BrowserHeader.controlSize)
             } else if isSelected {
                 BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact, showsClose: isHovered)
