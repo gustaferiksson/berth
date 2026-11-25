@@ -11,6 +11,8 @@ struct ContentView: View {
     @Environment(Store.self) private var store
     @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage("trailingSidebarWidth") private var trailingSidebarWidth = 300.0
+    @AppStorage("leadingSidebarWidth") private var leadingSidebarWidth = Snapshot.sidebarWidth
+    @AppStorage("panelSidebarWidth") private var panelSidebarWidth = SessionPanel.idealWidth
     @State private var columnVisibility = NavigationSplitViewVisibility.automatic
     @AppStorage("showsTrailingSidebar") private var showsTrailingSidebar = true
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
@@ -42,11 +44,16 @@ struct ContentView: View {
                     .toolbar {
                         if showsPanelSidebar { ChangesToolbar(store: store) }
                     }
-                    .navigationSplitViewColumnWidth(min: 220, ideal: SessionPanel.idealWidth, max: 440)
+                    .navigationSplitViewColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
             } else {
                 Sidebar()
                     .glassSidebarTint(store.theme)
-                    .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
+                    .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
+                        guard store.persistsTabs, isDraggedByUser, width >= 220, abs(width - leadingSidebarWidth) >= 0.5 else { return }
+
+                        DispatchQueue.main.async { leadingSidebarWidth = width }
+                    }
+                    .navigationSplitViewColumnWidth(min: 220, ideal: leadingSidebarWidth, max: 440)
             }
         } detail: {
             PanedSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsColumn, isTerminalBelow: isTerminalBelow, browserSidebarWidth: browserSidebarWidth)
@@ -137,7 +144,7 @@ struct ContentView: View {
                     .glassSidebarTint(store.theme)
                     .background(ScrollPocketSeparatorRemover())
                     .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
-                        guard store.persistsTabs, width >= 220, abs(width - trailingSidebarWidth) >= 0.5 else { return }
+                        guard store.persistsTabs, isDraggedByUser, width >= 220, abs(width - trailingSidebarWidth) >= 0.5 else { return }
 
                         DispatchQueue.main.async { trailingSidebarWidth = width }
                     }
@@ -149,7 +156,7 @@ struct ContentView: View {
                 measuredSessionPanel
                     .glassSidebarTint(store.theme)
                     .background(ScrollPocketSeparatorRemover())
-                    .inspectorColumnWidth(min: 220, ideal: SessionPanel.idealWidth, max: 440)
+                    .inspectorColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
                     .toolbar {
                         if showsPanelSidebar { ChangesToolbar(store: store) }
                     }
@@ -256,10 +263,17 @@ extension ContentView {
     private var measuredSessionPanel: some View {
         SessionPanel()
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-                guard showsPanelSidebar, width >= 220, abs(width - paneSidebarWidth) >= 0.5 else { return }
+                guard showsPanelSidebar, width >= 220 else { return }
+
+                if store.persistsTabs, isDraggedByUser, abs(width - panelSidebarWidth) >= 0.5 { DispatchQueue.main.async { panelSidebarWidth = width } }
+                guard abs(width - paneSidebarWidth) >= 0.5 else { return }
 
                 DispatchQueue.main.async { paneSidebarWidth = width }
             }
+    }
+
+    private var isDraggedByUser: Bool {
+        NSEvent.pressedMouseButtons & 1 != 0 && NSApp.keyWindow?.inLiveResize != true
     }
 
     private var browserSidebarWidth: CGFloat {
@@ -371,7 +385,9 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     func makeNSViewController(context _: Context) -> TerminalSplitController {
         let split = TerminalSplitController()
         split.onColumnFrame = onColumnFrame
-        split.splitView = GapSplitView()
+        let gap = GapSplitView()
+        gap.onDragEnd = { [weak split] in split?.recordUserSize() }
+        split.splitView = gap
         split.splitView.identifier = NSUserInterfaceItemIdentifier("terminalSplit")
         let terminal = NSHostingController(rootView: TerminalArea(store: store))
         let diff = NSHostingController(rootView: PaneHost(store: store))
@@ -400,6 +416,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         split.onColumnFrame = onColumnFrame
         split.browserURL = browserURL
         split.browserSidebarWidth = browserSidebarWidth
+        split.persistsSizes = store.persistsTabs
         guard let diff = split.diff, let terminal = split.terminal else { return }
 
         let terminalView = terminal.viewController.view
@@ -422,7 +439,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         if flipsOrientation {
             split.splitView.adjustSubviews()
             split.splitView.layoutSubtreeIfNeeded()
-            split.fitDiff(preferring: 760)
+            split.fitDiff(restoring: true)
         }
         guard diff.isCollapsed != isDiffCollapsed else { return }
 
@@ -431,20 +448,30 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         guard !isDiffCollapsed else { return }
 
         split.splitView.layoutSubtreeIfNeeded()
-        split.fitDiff(preferring: 760)
+        split.fitDiff(restoring: true)
     }
 }
 
 private final class GapSplitView: NSSplitView {
+    var onDragEnd: () -> Void = {}
+
+    override func mouseDown(with event: NSEvent) {
+        let before = arrangedSubviews.map(\.frame)
+        super.mouseDown(with: event)
+        if before != arrangedSubviews.map(\.frame) { onDragEnd() }
+    }
+
     override var dividerThickness: CGFloat { subviews.contains(where: isSubviewCollapsed) ? 0 : TerminalSplit.gap }
 
     override func drawDivider(in _: NSRect) {}
 }
 
 // Width minimums as constraints (minimumThickness too) loop AppKit's constraint pass until it throws once the window can't fit them, so the divider is moved after layout instead.
-private final class TerminalSplitController: NSSplitViewController {
+final class TerminalSplitController: NSSplitViewController {
     static let belowRatioKey = "reviewTerminalBelowRatio"
     static let belowRatioDefault = 0.6
+    static let sessionWidthKey = "paneSessionWidth"
+    static let diffWidthDefault = 760.0
     private static let sessionHoldingPriority: NSLayoutConstraint.Priority = .defaultLow + 1
 
     var diff: NSSplitViewItem? {
@@ -458,15 +485,27 @@ private final class TerminalSplitController: NSSplitViewController {
     var onColumnFrame: (CGRect) -> Void = { _ in }
     var browserURL: URL? { didSet { updateBrowserURL() } }
     var browserSidebarWidth: CGFloat = 0
+    var persistsSizes = false
+    private var belowRatio = UserDefaults.standard.object(forKey: belowRatioKey) as? Double ?? belowRatioDefault
+    private var sessionWidth = UserDefaults.standard.object(forKey: sessionWidthKey) as? Double
     private var laidOutSize = CGSize.zero
     private var laidOutWindowWidth: CGFloat?
 
     override func splitViewDidResizeSubviews(_ notification: Notification) {
         super.splitViewDidResizeSubviews(notification)
         reportColumnFrame()
-        guard !splitView.isVertical, NSApp.currentEvent?.type == .leftMouseDragged, let diff, !diff.isCollapsed else { return }
+    }
 
-        UserDefaults.standard.set(diff.viewController.view.frame.height / (splitView.bounds.height - splitView.dividerThickness), forKey: Self.belowRatioKey)
+    func recordUserSize() {
+        guard let diff, !diff.isCollapsed, let terminal else { return }
+
+        if splitView.isVertical {
+            sessionWidth = terminal.viewController.view.frame.width
+            if persistsSizes { UserDefaults.standard.set(sessionWidth, forKey: Self.sessionWidthKey) }
+        } else {
+            belowRatio = diff.viewController.view.frame.height / (splitView.bounds.height - splitView.dividerThickness)
+            if persistsSizes { UserDefaults.standard.set(belowRatio, forKey: Self.belowRatioKey) }
+        }
     }
 
     override func viewDidLayout() {
@@ -479,10 +518,10 @@ private final class TerminalSplitController: NSSplitViewController {
         guard splitView.bounds.size != laidOutSize else { return }
 
         let isInitialLayout = laidOutSize == .zero
-        let shouldFit = !splitView.isVertical || terminal?.holdingPriority != Self.sessionHoldingPriority || windowWidthChanged
+        let shouldFit = !splitView.isVertical || sessionWidth != nil || terminal?.holdingPriority != Self.sessionHoldingPriority || windowWidthChanged
         laidOutSize = splitView.bounds.size
         if shouldFit {
-            DispatchQueue.main.async { [weak self] in self?.fitDiff(preferring: isInitialLayout ? 760 : nil) }
+            DispatchQueue.main.async { [weak self] in self?.fitDiff(restoring: isInitialLayout || self?.sessionWidth != nil && self?.splitView.isVertical == true) }
         }
     }
 
@@ -517,7 +556,7 @@ private final class TerminalSplitController: NSSplitViewController {
         }
     }
 
-    func fitDiff(preferring preferred: CGFloat?) {
+    func fitDiff(restoring: Bool) {
         guard let diff, !diff.isCollapsed else { return }
 
         let isBelow = !splitView.isVertical
@@ -530,9 +569,8 @@ private final class TerminalSplitController: NSSplitViewController {
         let current = isBelow ? diff.viewController.view.frame.height : diff.viewController.view.frame.width
         let terminalMinimum = isBelow ? TerminalSplit.belowMinimum : min(TerminalSplit.terminalMinimum, sharedWidth * 0.6)
         let diffMinimum = isBelow ? TerminalSplit.belowMinimum : min(TerminalSplit.diffMinimum, sharedWidth - terminalMinimum) + sidebar
-        let ratio = UserDefaults.standard.object(forKey: Self.belowRatioKey) as? Double ?? Self.belowRatioDefault
-        let wanted = isBelow ? preferred.map { _ in ratio * available } : preferred
-        let size = min(max(wanted ?? current, diffMinimum), max(diffMinimum, available - terminalMinimum))
+        let remembered = isBelow ? belowRatio * available : sessionWidth.map { available - $0 } ?? Self.diffWidthDefault
+        let size = min(max(restoring ? remembered : current, diffMinimum), max(diffMinimum, available - terminalMinimum))
         if abs(size - current) >= 1 {
             splitView.setPosition(splitViewItems.first === diff ? size : available - size, ofDividerAt: 0)
         }

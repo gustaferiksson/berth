@@ -110,6 +110,7 @@ extension Snapshot {
             print("browser prefers-color-scheme \(scheme ?? "unavailable")")
         }
         if UserDefaults.standard.bool(forKey: "snapshotPaneWidths") { await probePaneWidths(store: store, window: window) }
+        if UserDefaults.standard.bool(forKey: "snapshotRememberedSizes") { await probeRememberedSizes(store: store, window: window) }
     }
 
     private static func probePaneWidths(store: Store, window: NSWindow) async {
@@ -195,6 +196,142 @@ extension Snapshot {
         }
         root.layoutSubtreeIfNeeded()
         print("pane widths stress PASS: \(passes) divider drags across 8 window widths and 5 modes without a layout exception")
+    }
+
+    private static func probeRememberedSizes(store: Store, window: NSWindow) async {
+        func splitView(in view: NSView) -> NSSplitView? {
+            if view.identifier?.rawValue == "terminalSplit" { return view as? NSSplitView }
+            return view.subviews.lazy.compactMap(splitView).first
+        }
+
+        func settle() async {
+            try? await Task.sleep(for: .milliseconds(700))
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+
+        func show(_ mode: SessionPane) {
+            switch mode {
+            case .changes: store.showReviewPane(.changes)
+            case .files: store.showReviewPane(.files)
+            case .browser: store.showBrowserPane()
+            case .terminal: store.showTerminalPane()
+            case .tasks: store.showTasksPane()
+            }
+        }
+
+        guard let root = window.contentView, let split = splitView(in: root), let controller = split.delegate as? TerminalSplitController, let terminal = controller.terminal?.viewController.view, let pane = controller.diff?.viewController.view,
+              let sessionA = store.sessionTab
+        else {
+            print("remembered sizes FAIL: split unavailable")
+            return
+        }
+
+        let isBelow = !split.isVertical
+        func reserve() -> CGFloat { isBelow ? 0 : controller.browserSidebarWidth }
+        func sizes() -> (session: CGFloat, pane: CGFloat) {
+            isBelow ? (terminal.frame.height, pane.frame.height) : (terminal.frame.width, pane.frame.width)
+        }
+
+        let parent = UUID()
+        store.openShell(cwd: sessionA.cwd, id: parent)
+        store.tabs = store.tabs.map { $0.id == parent ? Tab(id: parent, kind: .claude, cwd: sessionA.cwd, sessionID: "fixture-other", terminal: $0.terminal) : $0 }
+        store.activate(.tab(sessionA.id))
+        store.showReviewPane(.changes)
+        await settle()
+        let start = sizes()
+        split.setPosition(isBelow ? split.arrangedSubviews[0].frame.height + 90 : split.arrangedSubviews[0].frame.width + (controller.splitViewItems.first === controller.diff ? -90 : 90), ofDividerAt: 0)
+        await settle()
+        controller.persistsSizes = false
+        controller.recordUserSize()
+        let dragged = sizes()
+        print("remembered sizes drag \(abs(dragged.session - start.session) > 50 ? "PASS" : "FAIL"): session \(start.session) -> \(dragged.session), pane \(start.pane) -> \(dragged.pane)")
+
+        for mode: SessionPane in [.changes, .files, .browser, .terminal, .changes] {
+            store.hideSessionPanel()
+            await settle()
+            let hidden = store.shownPane == nil
+            show(mode)
+            await settle()
+            let after = sizes()
+            let kept = abs(after.session - dragged.session) <= 1 && abs(after.pane - reserve() - dragged.pane) <= 1
+            print("remembered sizes hide and show \(mode.title) \(hidden && kept && store.shownPane == mode ? "PASS" : "FAIL"): session \(dragged.session) -> \(after.session), pane \(dragged.pane) -> \(after.pane - reserve())")
+        }
+
+        store.showBrowserPane()
+        await settle()
+        store.activate(.tab(parent))
+        store.showReviewPane(.files)
+        await settle()
+        let other = sizes()
+        let sameAcrossSessions = store.sessionTab?.id == parent && abs(other.session - dragged.session) <= 1 && abs(other.pane - reserve() - dragged.pane) <= 1
+        print("remembered sizes session switch \(sameAcrossSessions ? "PASS" : "FAIL"): A browser, B \(store.shownPane?.title ?? "hidden"), session \(dragged.session) -> \(other.session), pane \(dragged.pane) -> \(other.pane)")
+        store.activate(.tab(sessionA.id))
+        await settle()
+
+        await probeRememberedSidebars(store: store, window: window, split: split)
+        let size = window.contentRect(forFrameRect: window.frame).size
+        for width in [1000.0, 700.0] {
+            store.hideSessionPanel()
+            window.setContentSize(isBelow ? NSSize(width: size.width, height: width * 0.6) : NSSize(width: width, height: size.height))
+            await settle()
+            store.showBrowserPane()
+            for delay in [50, 250, 1200] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                window.contentView?.layoutSubtreeIfNeeded()
+                print("remembered sizes narrow trace \(Int(width)) +\(delay)ms: session \(sizes().session), pane \(sizes().pane), split \(split.bounds.width), reserve \(reserve()), gaps \(split.convert(split.bounds, to: nil).minX) \(window.contentLayoutRect.width - split.convert(split.bounds, to: nil).maxX)")
+            }
+            let narrow = sizes()
+            let available = (isBelow ? split.bounds.height : split.bounds.width) - split.dividerThickness
+            let minimum = isBelow ? 160 : min(360, (available - reserve()) * 0.6)
+            let isUsable = narrow.session >= minimum - 1 && narrow.pane - reserve() > 0 && abs(narrow.session + narrow.pane - available) <= 1
+            print("remembered sizes narrow window \(Int(width)) \(isUsable ? "PASS" : "FAIL"): session \(narrow.session), pane \(narrow.pane), available \(available)")
+        }
+        window.setContentSize(size)
+        store.showReviewPane(.changes)
+        await settle()
+    }
+
+    private static func probeRememberedSidebars(store: Store, window: NSWindow, split: NSSplitView) async {
+        store.showReviewPane(.changes)
+        let defaults = UserDefaults.standard
+        let isRight = defaults.string(forKey: "sidebarPosition") == "right"
+        defaults.set(330.0, forKey: "leadingSidebarWidth")
+        defaults.set(250.0, forKey: "trailingSidebarWidth")
+        defaults.set(350.0, forKey: "panelSidebarWidth")
+        let expectedLeading = isRight ? 350.0 : 330.0
+        let expectedTrailing = isRight ? 250.0 : 350.0
+        let sidebarSplit = window.contentView.flatMap(sidebarSplitController)
+
+        func gaps() -> (leading: CGFloat, trailing: CGFloat) {
+            let frame = split.convert(split.bounds, to: nil)
+            return (frame.minX - 8, window.contentLayoutRect.width - frame.maxX - 8)
+        }
+
+        func settle() async {
+            try? await Task.sleep(for: .milliseconds(800))
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+
+        await settle()
+        let before = gaps()
+        print("remembered sizes sidebars before toggles: leading \(before.leading), trailing \(before.trailing), sidebar split found \(sidebarSplit != nil)")
+        sidebarSplit?.toggleSidebar(nil)
+        await settle()
+        sidebarSplit?.toggleSidebar(nil)
+        await settle()
+        if isRight {
+            defaults.set(false, forKey: "showsTrailingSidebar")
+            await settle()
+            defaults.set(true, forKey: "showsTrailingSidebar")
+        } else {
+            store.hideSessionPanel()
+            await settle()
+            store.showReviewPane(.changes)
+        }
+        await settle()
+        let after = gaps()
+        let isRestored = abs(after.leading - expectedLeading) <= 1 && abs(after.trailing - expectedTrailing) <= 1
+        print("remembered sizes sidebars \(isRight ? "right" : "left") \(isRestored ? "PASS" : "FAIL"): leading \(after.leading) expected \(expectedLeading), trailing \(after.trailing) expected \(expectedTrailing)")
     }
 
     private static func probeNewTabKeyViewLoop(store: Store, window: NSWindow) async {
