@@ -111,7 +111,7 @@ struct ContentView: View {
                 }
                 .toolbar {
                     if reviewRequests > 0 {
-                        ToolbarItem(placement: .automatic) {
+                        ToolbarItem(placement: .primaryAction) {
                             Button {
                                 store.launcherRole = .reviewRequested
                                 store.launcherMode = .pullRequests
@@ -124,7 +124,7 @@ struct ContentView: View {
                         }
                     }
                     if reviewRequests > 0 {
-                        ToolbarSpacer(.fixed, placement: .automatic)
+                        ToolbarSpacer(.fixed, placement: .primaryAction)
                     }
                     SessionToolbar(store: store)
                     if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
