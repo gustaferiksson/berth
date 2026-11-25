@@ -17,12 +17,20 @@ public enum TranscriptTail {
     static let tailBytes = 256 * 1024
     static let maxTailBytes = 32 * 1024 * 1024
     static let maxText = 4000
+    static let maxProse = 100_000
     static let minEntries = 50
     static let minPrompts = 5
     static let maxDetail = 300
     static let maxImages = 4
     static let thumbnailPixels = 1000
     static let maxThumbnailBytes = 300 * 1024
+
+    static func cappedProse(_ text: String) -> String {
+        let count = text.count
+        guard count > maxProse else { return text }
+
+        return text.prefix(maxProse) + "\n\n[Message truncated, \(count - maxProse) more characters not shown]"
+    }
 
     public static func read(_ url: URL, after offset: Int?, queue: [String] = [], includeSidechain: Bool = false) -> Chunk? {
         readWindow(url, after: offset) { data, dropFirst, start, continuation in
@@ -82,8 +90,8 @@ public enum TranscriptTail {
                 guard (try? decoder.decode(Record.self, from: Data(line)))?.isQueuedPrompt == true, let attachment = object["attachment"] as? [String: Any] else { return [] }
 
                 let blocks = attachment["prompt"] as? [[String: Any]] ?? [["type": "text", "text": attachment["prompt"] as? String ?? ""]]
-                let text = blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined(separator: "\n").prefix(maxText)
-                return [prompt(id: uuid, text: String(text), date: date, blocks: blocks)]
+                let text = PromptTextPart.join(blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil })
+                return [prompt(id: uuid, text: text, date: date, blocks: blocks)]
             }
 
             guard type == "user" || type == "assistant", let message = object["message"] as? [String: Any] else { return [] }
@@ -103,7 +111,7 @@ public enum TranscriptTail {
                     return [RemoteEntry(id: uuid, kind: .toolResult, text: String(stdout.prefix(maxText)), name: "bash-output", date: date, detail: stderr.isEmpty ? nil : String(stderr.prefix(maxDetail)))]
                 }
                 if let text = record.typedPrompt(includingSidechain: includeSidechain) {
-                    return [prompt(id: uuid, text: String(text.prefix(maxText)), date: date, blocks: blocks)]
+                    return [prompt(id: uuid, text: text, date: date, blocks: blocks)]
                 }
             }
 
@@ -112,7 +120,7 @@ public enum TranscriptTail {
                 if type == "assistant", let blockType = block["type"] as? String, blockType == "text" || blockType == "thinking",
                    blockType == "text" || isNarration(signature: block["signature"] as? String),
                    let text = block[blockType] as? String, !text.isEmpty {
-                    return RemoteEntry(id: id, kind: .reply, text: String(text.prefix(maxText)), date: date)
+                    return RemoteEntry(id: id, kind: .reply, text: cappedProse(text), date: date)
                 }
                 if type == "assistant", block["type"] as? String == "tool_use", let name = block["name"] as? String {
                     let input = block["input"] as? [String: Any] ?? [:]
@@ -207,6 +215,6 @@ public enum TranscriptTail {
         }.prefix(maxImages)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let shown = trimmed.wholeMatch(of: PromptTextPart.pastedBlock).map { $0.output.1.trimmingCharacters(in: .whitespacesAndNewlines) } ?? trimmed
-        return RemoteEntry(id: id, kind: .prompt, text: shown, date: date, images: numbered.isEmpty ? nil : numbered.map(\.data), imageNumbers: numbered.isEmpty ? nil : numbered.map(\.number))
+        return RemoteEntry(id: id, kind: .prompt, text: cappedProse(shown), date: date, images: numbered.isEmpty ? nil : numbered.map(\.data), imageNumbers: numbered.isEmpty ? nil : numbered.map(\.number))
     }
 }

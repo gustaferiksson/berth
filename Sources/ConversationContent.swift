@@ -59,10 +59,12 @@ struct PromptImageLoader {
 struct ConversationPrompt: View {
     let entry: RemoteEntry
     var selectionID: String?
+    var expansionID: String?
     var isShellRunning = false
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.conversationExpansion) private var expansion
     @State private var isExpanded = conversationExpandsAll
 
     var body: some View {
@@ -85,7 +87,8 @@ struct ConversationPrompt: View {
                 }
             }
             if showsText {
-                ConversationTextView(text: Self.attributed(entry.text, theme: theme, displayScale: displayScale), selectionID: selectionID, sizing: .hug)
+                let itemID = selectionID ?? expansionID
+                ConversationTextView(text: Self.attributed(entry.text, theme: theme, displayScale: displayScale, itemID: itemID, expanded: expansion?.keys ?? []), selectionID: selectionID, sizing: .hug)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .background(bubble.fill(theme.foreground.opacity(0.07)))
@@ -96,11 +99,94 @@ struct ConversationPrompt: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    static func attributed(_ text: String, theme: GhosttyTheme, displayScale: CGFloat? = nil) -> NSAttributedString {
+    static var fence: Regex<(Substring, Substring, Substring, Substring?)> {
+        /(?m)^[\t ]*```([^\r\n]*)(?:\R|\z)((?s:.*?))(?:(^[\t ]*```[\t ]*(?:\R|\z))|\z)/
+    }
+
+    private struct Segment {
+        let raw: Substring
+        let rendered: NSAttributedString
+        let lineCount: Int
+        let isCode: Bool
+    }
+
+    static func attributed(_ text: String, theme: GhosttyTheme, displayScale: CGFloat? = nil, itemID: String? = nil, expanded: Set<String> = []) -> NSAttributedString {
         let font = theme.conversationNSFont()
         let style = NSMutableParagraphStyle()
         style.lineHeightMultiple = theme.lineHeightMultiple
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(theme.foreground), .paragraphStyle: style]
+        let prose = { (raw: Substring) -> Segment in
+            let rendered = attributedProse(String(raw), attributes: attributes, font: font, theme: theme, displayScale: displayScale)
+            let lines = rendered.string.count(where: \.isNewline) + (rendered.string.last?.isNewline == false ? 1 : 0)
+            return Segment(raw: raw, rendered: rendered, lineCount: lines, isCode: false)
+        }
+        var segments: [Segment] = []
+        var start = text.startIndex
+        for (index, match) in text.matches(of: fence).enumerated() {
+            if start < match.range.lowerBound { segments.append(prose(text[start..<match.range.lowerBound])) }
+            let language = match.output.1.trimmingCharacters(in: .whitespaces)
+            let body = match.output.2
+            let code = String(match.output.3 != nil && body.last?.isNewline == true ? body.dropLast() : body)
+            let key = itemID.map { "\($0)#code\(index)" }
+            let units = MarkdownAttributedString.codeUnits(code, language: language, theme: theme, key: key, expanded: expanded)
+            let lines = code.count(where: \.isNewline) + 1
+            let lineCount = key == nil ? lines : min(lines, MarkdownAttributedString.codeLineLimit + 1)
+            segments.append(Segment(raw: match.output.0, rendered: MarkdownAttributedString.assemble(units), lineCount: lineCount, isCode: true))
+            start = match.range.upperBound
+        }
+        if start < text.endIndex { segments.append(prose(text[start...])) }
+
+        let lineLimit = 20
+        let total = segments.reduce(0) { $0 + $1.lineCount }
+        let key = itemID.flatMap { total > lineLimit ? "\($0)#bubble" : nil }
+        let isCollapsed = key.map { !expanded.contains($0) } ?? false
+        let result = NSMutableAttributedString()
+        var visible = 0
+        var hidden = ""
+        for (index, segment) in segments.enumerated() {
+            let remaining = lineLimit - visible
+            if isCollapsed, index > 0, remaining == 0 || segment.isCode && segment.lineCount > remaining {
+                hidden = String(text[segment.raw.startIndex...])
+                break
+            }
+            if isCollapsed, !segment.isCode, segment.lineCount > remaining {
+                let rendered = segment.rendered.string
+                let end = rendered.indices.lazy.filter { rendered[$0].isNewline }.prefix(remaining).last!
+                let pasted = segment.raw.matches(of: PromptTextPart.pastedBlock)
+                let visibleBreaks = segment.raw.indices.lazy.filter { index in
+                    guard segment.raw[index].isNewline else { return false }
+                    guard let match = pasted.first(where: { $0.range.contains(index) }) else { return true }
+
+                    let interior = match.output.1
+                    return interior.firstIndex(where: { !$0.isNewline }).map { $0 < index && index < interior.lastIndex { !$0.isNewline }! } ?? false
+                }
+                if let lastBreak = visibleBreaks.prefix(remaining).last {
+                    hidden = String(text[text.index(after: lastBreak)...])
+                }
+                result.append(segment.rendered.attributedSubstring(from: NSRange(rendered.startIndex..<end, in: rendered)))
+                visible += remaining
+                break
+            }
+            result.append(segment.rendered)
+            visible += segment.lineCount
+            if segment.isCode, index < segments.count - 1 { result.append(NSAttributedString(string: "\n", attributes: attributes)) }
+        }
+        if let key {
+            if result.string.last?.isNewline == true {
+                if isCollapsed {
+                    let newline = result.string.index(before: result.string.endIndex)
+                    result.addAttribute(.conversationCopyText, value: "", range: NSRange(newline..., in: result.string))
+                }
+            } else {
+                result.append(NSAttributedString(string: "\n", attributes: attributes.merging([.conversationCopyText: ""]) { $1 }))
+            }
+            let title = isCollapsed ? "Show \(total - visible) more lines" : "Show less"
+            result.append(MarkdownAttributedString.expansionLink(title, key: key, copyText: isCollapsed ? "\n" + hidden : "", attributes: attributes, theme: theme))
+        }
+        return result
+    }
+
+    private static func attributedProse(_ text: String, attributes: [NSAttributedString.Key: Any], font: NSFont, theme: GhosttyTheme, displayScale: CGFloat?) -> NSAttributedString {
         let scale = font.pointSize / NSFont.systemFontSize
         let result = NSMutableAttributedString()
         for part in PromptTextPart.split(text) {
@@ -120,12 +206,11 @@ struct ConversationPrompt: View {
                 result.append(tagText)
 
             case let .pasted(value):
-                let quoted: [NSAttributedString.Key: Any] = [
+                let quoted = attributes.merging([
                     .font: NSFont.monospacedSystemFont(ofSize: font.pointSize * 0.92, weight: .regular),
                     .foregroundColor: NSColor(theme.foreground).withAlphaComponent(0.75),
                     .backgroundColor: NSColor(theme.foreground).withAlphaComponent(0.08),
-                    .paragraphStyle: style,
-                ]
+                ]) { $1 }
                 result.append(NSAttributedString(string: String(value), attributes: quoted))
             }
         }
@@ -273,15 +358,16 @@ struct ConversationMarkdown: View {
     var selectionID: String?
 
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.conversationExpansion) private var expansion
     @AppStorage(ReviewStyle.colorSchemeKey) private var colorScheme = ReviewColorScheme.terminal
     @AppStorage(ReviewStyle.syntaxColorsKey) private var syntaxColors = SyntaxColorSource.terminal
 
     var body: some View {
-        ConversationProse(run: ConversationMarkdownCache.run(text: text, theme: theme, palette: [colorScheme.rawValue, syntaxColors.rawValue]), selectionID: selectionID)
+        ConversationProse(run: ConversationMarkdownCache.run(text: text, theme: theme, itemID: selectionID, expanded: expansion?.keys ?? [], palette: [colorScheme.rawValue, syntaxColors.rawValue]), selectionID: selectionID)
     }
 
-    static func rendered(_ text: String, theme: GhosttyTheme) -> NSAttributedString {
-        ConversationMarkdownCache.run(text: text, theme: theme).rendered
+    static func rendered(_ text: String, theme: GhosttyTheme, itemID: String, expanded: Set<String>) -> NSAttributedString {
+        ConversationMarkdownCache.run(text: text, theme: theme, itemID: itemID, expanded: expanded).rendered
     }
 }
 
@@ -314,17 +400,21 @@ private enum ConversationMarkdownCache {
     final class Run {
         let blocks: [MarkdownBlock]
         let codeBlocks: [(language: String, code: String)]
+        let itemID: String?
+        let expanded: Set<String>
         var highlighted: [String: NSAttributedString] = [:]
         private(set) var rendered: NSAttributedString
 
-        init(blocks: [MarkdownBlock], theme: GhosttyTheme) {
+        init(blocks: [MarkdownBlock], theme: GhosttyTheme, itemID: String?, expanded: Set<String>) {
             self.blocks = blocks
+            self.itemID = itemID
+            self.expanded = expanded
             codeBlocks = MarkdownAttributedString.codeBlocks(in: blocks)
-            rendered = MarkdownAttributedString.render(blocks, theme: theme)
+            rendered = MarkdownAttributedString.render(blocks, theme: theme, itemID: itemID, expanded: expanded)
         }
 
         func rerender(theme: GhosttyTheme) {
-            rendered = MarkdownAttributedString.render(blocks, theme: theme, highlighted: highlighted)
+            rendered = MarkdownAttributedString.render(blocks, theme: theme, highlighted: highlighted, itemID: itemID, expanded: expanded)
         }
     }
 
@@ -338,15 +428,18 @@ private enum ConversationMarkdownCache {
         let codeFont: NSFont
         let lineHeightMultiple: CGFloat
         let palette: [String]
+        let itemID: String?
+        let expanded: Set<String>
     }
 
     private static var cached: [Key: Run] = [:]
 
-    static func run(text: String, theme: GhosttyTheme, palette: [String] = [ReviewStyle.colorSchemeKey, ReviewStyle.syntaxColorsKey].map { UserDefaults.standard.string(forKey: $0) ?? "" }) -> Run {
-        let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font, codeFont: theme.codeFont, lineHeightMultiple: theme.lineHeightMultiple, palette: palette)
+    static func run(text: String, theme: GhosttyTheme, itemID: String?, expanded: Set<String>, palette: [String] = [ReviewStyle.colorSchemeKey, ReviewStyle.syntaxColorsKey].map { UserDefaults.standard.string(forKey: $0) ?? "" }) -> Run {
+        let relevant: Set<String> = itemID.map { id in Set(expanded.filter { $0.hasPrefix(id + "#code") }) } ?? []
+        let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font, codeFont: theme.codeFont, lineHeightMultiple: theme.lineHeightMultiple, palette: palette, itemID: itemID, expanded: relevant)
         if let run = cached[key] { return run }
 
-        let run = Run(blocks: MarkdownBlock.blocks(in: text), theme: theme)
+        let run = Run(blocks: MarkdownBlock.blocks(in: text), theme: theme, itemID: itemID, expanded: relevant)
         if cached.count >= 256 { cached.removeAll(keepingCapacity: true) }
         cached[key] = run
         return run

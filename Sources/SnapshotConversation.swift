@@ -11,6 +11,7 @@ extension Snapshot {
     private static let codexConversationSession = "5b34c260-0c36-4721-bcfa-d56c78a9ce31"
     private static let codexConversationChild = "e6883ec6-0344-4bec-8511-cf586a4e2efc"
     private static var showsEmptyConversation: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationEmpty") }
+    private static var showsLongCode: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationLongCode") }
     private static var showsCodexApproval: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexApproval") }
     private static var showsCodexTasks: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexTasks") }
     private static var showsSlashCommands: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationSlashCommands") }
@@ -284,6 +285,17 @@ extension Snapshot {
         let usage: [String: Any] = ["input_tokens": 3, "cache_read_input_tokens": 61_000, "cache_creation_input_tokens": 700, "output_tokens": 240]
         let assistant = { (advance: TimeInterval, blocks: [[String: Any]]) in base("assistant", advance, ["role": "assistant", "id": "msg-\(count)", "model": "claude-sonnet-4-5", "content": blocks, "usage": usage]) }
         let text = { (value: String) -> [String: Any] in ["type": "text", "text": value] }
+        if showsLongCode {
+            let input = (1...60).map { "export TZ_REGION_\($0)=Europe/Stockholm" }.joined(separator: "\n")
+            let output = (1...40).map { "assert(exportedRows[\($0 - 1)].region == expectedRegion)" }.joined(separator: "\n")
+            let image: [String: Any] = ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]
+            let split = base("user", 4, ["role": "user", "content": [text("Please get these in "), text("[Image #3]"), text(" the tables, and compare with "), text("[Image #4]"), image, image]])
+            return [
+                prompt("How can I verify the time zone for these ledger exports?\n\n```sh\n\(input)\n```", 0),
+                assistant(2, [text("This Swift check verifies the region for each exported row.\n\n```swift\n\(output)\n```")]),
+                split,
+            ]
+        }
         let use = { (id: String, name: String, input: [String: Any]) -> [String: Any] in ["type": "tool_use", "id": id, "name": name, "input": input] }
         let result = { (id: String, output: String, advance: TimeInterval, extra: [String: Any]) -> [String: Any] in
             var record = base("user", advance, ["role": "user", "content": [["type": "tool_result", "tool_use_id": id, "content": output]]])
@@ -532,7 +544,7 @@ extension Snapshot {
 
             try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
         }
-        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? (showsEmptyConversation || showsWatching || showsSlashCommands || showsShellCompletions ? "idle" : "busy")
+        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? (showsEmptyConversation || showsLongCode || showsWatching || showsSlashCommands || showsShellCompletions ? "idle" : "busy")
         let rawLog = UserDefaults.standard.string(forKey: "snapshotConversationRawLog")
         let title = UserDefaults.standard.string(forKey: "snapshotTerminalTitle") ?? (showsCodexApproval ? "[ ! ] Action Required" : showsCodexTasks ? "Ready" : "")
         let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'printf \"\\033]0;\(title)\\007\"; echo the terminal is still running; sleep 600'"

@@ -47,7 +47,8 @@ extension Snapshot {
     }
 
     private static func clickLink(window: NSWindow) async -> Bool {
-        guard let view = await reply(containing: "Notes are in", in: window), let point = point(in: view, before: "export docs") else { return fail("link", "fixture reply is not on screen") }
+        await scrollSelectionFixture(window: window, toTop: false)
+        guard let view = await reply(containing: "Notes are in", in: window, revealing: true), let point = point(in: view, before: "export docs") else { return fail("link", "fixture reply is not on screen") }
 
         var opened: URL?
         view.openURL = { opened = $0 }
@@ -83,6 +84,7 @@ extension Snapshot {
         try? await Task.sleep(for: .seconds(1))
         AppAction.showConversation.perform(on: store)
         try? await Task.sleep(for: .seconds(2))
+        await scrollSelectionFixture(window: window, toTop: true)
         print("select: reopened the conversation")
         return await shiftClick(window: window)
     }
@@ -124,6 +126,18 @@ extension Snapshot {
 
     private static func textViews(in view: NSView) -> [ConversationNSTextView] {
         (view as? ConversationNSTextView).map { [$0] } ?? view.subviews.flatMap { textViews(in: $0) }
+    }
+
+    private static func scrollSelectionFixture(window: NSWindow, toTop: Bool) async {
+        guard let content = window.contentView,
+              let scroll = textViews(in: content).lazy.compactMap(\.enclosingScrollView).first,
+              let ends = scrollEndpoints(scroll)
+        else { return }
+
+        let clip = scroll.contentView
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: toTop ? ends.top : ends.bottom))
+        scroll.reflectScrolledClipView(clip)
+        try? await Task.sleep(for: .milliseconds(500))
     }
 
     private static func reply(containing text: String, in window: NSWindow, revealing: Bool = false) async -> ConversationNSTextView? {

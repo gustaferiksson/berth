@@ -11,7 +11,9 @@ enum MarkdownAttributedString {
     static let blockPadding = 12.0
     static let codeLabelHeight = 16.0
 
-    private struct Unit {
+    static let codeLineLimit = 12
+
+    struct Unit {
         var content: NSAttributedString
         var terminator: [NSAttributedString.Key: Any]
     }
@@ -26,10 +28,11 @@ enum MarkdownAttributedString {
 
     static func highlightKey(language: String, code: String) -> String { "\(language)\n\(code)" }
 
-    static func render(_ blocks: [MarkdownBlock], theme: GhosttyTheme, highlighted: [String: NSAttributedString] = [:], proseFont: NSFont? = nil) -> NSAttributedString {
+    static func render(_ blocks: [MarkdownBlock], theme: GhosttyTheme, highlighted: [String: NSAttributedString] = [:], proseFont: NSFont? = nil, itemID: String? = nil, expanded: Set<String> = []) -> NSAttributedString {
         let font = proseFont ?? theme.conversationNSFont()
         let gap: [NSAttributedString.Key: Any] = [.font: font.withSize(4)]
         var units: [Unit] = []
+        var codeIndex = 0
         for (index, block) in blocks.enumerated() {
             if index > 0 {
                 let isItemRun = if case .item = block.kind, case .item = blocks[index - 1].kind { true } else { false }
@@ -37,7 +40,10 @@ enum MarkdownAttributedString {
             }
             switch block.kind {
             case let .code(language):
-                units += codeUnits(block.lines.joined(separator: "\n"), language: language, theme: theme, highlighted: highlighted[highlightKey(language: language, code: block.lines.joined(separator: "\n"))])
+                let code = block.lines.joined(separator: "\n")
+                let key = itemID.map { "\($0)#code\(codeIndex)" }
+                units += codeUnits(code, language: language, theme: theme, highlighted: highlighted[highlightKey(language: language, code: code)], key: key, expanded: expanded)
+                codeIndex += 1
 
             case .table:
                 units += tableUnits(block.lines, theme: theme)
@@ -47,6 +53,10 @@ enum MarkdownAttributedString {
             }
         }
 
+        return assemble(units)
+    }
+
+    static func assemble(_ units: [Unit]) -> NSAttributedString {
         let result = NSMutableAttributedString()
         for (index, unit) in units.enumerated() {
             result.append(unit.content)
@@ -105,7 +115,19 @@ enum MarkdownAttributedString {
         return Unit(content: content, terminator: terminator)
     }
 
-    private static func codeUnits(_ code: String, language: String, theme: GhosttyTheme, highlighted: NSAttributedString?) -> [Unit] {
+    static func expansionLink(_ title: String, key: String, copyText: String, attributes: [NSAttributedString.Key: Any], theme: GhosttyTheme) -> NSAttributedString {
+        var components = URLComponents()
+        components.scheme = "berth-expand"
+        components.host = "toggle"
+        components.queryItems = [URLQueryItem(name: "key", value: key)]
+        var attributes = attributes
+        attributes[.link] = components.url
+        attributes[.foregroundColor] = NSColor(theme.secondary)
+        attributes[.conversationCopyText] = copyText
+        return NSAttributedString(string: title, attributes: attributes)
+    }
+
+    static func codeUnits(_ code: String, language: String, theme: GhosttyTheme, highlighted: NSAttributedString? = nil, key: String? = nil, expanded: Set<String> = []) -> [Unit] {
         let font = theme.conversationCodeNSFont(-1)
         let whole = NSMutableAttributedString(string: code, attributes: [.font: font, .foregroundColor: NSColor(theme.foreground)])
         highlighted?.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: min(highlighted?.length ?? 0, whole.length))) { color, range, _ in
@@ -115,21 +137,40 @@ enum MarkdownAttributedString {
         let nsCode = code as NSString
         var lineRanges: [NSRange] = []
         nsCode.enumerateSubstrings(in: NSRange(location: 0, length: nsCode.length), options: [.byLines, .substringNotRequired]) { _, range, _, _ in lineRanges.append(range) }
-        if lineRanges.isEmpty { lineRanges = [NSRange(location: 0, length: 0)] }
+        if lineRanges.isEmpty || code.last?.isNewline == true { lineRanges.append(NSRange(location: nsCode.length, length: 0)) }
 
+        let toggleKey = lineRanges.count > codeLineLimit ? key : nil
+        let isCollapsed = toggleKey.map { !expanded.contains($0) } ?? false
+        let visible = isCollapsed ? codeLineLimit : lineRanges.count
         let top = blockPadding + (language.isEmpty ? 0 : codeLabelHeight) + 1
-        return lineRanges.enumerated().map { index, range in
+        return (0..<(visible + (toggleKey == nil ? 0 : 1))).map { index in
             let style = NSMutableParagraphStyle()
             style.firstLineHeadIndent = blockPadding
             style.headIndent = blockPadding
             style.tailIndent = -blockPadding
             if index == 0 { style.paragraphSpacingBefore = top }
-            if index == lineRanges.count - 1 { style.paragraphSpacing = blockPadding + 1 }
+            if index == visible || index == visible - 1 && toggleKey == nil { style.paragraphSpacing = blockPadding + 1 }
 
-            let content = NSMutableAttributedString(attributedString: whole.attributedSubstring(from: range))
-            let attributes: [NSAttributedString.Key: Any] = [.paragraphStyle: style, .markdownCodeBlock: language]
-            content.addAttributes(attributes, range: NSRange(location: 0, length: content.length))
-            return Unit(content: content, terminator: attributes.merging([.font: font]) { $1 })
+            let attributes: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: style, .markdownCodeBlock: language]
+            if index == visible, let toggleKey {
+                let hidden = isCollapsed ? lineRanges.dropFirst(visible).map { nsCode.substring(with: $0) }.joined(separator: "\n") : ""
+                let title = isCollapsed ? "Show \(lineRanges.count - visible) more lines" : "Show less"
+                let link = expansionLink(title, key: toggleKey, copyText: isCollapsed ? "\n" + hidden : "", attributes: attributes, theme: theme)
+                return Unit(content: link, terminator: attributes)
+            }
+
+            let content = NSMutableAttributedString(attributedString: whole.attributedSubstring(from: lineRanges[index]))
+            let range = NSRange(location: 0, length: content.length)
+            content.addAttributes(attributes, range: range)
+            if isCollapsed, index >= visible - 3 {
+                let alpha = [0.70, 0.45, 0.25][index - (visible - 3)]
+                content.enumerateAttribute(.foregroundColor, in: range) { value, run, _ in
+                    if let color = value as? NSColor { content.addAttribute(.foregroundColor, value: color.withAlphaComponent(color.alphaComponent * alpha), range: run) }
+                }
+            }
+            var terminator = attributes
+            if index == visible - 1, toggleKey != nil { terminator[.conversationCopyText] = "" }
+            return Unit(content: content, terminator: terminator)
         }
     }
 

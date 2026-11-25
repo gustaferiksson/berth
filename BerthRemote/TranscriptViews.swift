@@ -220,6 +220,8 @@ private struct PromptBubble: View {
         let files = attachments?.filter { $0.thumbnail == nil }.map(\.name) ?? entry.text.matches(of: uploads).map { String($0.output.1) }
         let images = attachments?.compactMap(\.thumbnail) ?? entry.images ?? []
         let text = (attachments == nil ? entry.text.replacing(uploads, with: "") : entry.text).trimmingCharacters(in: .whitespacesAndNewlines)
+        let lineLimit = 20
+        let moreLines = text.count(where: \.isNewline) + 1 - lineLimit
         let parts = PromptTextPart.split(text)
         let numbers = imageNumbers(parts: parts, count: images.count)
         let viewerImages = images.enumerated().map { ViewerImage(id: String($0.offset), data: $0.element) }
@@ -259,11 +261,24 @@ private struct PromptBubble: View {
                     .background { RoundedRectangle(cornerRadius: 14).fill(.fill.tertiary) }
             }
             if showsText {
-                promptText(parts)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background { bubble.fill(.fill.tertiary) }
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 0) {
+                    promptText(parts)
+                        .lineLimit(moreLines > 0 && !isExpanded ? lineLimit : nil)
+                        .textSelection(.enabled)
+                    if moreLines > 0 {
+                        Button { isExpanded.toggle() } label: {
+                            Text(isExpanded ? "Show less" : "Show \(moreLines) more lines")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(minHeight: 44)
+                                .contentShape(.rect)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background { bubble.fill(.fill.tertiary) }
             }
         }
         .opacity(isQueued ? 0.6 : 1)

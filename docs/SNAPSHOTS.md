@@ -214,6 +214,8 @@ Add `-snapshotConversationShellCompletions YES` to capture shell mode with `!git
 
 The Claude fixture includes shell-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
 
+`-snapshotConversationLongCode YES` replaces the default Claude transcript with a prompt containing a 60-line shell block and a reply containing a 40-line Swift block. Both blocks start collapsed. Add `-snapshotConversationExpanded YES -snapshotConversationHeight 2400` to capture both expanded blocks in the same image. Run `-snapshotConversationSelect YES` separately against the default or heavy fixture.
+
 `-snapshotConversationAgent codex` with `-codexEnabled YES` seeds an invented Codex rollout and opens a Codex conversation tab without fake live status. `-snapshotConversationStatus busy` leaves its final turn open; other statuses close it with task_complete. `-snapshotTerminalTitle "<text>"` sets the tab terminal's OSC title, so `[ ! ] Action Required`, `Thinking` or `Ready` drives the Codex live status. The fixture includes command output, updated and added files, a web search, a plan, a final reply, context usage and a pull request URL.
 
 With `-snapshotConversation YES -codexEnabled YES`, `-snapshotConversationCodexApproval YES` sets the Action Required title and shows an invented command, its justification, and the Allow, Always Allow, and Deny buttons. `-snapshotConversationCodexTasks YES` sets the Ready title and shows an invented running subagent and background terminal in the tasks pill. Use an empty `CFFIXED_USER_HOME` and leave `CODEX_HOME` unset or point it at that fixture home’s `.codex` directory.

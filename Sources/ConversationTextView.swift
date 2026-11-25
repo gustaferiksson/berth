@@ -10,6 +10,8 @@ struct ConversationTextView: NSViewRepresentable {
     var selectionID: String?
     var sizing = Sizing.fill
 
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.conversationExpansion) private var expansion
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
     @Environment(\.conversationSelection) private var selection
@@ -23,10 +25,14 @@ struct ConversationTextView: NSViewRepresentable {
     func updateNSView(_ view: ConversationNSTextView, context _: Context) {
         view.theme = theme
         view.openURL = { openURL($0) }
+        view.toggleExpansion = { key in
+            selection?.clear()
+            expansion?.toggle(key)
+        }
         view.selectionID = selectionID
         view.selection = selectionID == nil ? nil : selection
         view.show(text)
-        view.selection?.register(view)
+        view.selection?.register(view, displayScale: displayScale)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: ConversationNSTextView, context _: Context) -> CGSize? {
@@ -41,12 +47,13 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
         didSet {
             guard theme != oldValue else { return }
 
-            linkTextAttributes = [.foregroundColor: NSColor(theme.unread), .cursor: NSCursor.pointingHand]
+            linkTextAttributes = [.cursor: NSCursor.pointingHand]
             needsDisplay = true
         }
     }
 
     var openURL: (URL) -> Void = { _ in }
+    var toggleExpansion: (String) -> Void = { _ in }
     var selectionID: String?
     weak var selection: ConversationSelection?
 
@@ -175,19 +182,27 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
         textContainer.size = NSSize(width: width, height: .greatestFiniteMagnitude)
         manager.ensureLayout(for: manager.documentRange)
         cachedBlocks = nil
-        let height = ceil(max(manager.usageBoundsForTextContainer.maxY, blocks().map(\.rect.maxY).max() ?? 0))
+        let blocks = blocks()
+        let height = ceil(max(manager.usageBoundsForTextContainer.maxY, blocks.map(\.rect.maxY).max() ?? 0))
         var used = 0.0
         manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: []) { fragment in
             used = fragment.textLineFragments.reduce(used) { max($0, fragment.layoutFragmentFrame.minX + $1.typographicBounds.maxX) }
             return true
         }
-        fitted = (width, height, min(width, ceil(used)))
+        fitted = (width, height, blocks.contains { $0.language != nil } ? width : min(width, ceil(used)))
         return height
     }
 
-    func textView(_: NSTextView, clickedOnLink link: Any, at _: Int) -> Bool {
+    func textView(_: NSTextView, clickedOnLink link: Any, at index: Int) -> Bool {
         guard let url = link as? URL ?? (link as? String).flatMap(URL.init(string:)) else { return false }
 
+        if url.scheme == "berth-expand" {
+            if textStorage?.attribute(.conversationCopyText, at: index, effectiveRange: nil) != nil,
+               let key = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "key" })?.value {
+                toggleExpansion(key)
+            }
+            return true
+        }
         openURL(url)
         return true
     }
@@ -297,9 +312,9 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let all = blocks()
-        guard let index = all.firstIndex(where: { $0.language != nil && copyFrame(of: $0).contains(point) }) else { return select(with: event, at: point) }
+        guard let textStorage, let index = all.firstIndex(where: { $0.language != nil && copyFrame(of: $0).contains(point) }) else { return select(with: event, at: point) }
 
-        let code = (string as NSString).substring(with: all[index].range).trimmingCharacters(in: .newlines)
+        let code = ConversationSelection.plainText(textStorage, in: all[index].range).trimmingCharacters(in: .newlines)
         copyToPasteboard(code)
         copiedBlock = index
         needsDisplay = true
