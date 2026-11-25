@@ -52,6 +52,10 @@ extension Snapshot {
         if scenario == "single" || scenario == "pinOnly" {
             let tab = store.browser.open(folder.appending(path: "invoices.html"), in: session.id, title: "Invoices")
             if scenario == "pinOnly" { store.browser.pin(tab) }
+        } else if scenario == "pinnedSelected" {
+            let tabs = browserPages.prefix(4).map { store.browser.open(folder.appending(path: $0.file), in: session.id, title: $0.title) }
+            tabs.prefix(2).forEach { store.browser.pin($0) }
+            store.browser.select(tabs[0], in: session.id)
         } else if scenario == "pinnedActive" {
             let docs = store.browser.open(folder.appending(path: "docs.html"), in: session.id, title: "Berth Docs")
             store.browser.open(folder.appending(path: "invoices.html"), in: session.id, title: "Invoices", selects: false)
