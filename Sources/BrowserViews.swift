@@ -363,6 +363,10 @@ private struct BrowserHeaderTab: View {
             } else if isSelected {
                 BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact)
                     .frame(height: BrowserHeader.controlSize - 2)
+                    .overlay(alignment: .leading) {
+                        if isHovered { closeButton }
+                    }
+                    .onHover { isHovering = $0 }
             } else {
                 sessionButton
                     .onHover { isHovering = $0 }
@@ -403,9 +407,27 @@ private struct BrowserHeaderTab: View {
         .glassEffect(.regular.interactive(), in: .circle)
     }
 
+    private var isHovered: Bool {
+        isHovering || Snapshot.forcedHover.contains(tab.displayTitle)
+    }
+
+    @ViewBuilder private var closeButton: some View {
+        if let key = browser.sessionKey {
+            Button { browser.close(tab, in: key) } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 16, height: 22)
+                    .contentShape(.rect)
+            }
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Close Tab")
+            .help("Close Tab")
+            .padding(.leading, 3)
+        }
+    }
+
     private var sessionButton: some View {
-        let isHovered = isHovering || Snapshot.forcedHover.contains(tab.displayTitle)
-        return Button(action: select) {
+        Button(action: select) {
             HStack(spacing: 5) {
                 BrowserFavicon(tab: tab, fallback: nil)
                 if showsTitle {
@@ -423,18 +445,7 @@ private struct BrowserHeaderTab: View {
         .font(.system(size: 13, weight: .medium))
         .accessibilityLabel(tab.displayTitle)
         .overlay(alignment: .leading) {
-            if isHovered, let key = browser.sessionKey {
-                Button { browser.close(tab, in: key) } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .frame(width: 16, height: 22)
-                        .contentShape(.rect)
-                }
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Close Tab")
-                .help("Close Tab")
-                .padding(.leading, 3)
-            }
+            if isHovered { closeButton }
         }
     }
 
@@ -493,7 +504,7 @@ private struct BrowserAddressField: View {
                         Text(displayAddress)
                             .lineLimit(1)
                     }
-                    .padding(.leading, isMerged ? 8 : accessoryWidth)
+                    .padding(.leading, isMerged ? 24 : accessoryWidth)
                     .padding(.trailing, accessoryWidth)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(.rect)
