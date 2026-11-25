@@ -1125,7 +1125,7 @@ struct RowFill: View {
                     Rectangle()
                         .fill(Color.primary.opacity(0.12))
                         .frame(width: 1)
-                        .padding(.leading, 14.5)
+                        .padding(.leading, 8 + SidebarRowLayout.horizontalInset + StatusSlot.width / 2 - 0.5)
                 }
             }
     }
