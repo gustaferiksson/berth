@@ -58,6 +58,7 @@ final class RemoteServer {
     @ObservationIgnored private var reviewChanges: [String: ReviewChanges] = [:]
     @ObservationIgnored private let imageCache = NSCache<NSString, NSData>()
     @ObservationIgnored private var imageLines: [String: [String: Range<Int>]] = [:]
+    @ObservationIgnored private var activities: [URL: (activity: TranscriptActivity, logs: [String: AgentLog])] = [:]
     @ObservationIgnored private var imageLoads: [String: Task<Data?, Never>] = [:]
     @ObservationIgnored private var pullRequestLoads: [String: (task: Task<PullRequestDetail?, Never>, date: Date)] = [:]
 
@@ -606,10 +607,12 @@ final class RemoteServer {
         let queue = client.queue
         let live = store.liveBySession[sessionID]
         let catalogDirectory = Store.claudeDirectory.appending(path: "cache/model-catalog")
-        let previous = url == client.transcript ? client.activity : TranscriptActivity()
-        let previousLogs = url == client.transcript ? client.agentLogs : [:]
-        let (chunk, activity, logs, report) = await Task.detached {
+        let previous = url == client.transcript ? client.activity : activities[url]?.activity ?? TranscriptActivity()
+        let previousLogs = url == client.transcript ? client.agentLogs : activities[url]?.logs ?? [:]
+        let defersActivity = harness.usesTranscriptActivity && url != client.transcript && activities[url] == nil
+        let (chunk, activity, logs, report) = await Task.detached { () -> (TranscriptTail.Chunk?, TranscriptActivity, [String: AgentLog], RemoteActivity?) in
             let chunk = readTranscript(url, after, queue)
+            guard !defersActivity else { return (chunk, previous, previousLogs, nil) }
             guard harness.usesTranscriptActivity else {
                 let context = session.flatMap { harness.summaryContext?($0) }
                 let tasks = harness.supports(.backgroundTasks) ? harness.readTasks?(root, url) ?? [] : []
@@ -634,12 +637,15 @@ final class RemoteServer {
             imageLines[sessionID] = (chunk.isContinuation ? imageLines[sessionID] ?? [:] : [:]).merging(chunk.imageLines) { $1 }
             clients[id]?.activity = activity
             clients[id]?.agentLogs = logs
-            clients[id]?.sentActivity = report
-            if !chunk.isContinuation || !chunk.entries.isEmpty || chunk.queue != current.queue || report != current.sentActivity {
+            if let report {
+                clients[id]?.sentActivity = report
+                activities[url] = (activity, logs)
+            }
+            if !chunk.isContinuation || !chunk.entries.isEmpty || chunk.queue != current.queue || report != nil && report != current.sentActivity {
                 send(try? JSONEncoder().encode(RemoteServerMessage.transcript(sessionID: sessionID, entries: chunk.entries, isContinuation: chunk.isContinuation, queued: chunk.queuedPrompts, activity: report)), to: current.connection)
             }
         }
-        if current.needsRead { await streamTranscript(to: id) }
+        if current.needsRead || chunk != nil && report == nil { await streamTranscript(to: id) }
     }
 
     private func submit(_ text: String, attachments: [String], in sessionID: String, from connection: NWConnection) async {
