@@ -40,6 +40,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     @ObservationIgnored var isTakingScreenshot = false
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var pendingNavigation: WKNavigation?
+    @ObservationIgnored private(set) var navigationSequence = 0
     @ObservationIgnored private var navigationWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     @ObservationIgnored private var consoleEntries: [ControlConsoleEntry] = []
     @ObservationIgnored private var consoleSequence = 0
@@ -113,6 +114,10 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         finishNavigation()
     }
 
+    var isNavigating: Bool {
+        pendingNavigation != nil || loadedWebView?.isLoading == true
+    }
+
     func waitForNavigation(in view: WKWebView) async {
         guard pendingNavigation != nil || view.isLoading else { return }
 
@@ -162,6 +167,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation?) {
         guard webView === loadedWebView else { return }
 
+        navigationSequence += 1
         pendingNavigation = navigation
     }
 
@@ -356,7 +362,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         let tab = BrowserTab(url: url, title: title, browser: self)
         sessionTabs[key, default: []].append(tab)
         if selects { selectedIDs[key] = tab.id }
-        if url == nil { addressFocusRequests += 1 }
+        if selects, url == nil { addressFocusRequests += 1 }
         save()
         return tab
     }

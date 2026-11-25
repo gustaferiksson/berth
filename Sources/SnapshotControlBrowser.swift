@@ -21,6 +21,7 @@ extension Snapshot {
         } catch {
             fail(error.localizedDescription)
         }
+        print("browser control probe passed")
         store.isTerminating = true
         ProcessAncestry.hangUpDescendants()
         exit(0)
@@ -39,15 +40,43 @@ extension Snapshot {
         <!doctype html><title>Control Console</title><h1>Browser control fixture text</h1>
         <form aria-label="Preferences">
           <label for="email">Email</label><input id="email" type="text" value="ada@example.com" required>
-          <label><input type="checkbox" checked>Remember me</label>
-          <button disabled>Save</button>
+          <label for="controlled">Controlled</label><input id="controlled"><output id="controlled-output">Controlled: empty</output>
+          <label for="region">Region</label><select id="region"><option value="eu">Europe</option><option value="na">North America</option></select>
+          <label><input id="remember" type="checkbox" checked>Remember me</label>
+          <button type="button" disabled>Save</button>
+          <button>Submit</button><output id="submitted"></output>
           <a href="https://example.com/docs">Docs</a>
           <div>Plain fixture text</div>
         </form>
-        <p hidden>Hidden fixture text</p>
+        <p id="hidden" hidden>Hidden fixture text</p>
         <button aria-hidden="true">Hidden fixture button</button>
+        <button type="button" id="hover"><span>More info</span></button><output id="hovered"></output>
+        <div id="editable" contenteditable="true">Old text</div>
+        <div style="height:3000px"></div><a href="simple.html">Next fixture</a>
         <script>
         window.__berthRefs = new Map([['e1', document.body]]);
+        const controlled = document.querySelector('#controlled');
+        const native = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+        let tracker = '', appState = '';
+        Object.defineProperty(controlled, 'value', {
+          get() { return native.get.call(this); },
+          set(value) { tracker = String(value); native.set.call(this, value); }
+        });
+        controlled.addEventListener('input', () => {
+          if (controlled.value === tracker) return;
+          appState = tracker = controlled.value;
+          document.querySelector('#controlled-output').textContent = 'Controlled: ' + appState;
+        });
+        document.querySelector('form').addEventListener('submit', event => {
+          event.preventDefault();
+          document.querySelector('#submitted').textContent = 'Submitted: ' + JSON.stringify({
+            email: document.querySelector('#email').value, controlled: appState,
+            region: document.querySelector('#region').value, remember: document.querySelector('#remember').checked
+          });
+        });
+        document.querySelector('#hover').addEventListener('mouseenter', () => {
+          document.querySelector('#hovered').textContent = 'Hovered';
+        });
         addEventListener('load', () => {
           console.log('control fixture log');
           console.warn('control fixture warning');
@@ -97,9 +126,10 @@ extension Snapshot {
         let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
         if active.webView.responds(to: selector) { active.webView.perform(selector, with: nil) }
 
-        func berth(_ args: String..., asOutsider: Bool = false) async -> (status: Int32, output: String) {
-            let result = await runControlCLI(tool, arguments: ["browser"] + args, environment: asOutsider ? store.control.environment(for: outsider) : environment)
-            print("browser \(args.joined(separator: " ")) [\(result.status)] \(result.output)")
+        func berth(_ args: String..., appending extra: [String] = [], asOutsider: Bool = false) async -> (status: Int32, output: String) {
+            let arguments = args + extra
+            let result = await runControlCLI(tool, arguments: ["browser"] + arguments, environment: asOutsider ? store.control.environment(for: outsider) : environment)
+            print("browser \(arguments.joined(separator: " ")) [\(result.status)] \(result.output)")
             return result
         }
 
@@ -113,9 +143,9 @@ extension Snapshot {
 
         for denied in [pinned.id, other.id, UUID()] {
             let id = String(denied.uuidString.lowercased().prefix(8))
-            for command in ["screenshot", "html", "snapshot"] {
-                let result = await berth(command, "--tab", id)
-                guard result.status == 1, result.output == "berth: No browser tab \(id) in this session" else { fail("browser \(command) escaped its session") }
+            for command in [["screenshot"], ["html"], ["snapshot"], ["click", "button"], ["fill", "input", "test"], ["eval", "return document.title"]] {
+                let result = await berth(appending: command + ["--tab", id])
+                guard result.status == 1, result.output == "berth: No browser tab \(id) in this session" else { fail("browser \(command[0]) escaped its session") }
             }
         }
         let unparented = await berth("tabs", asOutsider: true)
@@ -227,6 +257,105 @@ extension Snapshot {
 
         let accepted = await berth("navigate", "https://example.invalid/", "--tab", tallID)
         guard accepted.status == 0 else { fail("browser navigate should accept an HTTPS URL") }
+
+        try await probeBrowserInteractions({ await berth(appending: $0) }, first: loggedPage, second: simplePage)
+    }
+
+    private static func probeBrowserInteractions(_ berth: ([String]) async -> (status: Int32, output: String), first: URL, second: URL) async throws {
+        func checked(_ args: String...) async -> String {
+            let result = await berth(args)
+            guard result.status == 0 else { fail("browser \(args[0]) failed: \(result.output)") }
+
+            return result.output
+        }
+
+        let snapshot = await checked("snapshot")
+        let lines = snapshot.split(separator: "\n")
+        guard let email = lines.first(where: { $0.contains(#"- textbox "Email""#) })?.firstMatch(of: #/\[ref=(e[0-9]+)\]/#)?.1 else {
+            fail("browser snapshot should report an email ref")
+        }
+
+        _ = await checked("fill", String(email), "berth")
+        _ = await checked("fill", "#controlled", "tracked")
+        guard await checked("text").contains("Controlled: tracked") else { fail("browser fill should bypass the controlled input instance setter") }
+
+        _ = await checked("fill", "#editable", "New text")
+        guard await checked("eval", "return document.querySelector('#editable').textContent") == #""New text""# else {
+            fail("browser fill should replace contenteditable text")
+        }
+
+        _ = await checked("click", "#email")
+        _ = await checked("press", "End")
+        _ = await checked("type", "-typed")
+        _ = await checked("press", "Tab")
+        guard await checked("eval", "return document.activeElement.id") == #""controlled""# else { fail("browser press Tab should move focus") }
+
+        _ = await checked("press", "Shift+Tab")
+        guard await checked("eval", "return document.activeElement.id") == #""email""# else { fail("browser press Shift+Tab should move focus back") }
+
+        _ = await checked("select", "#region", "North America")
+        _ = await checked("click", "#remember")
+
+        for (target, error) in [("text=Save", "disabled"), ("#hidden", "hidden"), ("[", "Invalid CSS selector")] {
+            let result = await berth(["click", target])
+            guard result.status == 1, result.output.contains(error) else { fail("browser click should refuse \(target)") }
+        }
+
+        _ = await checked("click", "#email")
+        _ = await checked("press", "Enter")
+        let state = #"{"email":"berth-typed","controlled":"tracked","region":"na","remember":false}"#
+        guard try await checked("eval", "return document.querySelector('#submitted').textContent") == String(decoding: JSONEncoder().encode("Submitted: " + state), as: UTF8.self),
+              await checked("text").contains("Submitted: " + state)
+        else { fail("browser press Enter should submit the edited form") }
+
+        let hover = await checked("hover", "text=More info")
+        guard hover.contains(#"button \"More info\""#), hover.contains(#""navigated":false"#), await checked("text").contains("Hovered") else {
+            fail("browser hover should prefer the button and send mouseenter")
+        }
+
+        let ambiguous = await checked("hover", "button:not([disabled])")
+        guard ambiguous.contains("elements matched; used the first in document order") else { fail("browser should report ambiguous selectors") }
+
+        _ = await checked("scroll", "--to", "bottom")
+        guard let offset = await Double(checked("eval", "return scrollY")), offset > 0 else { fail("browser scroll should move the page") }
+
+        _ = await checked("eval", "setTimeout(() => document.body.append('Wait fixture marker'), 700)")
+        _ = await checked("wait", "--text", "Wait fixture marker")
+        _ = await checked("wait", "--ms", "125")
+        let timeout = await berth(["wait", "--url", "/missing", "--timeout", "0.15"])
+        guard timeout.status == 1, timeout.output.contains(#"Timed out waiting for URL containing "/missing""#) else { fail("browser wait should time out with the wanted URL") }
+
+        for (args, url) in [(["click", "text=Next fixture"], second), (["back"], first), (["forward"], second)] {
+            let result = await berth(args)
+            let outcome = try JSONSerialization.jsonObject(with: Data(result.output.utf8)) as? [String: Any]
+            guard result.status == 0, outcome?["navigated"] as? Bool == true, outcome?["url"] as? String == url.absoluteString else {
+                fail("browser \(args[0]) should report navigation to \(url.lastPathComponent)")
+            }
+        }
+        let stale = await berth(["click", String(email)])
+        guard stale.status == 1, stale.output.contains("Take a new snapshot") else { fail("browser click should report stale refs after navigation") }
+
+        _ = await checked("wait", "p")
+        _ = await checked("wait", "--load")
+        let object = await checked("eval", "return {title: await Promise.resolve(document.title), count: document.querySelectorAll('p').length}")
+        guard object == #"{"title":"Simple Fixture","count":1}"# else { fail("browser eval should return async results as JSON") }
+        guard await checked("eval", "return undefined") == "null" else { fail("browser eval should convert undefined to null") }
+
+        let cyclic = await berth(["eval", "const object = {}; object.self = object; return object"])
+        let oversized = await berth(["eval", "return 'x'.repeat(100000)"])
+        guard cyclic.status == 1, oversized.status == 1, oversized.output.contains("100000 characters") else { fail("browser eval should refuse unserialisable and oversized results") }
+
+        _ = await checked("eval", "setTimeout(() => history.back(), 700)")
+        let afterNavigation = await checked("wait", "#email")
+        guard afterNavigation.contains(#""navigated":true"#), afterNavigation.contains(first.absoluteString) else {
+            fail("browser wait should keep polling across navigation")
+        }
+
+        _ = await checked("open", "--background")
+        guard await checked("url") == first.absoluteString else { fail("browser open --background should preserve the active tab") }
+
+        _ = await checked("open")
+        guard await checked("url").isEmpty else { fail("browser open should select a blank session tab") }
     }
 }
 #endif
