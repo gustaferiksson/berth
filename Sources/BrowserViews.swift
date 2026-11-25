@@ -391,7 +391,8 @@ private struct BrowserHeaderTab: View {
         .background {
             if isSelected {
                 Circle()
-                    .fill(theme.foreground.opacity(0.14))
+                    .fill(theme.foreground.opacity(0.18))
+                    .strokeBorder(theme.foreground.opacity(0.22), lineWidth: 0.5)
                     .padding(3)
             }
         }
@@ -606,7 +607,11 @@ private struct BrowserAddressField: View {
 
         address = tab?.url?.absoluteString ?? ""
         isEditing = true
-        isFocused = true
+        Task {
+            guard NSApp.keyWindow != nil else { return }
+
+            isFocused = true
+        }
     }
 
     private func selectAddress() {
@@ -715,6 +720,7 @@ private struct BrowserDownloadsButton: View {
 
 private struct BrowserWebView: NSViewRepresentable {
     let tab: BrowserTab
+    @AppStorage(BrowserModel.appearanceKey) private var appearance = BrowserAppearance.auto
 
     func makeNSView(context _: Context) -> NSView {
         NSView()
@@ -722,6 +728,7 @@ private struct BrowserWebView: NSViewRepresentable {
 
     func updateNSView(_ container: NSView, context _: Context) {
         let webView = tab.webView
+        webView.appearance = appearance.appearance
         guard webView.superview !== container else { return }
 
         container.subviews.forEach { $0.removeFromSuperview() }

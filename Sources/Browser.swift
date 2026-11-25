@@ -21,6 +21,18 @@ enum BrowserSearch: String, CaseIterable {
     }
 }
 
+enum BrowserAppearance: String, CaseIterable {
+    case auto, light, dark
+
+    var title: String {
+        [.auto: "Auto", .light: "Light", .dark: "Dark"][self] ?? rawValue
+    }
+
+    var appearance: NSAppearance? {
+        [.auto: nil, .light: NSAppearance(named: .aqua), .dark: NSAppearance(named: .darkAqua)][self] ?? nil
+    }
+}
+
 enum BrowserLinkTarget: String {
     case defaultBrowser, berth
 }
@@ -67,6 +79,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
+        view.appearance = BrowserAppearance(rawValue: UserDefaults.standard.string(forKey: BrowserModel.appearanceKey) ?? "")?.appearance
         #if DEBUG
         view.isInspectable = true
         #endif
@@ -146,6 +159,11 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
             print("snapshot browser blocked \(url.absoluteString)")
             return (.cancel, preferences)
         }
+        let opensInNewTab = action.navigationType == .linkActivated && (action.modifierFlags.contains(.command) || action.buttonNumber == 4)
+        if opensInNewTab, ["http", "https", "file"].contains(scheme) {
+            browser.openFromPage(url, opener: self, selects: action.modifierFlags.contains(.shift))
+            return (.cancel, preferences)
+        }
         if ["http", "https", "file", "about", "data", "blob", "javascript"].contains(scheme) { return (.allow, preferences) }
 
         if action.navigationType == .linkActivated { browser.openOutside(url) }
@@ -221,7 +239,10 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     }
 
     func webView(_: WKWebView, createWebViewWith _: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures _: WKWindowFeatures) -> WKWebView? {
-        if let url = action.request.url { browser.openFromPage(url, opener: self) }
+        guard let url = action.request.url else { return nil }
+
+        let isBackground = action.modifierFlags.contains(.command) && !action.modifierFlags.contains(.shift)
+        browser.openFromPage(url, opener: self, selects: !isBackground)
         return nil
     }
 
@@ -285,6 +306,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     static let persistentDataKey = "browserKeepsWebsiteData"
     static let linksKey = "conversationLinksOpenIn"
     static let githubLinksKey = "githubLinksOpenInBerth"
+    static let appearanceKey = "browserAppearance"
     private static let pinnedKey = "browserPinnedTabs"
     private static let sessionTabsKey = "browserSessionTabs"
     private static let ephemeralStore = WKWebsiteDataStore.nonPersistent()
@@ -369,11 +391,11 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         return tab
     }
 
-    func openFromPage(_ url: URL, opener: BrowserTab) {
+    func openFromPage(_ url: URL, opener: BrowserTab, selects: Bool = true) {
         let key = sessionTabs.first { $0.value.contains { $0 === opener } }?.key ?? sessionKey
         guard let key else { return }
 
-        open(url, in: key)
+        open(url, in: key, selects: selects)
     }
 
     func select(_ tab: BrowserTab, in key: String) {
