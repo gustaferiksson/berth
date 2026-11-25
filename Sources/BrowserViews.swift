@@ -48,6 +48,7 @@ private struct BrowserHeader: View {
         let pinned = browser.pinned
         let sessionTabs = browser.sessionKey.map(browser.tabs) ?? []
         let selectedSession = sessionTabs.first { $0 === tab }
+        let selectedPinned = pinned.first { $0 === tab }
         let isCompact = width < Self.compactThreshold
         let spacing = isCompact ? Self.compactSpacing : Self.wideSpacing
         let pinnedWidth = min(
@@ -61,15 +62,19 @@ private struct BrowserHeader: View {
                 if !pinned.isEmpty || !sessionTabs.isEmpty {
                     HStack(spacing: spacing) {
                         if !pinned.isEmpty {
-                            pinnedTabs(pinned, spacing: spacing)
-                                .frame(width: pinnedWidth)
+                            if selectedPinned == nil {
+                                pinnedTabs(pinned, spacing: spacing)
+                                    .frame(width: pinnedWidth)
+                            } else {
+                                expandedPinnedTabs(pinned, spacing: spacing, isCompact: isCompact)
+                            }
                         }
                         if !sessionTabs.isEmpty {
                             BrowserSessionTabs(browser: browser, tabs: sessionTabs, selection: selectedSession, isCompact: isCompact, select: select, dropAtEnd: dropIntoSession)
                         }
                     }
                 }
-                if selectedSession == nil {
+                if selectedSession == nil, selectedPinned == nil {
                     BrowserAddressField(browser: browser, tab: tab, isMerged: false, isCompact: isCompact)
                         .frame(minWidth: 0, idealWidth: 200, maxWidth: .infinity)
                         .frame(height: Self.controlSize)
@@ -79,6 +84,7 @@ private struct BrowserHeader: View {
                     .fixedSize()
             }
             .frame(maxWidth: .infinity)
+            .animation(.easeInOut(duration: 0.16), value: tab?.id)
             .animation(.easeInOut(duration: 0.16), value: tab?.canGoBack == true)
             .animation(.easeInOut(duration: 0.16), value: tab?.canGoForward == true)
         }
@@ -87,6 +93,14 @@ private struct BrowserHeader: View {
         .padding(.horizontal, spacing)
         .padding(.vertical, 6)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+
+    private func expandedPinnedTabs(_ pinned: [BrowserTab], spacing: CGFloat, isCompact: Bool) -> some View {
+        HStack(spacing: spacing) {
+            ForEach(pinned) { pinnedTab in
+                BrowserHeaderTab(browser: browser, tab: pinnedTab, isPinned: true, isSelected: pinnedTab === tab, isCompact: isCompact) { select(pinnedTab) }
+            }
+        }
     }
 
     private func pinnedTabs(_ pinned: [BrowserTab], spacing: CGFloat) -> some View {
@@ -369,8 +383,12 @@ private struct BrowserHeaderTab: View {
 
     var body: some View {
         Group {
-            if isPinned {
+            if isPinned, !isSelected {
                 pinnedButton
+            } else if isPinned {
+                BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact)
+                    .frame(minWidth: 160, idealWidth: 240, maxWidth: .infinity)
+                    .frame(height: BrowserHeader.controlSize)
             } else if isSelected {
                 BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact, showsClose: isHovered)
                     .frame(height: BrowserHeader.controlSize - 2)
