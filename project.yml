@@ -151,6 +151,7 @@ targets:
       - path: BerthRemote
       - path: Packages/BerthCore/Sources/BerthCore/RemoteProtocol.swift
       - path: Packages/BerthCore/Sources/BerthCore/SlashCommands.swift
+      - path: Packages/BerthCore/Sources/BerthCore/SlashToken.swift
       - path: Packages/BerthCore/Sources/BerthCore/FuzzyMatch.swift
       - path: Packages/BerthCore/Sources/BerthCore/PlanUsage.swift
       - path: Packages/BerthCore/Sources/BerthCore/UsageGroups.swift

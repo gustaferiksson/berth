@@ -250,14 +250,14 @@ private struct Composer: View {
     }
 
     private var slashQuery: String? {
-        guard draft.hasPrefix("/") else { return nil }
+        slashToken?.query
+    }
 
-        let word = draft.prefix { !$0.isWhitespace }
-        guard isFocused, let selection else { return word.endIndex == draft.endIndex ? String(word) : nil }
-        guard case let .selection(range) = selection.indices, range.isEmpty, range.lowerBound > word.startIndex,
-              range.lowerBound == word.endIndex || word.indices.contains(range.lowerBound) else { return nil }
+    private var slashToken: (query: String, replacing: Range<String.Index>)? {
+        guard isFocused, let selection else { return SlashToken.find(in: draft, caret: draft.endIndex) }
+        guard case let .selection(range) = selection.indices, range.isEmpty else { return nil }
 
-        return String(draft[..<range.lowerBound])
+        return SlashToken.find(in: draft, caret: range.lowerBound)
     }
 
     var body: some View {
@@ -633,20 +633,18 @@ private struct Composer: View {
     }
 
     private func complete(_ command: SlashCommand) {
-        guard draft.hasPrefix("/") else { return }
+        guard let token = slashToken else { return }
 
-        let suffix = draft.drop(while: { !$0.isWhitespace })
-        let arguments = suffix.hasPrefix(" ") ? suffix.dropFirst() : suffix
-        let prefix = command.name + " "
-        let completed = prefix + arguments
-        draft = completed
+        let caretOffset = draft.distance(from: draft.startIndex, to: token.replacing.lowerBound) + command.name.count + 1
+        draft.replaceSubrange(token.replacing, with: command.name + " ")
+        let completed = draft
         selection = nil
         isFocused = true
         Task {
             await Task.yield()
             guard draft == completed else { return }
 
-            selection = TextSelection(insertionPoint: draft.index(draft.startIndex, offsetBy: prefix.count))
+            selection = TextSelection(insertionPoint: draft.index(draft.startIndex, offsetBy: caretOffset))
         }
     }
 
