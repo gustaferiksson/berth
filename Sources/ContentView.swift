@@ -21,6 +21,7 @@ struct ContentView: View {
     @AppStorage(WindowBackdrop.backgroundKey) private var windowBackground = WindowBackground.theme
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
+    @State private var paneSidebarWidth = SessionPanel.idealWidth
     @State private var previousLauncherScope: LauncherMode?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -34,18 +35,20 @@ struct ContentView: View {
         let reviewRequests = store.inbox?.count { $0.role == .reviewRequested } ?? 0
         NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanelSidebar ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
-                SessionPanel()
+                measuredSessionPanel
                     .glassSidebarTint(store.theme)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
-                    .toolbar { ChangesToolbar(store: store) }
-                    .navigationSplitViewColumnWidth(min: 220, ideal: 272, max: 440)
+                    .toolbar {
+                        if showsPanelSidebar { ChangesToolbar(store: store) }
+                    }
+                    .navigationSplitViewColumnWidth(min: 220, ideal: SessionPanel.idealWidth, max: 440)
             } else {
                 Sidebar()
                     .glassSidebarTint(store.theme)
                     .navigationSplitViewColumnWidth(min: 220, ideal: Snapshot.sidebarWidth, max: 440)
             }
         } detail: {
-            PanedSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsColumn, isTerminalBelow: isTerminalBelow)
+            PanedSplit(store: store, isDiffLeading: isTrailing, isDiffCollapsed: !showsColumn, isTerminalBelow: isTerminalBelow, browserSidebarWidth: browserSidebarWidth)
                 .background { SplitWidthSettled(isActive: showsColumn, isTerminalBelow: isTerminalBelow, onSettle: yieldSidebarIfCramped) }
                 .padding(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
                 .overlay {
@@ -134,13 +137,17 @@ struct ContentView: View {
                     .background(ScrollPocketSeparatorRemover())
                     .onGeometryChange(for: Double.self) { $0.size.width } action: { if store.persistsTabs, $0 >= 220 { trailingSidebarWidth = $0 } }
                     .inspectorColumnWidth(min: 220, ideal: trailingSidebarWidth, max: 440)
-                    .toolbar { ToolbarItem(placement: .primaryAction) { sessionsToggle } }
+                    .toolbar {
+                        if showsSessions { ToolbarItem(placement: .primaryAction) { sessionsToggle } }
+                    }
             } else {
-                SessionPanel()
+                measuredSessionPanel
                     .glassSidebarTint(store.theme)
                     .background(ScrollPocketSeparatorRemover())
-                    .inspectorColumnWidth(min: 220, ideal: 272, max: 440)
-                    .toolbar { ChangesToolbar(store: store) }
+                    .inspectorColumnWidth(min: 220, ideal: SessionPanel.idealWidth, max: 440)
+                    .toolbar {
+                        if showsPanelSidebar { ChangesToolbar(store: store) }
+                    }
             }
         }
         .containerBackground(for: .window) { WindowBackdrop(chrome: store.theme.chrome, transparency: windowTransparency) }
@@ -236,6 +243,17 @@ extension ContentView {
         showsColumn && store.shownPane != .browser
     }
 
+    private var measuredSessionPanel: some View {
+        SessionPanel()
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                if showsPanelSidebar, width >= 220 { paneSidebarWidth = width }
+            }
+    }
+
+    private var browserSidebarWidth: CGFloat {
+        store.shownPane == .browser ? paneSidebarWidth : 0
+    }
+
     // The column and inspector echo programmatic changes and keep calling setters built for the other sidebar position, so these read live state and drop no-ops.
     private func setLeadingColumn(_ visibility: NavigationSplitViewVisibility) {
         if sidebarPosition == .left {
@@ -268,7 +286,8 @@ extension ContentView {
     }
 
     private func yieldSidebarIfCramped(splitWidth: Double) {
-        guard showsSessions, !keepsSidebarForDiff, splitWidth > 0, splitWidth < TerminalSplit.diffMinimum + (isTerminalBelow ? 1 : TerminalSplit.terminalMinimum + 1) else { return }
+        let widthWithPanel = splitWidth - browserSidebarWidth
+        guard showsSessions, !keepsSidebarForDiff, widthWithPanel > 0, widthWithPanel < TerminalSplit.diffMinimum + (isTerminalBelow ? 1 : TerminalSplit.terminalMinimum + 1) else { return }
 
         if columnVisibility == .automatic { columnVisibility = .all }
         sidebarYieldsToDiff = true
@@ -311,11 +330,12 @@ private struct PanedSplit: View {
     let isDiffLeading: Bool
     let isDiffCollapsed: Bool
     let isTerminalBelow: Bool
+    let browserSidebarWidth: CGFloat
     @State private var columnFrame = CGRect.zero
 
     var body: some View {
         let browserURL = store.shownPane == .browser ? store.browser.shownTab?.url : nil
-        TerminalSplit(store: store, browserURL: browserURL, isDiffLeading: isDiffLeading, isDiffCollapsed: isDiffCollapsed, isTerminalBelow: isTerminalBelow) { frame in
+        TerminalSplit(store: store, browserURL: browserURL, isDiffLeading: isDiffLeading, isDiffCollapsed: isDiffCollapsed, isTerminalBelow: isTerminalBelow, browserSidebarWidth: browserSidebarWidth) { frame in
             if columnFrame != frame { columnFrame = frame }
         }
         .overlay(alignment: .topLeading) { PaneTerminals(store: store, column: columnFrame) }
@@ -333,6 +353,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     let isDiffLeading: Bool
     let isDiffCollapsed: Bool
     let isTerminalBelow: Bool
+    let browserSidebarWidth: CGFloat
     let onColumnFrame: (CGRect) -> Void
 
     func makeNSViewController(context _: Context) -> TerminalSplitController {
@@ -366,11 +387,22 @@ private struct TerminalSplit: NSViewControllerRepresentable {
     func updateNSViewController(_ split: TerminalSplitController, context _: Context) {
         split.onColumnFrame = onColumnFrame
         split.browserURL = browserURL
-        guard let diff = split.diff else { return }
+        split.browserSidebarWidth = browserSidebarWidth
+        guard let diff = split.diff, let terminal = split.terminal else { return }
 
+        let terminalView = terminal.viewController.view
+        let sessionInset = isTerminalBelow ? browserSidebarWidth : 0
+        let insets = NSEdgeInsets(top: 0, left: isDiffLeading ? sessionInset : 0, bottom: 0, right: isDiffLeading ? 0 : sessionInset)
+        let current = terminalView.additionalSafeAreaInsets
+        if current.left != insets.left || current.right != insets.right {
+            terminalView.additionalSafeAreaInsets = insets
+        }
         let leadsDiff = isDiffLeading || isTerminalBelow
         let flipsOrientation = split.splitView.isVertical == isTerminalBelow
-        if flipsOrientation { split.splitView.isVertical = !isTerminalBelow }
+        if flipsOrientation {
+            terminal.holdingPriority = .defaultLow
+            split.splitView.isVertical = !isTerminalBelow
+        }
         if (split.splitViewItems.first === diff) != leadsDiff {
             split.removeSplitViewItem(diff)
             split.insertSplitViewItem(diff, at: leadsDiff ? 0 : 1)
@@ -382,6 +414,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         }
         guard diff.isCollapsed != isDiffCollapsed else { return }
 
+        terminal.holdingPriority = .defaultLow
         diff.isCollapsed = isDiffCollapsed
         guard !isDiffCollapsed else { return }
 
@@ -405,9 +438,15 @@ private final class TerminalSplitController: NSSplitViewController {
         splitViewItems.first { $0.viewController is NSHostingController<PaneHost> }
     }
 
+    var terminal: NSSplitViewItem? {
+        splitViewItems.first { $0.viewController is NSHostingController<TerminalArea> }
+    }
+
     var onColumnFrame: (CGRect) -> Void = { _ in }
     var browserURL: URL? { didSet { updateBrowserURL() } }
+    var browserSidebarWidth: CGFloat = 0
     private var laidOutSize = CGSize.zero
+    private var laidOutWindowWidth: CGFloat?
 
     override func splitViewDidResizeSubviews(_ notification: Notification) {
         super.splitViewDidResizeSubviews(notification)
@@ -421,11 +460,17 @@ private final class TerminalSplitController: NSSplitViewController {
         super.viewDidLayout()
         updateBrowserURL()
         reportColumnFrame()
+        let windowWidth = view.window?.frame.width
+        let windowWidthChanged = laidOutWindowWidth != windowWidth
+        laidOutWindowWidth = windowWidth
         guard splitView.bounds.size != laidOutSize else { return }
 
-        let preferred: CGFloat? = laidOutSize == .zero ? 760 : nil
+        let isInitialLayout = laidOutSize == .zero
+        let shouldFit = !splitView.isVertical || terminal?.holdingPriority != .defaultHigh || windowWidthChanged
         laidOutSize = splitView.bounds.size
-        DispatchQueue.main.async { [weak self] in self?.fitDiff(preferring: preferred) }
+        if shouldFit {
+            DispatchQueue.main.async { [weak self] in self?.fitDiff(preferring: isInitialLayout ? 760 : nil) }
+        }
     }
 
     private func updateBrowserURL() {
@@ -437,7 +482,14 @@ private final class TerminalSplitController: NSSplitViewController {
     }
 
     override func splitView(_ splitView: NSSplitView, constrainSplitPosition proposed: CGFloat, ofSubviewAt _: Int) -> CGFloat {
-        splitView.isVertical ? proposed : min(max(proposed, TerminalSplit.belowMinimum), splitView.bounds.height - TerminalSplit.belowMinimum - splitView.dividerThickness)
+        if !splitView.isVertical {
+            return min(max(proposed, TerminalSplit.belowMinimum), splitView.bounds.height - TerminalSplit.belowMinimum - splitView.dividerThickness)
+        }
+        guard browserSidebarWidth > 0 else { return proposed }
+
+        let available = splitView.bounds.width - splitView.dividerThickness
+        let reserve = min(browserSidebarWidth, available)
+        return splitViewItems.first === diff ? max(proposed, reserve) : min(proposed, available - reserve)
     }
 
     private func reportColumnFrame() {
@@ -452,15 +504,23 @@ private final class TerminalSplitController: NSSplitViewController {
 
         let isBelow = !splitView.isVertical
         let total = isBelow ? splitView.bounds.height : splitView.bounds.width
-        let current = isBelow ? diff.viewController.view.frame.height : diff.viewController.view.frame.width
-        let diffMinimum = isBelow ? TerminalSplit.belowMinimum : TerminalSplit.diffMinimum
-        let terminalMinimum = isBelow ? TerminalSplit.belowMinimum : TerminalSplit.terminalMinimum
-        let ratio = UserDefaults.standard.object(forKey: Self.belowRatioKey) as? Double ?? Self.belowRatioDefault
-        let wanted = isBelow ? preferred.map { _ in ratio * (total - splitView.dividerThickness) } : preferred
-        let size = min(max(wanted ?? current, diffMinimum), max(diffMinimum, total - terminalMinimum - splitView.dividerThickness))
-        guard abs(size - current) >= 1 else { return }
+        let available = total - splitView.dividerThickness
+        guard available > 0 else { return }
 
-        splitView.setPosition(splitViewItems.first === diff ? size : total - size - splitView.dividerThickness, ofDividerAt: 0)
+        let sidebar = isBelow ? 0 : min(browserSidebarWidth, available)
+        let sharedWidth = available - sidebar
+        let current = isBelow ? diff.viewController.view.frame.height : diff.viewController.view.frame.width
+        let terminalMinimum = isBelow ? TerminalSplit.belowMinimum : min(TerminalSplit.terminalMinimum, sharedWidth * 0.6)
+        let diffMinimum = isBelow ? TerminalSplit.belowMinimum : min(TerminalSplit.diffMinimum, sharedWidth - terminalMinimum) + sidebar
+        let ratio = UserDefaults.standard.object(forKey: Self.belowRatioKey) as? Double ?? Self.belowRatioDefault
+        let wanted = isBelow ? preferred.map { _ in ratio * available } : preferred
+        let size = min(max(wanted ?? current, diffMinimum), max(diffMinimum, available - terminalMinimum))
+        if abs(size - current) >= 1 {
+            splitView.setPosition(splitViewItems.first === diff ? size : available - size, ofDividerAt: 0)
+        }
+        if !isBelow, let terminal, terminal.holdingPriority != .defaultHigh, terminal.viewController.view.frame.width > 0, current > 0 {
+            terminal.holdingPriority = .defaultHigh
+        }
     }
 }
 

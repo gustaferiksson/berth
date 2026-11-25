@@ -1852,6 +1852,8 @@ enum Snapshot {
             let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
+            let probesBrowserAddress = UserDefaults.standard.bool(forKey: "snapshotBrowser")
+            if probesBrowserAddress { window.becomeKey() }
             let tabs = { "\(store.tabs.map { "\($0.kind)/\($0.parentTabID == nil ? "top" : "nested")\($0.id == store.selectedTabID ? "*" : "")" })" }
             for point in clicks.split(separator: ";").map({ $0.split(separator: ",").compactMap { Double($0) } }) where point.count == 2 {
                 let location = NSPoint(x: point[0], y: (window.contentView?.frame.height ?? 0) - point[1])
@@ -1861,6 +1863,7 @@ enum Snapshot {
                 event(.leftMouseDown).map(window.sendEvent)
                 try? await Task.sleep(for: .seconds(1))
                 print("click at \(point): \(before) -> \(tabs())")
+                if probesBrowserAddress { logBrowserAddress(in: window) }
             }
         }
         if UserDefaults.standard.bool(forKey: "snapshotCloseTabs") {

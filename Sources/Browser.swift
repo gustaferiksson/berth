@@ -343,6 +343,8 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
 
     func configuration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
+        let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        configuration.applicationNameForUserAgent = "Version/\(major).0 Safari/605.1.15"
         configuration.websiteDataStore = !isSnapshot && UserDefaults.standard.bool(forKey: Self.persistentDataKey) ? .default() : Self.ephemeralStore
         if let snapshotRules { configuration.userContentController.add(snapshotRules) }
         return configuration

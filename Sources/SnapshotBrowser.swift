@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import BerthCore
+import WebKit
 
 extension Snapshot {
     static let browserFixtures: [SessionSummary]? = {
@@ -43,18 +44,37 @@ extension Snapshot {
         store.openShell(cwd: session.cwd, id: parent)
         store.tabs = store.tabs.map { $0.id == parent ? Tab(id: parent, kind: .claude, cwd: session.cwd, sessionID: session.id, terminal: $0.terminal) : $0 }
         store.activate(.tab(parent))
+        let extraTabs = max(0, UserDefaults.standard.integer(forKey: "snapshotBrowserExtraTabs"))
+        for index in 0..<extraTabs {
+            store.browser.open(nil, in: session.id, title: "Document \(index + 1)", selects: false)
+        }
         for (index, page) in browserPages.enumerated() {
             let tab = store.browser.open(folder.appending(path: page.file), in: session.id, title: page.title)
             if index < 2 { store.browser.pin(tab) }
         }
-        if let invoices = store.browser.tabs(in: session.id).first { store.browser.select(invoices, in: session.id) }
+        store.browser.select(store.browser.tabs(in: session.id)[extraTabs], in: session.id)
         store.showBrowserPane()
-        for tab in store.browser.pinned + store.browser.tabs(in: session.id) {
+        for tab in store.browser.pinned + store.browser.tabs(in: session.id) where tab.url != nil {
             let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
             print("browser occlusion SPI \(tab.webView.responds(to: selector))")
             if tab.webView.responds(to: selector) { tab.webView.perform(selector, with: nil) }
         }
         try? await Task.sleep(for: .seconds(3))
+
+        if let history = UserDefaults.standard.string(forKey: "snapshotBrowserHistory"), let tab = store.browser.shownTab {
+            let view = tab.webView
+            tab.load(folder.appending(path: "api.html"))
+            await tab.waitForNavigation(in: view)
+            if history == "both" {
+                tab.load(folder.appending(path: "pr.html"))
+                await tab.waitForNavigation(in: view)
+            }
+            if history == "both" || history == "forward" {
+                store.browser.perform(.browserBack)
+                try? await Task.sleep(for: .milliseconds(300))
+                await tab.waitForNavigation(in: view)
+            }
+        }
 
         if UserDefaults.standard.bool(forKey: "snapshotBrowserFocusAddress") {
             let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
@@ -71,6 +91,61 @@ extension Snapshot {
         let all = pinned + sessionTabs
         let hovered = all.map(\.displayTitle).filter { forcedHover.contains($0) }
         print("browser pane \(store.shownPane?.rawValue ?? "hidden"), window width \(window.contentLayoutRect.width), pinned \(pinned.count) \(pinned.map(\.displayTitle)), session \(sessionTabs.count) \(sessionTabs.map(\.displayTitle)), favicons \(all.count(where: { $0.favicon != nil })), hovered \(hovered), shown \(shown?.displayTitle ?? "none") \(shown?.url?.lastPathComponent ?? "-") loading \(shown?.isLoading == true), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+        print("browser history back \(shown?.canGoBack == true), forward \(shown?.canGoForward == true)")
+        if let view = shown?.loadedWebView {
+            let userAgent = try? await view.evaluateJavaScript("navigator.userAgent") as? String
+            print("browser user agent \(userAgent ?? "unavailable")")
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotPaneWidths") { await probePaneWidths(store: store, window: window) }
+    }
+
+    private static func probePaneWidths(store: Store, window: NSWindow) async {
+        func splitView(in view: NSView) -> NSSplitView? {
+            if view.identifier?.rawValue == "terminalSplit" { return view as? NSSplitView }
+            return view.subviews.lazy.compactMap(splitView).first
+        }
+
+        guard let root = window.contentView, let split = splitView(in: root), split.arrangedSubviews.count == 2,
+              let controller = split.delegate as? NSSplitViewController, controller.splitViewItems.count == 2
+        else {
+            print("pane widths FAIL: split unavailable")
+            return
+        }
+
+        let isPaneLeading = !split.isVertical || UserDefaults.standard.string(forKey: "sidebarPosition") == "right"
+        let session = controller.splitViewItems[isPaneLeading ? 1 : 0].viewController.view
+        let pane = split.arrangedSubviews[isPaneLeading ? 0 : 1]
+
+        func widths() -> (session: CGFloat, divider: CGFloat, pane: CGFloat, split: CGFloat) {
+            let insets = session.additionalSafeAreaInsets
+            let divider = split.arrangedSubviews[0].convert(split.arrangedSubviews[0].bounds, to: nil)
+            return (session.frame.width - insets.left - insets.right, split.isVertical ? divider.maxX : divider.minY, pane.frame.width, split.bounds.width)
+        }
+
+        for mode: SessionPane in [.changes, .files, .browser, .terminal, .changes, .browser, .files, .terminal, .browser, .changes, .terminal, .files, .changes, .browser] {
+            let previous = store.shownPane
+            let before = widths()
+            switch mode {
+            case .changes: store.showChangesPane()
+            case .files: store.showFilesPane()
+            case .browser: store.showBrowserPane()
+            case .terminal: store.showTerminalPane()
+            }
+            try? await Task.sleep(for: .milliseconds(600))
+            root.layoutSubtreeIfNeeded()
+            let after = widths()
+            let result = before.session > 0 && before.session == after.session && store.shownPane == mode ? "PASS" : "FAIL"
+            print("pane widths \(previous?.title ?? "Hidden") -> \(mode.title) \(result): session \(before.session) -> \(after.session), divider \(before.divider) -> \(after.divider), pane \(before.pane) -> \(after.pane), split \(before.split) -> \(after.split)")
+        }
+    }
+
+    static func logBrowserAddress(in window: NSWindow) {
+        guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else {
+            print("browser address responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+            return
+        }
+
+        print("browser address editor frame \(editor.frame), selection \(editor.selectedRange()), text length \(editor.string.utf16.count)")
     }
 }
 #endif
