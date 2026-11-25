@@ -92,7 +92,7 @@ struct ConversationPrompt: View {
                     .contextMenu { Button("Copy") { copyToPasteboard(PromptTextPart.plain(entry.text)) } }
             }
         }
-        .containerRelativeFrame(.horizontal, alignment: .trailing) { length, _ in length * 0.75 }
+        .frame(maxWidth: theme.messageWidth * 0.75, alignment: .trailing)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
