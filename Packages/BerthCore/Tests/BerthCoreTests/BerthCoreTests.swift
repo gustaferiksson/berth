@@ -563,7 +563,7 @@ struct GroupingTests {
         #expect(groups.map(\.title) == ["Today", "This Week", "Older"])
     }
 
-    @Test func activeHoldsLiveSessionsByStatusThenRecency() {
+    @Test func activeHoldsLiveSessionsByLastPromptNotStatus() {
         let live = ["idle-new": "idle", "idle-old": "idle", "busy": "busy", "wait": "waiting", "shell": "shell"].map { id, status in
             LiveSession(pid: 1, sessionId: id, cwd: "/a", kind: nil, jobId: nil, status: status, waitingFor: nil, statusUpdatedAt: nil, startedAt: nil)
         }
@@ -573,10 +573,22 @@ struct GroupingTests {
         ]
         let byID = Dictionary(live.map { ($0.sessionId, $0) }) { first, _ in first }
         let recent = SessionGrouping(mode: .recent, customGroups: [], repositoryRoots: [:], now: now, calendar: calendar)
-        #expect(recent.active(sessions, live: byID).map(\.id) == ["wait", "busy", "shell", "idle-new", "idle-old"])
+        #expect(recent.active(sessions, live: byID).map(\.id) == ["idle-new", "busy", "shell", "idle-old", "wait"])
         #expect(SessionGroup(kind: .active, sessions: []).id == "recent:active")
         #expect(SessionGroup(kind: .active, sessions: []).title == "Active")
         #expect(SessionGrouping(mode: .project, customGroups: [], repositoryRoots: [:], now: now, calendar: calendar).active(sessions, live: byID).isEmpty)
+    }
+
+    @Test func activeIgnoresFresherActivityAndBreaksTiesById() {
+        let older = SessionSummary(id: "older", cwd: "/a", title: "older", lastActivity: now, lastPrompt: now.addingTimeInterval(-43 * 60))
+        let newer = SessionSummary(id: "newer", cwd: "/a", title: "newer", lastActivity: now.addingTimeInterval(-3600), lastPrompt: now.addingTimeInterval(-60))
+        let tieB = SessionSummary(id: "b", cwd: "/a", title: "b", lastActivity: now, lastPrompt: now.addingTimeInterval(-3600))
+        let tieA = SessionSummary(id: "a", cwd: "/a", title: "a", lastActivity: now, lastPrompt: now.addingTimeInterval(-3600))
+        let live = Dictionary(uniqueKeysWithValues: ["older", "newer", "a", "b"].map { id in
+            (id, LiveSession(pid: 1, sessionId: id, cwd: "/a", status: id == "older" ? "waiting" : "busy", statusUpdatedAt: now.timeIntervalSince1970))
+        })
+        let grouping = SessionGrouping(mode: .recent, customGroups: [], repositoryRoots: [:], now: now, calendar: calendar)
+        #expect(grouping.active([older, tieB, newer, tieA], live: live).map(\.id) == ["newer", "older", "a", "b"])
     }
 
     @Test func recentBucketsFollowCalendarDays() {
