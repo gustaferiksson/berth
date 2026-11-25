@@ -102,7 +102,7 @@ struct ItemPreviewView: View {
                 .foregroundStyle(color)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(color.opacity(0.13), in: .capsule)
+                .background(color.opacity(0.13), in: (preview.kind == .pullRequest ? PillKind.pullRequest : .issue).shape)
                 Text(verbatim: "\(preview.repository) #\(preview.number)")
                     .monospacedDigit()
                     .lineLimit(1)

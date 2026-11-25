@@ -346,17 +346,19 @@ struct ReviewCompactPullRequestRow: View {
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityValue(isThisBranch ? "This branch" : "")
             .overlay(alignment: .trailing) {
-                if isHovering {
-                    ReviewPullRequestMenu {
-                        ReviewPullRequestActions(entry: entry, model: model)
-                    }
+                ReviewPullRequestMenu {
+                    ReviewPullRequestActions(entry: entry, model: model)
                 }
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
+                .accessibilityHidden(!isHovering)
             }
         }
         .font(.caption)
         .padding(.leading, 5)
         .contentShape(.rect)
         .onHover { isHovering = $0 }
+        .modifier(ItemPreviewTrigger(reference: ItemReference(url: pullRequest.url), placement: .review, store: store))
         .listRowBackground(RowFill(opacity: selected ? 0.1 : isHovering ? 0.05 : idleFill, color: theme.foreground, cornerRadius: 4))
         .contextMenu { ReviewPullRequestActions(entry: entry, model: model) }
     }
