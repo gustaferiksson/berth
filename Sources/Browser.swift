@@ -29,7 +29,9 @@ enum BrowserAppearance: String, CaseIterable {
     }
 
     var appearance: NSAppearance? {
-        [.auto: nil, .light: NSAppearance(named: .aqua), .dark: NSAppearance(named: .darkAqua)][self] ?? nil
+        let systemIsDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+        let named: [Self: NSAppearance.Name] = [.auto: systemIsDark ? .darkAqua : .aqua, .light: .aqua, .dark: .darkAqua]
+        return named[self].flatMap { NSAppearance(named: $0) }
     }
 }
 
@@ -323,6 +325,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     var downloads: [BrowserDownload] = []
     var addressFocusRequests = 0
     @ObservationIgnored private unowned let store: Store
+    @ObservationIgnored private var appearanceObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var snapshotRules: WKContentRuleList?
     @ObservationIgnored var lastPaneSize = NSSize(width: 1280, height: 800)
     @ObservationIgnored private var downloadsByTask: [ObjectIdentifier: BrowserDownload] = [:]
@@ -330,6 +333,15 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
 
     init(store: Store) {
         self.store = store
+        super.init()
+        appearanceObserver = DistributedNotificationCenter.default().addObserver(forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyAppearance() }
+        }
+    }
+
+    func applyAppearance() {
+        let appearance = BrowserAppearance(rawValue: UserDefaults.standard.string(forKey: Self.appearanceKey) ?? "")?.appearance
+        for tab in pinned + sessionTabs.values.flatMap(\.self) { tab.loadedWebView?.appearance = appearance }
     }
 
     var isSnapshot: Bool {
