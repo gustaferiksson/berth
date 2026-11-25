@@ -50,11 +50,11 @@ Changes apply to a running Berth without a relaunch, except where the table says
 | `windowBackground` | `-string` | `theme` | Background behind the cards. Use `theme` for the window's chrome colour, `glass` for Liquid Glass or `darker` for the cards' theme background colour. Unknown values use `theme`. Settings > Terminal. |
 | `pullRequestPrompt` | `-string` | `Summarize PR #{number} ({url}).` | First prompt of a session Berth opens for a pull request (also from an issue). `{number}`, `{url}` and `{repo}` (owner/name) are replaced; empty sends no prompt. Settings > General. |
 | `controlEnabled` | `-bool` | `false` | Agent Control: sessions in tabs opened afterwards get `BERTH_SOCKET`, `BERTH_TAB_ID` and `BERTH_TOKEN` and can run `berth`. Settings > General installs the command, skill and hook. |
-| `browserSearchEngine` | `-string` | `duckDuckGo` | What the Browser pane's address field searches with: `duckDuckGo`, `google`, `bing`, `kagi` or `startpage`. Settings > General. |
+| `browserSearchEngine` | `-string` | `duckDuckGo` | What the Browser pane's address field searches with: `duckDuckGo`, `google`, `bing`, `kagi` or `startpage`. Settings > Browser. |
 | `browserKeepsWebsiteData` | `-bool` | `false` | The Browser pane uses the default persistent website data store, so logins stick. Off, all tabs share one non-persistent store. Applies to tabs opened afterwards. |
 | `conversationLinksOpenIn` | `-string` | `defaultBrowser` | Where http and https links clicked in the Conversation view open: `defaultBrowser` or `berth` (a new tab in the session's Browser pane). The GitHub toggle can also open GitHub links in Berth. |
-| `browserAppearance` | `-string` | `auto` | Appearance of web pages in the Browser pane (their `prefers-color-scheme`): `auto` follows the app, `light` or `dark` overrides it. Browser chrome always follows the app. Settings > General > Browser. |
-| `githubLinksOpenInBerth` | `-bool` | `false` | Open http and https links to `github.com` and `www.github.com` in a new tab in the current session’s Browser pane. Without a session, links open in the default browser. Settings > General. |
+| `browserAppearance` | `-string` | `auto` | Appearance of web pages in the Browser pane (their `prefers-color-scheme`): `auto` follows the macOS system appearance (not Berth's own), `light` or `dark` overrides it. Browser chrome always follows the app. Settings > Browser. |
+| `githubLinksOpenInBerth` | `-bool` | `false` | Open http and https links to `github.com` and `www.github.com` in a new tab in the current session’s Browser pane. Without a session, links open in the default browser. Settings > Browser. |
 | `remoteEnabled` | `-bool` | `false` | Berth Remote. Turn it on in Settings, which creates the token; a `defaults write` alone does nothing. |
 
 ## Terminal overrides
