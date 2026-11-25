@@ -693,6 +693,7 @@ private struct SidebarList: View, Equatable {
 private struct OwnedTerminalItems: View {
     let parent: Tab.ID?
     let indent: Double
+    var showsGuide = false
     let select: (SidebarItem) -> Void
     @Environment(Store.self) private var store
 
@@ -701,7 +702,7 @@ private struct OwnedTerminalItems: View {
             ForEach(store.tabs.filter { $0.parentTabID == parent }) { tab in
                 TabRow(tab: tab, live: nil, terminal: tab.terminal)
                     .padding(.leading, indent)
-                    .modifier(RowChrome(item: .tab(tab.id), hoverID: tab.id.uuidString, indent: indent, close: { store.close(tab.id) }, select: { select(.tab(tab.id)) }))
+                    .modifier(RowChrome(item: .tab(tab.id), hoverID: tab.id.uuidString, indent: indent, showsGuide: showsGuide, close: { store.close(tab.id) }, select: { select(.tab(tab.id)) }))
                     .help((tab.folder as NSString).abbreviatingWithTildeInPath)
                     .contextMenu {
                         Button("Close Terminal") { store.close(tab.id) }
@@ -805,7 +806,7 @@ private struct SessionItem: View {
                     .padding(.leading, place == .task ? taskIndent : 0)
                 }
             }
-            .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, indent: place == .task ? taskIndent : 0) {
+            .modifier(RowChrome(item: .session(id), hoverID: session?.title ?? id, indent: place == .task ? taskIndent : 0, showsGuide: place == .task) {
                 select(.session(id))
             })
             .help(place == .snoozed ? snoozeHelp : "")
@@ -825,7 +826,7 @@ private struct SessionItem: View {
                     menu(session, tab: tab)
                 }
             }
-            OwnedTerminalItems(parent: tab?.id, indent: place == .task ? taskIndent * 2 : taskIndent, select: select)
+            OwnedTerminalItems(parent: tab?.id, indent: place == .task ? taskIndent * 2 : taskIndent, showsGuide: place == .task, select: select)
         }
     }
 
@@ -1063,6 +1064,7 @@ private struct RowChrome: ViewModifier {
     let item: SidebarItem
     let hoverID: String
     var indent = 0.0
+    var showsGuide = false
     var close: (() -> Void)?
     let select: () -> Void
     @State private var isHovering = false
@@ -1102,7 +1104,7 @@ private struct RowChrome: ViewModifier {
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction(.default, select)
             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 0))
-            .listRowBackground(RowFill(opacity: fill, indent: indent, color: isSelected ? .accentColor : .primary, cornerRadius: 6, verticalInset: 1))
+            .listRowBackground(RowFill(opacity: fill, indent: indent, showsGuide: showsGuide, color: isSelected ? .accentColor : .primary, cornerRadius: 6, verticalInset: 1))
             .listRowSeparator(.hidden)
     }
 }
@@ -1110,6 +1112,7 @@ private struct RowChrome: ViewModifier {
 struct RowFill: View {
     let opacity: Double
     var indent = 0.0
+    var showsGuide = false
     var color = Color.primary
     var cornerRadius = 10.0
     var verticalInset = 2.0
@@ -1121,7 +1124,7 @@ struct RowFill: View {
             .padding(.trailing, 8)
             .padding(.vertical, verticalInset)
             .background(alignment: .leading) {
-                if indent > 0 {
+                if showsGuide {
                     Rectangle()
                         .fill(Color.primary.opacity(0.12))
                         .frame(width: 1)
