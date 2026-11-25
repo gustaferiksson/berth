@@ -53,6 +53,7 @@ Review pull request fixtures use these flags.
 - `-snapshotReviewIssue YES` links the open issue `acme/billing#377`, assigned to mara with the bug and export labels. Use `-projectsEnabled YES` for its In progress status.
 - `-snapshotReviewStack YES` adds parent PR #412 with passing checks and approval, and draft child PR #421 with a failing check.
 - `-snapshotReviewPullRequestDetails YES` opens PR #4821 details with a Markdown description, reviewers, comments and named checks.
+- `-snapshotReviewPullRequestFile <path>` (with `-snapshotReviewPullRequest "<branch>"`) opens that file as Open File on the fixture PR's row would, with `-snapshotReviewPullRequestHead <sha>` as the PR head (default fake) and `-snapshotReviewPullRequestDefinition <line>:<col>` asking the language server there (with `-languageServersEnabled YES`). It prints the root and path the file opened from, the drift note and the definition's target. A branch checked out in another worktree opens from that worktree; otherwise the GitHub copy shows with the checkout hint.
 - `-snapshotReviewSelectPullRequest <number>` opens the specified fixture's read-only diff as a card or row click would. Use #4821 for the hero, #412 or #421 with the stack fixture, or #1445 with the session PR fixture. The diff uses fixture file contents.
 
 Review snapshots use fixtures for GitHub data.

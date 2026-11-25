@@ -205,6 +205,7 @@ final class Store {
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
     private(set) var shownReviewPullRequests: [String: [PullRequestLink: ReviewPullRequest]] = [:]
     var activeReviewRoots: [String: String] = [:]
+    private var openedWorktrees: [String: [String]] = [:]
     var collapsedReviewRepositories: Set<String> = []
     var expandedReviewTasks: Set<String> = []
     var reviewRepoTabs: [String: String] = [:]
@@ -1744,7 +1745,31 @@ final class Store {
         }
         let edited = (editedRepositories[sessionID] ?? [:]).sorted { $0.key < $1.key }.map { ReviewRepository(root: $0.key, folder: $0.value, isEdited: true) }
         var seen: Set<String> = [own]
-        return (tasked + edited).filter { seen.insert($0.root).inserted }
+        let opened = (openedWorktrees[sessionID] ?? []).map { ReviewRepository(root: $0, folder: $0, isEdited: true) }
+        return (tasked + edited).filter { seen.insert($0.root).inserted } + opened
+    }
+
+    func openWorktreeFile(_ path: String, in worktree: CheckedOutWorktree, origin: ReviewPullRequestOrigin, from source: ReviewModel) async -> Bool {
+        guard FileManager.default.fileExists(atPath: (worktree.path as NSString).appendingPathComponent(path)),
+              let sessionID = reviewModels.first(where: { $0.value === source })?.key.split(separator: "\n").first.map(String.init)
+        else { return false }
+
+        let resolved = URL(filePath: worktree.path).resolvingSymlinksInPath().path
+        let sessionModels = reviewModels.filter { $0.key == sessionID || $0.key.hasPrefix(sessionID + "\n") }.values
+        let existing = sessionModels.first { URL(filePath: $0.changes?.root ?? $0.folder).resolvingSymlinksInPath().path == resolved }
+        if existing == nil {
+            openedWorktrees[sessionID, default: []].append(worktree.path)
+            prepareReviewModel()
+        }
+        guard let target = existing ?? reviewModels[Self.reviewKey(sessionID, root: worktree.path)] else { return false }
+
+        await target.load()
+        guard target.changes != nil else { return false }
+
+        var document = target.workingDocument(path)
+        document.pullRequestOrigin = origin
+        target.open(document)
+        return true
     }
 
     func refreshReview() async {
@@ -2238,6 +2263,7 @@ final class Store {
             activeReviewRoots[sessionID] = nil
             shownReviewPullRequests[sessionID] = nil
             reviewRepositories[sessionID] = nil
+            openedWorktrees[sessionID] = nil
             editedRepositories[sessionID] = nil
             editedFiles[sessionID] = nil
         }
