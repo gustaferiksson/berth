@@ -56,6 +56,16 @@ extension Snapshot {
             let tabs = browserPages.prefix(4).map { store.browser.open(folder.appending(path: $0.file), in: session.id, title: $0.title) }
             tabs.prefix(2).forEach { store.browser.pin($0) }
             store.browser.select(tabs[0], in: session.id)
+        } else if scenario == "grid" {
+            let defaults = UserDefaults.standard
+            let pinnedCount = defaults.integer(forKey: "snapshotBrowserPinned")
+            let sessionCount = defaults.integer(forKey: "snapshotBrowserSessions")
+            let tabs = (0..<(pinnedCount + sessionCount)).map { index in
+                let page = browserPages[index % browserPages.count]
+                return store.browser.open(folder.appending(path: page.file), in: session.id, title: page.title, selects: false)
+            }
+            tabs.prefix(pinnedCount).forEach { store.browser.pin($0) }
+            store.browser.select(defaults.string(forKey: "snapshotBrowserSelect") == "pinned" ? tabs[0] : tabs[pinnedCount], in: session.id)
         } else if scenario == "pinnedActive" {
             let docs = store.browser.open(folder.appending(path: "docs.html"), in: session.id, title: "Berth Docs")
             store.browser.open(folder.appending(path: "invoices.html"), in: session.id, title: "Invoices", selects: false)
