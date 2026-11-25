@@ -1,7 +1,6 @@
 import AppKit
 import BerthCore
 import Observation
-import SwiftUI
 
 @Observable
 final class TineStatus {
@@ -127,51 +126,7 @@ final class ConversationShellCompleter {
     }
 }
 
-struct ConversationShellMenu: View {
-    let completer: ConversationShellCompleter
-    @Environment(\.ghosttyTheme) private var theme
-
-    var body: some View {
-        ConversationPickerMenu(
-            items: completer.rows,
-            id: \.id,
-            selected: completer.selectedID,
-            label: "Shell completions",
-            help: { $0.item.description.isEmpty ? $0.item.name : $0.item.description },
-            choose: { _ = completer.accept($0) },
-            row: { row in
-                let item = row.item
-                HStack(spacing: 10) {
-                    Image(systemName: item.kind.symbol)
-                        .font(.caption)
-                        .frame(width: 16)
-                        .foregroundStyle(item.isDangerous ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
-                    Text(highlighted(item))
-                        .font(.system(.callout, design: .monospaced).weight(.medium))
-                        .foregroundStyle(item.isDangerous ? AnyShapeStyle(.red) : AnyShapeStyle(theme.foreground))
-                        .layoutPriority(1)
-                    Text(verbatim: item.description)
-                        .font(.callout)
-                    Spacer(minLength: 0)
-                }
-                .accessibilityLabel(item.isDangerous ? "\(item.name), dangerous" : item.name)
-            }
-        )
-    }
-
-    private func highlighted(_ item: TineCompletion.Item) -> AttributedString {
-        var name = AttributedString(item.name)
-        for offset in item.matches {
-            guard let range = Range(NSRange(location: offset, length: 1), in: name) else { continue }
-
-            name[range].foregroundColor = item.isDangerous ? .red : .accentColor
-            name[range].underlineStyle = .single
-        }
-        return name
-    }
-}
-
-private extension TineCompletion.Kind {
+extension TineCompletion.Kind {
     var symbol: String {
         switch self {
         case .subcommand: "arrow.turn.down.right"

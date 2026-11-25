@@ -1,7 +1,6 @@
 import AppKit
 import BerthCore
 import Observation
-import SwiftUI
 
 @Observable
 final class ConversationSlashPicker {
@@ -58,35 +57,5 @@ final class ConversationSlashPicker {
         field.window?.makeFirstResponder(field)
         field.insertText(command.name + " ", replacementRange: completion.replacementRange)
         return true
-    }
-}
-
-struct ConversationSlashMenu: View {
-    let picker: ConversationSlashPicker
-    let matches: [SlashCommand]
-    @Environment(\.ghosttyTheme) private var theme
-
-    var body: some View {
-        ConversationPickerMenu(
-            items: matches,
-            id: \.name,
-            selected: matches.first { $0.name == picker.selectedName }?.name,
-            label: "Slash commands",
-            help: { command in command.argumentHint.map { "\(command.name) \($0)" } ?? command.summary },
-            choose: { _ = picker.accept($0) },
-            row: { command in
-                HStack(spacing: 10) {
-                    Text(verbatim: command.name)
-                        .font(.system(.callout, design: .monospaced).weight(.medium))
-                        .foregroundStyle(theme.foreground)
-                        .layoutPriority(1)
-                    Text(verbatim: command.summary)
-                        .font(.callout)
-                    Spacer(minLength: 0)
-                    Text(verbatim: command.source)
-                        .font(.caption)
-                }
-            }
-        )
     }
 }

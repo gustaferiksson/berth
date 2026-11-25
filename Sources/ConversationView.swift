@@ -628,7 +628,7 @@ private struct ConversationBottomBar: View {
         .frame(maxWidth: theme.messageWidth)
         .padding(.horizontal, 18)
         .padding(.bottom, 8)
-        .overlay(alignment: .top) {
+        .background(alignment: .top) {
             ConversationStatusBar(agent: tab.agent, since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
                 .alignmentGuide(.top) { $0[.bottom] + 10 }
         }

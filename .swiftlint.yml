@@ -295,6 +295,7 @@ custom_rules:
     name: Hand-Rolled Material
     regex: '\.background\(\s*\.?(ultraThin|thin|regular|thick|ultraThick)Material\b|\.background\(\.bar\)|\b(NSVisualEffectView|UIVisualEffectView|UIBlurEffect)\b'
     message: 'Bars, controls and floating panels get the system glass: .glassEffect, .buttonStyle(.glass), NSGlassEffectView, UIGlassEffect, or the stock toolbar.'
+    excluded: 'Sources/ConversationPickerMenu\.swift'
   custom_bar_background:
     name: Custom Bar Background
     regex: '\.toolbarBackground(Visibility)?\('

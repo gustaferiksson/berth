@@ -19,6 +19,7 @@ struct ConversationComposer: View {
     @Environment(Store.self) private var store
     @State private var isImporting = false
     @State private var width: CGFloat = 0
+    @State private var composerHeight: CGFloat = 0
     @State private var settledHeight: CGFloat = 0
     @State private var slashPicker = ConversationSlashPicker()
     @State private var shellCompleter = ConversationShellCompleter()
@@ -41,8 +42,6 @@ struct ConversationComposer: View {
         let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
         let placeholder = model.blocksSending ? "Wait for \(harness.name) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harness.name)"
         let slashScope = isShell || slashPicker.query == nil ? nil : ConversationSlashPicker.Scope(folder: folder, agent: harness.agent)
-        let matches = slashScope == nil ? [] : slashPicker.matches
-        let shellCompletes = isShell && completesShell && shellCompleter.isShowing
 
         GlassEffectContainer(spacing: 8) {
             VStack(spacing: 8) {
@@ -59,11 +58,6 @@ struct ConversationComposer: View {
 
                             model.notice = nil
                         }
-                }
-                if !matches.isEmpty {
-                    ConversationSlashMenu(picker: slashPicker, matches: matches)
-                } else if shellCompletes {
-                    ConversationShellMenu(completer: shellCompleter)
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     if !draft.files.isEmpty {
@@ -132,6 +126,13 @@ struct ConversationComposer: View {
                 .animation(.smooth(duration: 0.2), value: isShell)
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
+        .overlay(alignment: .bottomLeading) {
+            pickerMenu(slashScope: slashScope)
+                .frame(maxWidth: 480)
+                .fixedSize(horizontal: false, vertical: true)
+                .offset(y: -composerHeight - 6)
+        }
         .task(id: slashScope) {
             guard let slashScope else { return }
 
@@ -155,6 +156,48 @@ struct ConversationComposer: View {
         }
         .fileImporter(isPresented: $isImporting, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             model.append((try? result.get()) ?? [])
+        }
+    }
+
+    @ViewBuilder
+    private func pickerMenu(slashScope: ConversationSlashPicker.Scope?) -> some View {
+        let matches = slashScope == nil ? [] : slashPicker.matches
+        if !matches.isEmpty {
+            ConversationPickerMenu(
+                items: matches,
+                id: \.name,
+                selected: matches.first { $0.name == slashPicker.selectedName }?.name,
+                label: "Slash commands",
+                choose: { _ = slashPicker.accept($0) },
+                row: { command in
+                    ConversationPickerRow(
+                        name: command.name,
+                        detail: command.summary,
+                        symbol: "command",
+                        source: command.source,
+                        help: command.argumentHint.map { "\(command.name) \($0)" } ?? command.summary
+                    )
+                }
+            )
+        } else if isShell, completesShell, shellCompleter.isShowing {
+            ConversationPickerMenu(
+                items: shellCompleter.rows,
+                id: \.id,
+                selected: shellCompleter.selectedID,
+                label: "Shell completions",
+                choose: { _ = shellCompleter.accept($0) },
+                row: { row in
+                    let item = row.item
+                    return ConversationPickerRow(
+                        name: item.name,
+                        detail: item.description,
+                        symbol: item.kind.symbol,
+                        help: item.description.isEmpty ? item.name : item.description,
+                        matches: item.matches,
+                        isDangerous: item.isDangerous
+                    )
+                }
+            )
         }
     }
 
