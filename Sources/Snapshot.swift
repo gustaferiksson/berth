@@ -947,6 +947,7 @@ enum Snapshot {
         let servers = LanguageServerEntry.configured(UserDefaults.standard.string(forKey: LanguageServerEntry.storageKey))
         let editedServer = UserDefaults.standard.string(forKey: "snapshotEditServer").map { id in servers.first { $0.id == id } ?? LanguageServerEntry(name: "", command: "") }
         let showsStats = UserDefaults.standard.bool(forKey: "snapshotStats")
+        let backgroundTasksFolder = UserDefaults.standard.bool(forKey: "snapshotBackgroundTasks") ? prepareBackgroundTasks(store: store) : nil
         let root = editedGroup.map { AnyView(GroupEditor(group: $0).environment(\.ghosttyTheme, store.theme).preferredColorScheme(store.theme.isDark ? .dark : .light)) }
             ?? editedServer.map { AnyView(LanguageServerEditor(server: $0, servers: .constant(servers)).preferredColorScheme(store.theme.isDark ? .dark : .light)) } ?? AnyView(showsStats ? AnyView(StatsView()) : AnyView(ContentView()))
         // swiftlint:disable:next hosting_without_sizing_options - the offscreen window is sized by setContentSize
@@ -963,6 +964,11 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotControl") { await captureControl(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotBrowser") { await captureBrowser(store: store, window: window) }
         if let mode = UserDefaults.standard.string(forKey: "snapshotHost") { await captureHost(mode: mode, store: store, window: window, output: output) }
+        if let backgroundTasksFolder {
+            await captureBackgroundTasks(in: backgroundTasksFolder, store: store, window: window, output: output)
+            ProcessAncestry.hangUpDescendants()
+            exit(0)
+        }
         if UserDefaults.standard.bool(forKey: "snapshotConversation") { await captureConversation(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { await captureTasksReview(store: store, window: window, output: output) }
         if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotMarkdownRendered") { store.rendersMarkdown = true }

@@ -126,10 +126,11 @@ extension Snapshot {
             let previous = store.shownPane
             let before = widths()
             switch mode {
-            case .changes: store.showChangesPane()
-            case .files: store.showFilesPane()
+            case .changes: store.showReviewPane(.changes)
+            case .files: store.showReviewPane(.files)
             case .browser: store.showBrowserPane()
             case .terminal: store.showTerminalPane()
+            case .tasks: store.showTasksPane()
             }
             try? await Task.sleep(for: .milliseconds(600))
             root.layoutSubtreeIfNeeded()

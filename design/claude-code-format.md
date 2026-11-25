@@ -34,6 +34,14 @@ Berth infers stops from local command records, tagged stop output, interruption 
 
 `TranscriptActivity` prefilters raw bytes before decoding watch records. The Store reads live Claude transcripts off the main thread, keeps an in-memory offset per transcript and scans appended bytes on change. This is separate from the head and tail reads for session summaries.
 
+## Background tasks
+
+`TranscriptActivity` pairs Bash, Agent and Task calls with their tool results. Bash results carry `backgroundTaskId` and can name an absolute `<id>.output` file in the result text. Async agent results carry `agentId` and `isAsync` or `status: async_launched`. Virtual Code Mode results can provide launch details without a separate tool-use record. Synchronous agents stay in the history and use their tool-use ID to locate subagent metadata when the result omits the agent ID.
+
+Completion can arrive in a `<task-notification>` on an enqueue operation, a queued-command attachment, or a user record with task-notification origin. The envelope pairs `<task-id>` with `<status>` and may carry `<output-file>`, `<result>` or `<summary>`. The parser also accepts a numeric `<exit-code>` or an exit code in the summary. A fast task can emit its completion before its virtual launch result. `TaskStop` tool results record a successful stop. Berth reads these records and the named output files. The repository documents no callable CLI interface for stopping an individual task by ID from Berth.
+
+An agent transcript lives at `<sessionId>/subagents/agent-<agentId>.jsonl`. Its sibling `.meta.json` can identify the launch via `toolUseId` or record completion via `finished` and `stoppedByUser`. Log writes more than five seconds after completion metadata suggest the agent resumed. The Tasks pane uses the current live process start time to mark unfinished history from an earlier process as Finished.
+
 ## Typed prompts
 
 Typed prompt: `origin` absent or `kind: human`; `task-notification` origins, `isCompactSummary` and `<bash-stdout>` records are not prompts; sidechains are skipped. A prompt sent mid-turn is not a user record but an `attachment` of type `queued_command` (`commandMode: prompt`, human origin or `humanTurn`); it counts for `lastPrompt` and `lastActivity` (other attachment lines are still skipped on raw bytes). Search and Stats don't read them yet; the remote tail does.

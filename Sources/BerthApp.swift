@@ -74,6 +74,8 @@ struct BerthApp: App {
                 AppAction.switchTerminal.menuButton(appDelegate.store)
                 AppAction.showBrowser.menuButton(appDelegate.store)
                     .disabled(!AppAction.showBrowser.isAvailable(in: appDelegate.store))
+                AppAction.showTasksPane.menuButton(appDelegate.store)
+                    .disabled(!AppAction.showTasksPane.isAvailable(in: appDelegate.store))
                 if isReviewEnabled {
                     AppAction.showChangesPane.menuButton(appDelegate.store)
                         .disabled(!AppAction.showChangesPane.isAvailable(in: appDelegate.store))
@@ -240,7 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
             let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showPullRequestInReview, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showPullRequestInReview, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showTasksPane, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil
             }

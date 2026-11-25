@@ -239,7 +239,7 @@ private struct QueuedPrompt: View {
     }
 }
 
-private struct ConversationScrollState: Equatable {
+struct ConversationScrollState: Equatable {
     let height: Double
     let isAtBottom: Bool
 }
@@ -441,7 +441,7 @@ private struct ConversationStatusBar: View {
     let jump: () -> Void
 
     @Environment(\.ghosttyTheme) private var theme
-    @State private var showsTasks = conversationShowsTasks
+    @Environment(Store.self) private var store
     private let pillTransition = AnyTransition.opacity.combined(with: .scale(scale: 0.92))
 
     var body: some View {
@@ -457,14 +457,14 @@ private struct ConversationStatusBar: View {
                         .transition(pillTransition)
                 }
                 if !tasks.isEmpty {
-                    Button { showsTasks.toggle() } label: {
+                    Button { store.showTasksPane(selecting: tasks.first?.id) } label: {
                         HStack(spacing: 8) {
                             ForEach(kinds, id: \.self) { kind in
                                 Image(systemName: RemoteTask(id: "", kind: kind, title: "", started: .now).symbol)
                                     .accessibilityHidden(true)
                             }
                             Text(RemoteTask.summary(of: tasks))
-                            Image(systemName: "chevron.up")
+                            Image(systemName: "chevron.right")
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(theme.secondary)
                                 .accessibilityHidden(true)
@@ -475,8 +475,7 @@ private struct ConversationStatusBar: View {
                     }
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: .capsule)
-                    .popover(isPresented: $showsTasks, arrowEdge: .top) { ConversationTaskList(tasks: tasks) }
-                    .accessibilityValue(showsTasks ? "Expanded" : "Collapsed")
+                    .help("Show Background Tasks")
                 }
                 if !isAtBottom {
                     Button(action: jump) {
@@ -496,45 +495,6 @@ private struct ConversationStatusBar: View {
         .animation(.easeOut(duration: 0.15), value: isAtBottom)
         .animation(.easeOut(duration: 0.15), value: isWorking)
         .animation(.easeOut(duration: 0.15), value: tasks.isEmpty)
-        .onChange(of: tasks.isEmpty) { if tasks.isEmpty { showsTasks = false } }
-    }
-}
-
-private struct ConversationTaskList: View {
-    let tasks: [RemoteTask]
-
-    @Environment(\.ghosttyTheme) private var theme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(tasks) { task in
-                ConversationAgentButton(isAgent: task.kind == RemoteTask.agent, agentID: task.id, toolUseID: task.id, title: task.title, dismissesPopover: true) {
-                    HStack(spacing: 10) {
-                        Image(systemName: task.symbol)
-                            .foregroundStyle(task.kind == RemoteTask.agent ? AgentTint.color(for: task.title) : theme.secondary)
-                            .frame(width: 20)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(verbatim: task.title)
-                                .lineLimit(1)
-                            Text(verbatim: task.agentType ?? task.kindName)
-                                .font(.caption)
-                                .foregroundStyle(theme.secondary)
-                        }
-                        Spacer(minLength: 12)
-                        ConversationElapsed(since: task.started)
-                            .font(.caption)
-                            .foregroundStyle(theme.secondary)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .accessibilityElement(children: .combine)
-                }
-            }
-        }
-        .padding(8)
-        .frame(width: 320, alignment: .leading)
-        .transaction { $0.animation = nil }
     }
 }
 
