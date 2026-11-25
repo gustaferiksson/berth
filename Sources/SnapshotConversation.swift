@@ -566,10 +566,26 @@ extension Snapshot {
         while Date.now < deadline, store.conversationModels[tab.id].map({ showsEmptyConversation ? !$0.hasLoaded : $0.turns.isEmpty }) ?? true {
             try? await Task.sleep(for: .milliseconds(100))
         }
-        if showsSlashCommands { store.conversationModels[tab.id]?.setText("/co") }
+        let slashText = UserDefaults.standard.string(forKey: "snapshotConversationSlashText") ?? "/co"
+        if showsSlashCommands { store.conversationModels[tab.id]?.setText(slashText.replacing("|", with: "")) }
         if showsShellCompletions { store.conversationModels[tab.id]?.setText("!git ch") }
         try? await Task.sleep(for: .seconds(2))
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let composer = NSApp.windows.lazy.compactMap(\.contentView).flatMap(descendants).compactMap { $0 as? ComposerTextView }.first
+        if showsSlashCommands, let composer, let caret = slashText.firstIndex(of: "|") {
+            composer.window?.makeFirstResponder(composer)
+            composer.setSelectedRange(NSRange(location: slashText.distance(from: slashText.startIndex, to: caret), length: 0))
+            composer.refreshCompletions()
+            try? await Task.sleep(for: .seconds(1))
+        }
         surface("in conversation")
+        if showsSlashCommands { save(".slash-open.png") }
+        if showsSlashCommands, UserDefaults.standard.bool(forKey: "snapshotConversationSlashAccept"), let composer {
+            print("slash accepted \(composer.slashPicker?.accept() ?? false)")
+            try? await Task.sleep(for: .seconds(1))
+            print("slash text \(composer.string.debugDescription) caret \(composer.selectedRange().location)")
+            save(".slash-accepted.png")
+        }
         print("switch visibility: toolbar button \(store.canShowConversation), footer \(store.selectedStatusBarIsReachable)")
         if let model = store.conversationModels[tab.id] {
             if showsWatching { print("conversation watch \(model.pullRequestWatch?.title ?? "none")") }

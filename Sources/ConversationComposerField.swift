@@ -1,4 +1,5 @@
 import AppKit
+import BerthCore
 import SwiftUI
 
 struct ConversationComposerField: NSViewRepresentable {
@@ -156,15 +157,11 @@ final class ComposerTextView: NSTextView {
 
     var slashCompletion: (query: String, replacementRange: NSRange)? {
         let selection = selectedRange()
-        guard string.hasPrefix("/"), !hasMarkedText(), selection.length == 0, selection.location > 0 else { return nil }
-
         let text = string
-        let word = text.prefix { !$0.isWhitespace }
-        let wordEnd = word.utf16.count
-        guard selection.location <= wordEnd else { return nil }
+        guard !hasMarkedText(), selection.length == 0, let caret = Range(selection, in: text)?.lowerBound,
+              let token = SlashToken.find(in: text, caret: caret) else { return nil }
 
-        let replacesSpace = text[word.endIndex...].hasPrefix(" ")
-        return ((text as NSString).substring(to: selection.location), NSRange(location: 0, length: wordEnd + (replacesSpace ? 1 : 0)))
+        return (token.query, NSRange(token.replacing, in: text))
     }
 
     func refreshCompletions() {
