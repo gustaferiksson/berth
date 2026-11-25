@@ -1461,6 +1461,16 @@ final class Store {
         if let terminal = paneTerminal(of: session.id) { activate(.tab(terminal.id)) } else { newTerminal(for: session.id) }
     }
 
+    func selectPane(_ mode: SessionPane) {
+        if shownPane == mode {
+            hideSessionPanel()
+        } else if mode == .terminal {
+            showTerminalPane()
+        } else {
+            mode.action.perform(on: self)
+        }
+    }
+
     var shownPane: SessionPane? {
         if isHarborShown { return nil }
         if [.terminal, .browser, .tasks].contains(sessionPane) { return sessionPane }

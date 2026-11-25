@@ -102,17 +102,9 @@ struct ModeSwitcher: View {
             case .tasks: store.canShowTasksPane
             }
         }
-        ModeSegments(modes: modes, selected: store.shownPane) { mode in
-            if store.shownPane == mode {
-                store.hideSessionPanel()
-            } else if mode == .terminal {
-                store.showTerminalPane()
-            } else {
-                mode.action.perform(on: store)
-            }
-        }
-        .frame(minWidth: CGFloat(modes.count) * 36, minHeight: 24)
-        .fixedSize()
+        ModeSegments(modes: modes, selected: store.shownPane, choose: store.selectPane)
+            .frame(minWidth: CGFloat(modes.count) * 36, minHeight: 24)
+            .fixedSize()
     }
 }
 

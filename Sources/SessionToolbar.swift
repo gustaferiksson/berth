@@ -21,13 +21,15 @@ struct SessionToolbar: ToolbarContent {
     }
 }
 
+// Declared in the detail or the pane sidebar by mode; a shared id moved one live item between hosts and stranded it (#441).
 struct ChangesToolbar: ToolbarContent {
     let store: Store
+    let host: String
 
     var body: some ToolbarContent {
         if store.showsSessionToolbar {
             ToolbarSpacer(.flexible, placement: .primaryAction)
-            ToolbarItem(id: "session-mode-switcher", placement: .primaryAction) { ModeSwitcher(store: store) }
+            ToolbarItem(id: "session-mode-switcher-\(host)", placement: .primaryAction) { ModeSwitcher(store: store) }
         }
     }
 }
