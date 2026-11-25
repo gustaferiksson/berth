@@ -1,11 +1,5 @@
 import SwiftUI
 
-enum SessionListLayout {
-    static let statusWidth = 14.0
-    static let columnSpacing = 6.0
-    static let rowInsets = EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
-}
-
 struct SessionListView: View {
     @Environment(RemoteClient.self) private var client
     @Environment(UpdateCheck.self) private var updates
@@ -20,8 +14,6 @@ struct SessionListView: View {
     var body: some View {
         let pinned = Set(client.groups.first { $0.id == "pinned" }?.sessions.map(\.id) ?? [])
         let groups = visibleGroups
-        let usageGroups = query.isEmpty ? client.usageGroups(at: .now) : []
-        let tints: [String: Color] = ["needsYou": .orange, "working": .green, "unread": .blue]
         let searchedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let searchesTranscripts = client.features.contains(RemoteSearchFeature.name) && searchedQuery.count >= RemoteSearchFeature.minimumQueryLength
 
@@ -31,29 +23,18 @@ struct SessionListView: View {
                     Section {
                         Link(destination: UpdateCheck.installURL) {
                             Label("Install Berth Remote \(version)", systemImage: "arrow.down.circle")
-                                .padding(.vertical, 6)
-                                .frame(minHeight: 44)
                         }
-                        .listRowInsets(SessionListLayout.rowInsets)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
                     }
-                    .listSectionSeparator(.hidden)
                 }
-                if !usageGroups.isEmpty {
-                    let expansion = Binding { expandedGroups["usage", default: true] } set: { expandedGroups["usage"] = $0 }
-                    Section {
-                        SessionSectionHeader(title: "Usage", isExpanded: expansion)
-                        if expansion.wrappedValue {
+                if query.isEmpty {
+                    let usageGroups = client.usageGroups(at: .now)
+                    if !usageGroups.isEmpty {
+                        Section {
                             ForEach(usageGroups) { group in
                                 UsageCard(group: group) { isShowingUsage = true }
-                                    .listRowInsets(SessionListLayout.rowInsets)
-                                    .listRowSeparator(.hidden)
-                                    .listRowBackground(Color.clear)
                             }
                         }
                     }
-                    .listSectionSeparator(.hidden)
                 }
                 ForEach(groups) { group in
                     let expansion = if query.isEmpty {
@@ -61,9 +42,7 @@ struct SessionListView: View {
                     } else {
                         Binding.constant(true)
                     }
-                    let startsList = usageGroups.isEmpty && group.id == groups.first?.id
                     Section {
-                        SessionSectionHeader(title: group.title, count: group.sessions.count, tint: tints[group.id], topSpacing: startsList ? 0 : 8, isExpanded: expansion)
                         if expansion.wrappedValue {
                             ForEach(group.sessions) { session in
                                 SessionRow(session: session, isPinned: pinned.contains(session.id)) {
@@ -71,21 +50,25 @@ struct SessionListView: View {
                                 } didAct: { action in
                                     feedback = ActionFeedback(count: feedback.count + 1, action: action)
                                 }
-                                .listRowInsets(SessionListLayout.rowInsets)
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(Color.clear)
                             }
                         }
+                    } header: {
+                        if query.isEmpty {
+                            SessionSectionHeader(title: group.title, count: group.sessions.count, isExpanded: expansion)
+                        } else {
+                            Text(group.title)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Color.secondary)
+                                .textCase(nil)
+                        }
                     }
-                    .listSectionSeparator(.hidden)
                 }
                 if searchesTranscripts {
                     TranscriptSearchSection(query: searchedQuery)
                 }
             }
-            .listStyle(.plain)
-            .listSectionSpacing(0)
-            .environment(\.defaultMinListRowHeight, 0)
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(.compact)
             .scrollEdgeEffectStyle(.soft, for: .bottom)
             .sensoryFeedback(trigger: feedback) { _, new in
                 new.action == .archive ? .warning : .impact(weight: .light)
@@ -163,52 +146,32 @@ struct SessionListView: View {
 
 private struct SessionSectionHeader: View {
     let title: String
-    var count: Int?
-    var tint: Color?
-    var topSpacing = 0.0
+    let count: Int
     @Binding var isExpanded: Bool
 
-    @ScaledMetric(relativeTo: .body) private var statusWidth = SessionListLayout.statusWidth
-
     var body: some View {
-        let label = if !isExpanded, let count {
-            Text("\(title), ^[\(count) session](inflect: true)")
-        } else {
-            Text(title)
-        }
-
         Button {
             withAnimation { isExpanded.toggle() }
         } label: {
-            HStack(spacing: SessionListLayout.columnSpacing) {
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .imageScale(.small)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    .frame(width: statusWidth)
-                    .accessibilityHidden(true)
+            HStack(spacing: 8) {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 0)
-                if !isExpanded, let count {
+                if !isExpanded {
                     Text(count, format: .number)
-                        .font(.subheadline.monospacedDigit())
-                        .fixedSize()
                 }
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.forward")
+                    .font(.caption2.weight(.semibold))
+                    .accessibilityHidden(true)
             }
-            .foregroundStyle(tint ?? Color.secondary)
-            .padding(.vertical, 4)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.secondary)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .textCase(nil)
         .accessibilityAddTraits(.isHeader)
-        .accessibilityLabel(label)
+        .accessibilityLabel(isExpanded ? Text(title) : Text("\(title), ^[\(count) session](inflect: true)"))
         .accessibilityValue(isExpanded ? "expanded" : "collapsed")
-        .padding(.top, topSpacing)
-        .listRowInsets(SessionListLayout.rowInsets)
-        .listRowSeparator(.hidden)
-        .listRowBackground(Color.clear)
     }
 }
 
@@ -247,13 +210,15 @@ private struct SessionRow: View {
     var body: some View {
         let toggleRead = session.isUnread == true ? RemoteSessionAction.markRead : .markUnread
         let toggleRule = isPinned ? RemoteSessionAction.unpin : .pin
+        let agent = (session.agent ?? .legacyClaude).name
 
         Button(action: open) {
             SessionRowLabel(session: session)
-                .foregroundStyle(.primary)
                 .contentShape(.rect)
         }
-        .accessibilityValue(Text((session.agent ?? .legacyClaude).name))
+        .buttonStyle(.plain)
+        .listRowInsets(.vertical, 0)
+        .accessibilityValue(session.isOpen ? Text("\(agent), Open on Mac") : Text(agent))
         .accessibilityHint("Opens the session")
         .swipeActions(edge: .leading) {
             Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") { perform(toggleRule) }
@@ -305,12 +270,10 @@ private struct SessionPreview: View {
                 .font(.headline)
             Text(session.folder)
                 .font(.footnote)
-                .monospaced()
                 .foregroundStyle(.secondary)
             if let branch = session.branch {
                 Label(branch, systemImage: "arrow.triangle.branch")
                     .font(.footnote)
-                    .monospaced()
                     .foregroundStyle(.secondary)
             }
             if let pullRequest = session.pullRequest {
@@ -326,17 +289,23 @@ private struct SessionRowLabel: View {
     let session: RemoteSession
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric(relativeTo: .body) private var statusWidth = SessionListLayout.statusWidth
+    @ScaledMetric(relativeTo: .body) private var unreadDotSize = 10.0
 
     var body: some View {
         let isAccessibility = dynamicTypeSize.isAccessibilitySize
-        let titleInset = statusWidth + SessionListLayout.columnSpacing
+        let isUnread = session.isUnread == true
         let repo = Text(verbatim: URL(filePath: session.folder).lastPathComponent)
         let location = session.branch.map { branch in
-            Text("\(repo) · \(Text(verbatim: branch).foregroundStyle(Color.teal.opacity(0.8)))")
+            Text("\(repo) · \(Text(verbatim: branch))")
         } ?? repo
 
-        let details = Group {
+        let subtitle = location
+            .font(.subheadline)
+            .foregroundStyle(Color.secondary)
+            .lineLimit(isAccessibility ? nil : 1)
+            .truncationMode(.middle)
+
+        let pullRequest = Group {
             if let watch = session.pullRequestWatch, session.status == "idle" || session.status == nil {
                 Image(systemName: "eye")
                     .font(.footnote)
@@ -345,48 +314,65 @@ private struct SessionRowLabel: View {
             } else if let pullRequest = session.pullRequest {
                 PullRequestTag(pullRequest: pullRequest)
             }
-            SessionTime(session: session)
         }
 
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: SessionListLayout.columnSpacing) {
-                SessionStatusSlot(session: session)
-                    .frame(width: statusWidth)
-                HStack(spacing: 4) {
-                    Text(session.title)
-                        .font(.body.weight(session.isUnread == true ? .semibold : .medium))
-                        .lineLimit(isAccessibility ? 2 : 1)
-                        .truncationMode(.tail)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if session.isLocked {
-                        Image(systemName: "lock.fill")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .accessibilityLabel("Locked")
+        let time = HStack(spacing: 6) {
+            SessionStatusSlot(session: session)
+            SessionTime(session: session)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+
+        HStack(alignment: .top, spacing: 8) {
+            Circle()
+                .fill(isUnread ? Color.blue : Color.clear)
+                .frame(width: unreadDotSize, height: unreadDotSize)
+                .padding(.top, unreadDotSize / 2)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Unread")
+                .accessibilityHidden(!isUnread)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    HStack(spacing: 4) {
+                        Text(session.title)
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Color.primary)
+                            .lineLimit(isAccessibility ? 2 : 1)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if session.isLocked {
+                            Image(systemName: "lock.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("Locked")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if !isAccessibility {
+                        time
                     }
                 }
-                Spacer(minLength: 0)
-                if !isAccessibility {
-                    HStack(spacing: 8) { details }
-                        .fixedSize()
+                if isAccessibility {
+                    subtitle
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            time
+                            pullRequest
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            time
+                            pullRequest
+                        }
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        subtitle
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        pullRequest
+                    }
                 }
             }
-            if isAccessibility {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { details }
-                    VStack(alignment: .leading, spacing: 3) { details }
-                }
-                .padding(.leading, titleInset)
-            }
-            location
-                .font(.footnote.monospaced())
-                .foregroundStyle(.secondary)
-                .lineLimit(isAccessibility ? nil : 1)
-                .truncationMode(.middle)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.leading, titleInset)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 10)
         .opacity(session.isLocked ? 0.55 : 1)
         .accessibilityElement(children: .combine)
     }
@@ -395,61 +381,24 @@ private struct SessionRowLabel: View {
 private struct SessionStatusSlot: View {
     let session: RemoteSession
 
-    @ScaledMetric(relativeTo: .body) private var dotSize = 6.0
-    @ScaledMetric(relativeTo: .body) private var ringSize = 5.0
-    @ScaledMetric(relativeTo: .body) private var ringStroke = 1.0
-
     var body: some View {
-        ZStack {
+        Group {
             if session.status == "waiting" {
-                Circle()
-                    .fill(.orange)
-                    .frame(width: dotSize, height: dotSize)
-                    .accessibilityElement(children: .ignore)
+                Image(systemName: "exclamationmark.circle")
+                    .foregroundStyle(.orange)
                     .accessibilityLabel("Needs you")
             } else if session.status == "busy" {
-                SessionWorkingDots()
+                Image(systemName: "circle.fill")
+                    .imageScale(.small)
+                    .foregroundStyle(.green)
+                    .accessibilityLabel("Working")
             } else if session.status == "shell" {
-                Circle()
-                    .fill(.pink)
-                    .frame(width: dotSize, height: dotSize)
-                    .accessibilityElement(children: .ignore)
+                Image(systemName: "terminal")
+                    .foregroundStyle(.secondary)
                     .accessibilityLabel("Background task running")
-            } else if session.isUnread == true {
-                Circle()
-                    .fill(.blue)
-                    .frame(width: dotSize, height: dotSize)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Unread")
-            } else if session.isOpen {
-                Circle()
-                    .strokeBorder(Color.secondary.opacity(0.5), lineWidth: ringStroke)
-                    .frame(width: ringSize, height: ringSize)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Open on Mac")
             }
         }
-    }
-}
-
-private struct SessionWorkingDots: View {
-    @ScaledMetric(relativeTo: .body) private var dotSize = 4.0
-    @ScaledMetric(relativeTo: .body) private var spacing = 1.0
-    @State private var offset = Double.random(in: 0..<1.2)
-
-    var body: some View {
-        TimelineView(.periodic(from: Date(timeIntervalSinceReferenceDate: offset), by: 0.4)) { context in
-            let phase = Int(((context.date.timeIntervalSinceReferenceDate - offset) / 0.4).rounded()) % 3
-            HStack(spacing: spacing) {
-                ForEach(0..<3) { index in
-                    Circle()
-                        .fill(Color.green.opacity(index == phase ? 1 : 0.35))
-                        .frame(width: dotSize, height: dotSize)
-                }
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Working")
+        .font(.caption2)
     }
 }
 
@@ -457,7 +406,6 @@ private struct PullRequestTag: View {
     let pullRequest: RemotePullRequest
 
     @ScaledMetric(relativeTo: .caption) private var iconSize = 12.0
-    @ScaledMetric(relativeTo: .caption) private var dividerHeight = 8.0
     @ScaledMetric(relativeTo: .caption) private var checkDotSize = 5.0
 
     var body: some View {
@@ -472,16 +420,14 @@ private struct PullRequestTag: View {
         HStack(spacing: 4) {
             OcticonImage(Octicon(pullRequestState: pullRequest.state), size: iconSize)
                 .imageScale(.small)
+                .foregroundStyle(tint)
             Text(verbatim: "#\(pullRequest.number)")
             if let checks {
-                Rectangle()
-                    .fill(tint.opacity(0.35))
-                    .frame(width: 1, height: dividerHeight)
                 Group {
                     if checks == "passed" || checks == "failed" {
                         Image(systemName: checks == "passed" ? "checkmark" : "xmark")
                             .imageScale(.small)
-                            .fontWeight(.bold)
+                            .fontWeight(.semibold)
                             .accessibilityHidden(true)
                     } else {
                         Circle()
@@ -491,11 +437,8 @@ private struct PullRequestTag: View {
                 .foregroundStyle(ChecksStyle.color(checks))
             }
         }
-        .font(.caption.monospaced())
-        .foregroundStyle(tint)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-        .background(tint.opacity(0.16), in: .rect(cornerRadius: 4))
+        .font(.caption)
+        .foregroundStyle(Color.secondary)
         .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Pull request \(String(pullRequest.number)), \(pullRequest.state)\(checks.map { ", " + ChecksStyle.title($0) } ?? "")")
@@ -519,8 +462,8 @@ private struct SessionTime: View {
                 }
             }
         }
-        .font(.footnote.monospacedDigit())
-        .foregroundStyle(.secondary)
+        .font(.subheadline)
+        .foregroundStyle(Color.secondary)
     }
 
     private func age(at now: Date) -> String {
