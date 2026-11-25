@@ -85,6 +85,7 @@ extension Snapshot {
             AppAction.openLocation.perform(on: store)
             try? await Task.sleep(for: .seconds(1))
         }
+        if UserDefaults.standard.bool(forKey: "snapshotBrowserNewTab") { await probeNewTabKeyViewLoop(store: store, window: window) }
         let shown = store.browser.shownTab
         let pinned = store.browser.pinned
         let sessionTabs = store.browser.tabs(in: session.id)
@@ -184,6 +185,47 @@ extension Snapshot {
         }
         root.layoutSubtreeIfNeeded()
         print("pane widths stress PASS: \(passes) divider drags across 8 window widths and 5 modes without a layout exception")
+    }
+
+    private static func probeNewTabKeyViewLoop(store: Store, window: NSWindow) async {
+        let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
+        let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
+        method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
+        method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
+        window.becomeKey()
+        if let key = store.browser.sessionKey { for extra in store.browser.pinned.dropFirst() { store.browser.unpin(extra, into: key) } }
+        if let pinned = store.browser.pinned.first, let key = store.browser.sessionKey { store.browser.select(pinned, in: key) }
+        try? await Task.sleep(for: .milliseconds(500))
+        window.makeFirstResponder(nil)
+        let arm = DispatchWorkItem {
+            print("browser new tab key view probe FAIL: main thread blocked over 5 s")
+            fflush(stdout)
+            exit(1)
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 5, execute: arm)
+        AppAction.newBrowserTab.perform(on: store)
+        try? await Task.sleep(for: .seconds(1))
+        arm.cancel()
+
+        guard let field = window.firstResponder as? NSView else {
+            print("browser new tab key view probe FAIL: no focused view")
+            exit(1)
+        }
+
+        let watchdog = DispatchWorkItem {
+            print("browser new tab key view probe FAIL: previousValidKeyView did not return within 1 s")
+            fflush(stdout)
+            exit(1)
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1, execute: watchdog)
+        let target = (field as? NSTextView)?.delegate as? NSView ?? field
+        let previous = target.previousValidKeyView
+        let next = target.nextValidKeyView
+        window.recalculateKeyViewLoop()
+        window.selectPreviousKeyView(nil)
+        window.selectNextKeyView(nil)
+        watchdog.cancel()
+        print("browser new tab key view probe PASS: \(type(of: target)) previous \(previous.map { "\(type(of: $0))" } ?? "nil") next \(next.map { "\(type(of: $0))" } ?? "nil")")
     }
 
     static func logBrowserAddress(in window: NSWindow) {

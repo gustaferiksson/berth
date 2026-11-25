@@ -987,6 +987,11 @@ enum Snapshot {
             ProcessAncestry.hangUpDescendants()
             exit(0)
         }
+        if UserDefaults.standard.bool(forKey: "snapshotPaneTerminal") {
+            await capturePaneTerminal(store: store, window: window, output: output)
+            ProcessAncestry.hangUpDescendants()
+            exit(0)
+        }
         if UserDefaults.standard.bool(forKey: "snapshotConversation") { await captureConversation(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { await captureTasksReview(store: store, window: window, output: output) }
         if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotMarkdownRendered") { store.rendersMarkdown = true }
