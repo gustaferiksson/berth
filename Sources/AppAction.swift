@@ -254,7 +254,7 @@ enum AppAction: Hashable {
 
         case .switchTerminal: store.switchTerminal()
 
-        case .findInTerminal: if isAvailable(in: store) { store.focusedTerminal?.performBindingAction("start_search") }
+        case .findInTerminal: if isAvailable(in: store) { store.selectFocusedSurface(); store.focusedTerminal?.performBindingAction("start_search") }
 
         case .clearTerminal: store.focusedTerminal?.performBindingAction("clear_screen")
 
