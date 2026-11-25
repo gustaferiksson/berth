@@ -5,6 +5,8 @@ copies update themselves: `AppUpdater` checks `releases/latest` on launch, every
 `Berth-<version>.zip`, verifies its code signature (team `82K3YC8HVF`, identifier `dev.gustaf.berth`), stages it
 next to the installed app and swaps it in on quit or on "Install Berth <version> and Relaunch".
 
+Berth is Apple Silicon only: `project.yml` sets `ARCHS: arm64` and `build.sh` builds with the same destination and flags as CI, so no Intel slice is built. Add `depends_on arch: :arm64` to `Casks/berth.rb` in the tap.
+
 ## How the pipeline works
 
 `.github/workflows/release.yml` runs on a `v*` tag and calls the shared `gustaferiksson/macos-release` workflow:

@@ -30,8 +30,13 @@ xcodebuild \
   -scheme Berth \
   -configuration "${CONFIGURATION}" \
   -derivedDataPath .build \
+  -destination 'platform=macOS,arch=arm64' \
+  -skipPackagePluginValidation \
+  -skipMacroValidation \
   -quiet \
   "${SIGN_ARGS[@]}" \
+  ONLY_ACTIVE_ARCH=YES \
+  COMPILER_INDEX_STORE_ENABLE=NO \
   build
 
 [[ "$CONFIGURATION" != "Release" ]] && exit 0
