@@ -186,7 +186,7 @@ public enum CodexTranscript {
                     } else {
                         guard seenReplies.insert(text).inserted else { continue }
                     }
-                    entries.append(RemoteEntry(id: id, kind: kind, text: String(text.prefix(TranscriptTail.maxText)), date: date))
+                    entries.append(RemoteEntry(id: id, kind: kind, text: TranscriptTail.cappedProse(text), date: date))
                     continue
                 }
             }
