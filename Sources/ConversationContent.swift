@@ -730,7 +730,7 @@ private struct ConversationPromptImage: View {
                 ConversationImagePreview.shared.showOriginal(original)
             }
         } label: {
-            VStack(alignment: .trailing, spacing: 4) {
+            Group {
                 if let image {
                     let scale = min(240 / image.size.width, 120 / image.size.height)
                     Image(nsImage: image)
@@ -741,7 +741,10 @@ private struct ConversationPromptImage: View {
                     Color.clear
                         .frame(width: 160, height: 120)
                 }
+            }
+            .overlay(alignment: .bottomLeading) {
                 ConversationImageTag(number: number)
+                    .padding(4)
             }
         }
         .buttonStyle(.plain)
