@@ -134,12 +134,14 @@ struct UsageTrack: View {
                         .frame(width: width * (window.used - window.pace(at: now)))
                         .offset(x: width * window.pace(at: now))
                 }
+                if window.pace(at: now) > 0 {
+                    Capsule()
+                        .fill(theme.foreground)
+                        .frame(width: 1.5, height: 10)
+                        .offset(x: min(width * window.pace(at: now), width - 1.5))
+                }
             }
             .clipShape(.capsule)
-            Capsule()
-                .fill(theme.foreground)
-                .frame(width: 1.5, height: 10)
-                .offset(x: min(width * window.pace(at: now), width - 1.5))
         }
         .frame(height: 10)
         .onGeometryChange(for: CGFloat.self, of: \.size.width) { width = $0 }
