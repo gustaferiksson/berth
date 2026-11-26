@@ -37,7 +37,7 @@ struct ConversationComposer: View {
         let inset = ConversationComposerLayout.inset
         let controlSize = ConversationComposerLayout.controlSize
         let fieldWidth = ConversationComposerLayout.fieldBounds(in: width, canAttach: canAttach).width
-        let fieldHeight = ConversationComposerField.height(of: shownText, font: font, width: fieldWidth)
+        let fieldHeight = ConversationComposerField.height(of: shownText, font: font, width: fieldWidth, rendersImageTags: !isShell)
         let animatesHeight = abs(fieldHeight - settledHeight) > controlSize * 1.5
         let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
         let placeholder = hidesBang ? "Run a shell command" : model.blocksSending ? "Wait for \(harness.name) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harness.name)"
@@ -92,6 +92,7 @@ struct ConversationComposer: View {
                             font: font,
                             color: NSColor(theme.foreground),
                             hidesBang: hidesBang,
+                            rendersImageTags: !isShell,
                             focusRequest: focusRequest,
                             layoutWidth: fieldWidth,
                             slashPicker: isShell ? nil : slashPicker,
