@@ -348,19 +348,37 @@ final class ConversationImagePreview: NSObject, QLPreviewPanelDataSource {
 struct ConversationReply: View {
     let text: String
     let selectionID: String
+    var isError = false
 
     @Environment(\.ghosttyTheme) private var theme
 
+    private var errorTheme: GhosttyTheme {
+        var themed = theme
+        themed.foreground = theme.closed
+        return themed
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Text(verbatim: "●")
-                .font(theme.conversationFont(-3))
-                .foregroundStyle(theme.foreground)
-                .fixedSize()
-                .padding(.top, theme.conversationNSFont().ascender - theme.conversationNSFont(-3).ascender)
-                .frame(width: markerWidth - 8, alignment: .leading)
-                .accessibilityHidden(true)
+            if isError {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(theme.conversationFont(-3))
+                    .foregroundStyle(theme.closed)
+                    .fixedSize()
+                    .padding(.top, theme.conversationNSFont().ascender - theme.conversationNSFont(-3).ascender)
+                    .frame(width: markerWidth - 8, alignment: .leading)
+                    .accessibilityLabel("Error")
+            } else {
+                Text(verbatim: "●")
+                    .font(theme.conversationFont(-3))
+                    .foregroundStyle(theme.foreground)
+                    .fixedSize()
+                    .padding(.top, theme.conversationNSFont().ascender - theme.conversationNSFont(-3).ascender)
+                    .frame(width: markerWidth - 8, alignment: .leading)
+                    .accessibilityHidden(true)
+            }
             ConversationMarkdown(text: text, selectionID: selectionID)
+                .environment(\.ghosttyTheme, isError ? errorTheme : theme)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .contextMenu {

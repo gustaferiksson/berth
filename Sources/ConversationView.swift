@@ -370,7 +370,7 @@ private struct ConversationPartView: View {
     var body: some View {
         switch part {
         case let .reply(entry):
-            ConversationReply(text: entry.text, selectionID: "reply:\(entry.id)")
+            ConversationReply(text: entry.text, selectionID: "reply:\(entry.id)", isError: entry.isError)
 
         case let .work(calls):
             VStack(alignment: .leading, spacing: 8) {

@@ -17,6 +17,7 @@ extension Snapshot {
     private static let codexConversationChild = "e6883ec6-0344-4bec-8511-cf586a4e2efc"
     private static var showsEmptyConversation: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationEmpty") }
     private static var showsForegroundAgent: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationForegroundAgent") }
+    private static var showsApiError: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationApiError") }
     private static var showsLongCode: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationLongCode") }
     private static var showsCodexApproval: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexApproval") }
     private static var showsCodexTasks: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexTasks") }
@@ -278,6 +279,14 @@ extension Snapshot {
         try? (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private static func apiErrorRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        guard showsApiError else { return [] }
+
+        var failure = base("assistant", 5, ["role": "assistant", "content": [["type": "text", "text": "API Error: Can't reach the API server, check your internet or DNS (ENOTFOUND)"]]])
+        failure["isApiErrorMessage"] = true
+        return [base("user", 5, ["role": "user", "content": "Try the export again."]), failure]
+    }
+
     private static func conversationRecords() -> [[String: Any]] {
         let format = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
         var clock = conversationStart
@@ -366,7 +375,7 @@ extension Snapshot {
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + mentionRecords(base: base)
+        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base)
         let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
         guard repetitions > 1 else { return records }
 

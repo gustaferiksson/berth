@@ -188,9 +188,16 @@ private struct TurnPartView: View {
     var body: some View {
         switch part {
         case let .reply(entry):
-            MarkdownText(text: entry.text)
+            if entry.isError {
+                Label(entry.text, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red)
+            } else {
+                MarkdownText(text: entry.text)
+            }
+
         case let .work(calls):
             WorkGroupView(calls: calls, liveCall: liveCall)
+
         case let .cards(calls):
             TaskCards(calls: calls, sessionID: sessionID, liveCall: liveCall)
         }
