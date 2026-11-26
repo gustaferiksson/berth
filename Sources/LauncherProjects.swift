@@ -10,6 +10,55 @@ struct ProjectEntry: Identifiable {
     var id: String { item.id }
 }
 
+struct ProjectSection {
+    let name: String
+    let title: String
+    let total: Int
+    let items: [ProjectItem]
+    let projectTitles: [String: String]
+}
+
+struct ProjectColumnBar: View {
+    let columns: [(name: String, count: Int)]
+    let selection: String?
+    let select: (String?) -> Void
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        if columns.count > 1 {
+            ScrollView(.horizontal) {
+                HStack(spacing: 6) {
+                    chip("All", count: columns.reduce(0) { $0 + $1.count }, isSelected: selection == nil) { select(nil) }
+                    ForEach(columns, id: \.name) { column in
+                        chip(column.name, count: column.count, isSelected: selection == column.name) { select(column.name) }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+            .scrollIndicators(.hidden)
+            .padding(.bottom, 12)
+        }
+    }
+
+    private func chip(_ title: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(title)
+                Text(String(count)).foregroundStyle(.secondary)
+            }
+            .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .background(isSelected ? Color.accentColor.opacity(0.25) : theme.foreground.opacity(0.09), in: .capsule)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isSelected ? "Selected" : "")
+        .help("Show \(title)")
+    }
+}
+
 struct ProjectItemRow: View {
     let item: ProjectItem
     let project: String?

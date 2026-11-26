@@ -9,8 +9,10 @@ let elapsedFormat = Duration.UnitsFormatStyle.units(allowed: [.hours, .minutes, 
 
 #if DEBUG
 let conversationExpandsAll = UserDefaults.standard.bool(forKey: "snapshotConversationExpanded")
+let conversationShowsTasks = UserDefaults.standard.bool(forKey: "snapshotConversationTasks")
 #else
 let conversationExpandsAll = false
+let conversationShowsTasks = false
 #endif
 
 private let markerWidth = 16.0
@@ -77,9 +79,9 @@ struct ConversationPrompt: View {
 
         let hasImages = entry.images?.isEmpty == false
         let numbers = entry.imageNumbers ?? Array(1...max(entry.images?.count ?? 0, 1))
-        let mentioned = PromptMentions.resolve(hasImages ? PromptTextPart.removingImageTags(numbers, from: entry.text) : entry.text, folder: folder)
+        let mentioned = PromptMentions.resolve(entry.text, folder: folder)
         let text = mentioned.text
-        let showsText = !text.isEmpty
+        let showsText = !(hasImages ? PromptTextPart.removingImageTags(numbers, from: text) : text).isEmpty
 
         return VStack(alignment: .trailing, spacing: 6) {
             if !mentioned.mentions.isEmpty {
@@ -88,7 +90,7 @@ struct ConversationPrompt: View {
                 }
             }
             if let images = entry.images {
-                HStack(spacing: 6) {
+                FlowLayout {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
                         ConversationPromptImage(entryID: entry.id, thumbnail: data, index: index, number: numbers[index])
                     }
@@ -121,7 +123,7 @@ struct ConversationPrompt: View {
     static func attributed(_ text: String, theme: GhosttyTheme, displayScale: CGFloat? = nil, itemID: String? = nil, expanded: Set<String> = []) -> NSAttributedString {
         let font = theme.conversationNSFont()
         let style = NSMutableParagraphStyle()
-        style.lineHeightMultiple = theme.lineHeightMultiple
+        style.lineSpacing = (font.ascender - font.descender + font.leading) * (theme.lineHeightMultiple - 1)
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(theme.foreground), .paragraphStyle: style]
         let prose = { (raw: Substring) -> Segment in
             let rendered = attributedProse(String(raw), attributes: attributes, font: font, theme: theme, displayScale: displayScale)

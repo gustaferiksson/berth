@@ -19,6 +19,9 @@ struct GeneralSettings: View {
     static let keepsSessionsRunningKey = "keepsSessionsRunning"
     static let pullRequestPromptKey = "pullRequestPrompt"
     static let defaultPullRequestPrompt = "Summarize PR #{number} ({url})."
+    static let issuePromptKey = "issuePrompt"
+    static let issueCheckoutKey = "issueCheckout"
+    static let defaultIssuePrompt = "Work on issue #{number} ({url})."
 
     @AppStorage(NeedsYouAlerts.notifiesKey) private var notifiesWhenNeeded = true
     @AppStorage(unloadIdleKey) private var unloadIdleAfter = 14_400.0
@@ -26,6 +29,8 @@ struct GeneralSettings: View {
     @AppStorage(worktreeKey) private var startsInWorktree = false
     @AppStorage(claudeKey) private var isClaudeEnabled = true
     @AppStorage(pullRequestPromptKey) private var pullRequestPrompt = defaultPullRequestPrompt
+    @AppStorage(issuePromptKey) private var issuePrompt = defaultIssuePrompt
+    @AppStorage(issueCheckoutKey) private var issueCheckout = NewSessionCheckout.preferred.rawValue
     @AppStorage(codexKey) private var isCodexEnabled = false
     @AppStorage(defaultAgentKey) private var defaultAgent = Agent.claude.rawValue
     @AppStorage(claudeModelKey) private var claudeModel = ""
@@ -48,18 +53,15 @@ struct GeneralSettings: View {
                 Text("Sessions started in a folder inside a git repository get their own worktree and branch. Hold ⌥ in the launcher to start in the main checkout.")
             }
             Section {
-                TextField("Opening prompt", text: $pullRequestPrompt, axis: .vertical)
-                    .labelsHidden()
-                    .lineLimit(2...6)
-                HStack {
-                    Spacer()
-                    Button("Reset to Default") { pullRequestPrompt = Self.defaultPullRequestPrompt }
-                        .disabled(pullRequestPrompt == Self.defaultPullRequestPrompt)
+                OpeningPromptField(title: "Pull requests", prompt: $pullRequestPrompt, defaultPrompt: Self.defaultPullRequestPrompt)
+                OpeningPromptField(title: "Issues", prompt: $issuePrompt, defaultPrompt: Self.defaultIssuePrompt)
+                Picker("Issues without a pull request open in", selection: $issueCheckout) {
+                    ForEach(NewSessionCheckout.allCases, id: \.self) { Text($0.title).tag($0.rawValue) }
                 }
             } header: {
-                Text("Pull Requests")
+                Text("Opening Prompts")
             } footer: {
-                Text("Sent as the first prompt when you open a pull request or an issue's pull requests in a new session. Use {number}, {url} and {repo} (owner/name) anywhere in it. Leave it empty to open the session without a prompt.")
+                Text("Sent as the first prompt when you open a pull request, or an issue without a pull request, in a new session. Use {number}, {url} and {repo} (owner/name) anywhere, and {title} for issues. Leave a prompt empty to open the session without one.")
             }
             Section {
                 if isClaudeEnabled, isCodexEnabled {
@@ -172,6 +174,26 @@ private struct AgentSection: View {
             }
         } footer: {
             Text(footer)
+        }
+    }
+}
+
+private struct OpeningPromptField: View {
+    let title: String
+    @Binding var prompt: String
+    let defaultPrompt: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+            TextField(title, text: $prompt, axis: .vertical)
+                .labelsHidden()
+                .lineLimit(2...6)
+            HStack {
+                Spacer()
+                Button("Reset to Default") { prompt = defaultPrompt }
+                    .disabled(prompt == defaultPrompt)
+            }
         }
     }
 }

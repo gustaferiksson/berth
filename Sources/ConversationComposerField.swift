@@ -8,6 +8,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let font: NSFont
     let color: NSColor
     let hidesBang: Bool
+    let rendersImageTags: Bool
     let focusRequest: Int
     let layoutWidth: CGFloat
     let slashPicker: ConversationSlashPicker?
@@ -19,8 +20,13 @@ struct ConversationComposerField: NSViewRepresentable {
 
     private static let maxLines = 8.0
 
-    static func height(of text: String, font: NSFont, width: CGFloat) -> CGFloat {
-        let storage = NSTextStorage(string: text, attributes: [.font: font])
+    static func height(of text: String, font: NSFont, width: CGFloat, rendersImageTags: Bool) -> CGFloat {
+        let attributed = ComposerTextView.attributed(text, font: font, color: .textColor, rendersImageTags: rendersImageTags)
+        return height(of: attributed, font: font, width: width)
+    }
+
+    private static func height(of text: NSAttributedString, font: NSFont, width: CGFloat) -> CGFloat {
+        let storage = NSTextStorage(attributedString: text)
         let layout = NSLayoutManager()
         let container = NSTextContainer(size: NSSize(width: width, height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
@@ -66,34 +72,39 @@ struct ConversationComposerField: NSViewRepresentable {
         guard let textView = scrollView.documentView as? ComposerTextView else { return }
 
         context.coordinator.parent = self
+        let hasMarkedText = textView.hasMarkedText()
         if textView.placeholder != placeholder {
             textView.placeholder = placeholder
             textView.needsDisplay = true
         }
-        if textView.font != font {
+        if !hasMarkedText, textView.font != font {
             textView.font = font
             textView.needsDisplay = true
         }
-        textView.textColor = color
+        if !hasMarkedText, textView.textColor != color { textView.textColor = color }
         textView.insertionPointColor = color
         textView.onSubmit = submit
         textView.onAttach = attach
         textView.onRecall = recall
         textView.onLeaveShell = leaveShell
         textView.hiddenPrefix = hidesBang ? "!" : ""
+        let pickerChanged = textView.slashPicker !== slashPicker || textView.shellCompleter !== shellCompleter
+        textView.slashPicker = slashPicker
+        slashPicker?.field = textView
         textView.shellCompleter = shellCompleter
         shellCompleter?.field = textView
-        if textView.slashPicker !== slashPicker || textView.string != text {
-            textView.slashPicker = slashPicker
-            slashPicker?.field = textView
-            if textView.string != text {
-                context.coordinator.isUpdatingText = true
-                textView.string = text
-                if text.isEmpty { scrollView.contentView.scroll(to: .zero) }
-                textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
-                textView.needsDisplay = true
-                context.coordinator.isUpdatingText = false
-            }
+        let draftChanged = !hasMarkedText && (textView.rendersImageTags != rendersImageTags || textView.draftText != text)
+        if draftChanged {
+            context.coordinator.isUpdatingText = true
+            defer { context.coordinator.isUpdatingText = false }
+            textView.rendersImageTags = rendersImageTags
+            let attributed = textView.attributed(text)
+            textView.textStorage?.setAttributedString(attributed)
+            if text.isEmpty { scrollView.contentView.scroll(to: .zero) }
+            textView.setSelectedRange(NSRange(location: attributed.length, length: 0))
+            textView.needsDisplay = true
+        }
+        if pickerChanged || draftChanged {
             DispatchQueue.main.async { [weak textView] in
                 guard let textView else { return }
 
@@ -114,7 +125,7 @@ struct ConversationComposerField: NSViewRepresentable {
         layout.textContainer?.size = NSSize(width: width, height: .greatestFiniteMagnitude)
         layout.ensureLayout(for: layout.documentRange)
         let used = layout.usageBoundsForTextContainer.height
-        let height = Self.height(of: text, font: font, width: width)
+        let height = Self.height(of: textView.attributedString(), font: font, width: width)
         let heightChanged = context.coordinator.height != height
         context.coordinator.height = height
         if heightChanged, textView.selectedRange().location == (textView.string as NSString).length {
@@ -134,9 +145,9 @@ struct ConversationComposerField: NSViewRepresentable {
         }
 
         func textDidChange(_ notification: Notification) {
-            guard !isUpdatingText, let textView = notification.object as? ComposerTextView else { return }
+            guard !isUpdatingText, let textView = notification.object as? ComposerTextView, !textView.hasMarkedText() else { return }
 
-            parent.text = textView.string
+            parent.text = textView.draftText
             textView.refreshCompletions()
         }
 
@@ -148,19 +159,103 @@ struct ConversationComposerField: NSViewRepresentable {
     }
 }
 
+private final nonisolated class ComposerImageAttachment: NSTextAttachment {
+    let token: String
+
+    @MainActor
+    init?(token: String, number: Int, scale: CGFloat, displayScale: CGFloat) {
+        let tag = ConversationImageTag(number: number, scale: scale)
+        guard let image = tag.image(displayScale: displayScale) else { return nil }
+
+        self.token = token
+        super.init(data: nil, ofType: nil)
+        self.image = image
+        bounds = NSRect(origin: NSPoint(x: 0, y: tag.baselineOffset), size: image.size)
+    }
+
+    required init?(coder _: NSCoder) {
+        nil
+    }
+}
+
 final class ComposerTextView: NSTextView {
+    private static let attachmentCharacter = "\u{FFFC}"
+
     var placeholder = ""
     var onSubmit: () -> Void = {}
     var onAttach: ([URL]) -> String = { _ in "" }
     var onRecall: () -> Bool = { false }
     var onLeaveShell: () -> Void = {}
     var hiddenPrefix = ""
+    var rendersImageTags = true
     weak var slashPicker: ConversationSlashPicker?
     weak var shellCompleter: ConversationShellCompleter?
 
+    var draftText: String {
+        guard let textStorage else { return string }
+
+        return plainText(in: textStorage, range: NSRange(location: 0, length: textStorage.length))
+    }
+
+    private func plainText(in attributed: NSAttributedString, range: NSRange) -> String {
+        let text = attributed.string as NSString
+        var result = ""
+        attributed.enumerateAttribute(.attachment, in: range) { attachment, run, _ in
+            let value = text.substring(with: run)
+            result += (attachment as? ComposerImageAttachment).map { value.replacing(Self.attachmentCharacter, with: $0.token) } ?? value
+        }
+        return result
+    }
+
+    func attributed(_ text: String) -> NSAttributedString {
+        let font = font ?? .systemFont(ofSize: NSFont.systemFontSize)
+        return Self.attributed(text, font: font, color: textColor ?? .textColor, rendersImageTags: rendersImageTags, displayScale: window?.backingScaleFactor)
+    }
+
+    static func attributed(_ text: String, font: NSFont, color: NSColor, rendersImageTags: Bool, displayScale: CGFloat? = nil) -> NSAttributedString {
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        guard rendersImageTags else { return NSAttributedString(string: text, attributes: attributes) }
+
+        let scale = font.pointSize / NSFont.systemFontSize
+        let displayScale = displayScale ?? NSScreen.main?.backingScaleFactor ?? 2
+        let result = NSMutableAttributedString()
+        var start = text.startIndex
+        for match in text.matches(of: PromptTextPart.imageToken) {
+            guard let number = Int(match.output.1),
+                  let attachment = ComposerImageAttachment(token: String(match.output.0), number: number, scale: scale, displayScale: displayScale) else { continue }
+
+            result.append(NSAttributedString(string: String(text[start..<match.range.lowerBound]), attributes: attributes))
+            result.append(NSAttributedString(attachment: attachment, attributes: attributes))
+            start = match.range.upperBound
+        }
+        result.append(NSAttributedString(string: String(text[start...]), attributes: attributes))
+        return result
+    }
+
+    override var writablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string] }
+
+    override func writeSelection(to pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard type == .string, let textStorage else { return false }
+
+        let ranges = selectedRanges.map(\.rangeValue).filter { $0.length > 0 }
+        guard !ranges.isEmpty else { return false }
+
+        return pasteboard.setString(ranges.map { plainText(in: textStorage, range: $0) }.joined(separator: "\n"), forType: .string)
+    }
+
+    override func readSelection(from pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        guard type == .string, rendersImageTags, !hasMarkedText(), selectedRanges.count == 1, let text = pasteboard.string(forType: type), text.contains("[Image #") else { return super.readSelection(from: pasteboard, type: type) }
+
+        let replacement = attributed(text)
+        guard replacement.containsAttachments(in: NSRange(location: 0, length: replacement.length)) else { return super.readSelection(from: pasteboard, type: type) }
+
+        insertText(replacement, replacementRange: selectedRange())
+        return true
+    }
+
     var slashCompletion: (query: String, replacementRange: NSRange)? {
         let selection = selectedRange()
-        let text = string
+        let text = string.replacing(Self.attachmentCharacter, with: "\t")
         guard !hasMarkedText(), selection.length == 0, let caret = Range(selection, in: text)?.lowerBound,
               let token = SlashToken.find(in: text, caret: caret) else { return nil }
 
@@ -183,16 +278,16 @@ final class ComposerTextView: NSTextView {
     }
 
     override func scrollRangeToVisible(_ range: NSRange) {
-        guard let scrollView = enclosingScrollView, let layout = textLayoutManager, let font, NSMaxRange(range) == (string as NSString).length else { return super.scrollRangeToVisible(range) }
+        guard let scrollView = enclosingScrollView, let layout = textLayoutManager, NSMaxRange(range) == (string as NSString).length else { return super.scrollRangeToVisible(range) }
 
         layout.ensureLayout(for: layout.documentRange)
-        let viewport = ConversationComposerField.height(of: string, font: font, width: frame.width)
+        let viewport = scrollView.contentView.bounds.height
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, layout.usageBoundsForTextContainer.height - viewport)))
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     override func deleteBackward(_ sender: Any?) {
-        guard !hiddenPrefix.isEmpty, selectedRange() == NSRange(location: 0, length: 0) else { return super.deleteBackward(sender) }
+        guard !hasMarkedText(), !hiddenPrefix.isEmpty, selectedRange() == NSRange(location: 0, length: 0) else { return super.deleteBackward(sender) }
 
         onLeaveShell()
     }
@@ -270,7 +365,7 @@ final class ComposerTextView: NSTextView {
 
         let caret = selectedRange().location
         let needsSpace = caret > 0 && !(string as NSString).substring(with: NSRange(location: caret - 1, length: 1)).allSatisfy(\.isWhitespace)
-        insertText((needsSpace ? " " : "") + tokens + " ", replacementRange: selectedRange())
+        insertText(attributed((needsSpace ? " " : "") + tokens + " "), replacementRange: selectedRange())
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {

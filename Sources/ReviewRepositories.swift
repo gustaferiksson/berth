@@ -575,7 +575,6 @@ struct ReviewBranchCard: View {
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .help(found.title)
-                    .contextMenu { stewardAction(found) }
             } else {
                 Text(status.ahead == 0 ? "No commits yet" : "\(status.ahead) \(status.ahead == 1 ? "commit" : "commits")")
                     .font(.headline)
@@ -681,17 +680,9 @@ struct ReviewBranchCard: View {
         }
     }
 
-    @ViewBuilder
-    private func stewardAction(_ found: PullRequest) -> some View {
-        if let repository, [.open, .draft].contains(found.state) {
-            StewardPullRequestButton(link: PullRequestLink(repository: repository, number: found.number), url: found.url)
-        }
-    }
-
     private func moreMenu(_ found: PullRequest) -> some View {
         Menu {
             Button("Open on GitHub", systemImage: "arrow.up.right.square") { openURL(found.url) }
-            stewardAction(found)
             Button("Copy Link", systemImage: "link") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(found.url.absoluteString, forType: .string)
