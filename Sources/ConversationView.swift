@@ -548,10 +548,18 @@ private struct ConversationTaskList: View {
                         ConversationElapsed(since: task.started)
                             .font(.caption)
                             .foregroundStyle(theme.secondary)
+                        if task.kind == RemoteTask.shell,
+                           let backgroundTask = store.backgroundTasks.first(where: { $0.id == task.id || $0.toolUseID == task.id }),
+                           store.canStop(backgroundTask) {
+                            Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.borderless)
+                                .help("Stop Shell")
+                        }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: task.kind == RemoteTask.shell ? .contain : .combine)
                 }
             }
             Divider()
