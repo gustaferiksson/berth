@@ -125,20 +125,3 @@ final class ConversationShellCompleter {
         selectedID = nil
     }
 }
-
-extension TineCompletion.Kind {
-    var symbol: String {
-        switch self {
-        case .subcommand: "arrow.turn.down.right"
-        case .option: "minus"
-        case .arg: "text.cursor"
-        case .file: "doc"
-        case .folder: "folder"
-        case .history: "clock"
-        case .special: "sparkles"
-        case .mixin: "puzzlepiece"
-        case .shortcut: "bolt"
-        case .generic: "chevron.right"
-        }
-    }
-}
