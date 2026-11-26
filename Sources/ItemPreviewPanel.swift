@@ -433,7 +433,7 @@ extension Store {
 
             actions.openInBerthTitle = "Start Issue Session"
             actions.openInBerth = {
-                self.startIssueSession(repository: preview.repository, number: preview.number, url: preview.url)
+                self.startIssueSession(repository: preview.repository, number: preview.number, url: preview.url, title: preview.title)
                 dismiss()
             }
             return actions
@@ -460,9 +460,17 @@ extension Store {
         return actions
     }
 
-    func startIssueSession(repository: String, number: Int, url: URL) {
+    func startIssueSession(repository: String, number: Int, url: URL, title: String) {
+        let prompt = (UserDefaults.standard.string(forKey: GeneralSettings.issuePromptKey) ?? GeneralSettings.defaultIssuePrompt)
+            .replacing("{number}", with: String(number))
+            .replacing("{url}", with: url.absoluteString)
+            .replacing("{repo}", with: repository)
+            .replacing("{title}", with: title)
+
+        let checkout = UserDefaults.standard.string(forKey: GeneralSettings.issueCheckoutKey).flatMap(NewSessionCheckout.init(rawValue:)) ?? .preferred
+
         guard let folder = localCheckout(of: repository),
-              openSession(cwd: folder, checkout: .worktree, pasting: "Work on issue #\(number) (\(url.absoluteString)).") != nil
+              openSession(cwd: folder, checkout: checkout, pasting: prompt.isEmpty ? nil : prompt) != nil
         else { return }
 
         isHarborShown = false

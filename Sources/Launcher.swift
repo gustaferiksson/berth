@@ -969,7 +969,7 @@ struct Launcher: View {
 
     private func openIssueResult(_ linked: [LinkedPullRequest]) {
         if linked.isEmpty, let selectedIssue {
-            store.startIssueSession(repository: selectedIssue.repository, number: selectedIssue.number, url: selectedIssue.url)
+            store.startIssueSession(repository: selectedIssue.repository, number: selectedIssue.number, url: selectedIssue.url, title: selectedIssue.title)
         } else {
             openLinkedPullRequests(linked)
         }
