@@ -238,6 +238,55 @@ extension Store {
         return .sent
     }
 
+    func stopSubagentThroughTasksDialog(_ task: SessionBackgroundTask) async -> InputOutcome {
+        guard let sessionID = sessionTab?.sessionID, let stop = TerminalKeyPress(typing: "x") else { return .refused("Claude isn’t running in a Berth tab for this session") }
+        guard !submittingSessions.contains(sessionID) else { return .refused("The previous message is still being sent, so the subagent wasn’t stopped") }
+
+        submittingSessions.insert(sessionID)
+        defer { submittingSessions.remove(sessionID) }
+
+        refreshLive()
+        guard let terminal = tab(forSession: sessionID)?.terminal, let live = liveBySession[sessionID] else { return .refused("Claude isn’t running in a Berth tab for this session") }
+        guard live.status == "idle" else { return .refused("Claude is busy or waiting, so the subagent wasn’t stopped") }
+        guard SubagentStop.isSupported(version: live.version), let keys = SubagentStop.keys(stopping: task, among: backgroundTasks) else { return .refused("This version of Claude isn’t known to show the subagent list the same way, so the subagent wasn’t stopped") }
+
+        for key in keys {
+            refreshLive()
+            guard liveBySession[sessionID]?.status != "waiting" else { return .refused("Claude started waiting for an answer, so the subagent may not have been stopped and the Tasks dialog may still be open in the terminal") }
+
+            lastKeyInput = .now
+            switch key {
+            case let .command(text):
+                terminal.paste(text: text)
+                try? await Task.sleep(for: .milliseconds(300))
+
+            case .enter:
+                terminal.sendKey(.enter)
+                try? await Task.sleep(for: .milliseconds(1200))
+
+            case .down:
+                terminal.sendKey(TerminalKeyPress(.arrowDown))
+                try? await Task.sleep(for: .milliseconds(150))
+
+            case .stop:
+                terminal.sendKey(stop)
+                try? await Task.sleep(for: .milliseconds(500))
+
+            case .escape:
+                guard liveBySession[sessionID]?.status == "idle" else { return .refused("Claude started working again, so the Tasks dialog may still be open in the terminal") }
+
+                terminal.sendKey(TerminalKeyPress(.escape))
+            }
+        }
+
+        for _ in 0..<25 {
+            if backgroundTask(matching: task.id)?.status != .running { return .sent }
+
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        return .refused("The keys were sent, but Claude hasn’t reported the subagent stopped. Check the Tasks pane.")
+    }
+
     func recallQueued(_ text: String, in sessionID: String) async -> InputOutcome {
         refreshLive()
         guard liveBySession[sessionID]?.status == "busy", let terminal = tab(forSession: sessionID)?.terminal,

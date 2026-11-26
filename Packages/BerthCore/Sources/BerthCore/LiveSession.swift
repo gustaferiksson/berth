@@ -18,8 +18,9 @@ public struct LiveSession: Sendable, Hashable, Decodable {
     public let statusUpdatedAt: Double?
     public let startedAt: Double?
     public let observesWaiting: Bool?
+    public let version: String?
 
-    public init(pid: Int32, sessionId: String, cwd: String, kind: String? = nil, jobId: String? = nil, status: String? = nil, waitingFor: String? = nil, statusUpdatedAt: Double? = nil, startedAt: Double? = nil, observesWaiting: Bool? = nil) {
+    public init(pid: Int32, sessionId: String, cwd: String, kind: String? = nil, jobId: String? = nil, status: String? = nil, waitingFor: String? = nil, statusUpdatedAt: Double? = nil, startedAt: Double? = nil, observesWaiting: Bool? = nil, version: String? = nil) {
         self.pid = pid
         self.sessionId = sessionId
         self.cwd = cwd
@@ -30,6 +31,7 @@ public struct LiveSession: Sendable, Hashable, Decodable {
         self.statusUpdatedAt = statusUpdatedAt
         self.startedAt = startedAt
         self.observesWaiting = observesWaiting
+        self.version = version
     }
 
     public var reportsWaiting: Bool { observesWaiting ?? true }

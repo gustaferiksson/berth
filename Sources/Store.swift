@@ -157,6 +157,8 @@ final class Store {
     var pullRequestFailure: String?
     var showPullRequestFailure: String?
     var stopWatchingFailure: String?
+    var subagentStopFailure: String?
+    var confirmingTurnStop: SessionBackgroundTask?
     private(set) var preparingPullRequests: [PullRequestLink] = []
     @ObservationIgnored private var pullRequestPreparation: Task<Void, Never>?
     var editingGroup: CustomGroup?

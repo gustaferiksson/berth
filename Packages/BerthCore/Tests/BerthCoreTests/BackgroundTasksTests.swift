@@ -100,4 +100,23 @@ struct BackgroundTasksTests {
         #expect(TaskOutput.tail(url, maxBytes: 4) == "HIJK")
         #expect(TaskOutput.tail(url, maxBytes: 0) == nil)
     }
+
+    @Test func agentCallsStillPendingAreMarkedForegroundUnlessBackgroundRequested() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "background-foreground-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let transcript = folder.appending(path: "session.jsonl")
+        let rows = [
+            #"{"type":"assistant","timestamp":"2026-11-01T10:01:00.000Z","message":{"content":[{"type":"tool_use","id":"tool-inline","name":"Agent","input":{"description":"Review retries","prompt":"Check retries."}}]}}"#,
+            #"{"type":"assistant","timestamp":"2026-11-01T10:01:05.000Z","message":{"content":[{"type":"tool_use","id":"tool-later","name":"Agent","input":{"description":"Check exports","prompt":"Read the export tests.","run_in_background":true}}]}}"#,
+        ]
+        try (rows.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+        let started = try Date("2026-11-01T10:00:00Z", strategy: .iso8601)
+        let live = LiveSession(pid: 1, sessionId: "session", cwd: folder.path, status: "busy", startedAt: started.timeIntervalSince1970 * 1000)
+        var activity = TranscriptActivity(keepsTaskHistory: true)
+        activity.read(transcript)
+        let tasks = activity.backgroundTasks(of: live, in: transcript).sorted { $0.started < $1.started }
+        #expect(tasks.map(\.toolUseID) == ["tool-inline", "tool-later"])
+        #expect(tasks.map(\.runsInForeground) == [true, false])
+    }
 }

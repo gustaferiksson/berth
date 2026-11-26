@@ -62,7 +62,7 @@ extension Snapshot {
         store.openShell(cwd: cwd, command: "/bin/sh -c 'printf \"\\033]0;Export preview\\007\"; exec /bin/sleep 120'", id: terminal, parent: parent, taskTitle: "Run local export preview")
         store.activate(.tab(parent))
         store.backgroundTaskFixture = BackgroundTaskSource(tabID: parent, sessionID: session, root: folder, transcript: transcript, agent: .claude)
-        store.fakeLiveSessions = [LiveSession(pid: 0, sessionId: session, cwd: cwd, status: "busy", startedAt: (now - 600).timeIntervalSince1970 * 1000)]
+        store.fakeLiveSessions = [LiveSession(pid: 0, sessionId: session, cwd: cwd, status: UserDefaults.standard.string(forKey: "snapshotBackgroundTaskStatus") ?? "idle", startedAt: (now - 600).timeIntervalSince1970 * 1000, version: UserDefaults.standard.string(forKey: "snapshotBackgroundTaskVersion") ?? "2.1.332")]
         store.refreshLive()
         let id = switch UserDefaults.standard.string(forKey: "snapshotBackgroundTask") {
         case "agent": "retry-review"

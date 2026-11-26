@@ -2,6 +2,14 @@ import BerthCore
 import Foundation
 import Observation
 
+enum SubagentStopMode: Equatable {
+    case subagent, turn
+}
+
+extension SubagentStopMode {
+    var title: String { self == .subagent ? "Stop Subagent" : "Stop Turn" }
+}
+
 struct BackgroundTaskSource: Hashable, Sendable {
     let tabID: Tab.ID
     let sessionID: String
@@ -90,6 +98,41 @@ extension Store {
             let stopped = await Task.detached { await ProcessAncestry.stopShell(writing: output, under: pid) }.value
             if stopped { backgroundTaskModel.stoppedIDs.insert(task.id) }
         }
+    }
+
+    func backgroundTask(matching id: String) -> SessionBackgroundTask? {
+        backgroundTasks.first { $0.id == id || $0.toolUseID == id }
+    }
+
+    func subagentStop(for task: SessionBackgroundTask) -> SubagentStopMode? {
+        guard task.kind == .agent, task.status == .running, let sessionID = sessionTab?.sessionID, tab(forSession: sessionID) != nil,
+              let live = liveBySession[sessionID], live.status != "waiting" else { return nil }
+
+        let canDrive = SubagentStop.isSupported(version: live.version) && SubagentStop.keys(stopping: task, among: backgroundTasks) != nil
+        if canDrive, live.status == "idle" { return .subagent }
+        return live.status == "busy" && (task.runsInForeground || !canDrive) ? .turn : nil
+    }
+
+    func stopSubagent(_ task: SessionBackgroundTask) {
+        switch subagentStop(for: task) {
+        case .subagent:
+            Task {
+                if case let .refused(message) = await stopSubagentThroughTasksDialog(task) { subagentStopFailure = message }
+            }
+
+        case .turn:
+            confirmingTurnStop = task
+
+        case nil:
+            break
+        }
+    }
+
+    func stopTurn() {
+        confirmingTurnStop = nil
+        guard let sessionID = sessionTab?.sessionID, case let .refused(message) = interrupt(sessionID) else { return }
+
+        subagentStopFailure = message
     }
 
     var canShowTasksPane: Bool {

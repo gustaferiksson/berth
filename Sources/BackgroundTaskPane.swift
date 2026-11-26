@@ -51,6 +51,7 @@ private struct BackgroundTaskRow: View {
     var body: some View {
         let isShell = task.kind == .shell && task.status == .running
         let canStop = store.canStop(task)
+        let stop = store.subagentStop(for: task)
         HStack(spacing: 9) {
             Image(systemName: task.symbol)
                 .font(.callout.weight(.medium))
@@ -75,12 +76,19 @@ private struct BackgroundTaskRow: View {
             } else if task.status == .running {
                 TaskWorkingIndicator()
             }
+            if let stop {
+                Button(stop.title, systemImage: "stop.fill") { store.stopSubagent(task) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help(stop.title)
+            }
         }
         .padding(.vertical, 5)
         .onHover { isHovering = $0 }
-        .accessibilityElement(children: isShell ? .contain : .combine)
+        .accessibilityElement(children: isShell || stop != nil ? .contain : .combine)
         .contextMenu {
             if canStop { Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) } }
+            if let stop { Button(stop.title, systemImage: "stop.fill") { store.stopSubagent(task) } }
         }
     }
 }
@@ -191,6 +199,9 @@ private struct BackgroundTaskDetail: View {
             }
             if store.canStop(task) {
                 action("Stop Shell", symbol: "stop.fill") { store.stopBackgroundTask(task.id) }
+            }
+            if let stop = store.subagentStop(for: task) {
+                action(stop.title, symbol: "stop.fill") { store.stopSubagent(task) }
             }
             if agent != nil {
                 action(showsTranscript ? "Show Text Output" : "Open Transcript", symbol: showsTranscript ? "text.alignleft" : "doc.text") {
