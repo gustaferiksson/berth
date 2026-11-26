@@ -78,7 +78,7 @@ extension Snapshot {
             store.browser.select(store.browser.tabs(in: session.id)[extraTabs], in: session.id)
         }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserAgent") {
-            store.browser.open(URL(string: "http://127.0.0.1:45779/session-4f9a1c2e-7b3d-4e8a-9c15-0d2e6f8a1b37/dashboard")!, in: session.id, title: "Dev Server").isDrivenByAgent = true
+            store.browser.open(URL(string: "http://127.0.0.1:45779/session-4f9a1c2e-7b3d-4e8a-9c15-0d2e6f8a1b37/dashboard")!, in: session.id, title: "Dev Server", selects: !UserDefaults.standard.bool(forKey: "snapshotBrowserAgentInactive")).isDrivenByAgent = true
         }
         store.showBrowserPane()
         for tab in store.browser.pinned + store.browser.tabs(in: session.id) where tab.url != nil {

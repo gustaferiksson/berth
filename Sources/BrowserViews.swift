@@ -44,6 +44,7 @@ private struct BrowserHeader: View {
     let tab: BrowserTab?
     @State private var width: CGFloat = 0
     @State private var pinnedViewportWidth: CGFloat = 0
+    @State private var editingTabID: UUID?
 
     var body: some View {
         let pinned = browser.pinned
@@ -67,11 +68,11 @@ private struct BrowserHeader: View {
                                 pinnedTabs(pinned, spacing: spacing)
                                     .frame(width: pinnedWidth)
                             } else {
-                                expandedPinnedTabs(pinned, spacing: spacing, isCompact: isCompact)
+                                expandedPinnedTabs(pinned, selectedPinned: selectedPinned, spacing: spacing, isCompact: isCompact)
                             }
                         }
                         if !sessionTabs.isEmpty {
-                            BrowserSessionTabs(browser: browser, tabs: sessionTabs, selection: selectedSession, isCompact: isCompact, select: select, dropAtEnd: dropIntoSession)
+                            BrowserSessionTabs(browser: browser, tabs: sessionTabs, selection: selectedSession, isCompact: isCompact, editingTabID: $editingTabID, select: select, dropAtEnd: dropIntoSession)
                         }
                     }
                 }
@@ -86,9 +87,6 @@ private struct BrowserHeader: View {
                     .fixedSize()
             }
             .frame(maxWidth: .infinity)
-            .animation(.easeInOut(duration: 0.16), value: tab?.id)
-            .animation(.easeInOut(duration: 0.16), value: tab?.canGoBack == true)
-            .animation(.easeInOut(duration: 0.16), value: tab?.canGoForward == true)
         }
         .buttonStyle(.plain)
         .font(.callout)
@@ -97,9 +95,9 @@ private struct BrowserHeader: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 
-    private func expandedPinnedTabs(_ pinned: [BrowserTab], spacing: CGFloat, isCompact: Bool) -> some View {
+    private func expandedPinnedTabs(_ pinned: [BrowserTab], selectedPinned: BrowserTab?, spacing: CGFloat, isCompact: Bool) -> some View {
         let circlesWidth = CGFloat(pinned.count - 1) * (Self.controlSize + spacing)
-        let idealActive = min(BrowserSessionTabs.maximumActiveWidth, max(BrowserSessionTabs.minimumActiveWidth, BrowserSessionTabs.activeShare * BrowserSessionTabs.maximumTabWidth))
+        let idealActive = selectedPinned.map { editingTabID == $0.id } == true ? BrowserSessionTabs.editingWidth : BrowserSessionTabs.maximumTabWidth
         let activeWidth = min(idealActive, max(BrowserSessionTabs.minimumActiveWidth, pinnedViewportWidth - circlesWidth))
         let selection = pinned.first { $0 === tab }?.id
         return ScrollViewReader { proxy in
@@ -107,7 +105,7 @@ private struct BrowserHeader: View {
                 HStack(spacing: spacing) {
                     ForEach(pinned) { pinnedTab in
                         let isSelected = pinnedTab === tab
-                        BrowserHeaderTab(browser: browser, tab: pinnedTab, isPinned: true, isSelected: isSelected, isCompact: isCompact) { select(pinnedTab) }
+                        BrowserHeaderTab(browser: browser, tab: pinnedTab, isPinned: true, isSelected: isSelected, isCompact: isCompact, editingTabID: $editingTabID) { select(pinnedTab) }
                             .frame(width: isSelected ? activeWidth : Self.controlSize)
                             .id(pinnedTab.id)
                     }
@@ -129,7 +127,7 @@ private struct BrowserHeader: View {
             ScrollView(.horizontal) {
                 HStack(spacing: spacing) {
                     ForEach(pinned) { pinnedTab in
-                        BrowserHeaderTab(browser: browser, tab: pinnedTab, isPinned: true, isSelected: pinnedTab === tab) { select(pinnedTab) }
+                        BrowserHeaderTab(browser: browser, tab: pinnedTab, isPinned: true, isSelected: pinnedTab === tab, editingTabID: $editingTabID) { select(pinnedTab) }
                             .id(pinnedTab.id)
                     }
                 }
@@ -154,24 +152,20 @@ private struct BrowserHeader: View {
     @ViewBuilder private var navigationControls: some View {
         let canGoBack = tab?.canGoBack == true
         let canGoForward = tab?.canGoForward == true
-        let transition = AnyTransition.opacity.combined(with: .scale(scale: 0.94, anchor: .leading))
         if canGoBack || canGoForward {
             HStack(spacing: 0) {
                 if canGoBack {
                     iconButton("Back", symbol: "chevron.backward") { browser.perform(.browserBack) }
                         .help("Back (⌘[)")
-                        .transition(transition)
                 }
-                if canGoBack, canGoForward { actionDivider.transition(.opacity) }
+                if canGoBack, canGoForward { actionDivider }
                 if canGoForward {
                     iconButton("Forward", symbol: "chevron.forward") { browser.perform(.browserForward) }
                         .help("Forward (⌘])")
-                        .transition(transition)
                 }
             }
             .glassEffect(.regular.interactive(), in: .capsule)
             .fixedSize()
-            .transition(transition)
         }
     }
 
@@ -281,10 +275,9 @@ private struct BrowserHeader: View {
 
 private struct BrowserSessionTabs: View {
     private static let minimumTabWidth: CGFloat = 52
-    static let minimumActiveWidth: CGFloat = 260
-    static let activeShare: CGFloat = 1.6
+    static let minimumActiveWidth: CGFloat = 120
     static let maximumTabWidth: CGFloat = 220
-    static let maximumActiveWidth: CGFloat = 400
+    static let editingWidth: CGFloat = 360
     private static let minimumTitleWidth: CGFloat = 120
     private static let capsuleInset: CGFloat = 3
     private static let dropWidth: CGFloat = 6
@@ -294,19 +287,32 @@ private struct BrowserSessionTabs: View {
     let tabs: [BrowserTab]
     let selection: BrowserTab?
     let isCompact: Bool
+    @Binding var editingTabID: UUID?
     let select: (BrowserTab) -> Void
     let dropAtEnd: ([String], CGPoint) -> Bool
     @State private var stripWidth = 0.0
+    @State private var frozenTabWidth: CGFloat?
     @State private var hasTrailingOverflow = false
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
         let inactiveCount = CGFloat(tabs.count - (selection == nil ? 0 : 1))
-        let maximumWidth = inactiveCount * Self.maximumTabWidth + (selection == nil ? 0 : Self.maximumActiveWidth) + 2 * Self.capsuleInset
+        let maximumWidth = inactiveCount * Self.maximumTabWidth + (selection == nil ? 0 : isEditing ? Self.editingWidth : Self.maximumTabWidth) + 2 * Self.capsuleInset
         Color.clear
             .frame(minWidth: (selection == nil ? Self.minimumTabWidth : Self.minimumActiveWidth) + 2 * Self.capsuleInset, maxWidth: maximumWidth)
             .frame(height: BrowserHeader.controlSize + 4)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { stripWidth = $0 }
+            .onHover { if !$0 { frozenTabWidth = nil } }
+            .onChange(of: tabs.count) { old, new in
+                guard new < old, !isEditing, selection != nil else {
+                    frozenTabWidth = nil
+                    return
+                }
+
+                frozenTabWidth = widths(width: max(0, stripWidth - 2 * Self.capsuleInset), count: old).inactive
+            }
+            .animation(.easeInOut(duration: 0.16), value: isEditing)
+            .animation(frozenTabWidth == nil ? .easeInOut(duration: 0.16) : nil, value: tabs.count)
             .overlay {
                 tabStrip(width: max(0, stripWidth - 2 * Self.capsuleInset))
             }
@@ -324,17 +330,34 @@ private struct BrowserSessionTabs: View {
             }
     }
 
+    private var isEditing: Bool {
+        selection != nil && editingTabID == selection?.id
+    }
+
+    private func widths(width: CGFloat, count: Int) -> (active: CGFloat, inactive: CGFloat) {
+        guard selection != nil else { return (0, min(Self.maximumTabWidth, max(Self.minimumTabWidth, width / CGFloat(max(1, count))))) }
+
+        let inactiveCount = CGFloat(count - 1)
+        if let frozenTabWidth, !isEditing { return (frozenTabWidth, frozenTabWidth) }
+
+        let equal = width / CGFloat(count)
+        let active = min(Self.maximumTabWidth, max(Self.minimumActiveWidth, equal))
+        let inactive = min(Self.maximumTabWidth, max(Self.minimumTabWidth, (width - active) / max(1, inactiveCount)))
+        guard isEditing else { return (active, inactive) }
+
+        let editing = max(active, min(Self.editingWidth, width - inactiveCount * Self.minimumTabWidth))
+        return (editing, min(Self.maximumTabWidth, max(Self.minimumTabWidth, (width - editing) / max(1, inactiveCount))))
+    }
+
     private func tabStrip(width: CGFloat) -> some View {
         let selectedID = selection?.id
-        let inactiveCount = CGFloat(tabs.count - (selection == nil ? 0 : 1))
-        let activeWidth = selection == nil ? 0 : min(Self.maximumActiveWidth, max(Self.minimumActiveWidth, width * Self.activeShare / (inactiveCount + Self.activeShare)))
-        let inactiveWidth = min(Self.maximumTabWidth, max(Self.minimumTabWidth, (width - activeWidth) / max(1, inactiveCount)))
+        let (activeWidth, inactiveWidth) = widths(width: width, count: tabs.count)
         return ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
                     ForEach(tabs.enumerated(), id: \.element.id) { index, tab in
                         let isSelected = tab === selection
-                        BrowserHeaderTab(browser: browser, tab: tab, isPinned: false, isSelected: isSelected, isCompact: isCompact, showsTitle: inactiveWidth >= Self.minimumTitleWidth) { select(tab) }
+                        BrowserHeaderTab(browser: browser, tab: tab, isPinned: false, isSelected: isSelected, isCompact: isCompact, showsTitle: inactiveWidth >= Self.minimumTitleWidth, editingTabID: $editingTabID) { select(tab) }
                             .frame(width: isSelected ? activeWidth : inactiveWidth)
                             .overlay(alignment: .leading) {
                                 if index > 0, !isSelected, tabs[index - 1] !== selection {
@@ -398,6 +421,8 @@ private struct BrowserAgentAccessButton: View {
 }
 
 private struct BrowserAgentBadge: View {
+    static let width: CGFloat = 22
+
     let browser: BrowserModel
     let key: String
 
@@ -405,12 +430,12 @@ private struct BrowserAgentBadge: View {
         Menu {
             BrowserAgentAccessButton(browser: browser, key: key)
         } label: {
-            Label("Agent", systemImage: "sparkles")
-                .font(.caption2.weight(.semibold))
+            Image(systemName: "sparkles")
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tint)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
+                .frame(width: Self.width, height: 18)
                 .background(.tint.opacity(0.2), in: .capsule)
+                .accessibilityLabel("Agent")
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
@@ -428,8 +453,8 @@ private struct BrowserCloseButton: View {
             Button { browser.close(tab, in: key) } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 12, weight: .semibold))
-                    .frame(width: 16, height: 22)
-                    .contentShape(.rect)
+                    .frame(width: 14, height: 14)
+                    .contentShape(.circle)
             }
             .foregroundStyle(.secondary)
             .accessibilityLabel("Close Tab")
@@ -446,6 +471,7 @@ private struct BrowserHeaderTab: View {
     let isSelected: Bool
     var isCompact = false
     var showsTitle = true
+    @Binding var editingTabID: UUID?
     let select: () -> Void
     @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
@@ -455,13 +481,11 @@ private struct BrowserHeaderTab: View {
             if isPinned, !isSelected {
                 pinnedButton
             } else if isPinned {
-                BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact)
-                    .frame(minWidth: BrowserSessionTabs.minimumActiveWidth, idealWidth: 240, maxWidth: BrowserSessionTabs.maximumActiveWidth)
+                BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact, onEditingChange: reportEditing)
                     .frame(height: BrowserHeader.controlSize)
             } else if isSelected {
-                BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact, showsClose: isHovered)
+                BrowserAddressField(browser: browser, tab: tab, isMerged: true, isCompact: isCompact, showsClose: true, onEditingChange: reportEditing)
                     .frame(height: BrowserHeader.controlSize - 2)
-                    .onHover { isHovering = $0 }
             } else {
                 sessionButton
                     .onHover { isHovering = $0 }
@@ -519,6 +543,7 @@ private struct BrowserHeaderTab: View {
                 }
             }
             .padding(.horizontal, showsTitle ? 28 : 0)
+            .padding(.trailing, !showsTitle && tab.isDrivenByAgent ? BrowserAgentBadge.width + 4 : 0)
             .frame(maxWidth: .infinity)
             .frame(height: BrowserHeader.controlSize - 2)
             .background(theme.foreground.opacity(isHovered ? 0.10 : 0), in: .capsule)
@@ -530,7 +555,15 @@ private struct BrowserHeaderTab: View {
             if isHovered { BrowserCloseButton(browser: browser, tab: tab) }
         }
         .overlay(alignment: .trailing) {
-            if tab.isDrivenByAgent, showsTitle, let key = browser.sessionKey { BrowserAgentBadge(browser: browser, key: key).padding(.trailing, 4) }
+            if tab.isDrivenByAgent, let key = browser.sessionKey { BrowserAgentBadge(browser: browser, key: key).padding(.trailing, 4) }
+        }
+    }
+
+    private func reportEditing(_ isEditing: Bool) {
+        if isEditing {
+            editingTabID = tab.id
+        } else if editingTabID == tab.id {
+            editingTabID = nil
         }
     }
 
@@ -555,6 +588,7 @@ private struct BrowserAddressField: View {
     let isMerged: Bool
     let isCompact: Bool
     var showsClose = false
+    var onEditingChange: (Bool) -> Void = { _ in }
     @State private var address = ""
     @State private var isEditing = false
     @State private var selection: TextSelection?
@@ -565,7 +599,7 @@ private struct BrowserAddressField: View {
     var body: some View {
         let showsPageActions = (isMerged || isCompact) && tab?.url != nil
         let showsAgentBadge = isMerged && tab?.isDrivenByAgent == true && browser.sessionKey != nil
-        let accessoryWidth: CGFloat = (showsPageActions ? 38 : 24) + (showsAgentBadge ? 66 : 0)
+        let accessoryWidth: CGFloat = (showsPageActions ? 38 : 24) + (showsAgentBadge ? BrowserAgentBadge.width + 3 : 0)
         ZStack {
             HStack(spacing: 5) {
                 addressIcon
@@ -653,7 +687,7 @@ private struct BrowserAddressField: View {
             }
         }
         .overlay(alignment: .leading) {
-            if showsClose, let tab { BrowserCloseButton(browser: browser, tab: tab) }
+            if showsClose, !isEditing, let tab { BrowserCloseButton(browser: browser, tab: tab) }
         }
         .glassEffect(.regular.interactive(), in: .capsule)
         .onChange(of: tab?.id, initial: true) {
@@ -663,6 +697,8 @@ private struct BrowserAddressField: View {
         .onChange(of: browser.addressFocusRequests) {
             if isEditing { selectAddress() } else { beginEditing() }
         }
+        .onChange(of: isEditing) { onEditingChange(isEditing) }
+        .onDisappear { onEditingChange(false) }
         .onChange(of: isFocused) {
             if isFocused { selectAddress() } else { isEditing = false }
         }
