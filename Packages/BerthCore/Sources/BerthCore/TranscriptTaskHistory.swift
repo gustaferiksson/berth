@@ -1,7 +1,7 @@
 import Foundation
 
 extension TranscriptActivity {
-    public func backgroundTasks(of live: LiveSession?, in transcript: URL) -> [SessionBackgroundTask] {
+    public func backgroundTasks(of live: LiveSession?, in transcript: URL, tasksRoot: URL = URL(filePath: "/private/tmp/claude-\(getuid())")) -> [SessionBackgroundTask] {
         let started = live?.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .distantPast
         let subagents = transcript.deletingPathExtension().appending(path: "subagents")
         let foreground = pending.compactMap { id, launch -> SessionBackgroundTask? in
@@ -18,6 +18,9 @@ extension TranscriptActivity {
                 task.status = outcome
             } else if live == nil || task.started < started {
                 task.status = .finished
+            }
+            if task.kind == .shell, task.status == .running, task.outputFile == nil {
+                task.outputFile = Self.sessionTaskOutput(task.id, session: transcript.deletingPathExtension().lastPathComponent, under: tasksRoot)
             }
             return task
         }
@@ -68,6 +71,15 @@ extension TranscriptActivity {
         if let path = completion.path, let file = Self.taskOutputFile(path, id: id) { task.outputFile = file }
         if let result = completion.result, !result.isEmpty { task.result = result }
         taskHistory[id] = task
+    }
+
+    static func sessionTaskOutput(_ id: String, session: String, under root: URL) -> URL? {
+        guard id.wholeMatch(of: /[A-Za-z0-9_-]+/) != nil, session.wholeMatch(of: /[A-Za-z0-9_-]+/) != nil else { return nil }
+
+        let projects = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        return projects.lazy
+            .map { $0.appending(path: "\(session)/tasks/\(id).output") }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     static func taskOutputFile(_ path: String, id: String) -> URL? {

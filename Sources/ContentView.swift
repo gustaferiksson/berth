@@ -1,5 +1,6 @@
 import BerthCore
 import GhosttyTerminal
+import os
 import SwiftUI
 
 enum SidebarPosition: String {
@@ -24,6 +25,7 @@ struct ContentView: View {
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
     @State private var paneSidebarWidth = SessionPanel.idealWidth
+    @State private var paneHostFlips = 0
     @State private var previousLauncherScope: LauncherMode?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -42,7 +44,7 @@ struct ContentView: View {
                     .glassSidebarTint(store.theme)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
                     .toolbar {
-                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel") }
+                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: paneHostFlips) }
                     }
                     .navigationSplitViewColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
             } else {
@@ -130,7 +132,7 @@ struct ContentView: View {
                     if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
                         ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
-                    if !showsPanelSidebar { ChangesToolbar(store: store, host: "detail") }
+                    if !showsPanelSidebar { ChangesToolbar(store: store, host: "detail", flips: paneHostFlips) }
                     if isTrailing, !showsSessions {
                         if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
                         ToolbarItem(placement: .primaryAction) { sessionsToggle }
@@ -158,7 +160,7 @@ struct ContentView: View {
                     .background(ScrollPocketSeparatorRemover())
                     .inspectorColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
                     .toolbar {
-                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel") }
+                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: paneHostFlips) }
                     }
             }
         }
@@ -192,6 +194,7 @@ struct ContentView: View {
                 await store.backgroundTaskModel.observe(taskSource, store: store)
             }
         }
+        .onChange(of: showsPanelSidebar) { paneHostFlips += 1 }
         .onChange(of: showsColumn) {
             guard !showsColumn else { return }
 
@@ -286,6 +289,7 @@ extension ContentView {
         if sidebarPosition == .left {
             if visibility != leadingSessions { setSessions(visibility) }
         } else if (visibility != .detailOnly) != showsPanelSidebar, store.shownPane != .browser, !store.isHarborShown {
+            paneLog.info("leading column \(visibility == .detailOnly ? "hidden" : "shown", privacy: .public) shown \(store.shownPane?.rawValue ?? "none", privacy: .public)")
             if visibility == .detailOnly { store.hideSessionPanel() } else if isReviewEnabled { store.showsReviewPanel = true }
         }
     }
@@ -294,6 +298,7 @@ extension ContentView {
         if sidebarPosition == .right {
             if isPresented != showsSessions { setSessions(isPresented ? .all : .detailOnly) }
         } else if isPresented != showsPanelSidebar, store.shownPane != .browser, !store.isHarborShown {
+            paneLog.info("inspector presented \(isPresented) shown \(store.shownPane?.rawValue ?? "none", privacy: .public)")
             if !isPresented { store.hideSessionPanel() } else if isReviewEnabled { store.showsReviewPanel = true }
         }
     }

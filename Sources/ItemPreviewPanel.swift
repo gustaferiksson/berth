@@ -240,7 +240,7 @@ final class ItemPreviewPanel {
 
     private func handle(_ event: NSEvent) -> NSEvent? {
         guard event.type == .keyDown else {
-            if event.window !== panel { hide() }
+            if event.window !== panel, !panel.frame.contains(NSEvent.mouseLocation) { hide() }
             return event
         }
 
@@ -298,17 +298,14 @@ private struct ItemPreviewHost: View {
     @State private var contentHeight: CGFloat = 120
 
     var body: some View {
-        ScrollView {
-            Group {
-                if let card { card } else { ItemPreviewPlaceholder() }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                contentHeight = height
-                onResize(min(height, maxHeight))
-            }
+        Group {
+            if let card { card } else { ItemPreviewPlaceholder() }
         }
-        .scrollBounceBehavior(.basedOnSize)
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            contentHeight = height
+            onResize(min(height, maxHeight))
+        }
         .frame(width: ItemPreviewView.width, height: min(contentHeight, maxHeight))
         .clipShape(.rect(cornerRadius: 14))
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
@@ -436,7 +433,7 @@ extension Store {
 
             actions.openInBerthTitle = "Start Issue Session"
             actions.openInBerth = {
-                self.startIssueSession(repository: preview.repository, number: preview.number, url: preview.url)
+                self.startIssueSession(repository: preview.repository, number: preview.number, url: preview.url, title: preview.title)
                 dismiss()
             }
             return actions
@@ -460,18 +457,20 @@ extension Store {
             self.launcherMode = nil
             dismiss()
         }
-        guard preview.state == .open || preview.state == .draft else { return actions }
-
-        actions.steward = {
-            if self.openPullRequest(link, url: preview.url, opening: opening, prompt: .steward) { self.launcherMode = nil }
-            dismiss()
-        }
         return actions
     }
 
-    func startIssueSession(repository: String, number: Int, url: URL) {
+    func startIssueSession(repository: String, number: Int, url: URL, title: String) {
+        let prompt = (UserDefaults.standard.string(forKey: GeneralSettings.issuePromptKey) ?? GeneralSettings.defaultIssuePrompt)
+            .replacing("{number}", with: String(number))
+            .replacing("{url}", with: url.absoluteString)
+            .replacing("{repo}", with: repository)
+            .replacing("{title}", with: title)
+
+        let checkout = UserDefaults.standard.string(forKey: GeneralSettings.issueCheckoutKey).flatMap(NewSessionCheckout.init(rawValue:)) ?? .preferred
+
         guard let folder = localCheckout(of: repository),
-              openSession(cwd: folder, checkout: .worktree, pasting: "Work on issue #\(number) (\(url.absoluteString)).") != nil
+              openSession(cwd: folder, checkout: checkout, pasting: prompt.isEmpty ? nil : prompt) != nil
         else { return }
 
         isHarborShown = false

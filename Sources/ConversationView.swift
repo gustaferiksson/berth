@@ -142,7 +142,11 @@ struct ConversationView: View {
                     )
                 }
                 ForEach(model.queued.enumerated(), id: \.offset) { _, prompt in
-                    QueuedPrompt(text: prompt)
+                    if let command = PendingPrompts.queuedShellCommand(prompt, pending: model.pending) {
+                        ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: command, name: "bash", command: command), isShellRunning: true)
+                    } else {
+                        QueuedPrompt(text: prompt)
+                    }
                 }
                 ForEach(pending, id: \.sentAt) { prompt in
                     if let command = prompt.shellCommand {
@@ -459,17 +463,18 @@ private struct ConversationStatusBar: View {
     let isWorking: Bool
     let tasks: [RemoteTask]
     let isAtBottom: Bool
+    let showsTasks: Bool
+    let setShowsTasks: (Bool) -> Void
     let jump: () -> Void
 
     @Environment(\.ghosttyTheme) private var theme
-    @Environment(Store.self) private var store
+    @Namespace private var glassNamespace
+    @FocusState private var isTaskPanelFocused: Bool
     private let pillTransition = AnyTransition.opacity.combined(with: .scale(scale: 0.92))
 
     var body: some View {
-        let kinds = [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor].filter { kind in tasks.contains { $0.kind == kind } }
-
         GlassEffectContainer(spacing: 0) {
-            HStack(spacing: 10) {
+            HStack(alignment: .bottom, spacing: 10) {
                 if isWorking, !isAtBottom {
                     ConversationWorking(agent: agent, since: since)
                         .padding(.horizontal, 14)
@@ -478,25 +483,7 @@ private struct ConversationStatusBar: View {
                         .transition(pillTransition)
                 }
                 if !tasks.isEmpty {
-                    Button { store.showTasksPane(selecting: tasks.first?.id) } label: {
-                        HStack(spacing: 8) {
-                            ForEach(kinds, id: \.self) { kind in
-                                Image(systemName: RemoteTask(id: "", kind: kind, title: "", started: .now).symbol)
-                                    .accessibilityHidden(true)
-                            }
-                            Text(RemoteTask.summary(of: tasks))
-                            Image(systemName: "chevron.right")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(theme.secondary)
-                                .accessibilityHidden(true)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .contentShape(.capsule)
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .help("Show Background Tasks")
+                    taskControl
                 }
                 if !isAtBottom {
                     Button(action: jump) {
@@ -506,6 +493,8 @@ private struct ConversationStatusBar: View {
                     }
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: .circle)
+                    .disabled(showsTasks)
+                    .allowsHitTesting(!showsTasks)
                     .accessibilityLabel("Jump to Latest")
                     .help("Jump to Latest (⌘↓)")
                     .transition(pillTransition)
@@ -516,6 +505,127 @@ private struct ConversationStatusBar: View {
         .animation(.easeOut(duration: 0.15), value: isAtBottom)
         .animation(.easeOut(duration: 0.15), value: isWorking)
         .animation(.easeOut(duration: 0.15), value: tasks.isEmpty)
+    }
+
+    @ViewBuilder private var taskControl: some View {
+        if showsTasks {
+            VStack(alignment: .leading, spacing: 0) {
+                taskHeader
+                ConversationTaskList(tasks: tasks, close: { setShowsTasks(false) })
+            }
+            .frame(width: 320)
+            .fixedSize(horizontal: false, vertical: true)
+            .background {
+                Color.clear
+                    .contentShape(.rect(cornerRadius: 20))
+                    .onTapGesture {}
+                    .accessibilityHidden(true)
+            }
+            .focusable()
+            .focusEffectDisabled()
+            .focused($isTaskPanelFocused)
+            .onAppear { isTaskPanelFocused = true }
+            .onExitCommand { setShowsTasks(false) }
+            .glassEffect(in: .rect(cornerRadius: 20))
+            .glassEffectID("tasks", in: glassNamespace)
+            .glassEffectTransition(.matchedGeometry)
+        } else {
+            taskHeader
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffectID("tasks", in: glassNamespace)
+                .glassEffectTransition(.matchedGeometry)
+        }
+    }
+
+    private var taskHeader: some View {
+        let kinds = [RemoteTask.agent, RemoteTask.shell, RemoteTask.monitor].compactMap { kind in tasks.first { $0.kind == kind } }
+
+        return Button { setShowsTasks(!showsTasks) } label: {
+            HStack(spacing: 8) {
+                ForEach(kinds, id: \.kind) { task in
+                    Image(systemName: task.symbol)
+                        .accessibilityHidden(true)
+                }
+                Text(RemoteTask.summary(of: tasks))
+                    .lineLimit(1)
+                Image(systemName: "chevron.up")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(theme.secondary)
+                    .rotationEffect(.degrees(showsTasks ? 180 : 0))
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: showsTasks ? .infinity : nil, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled(showsTasks)
+        .accessibilityValue(showsTasks ? "Expanded" : "Collapsed")
+    }
+}
+
+private struct ConversationTaskList: View {
+    let tasks: [RemoteTask]
+    let close: () -> Void
+
+    @Environment(\.ghosttyTheme) private var theme
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(tasks) { task in
+                ConversationAgentButton(isAgent: task.kind == RemoteTask.agent, agentID: task.id, toolUseID: task.id, title: task.title, beforeOpen: close) {
+                    HStack(spacing: 10) {
+                        Image(systemName: task.symbol)
+                            .foregroundStyle(task.kind == RemoteTask.agent ? AgentTint.color(for: task.title) : theme.secondary)
+                            .frame(width: 20)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(verbatim: task.title)
+                                .lineLimit(1)
+                            Text(verbatim: task.agentType ?? task.kindName)
+                                .font(.caption)
+                                .foregroundStyle(theme.secondary)
+                        }
+                        Spacer(minLength: 12)
+                        ConversationElapsed(since: task.started)
+                            .font(.caption)
+                            .foregroundStyle(theme.secondary)
+                        if task.kind == RemoteTask.shell {
+                            let backgroundTask = store.backgroundTasks.first { $0.id == task.id || $0.toolUseID == task.id }
+                            let canStop = backgroundTask.map(store.canStop) ?? false
+                            Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.borderless)
+                                .disabled(!canStop)
+                                .help(canStop ? "Stop Shell" : "Berth can't identify this shell's process, so it can't be stopped here")
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .modifier(PopoverRowHover())
+                    .accessibilityElement(children: task.kind == RemoteTask.shell ? .contain : .combine)
+                }
+            }
+            Divider()
+                .padding(.vertical, 4)
+            Button {
+                close()
+                store.showTasksPane(selecting: tasks.first?.id)
+            } label: {
+                Text("Show Background Tasks")
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .modifier(PopoverRowHover())
+            .focusEffectDisabled()
+        }
+        .padding([.horizontal, .bottom], 8)
+        .transaction { $0.animation = nil }
     }
 }
 
@@ -552,15 +662,31 @@ private struct ConversationBottomBar: View {
 
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var branch: ReviewBranchSummary?
+    @State private var showsTasks = conversationShowsTasksExpanded
 
     var body: some View {
-        bar
+        let tasks = model.tasks
+        let presentsTasks = showsTasks && !tasks.isEmpty
+
+        bar(tasks: tasks, presentsTasks: presentsTasks)
             .background(alignment: .bottom) {
                 LinearGradient(colors: [.clear, theme.background ?? Color(nsColor: .textBackgroundColor)], startPoint: .top, endPoint: .bottom)
                     .frame(height: barHeight)
                     .allowsHitTesting(false)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .background {
+                if presentsTasks {
+                    Color.clear
+                        .contentShape(.rect)
+                        .onTapGesture { setShowsTasks(false) }
+                        .accessibilityHidden(true)
+                        .transition(.identity)
+                }
+            }
+            .onChange(of: tasks.isEmpty) { if tasks.isEmpty { setShowsTasks(false) } }
             .task(id: [tab.folder, String(isWorking)]) {
                 while !Task.isCancelled {
                     let summary = await ReviewGit.branchSummary(in: tab.folder)
@@ -572,7 +698,11 @@ private struct ConversationBottomBar: View {
             }
     }
 
-    private var bar: some View {
+    private func setShowsTasks(_ showsTasks: Bool) {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { self.showsTasks = showsTasks }
+    }
+
+    private func bar(tasks: [RemoteTask], presentsTasks: Bool) -> some View {
         let isShell = tab.kind == .shell || harness.supports(.bashMode) && model.draft.text.hasPrefix("!")
 
         return VStack(spacing: 10) {
@@ -610,8 +740,9 @@ private struct ConversationBottomBar: View {
         .frame(maxWidth: theme.messageWidth)
         .padding(.horizontal, 18)
         .padding(.bottom, 8)
+        .allowsHitTesting(!presentsTasks)
         .background(alignment: .top) {
-            ConversationStatusBar(agent: tab.agent, since: since, isWorking: isWorking, tasks: model.tasks, isAtBottom: isAtBottom, jump: jump)
+            ConversationStatusBar(agent: tab.agent, since: since, isWorking: isWorking, tasks: tasks, isAtBottom: isAtBottom, showsTasks: presentsTasks, setShowsTasks: setShowsTasks, jump: jump)
                 .alignmentGuide(.top) { $0[.bottom] + 10 }
         }
         .frame(maxWidth: .infinity)

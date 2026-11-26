@@ -8,7 +8,6 @@ import WebKit
 enum Snapshot {
     #if DEBUG
     static let showsWatching = UserDefaults.standard.bool(forKey: "snapshotWatching")
-    static let showsPullRequestActions = UserDefaults.standard.bool(forKey: "snapshotPullRequestActions")
     private static let remoteSectionsOutput = UserDefaults.standard.string(forKey: "snapshotRemoteSections").map { URL(filePath: $0) }
     static let output = UserDefaults.standard.string(forKey: "snapshot").map { URL(filePath: $0) } ?? remoteSectionsOutput
     #else
@@ -265,7 +264,7 @@ enum Snapshot {
     }()
 
     private static let inboxFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: [PullRequestBranch: PullRequest?], inbox: [InboxPullRequest]?)? = {
-        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil || showsPullRequestActions || UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") else { return nil }
+        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil || UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") else { return nil }
 
         let code = NSTemporaryDirectory() + "berth-pull-requests"
         for name in ["billing/.git", "web/.git"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) }
@@ -601,9 +600,23 @@ enum Snapshot {
     }
     #endif
 
-    // swiftlint:disable:next cyclomatic_complexity function_body_length
     static func capture(to output: URL, store: Store) async {
         #if DEBUG
+        let reviewOptions = await prepareCapture(store: store)
+        let topSessions = await prepareSidebar(to: output, store: store)
+        await prepareSessionProbes(store: store)
+        let (reviewFolder, shownPullRequestClone) = await prepareReviewAndLauncher(store: store)
+        let (window, hosting, showsStats) = await prepareWindow(to: output, store: store, reviewFolder: reviewFolder)
+        await captureReview(to: output, store: store, window: window, reviewFolder: reviewFolder, shownPullRequestClone: shownPullRequestClone, options: reviewOptions)
+        await captureWindowProbes(to: output, store: store, window: window, topSessions: topSessions, showsStats: showsStats)
+        await captureTerminalProbes(to: output, store: store, window: window, hosting: hosting)
+        await captureKeyboardProbes(to: output, store: store, window: window)
+        await finishCapture(to: output, store: store, window: window, showsStats: showsStats)
+        #endif
+    }
+
+    #if DEBUG
+    private static func prepareCapture(store: Store) async -> (graphCommitIndex: Int?, expandedPullRequestNumber: Int?, showsReviewThreads: Bool) {
         NSApp.setActivationPolicy(.accessory)
         if UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" { NSApp.appearance = NSAppearance(named: .darkAqua) }
         if let path = UserDefaults.standard.string(forKey: "snapshotCustomGroups"), let data = FileManager.default.contents(atPath: path) {
@@ -654,6 +667,10 @@ enum Snapshot {
             UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         }
         await store.waitForScan()
+        return (graphCommitIndex, expandedPullRequestNumber, showsReviewThreads)
+    }
+
+    private static func prepareSidebar(to output: URL, store: Store) async -> [SessionSummary] {
         if let busySidebar { prepareBusySidebar(busySidebar, store: store) }
         if UserDefaults.standard.bool(forKey: "snapshotRemote") { store.remote.update() }
         if UserDefaults.standard.bool(forKey: "snapshotFakeWaiting") {
@@ -816,6 +833,10 @@ enum Snapshot {
             store.refresh()
             await store.waitForScan()
         }
+        return topSessions
+    }
+
+    private static func prepareSessionProbes(store: Store) async {
         if store.selection == nil, let forced = forcedSelection(in: store.groups) { store.sidebarCursor = forced }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
             for _ in 0..<2 { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
@@ -869,6 +890,9 @@ enum Snapshot {
         if let sessionID = UserDefaults.standard.string(forKey: "snapshotResume") {
             store.activate(.session(sessionID))
         }
+    }
+
+    private static func prepareReviewAndLauncher(store: Store) async -> (reviewFolder: String?, shownPullRequestClone: String?) {
         let reviewFolder = UserDefaults.standard.string(forKey: "snapshotReview")
         let shownPullRequestClone = UserDefaults.standard.string(forKey: "snapshotReviewShowPullRequest")
         if reviewFolder != nil, UserDefaults.standard.double(forKey: "snapshotReviewContext") > 0 {
@@ -915,7 +939,7 @@ enum Snapshot {
         if UserDefaults.standard.string(forKey: "snapshotLauncher") != nil { store.launcherMode = .newSession }
         if UserDefaults.standard.string(forKey: "snapshotSearch") != nil { store.launcherMode = .search }
         if UserDefaults.standard.string(forKey: "snapshotPalette") != nil { store.launcherMode = .palette }
-        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") ?? (showsPullRequestActions ? "" : nil) {
+        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") {
             let ranked = PullRequestInbox.rank(query, in: store.inbox ?? [], now: .now)
             print("pull requests for \"\(query)\": \(ranked.pullRequests.count) shown, \(ranked.older) older hidden, toolbar count \(store.inbox?.count { $0.role == .reviewRequested } ?? 0)")
             for pullRequest in ranked.pullRequests {
@@ -931,7 +955,6 @@ enum Snapshot {
                 print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: link).map(\.id)) | enter: \(action)")
             }
             if UserDefaults.standard.string(forKey: "snapshotLauncherRole") == "reviewRequested" { store.launcherRole = .reviewRequested }
-            if showsPullRequestActions { print("pull request menu \(StewardPullRequestButton.title)") }
             if launcherKeys == nil { store.launcherMode = .pullRequests }
         }
         if UserDefaults.standard.bool(forKey: "snapshotProjectsLauncher"), launcherKeys == nil { store.launcherMode = .projects }
@@ -959,6 +982,10 @@ enum Snapshot {
             }
             if launcherKeys == nil { store.launcherMode = issueInboxQuery == nil ? .pullRequests : .issues }
         }
+        return (reviewFolder, shownPullRequestClone)
+    }
+
+    private static func prepareWindow(to output: URL, store: Store, reviewFolder: String?) async -> (window: NSWindow, hosting: NSViewController, showsStats: Bool) {
         let editedGroup = UserDefaults.standard.string(forKey: "snapshotEditGroup").map { name in
             store.customGroups.first { $0.name == name } ?? CustomGroup(name: "", rules: [])
         }
@@ -996,90 +1023,13 @@ enum Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotConversation") { await captureConversation(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { await captureTasksReview(store: store, window: window, output: output) }
+        return (window, hosting, showsStats)
+    }
+
+    private static func captureReview(to output: URL, store: Store, window: NSWindow, reviewFolder: String?, shownPullRequestClone: String?, options: (graphCommitIndex: Int?, expandedPullRequestNumber: Int?, showsReviewThreads: Bool)) async {
         if reviewFolder != nil, UserDefaults.standard.bool(forKey: "snapshotMarkdownRendered") { store.rendersMarkdown = true }
         if reviewFolder != nil, let model = store.reviewModels["snapshot-review"] {
-            let deadline = Date.now + 30
-            if let shownPullRequestClone, let tab = store.selectedTabID {
-                switch await store.showPullRequestInReview(number: 1445, repository: "acme/billing", repositoryPath: shownPullRequestClone, in: tab) {
-                case let .success(link):
-                    print("show-pr review selected \(link.repository) #\(link.number), \(describe(model))")
-                case let .failure(error):
-                    FileHandle.standardError.write(Data("show-pr snapshot failed. \(error.message)\n".utf8))
-                    exit(1)
-                }
-                if UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") {
-                    AppAction.showPullRequestInReview.perform(on: store)
-                }
-            } else if let number = expandedPullRequestNumber {
-                while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
-                let repository = model.changes.flatMap { changes in store.repositoryRoot(ofSession: "snapshot-review").flatMap { store.pullRequestBranch(inRoot: $0, branch: changes.branch)?.repository } }
-                let link = PullRequestLink(repository: repository?.lowercased() ?? fixtureRepository.lowercased(), number: number)
-                let location = model.changes.map { ReviewPullRequestLocation(link: link, root: $0.root) }
-                if let changes = model.changes, let location, let pullRequest = store.pullRequests(inRoot: nil, of: "snapshot-review", branch: changes.branch).first(where: { $0.number == number }) {
-                    await model.expandPullRequest(ReviewPullRequest(location: location, pullRequest: pullRequest))
-                    if let loaded = model.pullRequestFiles[location], let first = loaded.files.first {
-                        if UserDefaults.standard.bool(forKey: "snapshotReviewCommandClick") {
-                            await model.openPullRequestFile(first, of: ReviewPullRequest(location: location, pullRequest: pullRequest), compare: loaded.compare)
-                        } else {
-                            model.open(ReviewDocument(path: first.path, compare: loaded.compare, root: location.root, pullRequestLink: link))
-                        }
-                    }
-                }
-                print("review selected PR #\(number), expanded \(model.expandedPullRequests.contains(link)), files \(location.flatMap { model.pullRequestFiles[$0]?.files.count } ?? 0), notice \(model.notice ?? "-")")
-            } else if showsReviewPullRequestDetails || reviewSelectedPullRequestNumber != nil || UserDefaults.standard.string(forKey: "snapshotReviewPullRequestFile") != nil {
-                await openReviewPullRequestFixture(in: model)
-            } else if let index = graphCommitIndex, index >= 0 {
-                while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
-                if !model.graphHasLoaded { await model.loadGraph() }
-                while Date.now < deadline, index >= model.graphCommits.count, model.graphHasMore, model.graphError == nil {
-                    await model.loadGraph(more: true)
-                }
-                await model.openGraphCommit(at: index)
-            }
-            let changedFiles = UserDefaults.standard.string(forKey: "snapshotReviewChangedFiles")
-            if let changedFiles { store.showChanges(opening: changedFiles.split(separator: ",").map(String.init)) }
-            while Date.now < deadline, model.error == nil, model.selectedDocument?.pullRequestTab != .details, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
-                if let changes = model.changes, model.selectedTab == nil, changedFiles == nil {
-                    if shownPullRequestClone != nil || expandedPullRequestNumber != nil || reviewSelectedPullRequestNumber != nil || UserDefaults.standard.string(forKey: "snapshotReviewPullRequestFile") != nil || showsReviewPullRequestDetails || graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
-                    let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
-                    if requested == nil, showsReviewThreads, let thread = fixturePullRequestDetail?.threads.first(where: { $0.path == "README.md" && $0.line != nil }) {
-                        model.open(thread)
-                        continue
-                    }
-                    guard let document = requested ?? changes.uncommitted.first.map({ ReviewDocument(path: $0.path, compare: .uncommitted) }) ?? changes.committed.first.map({ ReviewDocument(path: $0.path, compare: .committed) }) else { break }
-
-                    model.open(document)
-                }
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            if let ref = UserDefaults.standard.string(forKey: "snapshotReviewBase"), let changes = model.changes {
-                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
-                arguments[ReviewModel.baseBranchesKey] = [changes.root: [changes.branch: ref]]
-                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
-                await model.load()
-            }
-            try? await Task.sleep(for: .seconds(1))
-            await showFiles(store: store, review: model)
-            print("review \(model.changes.map { "\($0.branch) → \($0.base ?? "-"), fetch error \($0.fetchError ?? "-")" } ?? "error \(model.error.map(ReviewModel.describe) ?? "timed out")")")
-            print("review card \(model.status.map { "base \(model.changes?.base ?? "-") (\(model.changes?.baseReason?.rawValue ?? "-")), bases \(model.changes?.bases.map { "\($0.ref) \($0.distance)" } ?? []), default branch \(model.changes?.isDefaultBranch == true), ahead \($0.ahead), behind \($0.behind), upstream \($0.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" }), total \(model.changes?.total.map { "+\($0.additions) -\($0.deletions)" } ?? "-")" } ?? "none"), pull request details \(model.pullRequestDetails)")
-            if showsReviewThreads {
-                let threads = model.pullRequestDetails.values.flatMap(\.threads)
-                let files = Dictionary(grouping: threads, by: \.path).map { path, group in "\(path) \(group.count) (\(group.count(where: \.isResolved)) resolved)" }.sorted()
-                print("review threads \(threads.count), resolved \(threads.count(where: \.isResolved)), files \(files)")
-            }
-            for (section, files) in [("uncommitted", model.changes?.uncommitted ?? []), ("committed", model.changes?.committed ?? [])] {
-                for file in files { print("  \(section) \(file.status.rawValue) \(file.path) +\(file.additions.map(String.init) ?? "?") -\(file.deletions.map(String.init) ?? "?")") }
-            }
-            if UserDefaults.standard.bool(forKey: "reviewChangesAsTree") {
-                func lines(_ nodes: [ReviewFileTree], depth: Int) -> [String] {
-                    nodes.flatMap { ["    " + String(repeating: "  ", count: depth) + $0.name + ($0.children == nil ? "" : "/")] + lines($0.children ?? [], depth: depth + 1) }
-                }
-                for (section, files) in [("uncommitted", model.changes?.uncommitted ?? []), ("committed", model.changes?.committed ?? [])] where !files.isEmpty {
-                    print("  \(section) tree\n" + lines(ReviewFileTree.compactNodes(files.map(\.path)), depth: 0).joined(separator: "\n"))
-                }
-            }
-            print("review files tree \(model.tree.map { $0.children == nil ? $0.name : "\($0.name)/ (\($0.children?.count ?? 0))" }), expanded folders \(model.expandedFolders.sorted())")
-            print("review selected \(describe(model)), graph count \(model.graphCommits.count), selected commit \(model.selectedCommit ?? "-"), contents loaded \(model.selectedDocument.flatMap { model.contents[$0] } != nil), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+            await openReview(store: store, window: window, shownPullRequestClone: shownPullRequestClone, graphCommitIndex: options.graphCommitIndex, expandedPullRequestNumber: options.expandedPullRequestNumber, showsReviewThreads: options.showsReviewThreads, model: model)
             func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
             let shownSides = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }
             let sides = shownSides.count == 1 ? [shownSides[0].unifiedOriginal, shownSides[0]].compactMap(\.self) : shownSides
@@ -1207,592 +1157,696 @@ enum Snapshot {
                 // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
                 UserDefaults.standard.set(saved, forKey: "reviewSplitRatio")
             }
-            if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument, file.compare?.isHistorical != true {
-                let right = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last }
-                let point = { (textView: ReviewTextView, spec: String) -> NSPoint? in
-                    let numbers = spec.split(separator: ":").compactMap { Int($0) }
-                    guard numbers.count == 2 else { return nil }
+            await captureReviewLanguageServers(to: output, window: window, model: model, descendants: descendants, save: save, report: report)
+            await captureReviewInteractions(store: store, window: window, model: model, sides: sides, clips: clips, save: save, report: report)
+        }
+    }
 
-                    let offset = textView.offset(of: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1))
-                    return textView.segments(of: NSRange(location: offset, length: 1)).first.map { NSPoint(x: $0.rect.midX, y: $0.rect.midY) }
-                }
-                let mouse = { (textView: ReviewTextView, type: NSEvent.EventType, location: NSPoint, flags: NSEvent.ModifierFlags) in
-                    guard let event = NSEvent.mouseEvent(with: type, location: textView.convert(location, to: nil), modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .mouseMoved ? 0 : 1) else { return }
-                    guard type == .leftMouseDown else { return textView.mouseMoved(with: event) }
-
-                    NSEvent.mouseEvent(with: .leftMouseUp, location: event.locationInWindow, modifierFlags: flags, timestamp: event.timestamp, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0).map { NSApp.postEvent($0, atStart: false) }
-                    textView.mouseDown(with: event)
-                }
-                let crop = { (suffix: String, view: NSView, rect: NSRect) in
-                    guard let image = image(of: window) else { return }
-
-                    let scale = CGFloat(image.width) / window.frame.width
-                    let inWindow = view.convert(rect, to: nil)
-                    let pixels = CGRect(x: inWindow.minX * scale, y: (window.frame.height - inWindow.maxY) * scale, width: inWindow.width * scale, height: inWindow.height * scale)
-                    guard let cropped = image.cropping(to: pixels.integral) else { return }
-
-                    try? NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
-                }
-                let clock = ContinuousClock.now
-                while ContinuousClock.now - clock < .seconds(120), file.compare != .committed, right()?.diagnostics.isEmpty != false { try? await Task.sleep(for: .milliseconds(250)) }
-                let waited = ContinuousClock.now - clock
-                var settled = (diagnostics: right()?.diagnostics ?? [], at: ContinuousClock.now)
-                while ContinuousClock.now - settled.at < .seconds(3), ContinuousClock.now - clock < .seconds(150) {
-                    try? await Task.sleep(for: .milliseconds(250))
-                    if let shown = right()?.diagnostics, shown != settled.diagnostics { settled = (shown, .now) }
-                }
-                if let textView = right(), let gutter = textView.gutter {
-                    print("diagnostics shown after \(waited): " + textView.diagnostics.map { "\($0.range.start.line + 1):\($0.range.start.character + 1)-\($0.range.end.line + 1):\($0.range.end.character + 1) \($0.severity.map { "\($0)" } ?? "-") \($0.message.debugDescription) (\($0.source ?? "-")) tags \($0.tags.map { "\($0)" }.sorted())" }.joined(separator: "; "))
-                    if let first = textView.diagnostics.first, let segment = textView.segments(of: NSRange(location: textView.offset(of: first.range.start), length: 1)).first {
-                        let middle = NSPoint(x: segment.rect.midX, y: segment.rect.midY)
-                        let mark = gutter.convert(middle, from: textView)
-                        print("diagnostic tooltip: gutter \(gutter.view(gutter, stringForToolTip: 0, point: NSPoint(x: 7, y: mark.y), userData: nil).debugDescription)")
-                        crop(".diagnostic.png", gutter, NSRect(x: 0, y: mark.y - 40, width: gutter.bounds.width + 520, height: 80))
+    private static func openReview(store: Store, window: NSWindow, shownPullRequestClone: String?, graphCommitIndex: Int?, expandedPullRequestNumber: Int?, showsReviewThreads: Bool, model: ReviewModel) async {
+        let deadline = Date.now + 30
+        if let shownPullRequestClone, let tab = store.selectedTabID {
+            switch await store.showPullRequestInReview(number: 1445, repository: "acme/billing", repositoryPath: shownPullRequestClone, in: tab) {
+            case let .success(link):
+                print("show-pr review selected \(link.repository) #\(link.number), \(describe(model))")
+            case let .failure(error):
+                FileHandle.standardError.write(Data("show-pr snapshot failed. \(error.message)\n".utf8))
+                exit(1)
+            }
+            if UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") {
+                AppAction.showPullRequestInReview.perform(on: store)
+            }
+        } else if let number = expandedPullRequestNumber {
+            while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
+            let repository = model.changes.flatMap { changes in store.repositoryRoot(ofSession: "snapshot-review").flatMap { store.pullRequestBranch(inRoot: $0, branch: changes.branch)?.repository } }
+            let link = PullRequestLink(repository: repository?.lowercased() ?? fixtureRepository.lowercased(), number: number)
+            let location = model.changes.map { ReviewPullRequestLocation(link: link, root: $0.root) }
+            if let changes = model.changes, let location, let pullRequest = store.pullRequests(inRoot: nil, of: "snapshot-review", branch: changes.branch).first(where: { $0.number == number }) {
+                await model.expandPullRequest(ReviewPullRequest(location: location, pullRequest: pullRequest))
+                if let loaded = model.pullRequestFiles[location], let first = loaded.files.first {
+                    if UserDefaults.standard.bool(forKey: "snapshotReviewCommandClick") {
+                        await model.openPullRequestFile(first, of: ReviewPullRequest(location: location, pullRequest: pullRequest), compare: loaded.compare)
+                    } else {
+                        model.open(ReviewDocument(path: first.path, compare: loaded.compare, root: location.root, pullRequestLink: link))
                     }
                 }
-                let servers = {
-                    ProcessAncestry.descendants().map(\.pid).filter { pid in
-                        var name = [CChar](repeating: 0, count: 256)
-                        proc_name(pid, &name, 256)
-                        return String(decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) == "sourcekit-lsp"
-                    }.sorted()
+            }
+            print("review selected PR #\(number), expanded \(model.expandedPullRequests.contains(link)), files \(location.flatMap { model.pullRequestFiles[$0]?.files.count } ?? 0), notice \(model.notice ?? "-")")
+        } else if showsReviewPullRequestDetails || reviewSelectedPullRequestNumber != nil || UserDefaults.standard.string(forKey: "snapshotReviewPullRequestFile") != nil {
+            await openReviewPullRequestFixture(in: model)
+        } else if let index = graphCommitIndex, index >= 0 {
+            while Date.now < deadline, model.error == nil, model.changes == nil { try? await Task.sleep(for: .milliseconds(100)) }
+            if !model.graphHasLoaded { await model.loadGraph() }
+            while Date.now < deadline, index >= model.graphCommits.count, model.graphHasMore, model.graphError == nil {
+                await model.loadGraph(more: true)
+            }
+            await model.openGraphCommit(at: index)
+        }
+        let changedFiles = UserDefaults.standard.string(forKey: "snapshotReviewChangedFiles")
+        if let changedFiles { store.showChanges(opening: changedFiles.split(separator: ",").map(String.init)) }
+        while Date.now < deadline, model.error == nil, model.selectedDocument?.pullRequestTab != .details, model.selectedDocument.flatMap({ model.contents[$0] }) == nil {
+            if let changes = model.changes, model.selectedTab == nil, changedFiles == nil {
+                if shownPullRequestClone != nil || expandedPullRequestNumber != nil || reviewSelectedPullRequestNumber != nil || UserDefaults.standard.string(forKey: "snapshotReviewPullRequestFile") != nil || showsReviewPullRequestDetails || graphCommitIndex != nil || UserDefaults.standard.bool(forKey: "snapshotReviewNoFile") { break }
+                let requested = UserDefaults.standard.string(forKey: "snapshotReviewFile").map { $0.hasPrefix("committed:") ? ReviewDocument(path: String($0.dropFirst("committed:".count)), compare: .committed) : model.workingDocument($0) }
+                if requested == nil, showsReviewThreads, let thread = fixturePullRequestDetail?.threads.first(where: { $0.path == "README.md" && $0.line != nil }) {
+                    model.open(thread)
+                    continue
                 }
-                if UserDefaults.standard.bool(forKey: "snapshotReviewToggleServers") {
-                    let setEnabled = { (isEnabled: Bool) in
-                        var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
-                        arguments[GeneralSettings.languageServersKey] = isEnabled
-                        UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
-                    }
-                    let before = servers()
-                    setEnabled(false)
-                    try? await Task.sleep(for: .seconds(3))
-                    print("toggle: servers \(before) → off \(servers()), diagnostics \(right()?.diagnostics.count ?? -1)")
-                    setEnabled(true)
-                    let clock = ContinuousClock.now
-                    while ContinuousClock.now - clock < .seconds(30), right()?.diagnostics.isEmpty != false { try? await Task.sleep(for: .milliseconds(250)) }
-                    print("toggle: on again \(servers()), diagnostics \(right()?.diagnostics.count ?? -1) after \(ContinuousClock.now - clock)")
-                }
-                if UserDefaults.standard.bool(forKey: "snapshotReviewCrash"), let other = model.changes?.uncommitted.first(where: { $0.path != file.path })?.path {
-                    let killed = servers()
-                    killed.forEach { kill($0, SIGKILL) }
-                    try? await Task.sleep(for: .seconds(1.5))
-                    print("crash: killed \(killed), servers now \(servers()), still showing \(model.selectedDocument?.path ?? "-") with \(right()?.diagnostics.count ?? -1) diagnostics")
-                    model.open(model.workingDocument(other))
-                    try? await Task.sleep(for: .seconds(2))
-                    model.open(file)
-                    let clock = ContinuousClock.now
-                    while ContinuousClock.now - clock < .seconds(30), servers().isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
-                    try? await Task.sleep(for: .seconds(3))
-                    print("crash: after showing \(other) and \(file) again, servers \(servers()), diagnostics \(right()?.diagnostics.map(\.message) ?? [])")
-                }
-                let views = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView } }
-                let peek = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewReferencesPeek }.first }
-                let clipYs = { views().map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }.joined(separator: "/") }
-                let locate = { (spec: String) -> (textView: ReviewTextView, clicked: ReviewTextView, point: NSPoint)? in
-                    let isLeft = spec.hasPrefix("left:")
-                    guard let textView = isLeft ? right()?.unifiedOriginal ?? views().first : right(), let clicked = textView.window == nil || textView.enclosingScrollView?.isHidden == true ? right() : textView, let point = point(textView, isLeft ? String(spec.dropFirst(5)) : spec) else { return nil }
+                guard let document = requested ?? changes.uncommitted.first.map({ ReviewDocument(path: $0.path, compare: .uncommitted) }) ?? changes.committed.first.map({ ReviewDocument(path: $0.path, compare: .committed) }) else { break }
 
-                    return (textView, clicked, point)
-                }
-                if let spec = UserDefaults.standard.string(forKey: "snapshotReviewHover"), let (_, textView, target) = locate(spec) {
-                    let requests = textView.layoutManagerRequests
-                    let card = { textView.subviews.first { $0.subviews.first is NSTextView } }
-                    let started = ContinuousClock.now
-                    while ContinuousClock.now - started < .seconds(60), card() == nil {
-                        mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
-                        mouse(textView, .mouseMoved, target, [])
-                        try? await Task.sleep(for: .seconds(2))
-                    }
-                    print("hover \(spec) after \(ContinuousClock.now - started): \(card()?.subviews.map { ($0 as? NSTextView)?.string.debugDescription ?? "———" }.joined(separator: " ") ?? "no card"), card \(card().map { "\($0.frame), label \($0.subviews.first?.frame ?? .zero)" } ?? "-"), visible width \(textView.visibleRect.width), layoutManager requests \(requests) → \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)")
-                    if let shown = card() {
-                        let texts = shown.subviews.compactMap { $0 as? NSTextView }
-                        let saved = NSPasteboard.general.string(forType: .string)
-                        let before = right()?.selectedRange()
-                        let copied = texts.map { text -> String in
-                            text.selectAll(nil)
-                            NSPasteboard.general.clearContents()
-                            text.copy(nil)
-                            return NSPasteboard.general.string(forType: .string)?.debugDescription ?? "nil"
-                        }
-                        print("hover copy: \(copied), editor selection \(String(describing: before)) → \(String(describing: right()?.selectedRange())), card role \(shown.accessibilityRole()?.rawValue ?? "-") label \(shown.accessibilityLabel() ?? "-"), text roles \(texts.map { $0.accessibilityRole()?.rawValue ?? "-" }) values \(texts.map { String(describing: $0.accessibilityValue()) })")
-                        NSPasteboard.general.clearContents()
-                        if let saved { NSPasteboard.general.setString(saved, forType: .string) }
-                        crop(".hover.png", textView, shown.frame.union(NSRect(x: target.x - 60, y: target.y - 20, width: 120, height: 20)).insetBy(dx: -16, dy: -16))
-                    }
-                    if let shown = card() {
-                        mouse(textView, .mouseMoved, NSPoint(x: shown.frame.midX, y: shown.frame.midY), [])
-                        mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
-                        mouse(textView, .mouseMoved, NSPoint(x: shown.frame.midX, y: shown.frame.midY), [])
-                        try? await Task.sleep(for: .milliseconds(600))
-                        print("hover pointer re-entered the card within the grace period: card \(card() == nil ? "dismissed" : "shown")")
-                    }
+                model.open(document)
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if let ref = UserDefaults.standard.string(forKey: "snapshotReviewBase"), let changes = model.changes {
+            var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            arguments[ReviewModel.baseBranchesKey] = [changes.root: [changes.branch: ref]]
+            UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            await model.load()
+        }
+        try? await Task.sleep(for: .seconds(1))
+        await showFiles(store: store, review: model)
+        print("review \(model.changes.map { "\($0.branch) → \($0.base ?? "-"), fetch error \($0.fetchError ?? "-")" } ?? "error \(model.error.map(ReviewModel.describe) ?? "timed out")")")
+        print("review card \(model.status.map { "base \(model.changes?.base ?? "-") (\(model.changes?.baseReason?.rawValue ?? "-")), bases \(model.changes?.bases.map { "\($0.ref) \($0.distance)" } ?? []), default branch \(model.changes?.isDefaultBranch == true), ahead \($0.ahead), behind \($0.behind), upstream \($0.upstream.map { "\($0.name) +\($0.ahead) -\($0.behind)" } ?? "-"), commits \($0.commits.map { "\($0.sha) \($0.isPushed ? "pushed" : "unpushed")" }), total \(model.changes?.total.map { "+\($0.additions) -\($0.deletions)" } ?? "-")" } ?? "none"), pull request details \(model.pullRequestDetails)")
+        if showsReviewThreads {
+            let threads = model.pullRequestDetails.values.flatMap(\.threads)
+            let files = Dictionary(grouping: threads, by: \.path).map { path, group in "\(path) \(group.count) (\(group.count(where: \.isResolved)) resolved)" }.sorted()
+            print("review threads \(threads.count), resolved \(threads.count(where: \.isResolved)), files \(files)")
+        }
+        for (section, files) in [("uncommitted", model.changes?.uncommitted ?? []), ("committed", model.changes?.committed ?? [])] {
+            for file in files { print("  \(section) \(file.status.rawValue) \(file.path) +\(file.additions.map(String.init) ?? "?") -\(file.deletions.map(String.init) ?? "?")") }
+        }
+        if UserDefaults.standard.bool(forKey: "reviewChangesAsTree") {
+            func lines(_ nodes: [ReviewFileTree], depth: Int) -> [String] {
+                nodes.flatMap { ["    " + String(repeating: "  ", count: depth) + $0.name + ($0.children == nil ? "" : "/")] + lines($0.children ?? [], depth: depth + 1) }
+            }
+            for (section, files) in [("uncommitted", model.changes?.uncommitted ?? []), ("committed", model.changes?.committed ?? [])] where !files.isEmpty {
+                print("  \(section) tree\n" + lines(ReviewFileTree.compactNodes(files.map(\.path)), depth: 0).joined(separator: "\n"))
+            }
+        }
+        print("review files tree \(model.tree.map { $0.children == nil ? $0.name : "\($0.name)/ (\($0.children?.count ?? 0))" }), expanded folders \(model.expandedFolders.sorted())")
+        print("review selected \(describe(model)), graph count \(model.graphCommits.count), selected commit \(model.selectedCommit ?? "-"), contents loaded \(model.selectedDocument.flatMap { model.contents[$0] } != nil), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+    }
+
+    private static func captureReviewLanguageServers(to output: URL, window: NSWindow, model: ReviewModel, descendants: @escaping (NSView) -> [NSView], save: (String) -> Void, report: (String) -> Void) async {
+        if UserDefaults.standard.bool(forKey: GeneralSettings.languageServersKey), let file = model.selectedDocument, file.compare?.isHistorical != true {
+            let right = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last }
+            let point = { (textView: ReviewTextView, spec: String) -> NSPoint? in
+                let numbers = spec.split(separator: ":").compactMap { Int($0) }
+                guard numbers.count == 2 else { return nil }
+
+                let offset = textView.offset(of: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1))
+                return textView.segments(of: NSRange(location: offset, length: 1)).first.map { NSPoint(x: $0.rect.midX, y: $0.rect.midY) }
+            }
+            let mouse = { (textView: ReviewTextView, type: NSEvent.EventType, location: NSPoint, flags: NSEvent.ModifierFlags) in
+                guard let event = NSEvent.mouseEvent(with: type, location: textView.convert(location, to: nil), modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .mouseMoved ? 0 : 1) else { return }
+                guard type == .leftMouseDown else { return textView.mouseMoved(with: event) }
+
+                NSEvent.mouseEvent(with: .leftMouseUp, location: event.locationInWindow, modifierFlags: flags, timestamp: event.timestamp, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0).map { NSApp.postEvent($0, atStart: false) }
+                textView.mouseDown(with: event)
+            }
+            let crop = { (suffix: String, view: NSView, rect: NSRect) in
+                guard let image = image(of: window) else { return }
+
+                let scale = CGFloat(image.width) / window.frame.width
+                let inWindow = view.convert(rect, to: nil)
+                let pixels = CGRect(x: inWindow.minX * scale, y: (window.frame.height - inWindow.maxY) * scale, width: inWindow.width * scale, height: inWindow.height * scale)
+                guard let cropped = image.cropping(to: pixels.integral) else { return }
+
+                try? NSBitmapImageRep(cgImage: cropped).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
+            }
+            await captureReviewDiagnostics(model: model, file: file, right: right, crop: crop)
+            let views = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView } }
+            let peek = { descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewReferencesPeek }.first }
+            let clipYs = { views().map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }.joined(separator: "/") }
+            let locate = { (spec: String) -> (textView: ReviewTextView, clicked: ReviewTextView, point: NSPoint)? in
+                let isLeft = spec.hasPrefix("left:")
+                guard let textView = isLeft ? right()?.unifiedOriginal ?? views().first : right(), let clicked = textView.window == nil || textView.enclosingScrollView?.isHidden == true ? right() : textView, let point = point(textView, isLeft ? String(spec.dropFirst(5)) : spec) else { return nil }
+
+                return (textView, clicked, point)
+            }
+            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewHover"), let (_, textView, target) = locate(spec) {
+                let requests = textView.layoutManagerRequests
+                let card = { textView.subviews.first { $0.subviews.first is NSTextView } }
+                let started = ContinuousClock.now
+                while ContinuousClock.now - started < .seconds(60), card() == nil {
                     mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
-                    print("hover after moving away: card \(card() == nil ? "dismissed" : "shown") at once")
+                    mouse(textView, .mouseMoved, target, [])
+                    try? await Task.sleep(for: .seconds(2))
+                }
+                print("hover \(spec) after \(ContinuousClock.now - started): \(card()?.subviews.map { ($0 as? NSTextView)?.string.debugDescription ?? "———" }.joined(separator: " ") ?? "no card"), card \(card().map { "\($0.frame), label \($0.subviews.first?.frame ?? .zero)" } ?? "-"), visible width \(textView.visibleRect.width), layoutManager requests \(requests) → \(textView.layoutManagerRequests), TextKit 2 \(textView.textLayoutManager != nil)")
+                if let shown = card() {
+                    let texts = shown.subviews.compactMap { $0 as? NSTextView }
+                    let saved = NSPasteboard.general.string(forType: .string)
+                    let before = right()?.selectedRange()
+                    let copied = texts.map { text -> String in
+                        text.selectAll(nil)
+                        NSPasteboard.general.clearContents()
+                        text.copy(nil)
+                        return NSPasteboard.general.string(forType: .string)?.debugDescription ?? "nil"
+                    }
+                    print("hover copy: \(copied), editor selection \(String(describing: before)) → \(String(describing: right()?.selectedRange())), card role \(shown.accessibilityRole()?.rawValue ?? "-") label \(shown.accessibilityLabel() ?? "-"), text roles \(texts.map { $0.accessibilityRole()?.rawValue ?? "-" }) values \(texts.map { String(describing: $0.accessibilityValue()) })")
+                    NSPasteboard.general.clearContents()
+                    if let saved { NSPasteboard.general.setString(saved, forType: .string) }
+                    crop(".hover.png", textView, shown.frame.union(NSRect(x: target.x - 60, y: target.y - 20, width: 120, height: 20)).insetBy(dx: -16, dy: -16))
+                }
+                if let shown = card() {
+                    mouse(textView, .mouseMoved, NSPoint(x: shown.frame.midX, y: shown.frame.midY), [])
+                    mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
+                    mouse(textView, .mouseMoved, NSPoint(x: shown.frame.midX, y: shown.frame.midY), [])
                     try? await Task.sleep(for: .milliseconds(600))
-                    print("hover after moving away: card \(card() == nil ? "dismissed" : "shown") 600 ms later")
+                    print("hover pointer re-entered the card within the grace period: card \(card() == nil ? "dismissed" : "shown")")
                 }
-                for spec in (UserDefaults.standard.string(forKey: "snapshotReviewDefinition") ?? "").split(separator: "|").map(String.init) {
-                    if model.selectedDocument != file {
-                        model.open(file)
-                        try? await Task.sleep(for: .seconds(2))
-                    }
-                    guard let (textView, clicked, target) = locate(spec) else { continue }
+                mouse(textView, .mouseMoved, NSPoint(x: textView.bounds.maxX - 2, y: target.y), [])
+                print("hover after moving away: card \(card() == nil ? "dismissed" : "shown") at once")
+                try? await Task.sleep(for: .milliseconds(600))
+                print("hover after moving away: card \(card() == nil ? "dismissed" : "shown") 600 ms later")
+            }
+            for spec in (UserDefaults.standard.string(forKey: "snapshotReviewDefinition") ?? "").split(separator: "|").map(String.init) {
+                if model.selectedDocument != file {
+                    model.open(file)
+                    try? await Task.sleep(for: .seconds(2))
+                }
+                guard let (textView, clicked, target) = locate(spec) else { continue }
 
-                    let requests = textView.layoutManagerRequests
-                    let before = views().map { $0.selectedRange() }
-                    let clipsBefore = clipYs()
-                    mouse(clicked, .mouseMoved, target, .command)
+                let requests = textView.layoutManagerRequests
+                let before = views().map { $0.selectedRange() }
+                let clipsBefore = clipYs()
+                mouse(clicked, .mouseMoved, target, .command)
+                try? await Task.sleep(for: .milliseconds(300))
+                crop(".link-\(spec.replacing(":", with: "-")).png", clicked, NSRect(x: target.x - 120, y: target.y - 20, width: 240, height: 40))
+                mouse(clicked, .leftMouseDown, target, .command)
+                let started = ContinuousClock.now
+                let isUnchanged = { model.selectedDocument == file && views().map { $0.selectedRange() } == before && peek() == nil && clipYs() == clipsBefore }
+                while ContinuousClock.now - started < .seconds(20), model.reveal != nil || isUnchanged() {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                try? await Task.sleep(for: .seconds(1))
+                if let shown = peek() {
+                    print("definition \(spec): is its own definition, peek shows \(shown.title)")
+                    if let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53) { shown.list.keyDown(with: escape) }
+                    continue
+                }
+                guard !isUnchanged(), let landed = window.firstResponder as? ReviewTextView ?? right() else {
+                    print("definition \(spec): no landing after \(ContinuousClock.now - started) (outside the repository or no answer), selected \(model.selectedDocument?.path ?? "-")")
+                    continue
+                }
+
+                let selection = landed.selectedRange()
+                let position = landed.position(ofOffset: selection.location)
+                print("definition \(spec): landed in \(describe(model)) on the \(landed === views().first ? "left" : "right") at \(position.line + 1):\(position.character + 1) selecting \((landed.string as NSString).substring(with: selection).debugDescription), clip y left/right \(descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }), first responder is right \(window.firstResponder === landed), layoutManager requests \(requests) → \(landed.layoutManagerRequests), TextKit 2 \(landed.textLayoutManager != nil)")
+                save(".definition-\(spec.replacing(":", with: "-")).png")
+                let landedDocument = model.selectedDocument
+                await model.load()
+                try? await Task.sleep(for: .seconds(1))
+                print("definition \(spec): after Refresh still showing \(landedDocument?.path ?? "-") \(model.selectedDocument == landedDocument && landedDocument.flatMap { model.contents[$0] } != nil), \(describe(model))")
+            }
+            let key = { (view: NSView, code: UInt16, characters: String, flags: NSEvent.ModifierFlags) in
+                if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code) { view.keyDown(with: event) }
+            }
+            let waitForPeek = { (isShown: Bool) in
+                let started = ContinuousClock.now
+                while ContinuousClock.now - started < .seconds(30), (peek() != nil) != isShown { try? await Task.sleep(for: .milliseconds(100)) }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            let describePeek = { (shown: ReviewReferencesPeek) in
+                "\(shown.title.debugDescription), preview selects \(shown.previewSelection.debugDescription) at clip y \(shown.previewTop), first responder in peek \((window.firstResponder as? NSView)?.isDescendant(of: shown) == true), in the \(shown.superview === views().first ? "left" : "right") view at \(shown.frame), reserved \(views().map(\.reserved))"
+            }
+            for spec in (UserDefaults.standard.string(forKey: "snapshotReviewReferences") ?? "").split(separator: "|").map(String.init) {
+                if model.selectedDocument != file {
+                    model.open(file)
+                    try? await Task.sleep(for: .seconds(2))
+                }
+                guard let (textView, clicked, target) = locate(spec) else { continue }
+
+                let name = spec.replacing(":", with: "-")
+                let menu = NSEvent.mouseEvent(with: .rightMouseDown, location: clicked.convert(target, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1).flatMap(clicked.menu(for:))
+                print("references \(spec): writing tools off in diff views \(views().map { $0.writingToolsBehavior == .none }), comment field \(ReviewInlineComment(title: "", text: "", kind: .card(onEdit: {}, onDelete: {}), style: clicked.style).field.writingToolsBehavior == .none), context menu \(menu?.items.map(\.title) ?? [])")
+                mouse(clicked, .leftMouseDown, target, .command)
+                await waitForPeek(true)
+                guard let shown = peek() else {
+                    print("references \(spec): no peek after ⌘-click, \(describe(model))")
+                    continue
+                }
+
+                print("references \(spec) after ⌘-click: \(describePeek(shown))")
+                for group in shown.outline { print("  \(group)") }
+                report("references \(spec)")
+                save(".references-\(name).png")
+                let resize = UserDefaults.standard.double(forKey: "snapshotReviewReferencesResize")
+                if resize > 0 {
+                    window.setContentSize(NSSize(width: resize, height: 900))
+                    try? await Task.sleep(for: .seconds(1.5))
+                    print("references \(spec) resized to \(resize): \(peek() === shown ? "same peek" : "peek replaced"), \(shown.split.isVertical ? "side by side" : "stacked"), preview \(shown.split.subviews[0].frame), list \(shown.split.subviews[1].frame), column \(shown.list.tableColumns.first?.width ?? -1), \(describePeek(shown))")
+                    report("references \(spec) resized")
+                    save(".references-\(name)-resized.png")
+                }
+                if let ratio = UserDefaults.standard.string(forKey: "snapshotReviewReferencesSplit").flatMap(Double.init) {
+                    let saved = UserDefaults.standard.object(forKey: "reviewReferencesSplitRatio")
+                    let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
+                    let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
+                    method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
+                    method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
+                    window.makeFirstResponder(nil)
+                    window.makeFirstResponder(shown.list)
+                    window.becomeKey()
                     try? await Task.sleep(for: .milliseconds(300))
-                    crop(".link-\(spec.replacing(":", with: "-")).png", clicked, NSRect(x: target.x - 120, y: target.y - 20, width: 240, height: 40))
-                    mouse(clicked, .leftMouseDown, target, .command)
-                    let started = ContinuousClock.now
-                    let isUnchanged = { model.selectedDocument == file && views().map { $0.selectedRange() } == before && peek() == nil && clipYs() == clipsBefore }
-                    while ContinuousClock.now - started < .seconds(20), model.reveal != nil || isUnchanged() {
-                        try? await Task.sleep(for: .milliseconds(100))
+                    print("references split after faking key: selected row emphasized \(shown.list.rowView(atRow: shown.list.selectedRow, makeIfNecessary: false)?.isEmphasized.description ?? "-")")
+                    let split = shown.split
+                    let drag = { (position: CGFloat?, clickCount: Int) in
+                        let divider = (split.isVertical ? split.subviews[0].frame.maxX : split.subviews[0].frame.maxY) + split.dividerThickness / 2
+                        let event = { (type: NSEvent.EventType, position: CGFloat) in NSEvent.mouseEvent(with: type, location: split.convert(split.isVertical ? NSPoint(x: position, y: split.bounds.midY) : NSPoint(x: split.bounds.midX, y: position), to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: type == .leftMouseUp ? 0 : 1) }
+                        event(.leftMouseDragged, position ?? divider).map { NSApp.postEvent($0, atStart: false) }
+                        event(.leftMouseUp, position ?? divider).map { NSApp.postEvent($0, atStart: false) }
+                        event(.leftMouseDown, divider).map(window.sendEvent)
                     }
+                    let state = { (label: String) in
+                        print("references split \(label): \(peek() === shown ? "same peek" : "peek replaced") at \(shown.frame), \(split.isVertical ? "side by side" : "stacked"), preview | list \(split.subviews.map { split.isVertical ? $0.frame.width : $0.frame.height }), preview clip x \((split.subviews.first as? NSScrollView)?.contentView.bounds.minX ?? -1), 2 pt past the divider hits the split \(split.hitTest(split.convert(split.isVertical ? NSPoint(x: split.subviews[0].frame.maxX + split.dividerThickness + 2, y: split.bounds.midY) : NSPoint(x: split.bounds.midX, y: split.subviews[0].frame.maxY + split.dividerThickness + 2), to: split.superview)) === split), column \(shown.list.tableColumns.first?.width ?? -1), stored \(UserDefaults.standard.object(forKey: "reviewReferencesSplitRatio").map { "\($0)" } ?? "unset"), selected row emphasized \(shown.list.rowView(atRow: shown.list.selectedRow, makeIfNecessary: false)?.isEmphasized.description ?? "-"), first responder is the list \(window.firstResponder === shown.list)")
+                    }
+                    state("before drag")
+                    drag((1 - CGFloat(ratio)) * ((split.isVertical ? split.bounds.width : split.bounds.height) - split.dividerThickness), 1)
                     try? await Task.sleep(for: .seconds(1))
-                    if let shown = peek() {
-                        print("definition \(spec): is its own definition, peek shows \(shown.title)")
-                        if let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: "\u{1B}", charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53) { shown.list.keyDown(with: escape) }
-                        continue
-                    }
-                    guard !isUnchanged(), let landed = window.firstResponder as? ReviewTextView ?? right() else {
-                        print("definition \(spec): no landing after \(ContinuousClock.now - started) (outside the repository or no answer), selected \(model.selectedDocument?.path ?? "-")")
-                        continue
-                    }
-
-                    let selection = landed.selectedRange()
-                    let position = landed.position(ofOffset: selection.location)
-                    print("definition \(spec): landed in \(describe(model)) on the \(landed === views().first ? "left" : "right") at \(position.line + 1):\(position.character + 1) selecting \((landed.string as NSString).substring(with: selection).debugDescription), clip y left/right \(descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.map { "\($0.enclosingScrollView?.contentView.bounds.minY ?? -1)" }), first responder is right \(window.firstResponder === landed), layoutManager requests \(requests) → \(landed.layoutManagerRequests), TextKit 2 \(landed.textLayoutManager != nil)")
-                    save(".definition-\(spec.replacing(":", with: "-")).png")
-                    let landedDocument = model.selectedDocument
-                    await model.load()
+                    state("dragged to list share \(ratio)")
+                    save(".references-\(name)-split.png")
+                    drag(nil, 1)
+                    drag(nil, 2)
                     try? await Task.sleep(for: .seconds(1))
-                    print("definition \(spec): after Refresh still showing \(landedDocument?.path ?? "-") \(model.selectedDocument == landedDocument && landedDocument.flatMap { model.contents[$0] } != nil), \(describe(model))")
-                }
-                let key = { (view: NSView, code: UInt16, characters: String, flags: NSEvent.ModifierFlags) in
-                    if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code) { view.keyDown(with: event) }
-                }
-                let waitForPeek = { (isShown: Bool) in
-                    let started = ContinuousClock.now
-                    while ContinuousClock.now - started < .seconds(30), (peek() != nil) != isShown { try? await Task.sleep(for: .milliseconds(100)) }
-                    try? await Task.sleep(for: .milliseconds(500))
-                }
-                let describePeek = { (shown: ReviewReferencesPeek) in
-                    "\(shown.title.debugDescription), preview selects \(shown.previewSelection.debugDescription) at clip y \(shown.previewTop), first responder in peek \((window.firstResponder as? NSView)?.isDescendant(of: shown) == true), in the \(shown.superview === views().first ? "left" : "right") view at \(shown.frame), reserved \(views().map(\.reserved))"
-                }
-                for spec in (UserDefaults.standard.string(forKey: "snapshotReviewReferences") ?? "").split(separator: "|").map(String.init) {
-                    if model.selectedDocument != file {
-                        model.open(file)
-                        try? await Task.sleep(for: .seconds(2))
-                    }
-                    guard let (textView, clicked, target) = locate(spec) else { continue }
-
-                    let name = spec.replacing(":", with: "-")
-                    let menu = NSEvent.mouseEvent(with: .rightMouseDown, location: clicked.convert(target, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1).flatMap(clicked.menu(for:))
-                    print("references \(spec): writing tools off in diff views \(views().map { $0.writingToolsBehavior == .none }), comment field \(ReviewInlineComment(title: "", text: "", kind: .card(onEdit: {}, onDelete: {}), style: clicked.style).field.writingToolsBehavior == .none), context menu \(menu?.items.map(\.title) ?? [])")
-                    mouse(clicked, .leftMouseDown, target, .command)
-                    await waitForPeek(true)
-                    guard let shown = peek() else {
-                        print("references \(spec): no peek after ⌘-click, \(describe(model))")
-                        continue
-                    }
-
-                    print("references \(spec) after ⌘-click: \(describePeek(shown))")
-                    for group in shown.outline { print("  \(group)") }
-                    report("references \(spec)")
-                    save(".references-\(name).png")
-                    let resize = UserDefaults.standard.double(forKey: "snapshotReviewReferencesResize")
-                    if resize > 0 {
-                        window.setContentSize(NSSize(width: resize, height: 900))
-                        try? await Task.sleep(for: .seconds(1.5))
-                        print("references \(spec) resized to \(resize): \(peek() === shown ? "same peek" : "peek replaced"), \(shown.split.isVertical ? "side by side" : "stacked"), preview \(shown.split.subviews[0].frame), list \(shown.split.subviews[1].frame), column \(shown.list.tableColumns.first?.width ?? -1), \(describePeek(shown))")
-                        report("references \(spec) resized")
-                        save(".references-\(name)-resized.png")
-                    }
-                    if let ratio = UserDefaults.standard.string(forKey: "snapshotReviewReferencesSplit").flatMap(Double.init) {
-                        let saved = UserDefaults.standard.object(forKey: "reviewReferencesSplitRatio")
-                        let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
-                        let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
-                        method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
-                        method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
-                        window.makeFirstResponder(nil)
-                        window.makeFirstResponder(shown.list)
-                        window.becomeKey()
-                        try? await Task.sleep(for: .milliseconds(300))
-                        print("references split after faking key: selected row emphasized \(shown.list.rowView(atRow: shown.list.selectedRow, makeIfNecessary: false)?.isEmphasized.description ?? "-")")
-                        let split = shown.split
-                        let drag = { (position: CGFloat?, clickCount: Int) in
-                            let divider = (split.isVertical ? split.subviews[0].frame.maxX : split.subviews[0].frame.maxY) + split.dividerThickness / 2
-                            let event = { (type: NSEvent.EventType, position: CGFloat) in NSEvent.mouseEvent(with: type, location: split.convert(split.isVertical ? NSPoint(x: position, y: split.bounds.midY) : NSPoint(x: split.bounds.midX, y: position), to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clickCount, pressure: type == .leftMouseUp ? 0 : 1) }
-                            event(.leftMouseDragged, position ?? divider).map { NSApp.postEvent($0, atStart: false) }
-                            event(.leftMouseUp, position ?? divider).map { NSApp.postEvent($0, atStart: false) }
-                            event(.leftMouseDown, divider).map(window.sendEvent)
-                        }
-                        let state = { (label: String) in
-                            print("references split \(label): \(peek() === shown ? "same peek" : "peek replaced") at \(shown.frame), \(split.isVertical ? "side by side" : "stacked"), preview | list \(split.subviews.map { split.isVertical ? $0.frame.width : $0.frame.height }), preview clip x \((split.subviews.first as? NSScrollView)?.contentView.bounds.minX ?? -1), 2 pt past the divider hits the split \(split.hitTest(split.convert(split.isVertical ? NSPoint(x: split.subviews[0].frame.maxX + split.dividerThickness + 2, y: split.bounds.midY) : NSPoint(x: split.bounds.midX, y: split.subviews[0].frame.maxY + split.dividerThickness + 2), to: split.superview)) === split), column \(shown.list.tableColumns.first?.width ?? -1), stored \(UserDefaults.standard.object(forKey: "reviewReferencesSplitRatio").map { "\($0)" } ?? "unset"), selected row emphasized \(shown.list.rowView(atRow: shown.list.selectedRow, makeIfNecessary: false)?.isEmphasized.description ?? "-"), first responder is the list \(window.firstResponder === shown.list)")
-                        }
-                        state("before drag")
-                        drag((1 - CGFloat(ratio)) * ((split.isVertical ? split.bounds.width : split.bounds.height) - split.dividerThickness), 1)
-                        try? await Task.sleep(for: .seconds(1))
-                        state("dragged to list share \(ratio)")
-                        save(".references-\(name)-split.png")
-                        drag(nil, 1)
-                        drag(nil, 2)
-                        try? await Task.sleep(for: .seconds(1))
-                        state("double-clicked")
-                        // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
-                        UserDefaults.standard.set(saved, forKey: "reviewReferencesSplitRatio")
-                    }
-                    key(shown.list, 125, "\u{F701}", [])
-                    print("references \(spec) after ↓: \(describePeek(shown))")
-                    save(".references-\(name)-down.png")
-                    let press = { (view: NSView, point: NSPoint, clicks: Int) in
-                        let location = view.convert(point, to: nil)
-                        let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
-                        event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
-                        event(.leftMouseDown).map(window.sendEvent)
-                    }
-                    shown.list.scrollRowToVisible(shown.list.numberOfRows - 1)
-                    let lastRow = NSPoint(x: shown.list.rect(ofRow: shown.list.numberOfRows - 1).midX, y: shown.list.rect(ofRow: shown.list.numberOfRows - 1).midY)
-                    press(shown.list, lastRow, 1)
-                    try? await Task.sleep(for: .milliseconds(300))
-                    print("references \(spec) after clicking the last row: \(describePeek(shown))")
-                    window.makeFirstResponder(descendants(shown).first { $0 is NSTextView })
-                    let previewResponder = window.firstResponder
-                    if let responder = previewResponder as? NSView { key(responder, 53, "\u{1B}", []) }
-                    await waitForPeek(false)
-                    print("references \(spec) after Esc in \(previewResponder.map { "\(type(of: $0))" } ?? "nil"): peek \(peek() == nil ? "closed" : "open"), reserved \(views().map(\.reserved)), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
-
-                    let numbers = spec.split(separator: ":").compactMap { Int($0) }
-                    let reopen = {
-                        guard let (textView, clicked, target) = locate(spec) else { return }
-
-                        let menu = NSEvent.mouseEvent(with: .rightMouseDown, location: clicked.convert(target, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1).flatMap(clicked.menu(for:))
-                        if clicked === textView, numbers.count == 2 {
-                            window.makeFirstResponder(textView)
-                            textView.setSelectedRange(NSRange(location: textView.offset(of: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1)), length: 0))
-                            key(textView, 111, "\u{F70F}", .shift)
-                        } else if let item = menu?.items.first(where: { $0.title == "Find References" }), let action = item.action {
-                            NSApp.sendAction(action, to: item.target, from: item)
-                        }
-                        await waitForPeek(true)
-                    }
-                    await reopen()
-                    guard let reopened = peek() else {
-                        print("references \(spec): no peek after \(clicked === textView ? "⇧F12" : "the context menu")")
-                        continue
-                    }
-
-                    print("references \(spec) after \(clicked === textView ? "⇧F12" : "the context menu's Find References"): \(describePeek(reopened))")
-                    press(reopened, NSPoint(x: reopened.bounds.width - 18, y: 13), 1)
-                    await waitForPeek(false)
-                    print("references \(spec) after clicking ×: peek \(peek() == nil ? "closed" : "open"), reserved \(views().map(\.reserved))")
-
-                    let land = { (gesture: String, chosen: ReviewReference?) in
-                        let started = ContinuousClock.now
-                        while ContinuousClock.now - started < .seconds(10), model.reveal != nil || peek() != nil { try? await Task.sleep(for: .milliseconds(100)) }
-                        try? await Task.sleep(for: .seconds(1))
-                        let landed = window.firstResponder as? ReviewTextView ?? right()
-                        let selection = landed?.selectedRange() ?? NSRange()
-                        print("references \(spec) after \(gesture) on \(chosen.map { "\($0.path):\($0.location.range.start.line + 1)\($0.isBase ? " (old)" : "")" } ?? "-"): peek \(peek() == nil ? "closed" : "open"), reveal pending \(model.reveal != nil), \(describe(model)), first responder is a diff side \(window.firstResponder is ReviewTextView), \(landed.map { $0 === views().first ? "left" : "right" } ?? "-") selects \(landed.map { "\($0.position(ofOffset: selection.location).line + 1):\($0.position(ofOffset: selection.location).character + 1) \(($0.string as NSString).substring(with: selection).debugDescription)" } ?? "-"), clips \(clipYs())")
-                    }
-                    await reopen()
-                    if let again = peek() {
-                        key(again.list, 125, "\u{F701}", [])
-                        let chosen = again.selectedReference
-                        key(again.list, 36, "\r", [])
-                        await land("↩", chosen)
-                        save(".references-\(name)-opened.png")
-                    }
-                    if model.selectedDocument != file {
-                        model.open(file)
-                        try? await Task.sleep(for: .seconds(2))
-                    }
-                    await reopen()
-                    if let again = peek() {
-                        again.list.selectRowIndexes(IndexSet(integer: again.list.numberOfRows - 1), byExtendingSelection: false)
-                        if let action = again.list.doubleAction { NSApp.sendAction(action, to: again.list.target, from: again.list) }
-                        await land("the list's double-click action", again.selectedReference)
-                    }
-                }
-            }
-            if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last, model.selectedDocument?.compare?.isHistorical != true {
-                window.makeFirstResponder(right)
-                right.setSelectedRange(NSRange(location: 0, length: 0))
-                right.insertText(edit, replacementRange: right.selectedRange())
-                try? await Task.sleep(for: .seconds(2))
-                print("review after edit: draft \(model.drafts[model.selectedDocument?.path ?? ""] != nil), \(describe(model)), undo \(right.undoManager?.canUndo ?? false), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
-                report("edited")
-            }
-            let scrollY = UserDefaults.standard.double(forKey: "snapshotReviewScroll")
-            if scrollY > 0, let right = sides.last {
-                right.scroll(NSPoint(x: 0, y: scrollY))
-                try? await Task.sleep(for: .milliseconds(500))
-                report("scrolled")
-            }
-            func descendantViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendantViews) }
-            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewWheel"), sides.count == 2, let separator = spec.firstIndex(of: ":"), let delta = Int32(spec[spec.index(after: separator)...]) {
-                let views = descendantViews(window.contentView ?? NSView())
-                let targets: [Substring: NSView?] = ["left": sides[0].enclosingScrollView, "right": sides[1].enclosingScrollView, "gutter-left": sides[0].gutter, "minimap": views.first { $0 is ReviewMinimap }, "ruler": views.first { $0 is ReviewOverviewRuler }]
-                let area = targets[spec[..<separator]].flatMap(\.self) ?? NSView()
-                let point = area.convert(NSPoint(x: area.bounds.midX, y: area.bounds.midY), to: nil)
-                let target = window.contentView?.hitTest(window.contentView?.superview?.convert(point, from: nil) ?? point)
-                let before = clips()
-                if let cgEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -delta, wheel2: 0, wheel3: 0), let event = NSEvent(cgEvent: cgEvent) { target?.scrollWheel(with: event) }
-                try? await Task.sleep(for: .milliseconds(500))
-                print("wheel \(spec) over \(target.map { "\(type(of: $0))" } ?? "nil"): clip y left/right \(before) → \(clips())")
-            }
-            let mouse = { (view: NSView, ys: [CGFloat]) in
-                for (index, y) in ys.enumerated() {
-                    let type: NSEvent.EventType = index == 0 ? .leftMouseDown : index == ys.count - 1 ? .leftMouseUp : .leftMouseDragged
-                    guard let event = NSEvent.mouseEvent(with: type, location: view.convert(NSPoint(x: view.bounds.midX, y: y), to: nil), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
-
-                    if type == .leftMouseDown { view.mouseDown(with: event) } else if type == .leftMouseDragged { view.mouseDragged(with: event) } else { view.mouseUp(with: event) }
-                }
-            }
-            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewMinimap"), let minimap = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewMinimap }).first, !minimap.isHidden {
-                let ys = spec.split(separator: "-").compactMap { Double($0) }.map { CGFloat($0) }
-                let before = (clips(), minimap.renders)
-                mouse(minimap, ys + [ys.last ?? 0])
-                try? await Task.sleep(for: .milliseconds(300))
-                print("minimap \(minimap.isHidden ? "hidden" : "shown") \(minimap.frame.size) drag \(spec): clip y left/right \(before.0) → \(clips()), renders \(before.1) → \(minimap.renders)")
-            }
-            if let y = UserDefaults.standard.string(forKey: "snapshotReviewRuler").flatMap(Double.init), let ruler = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewOverviewRuler }).first {
-                let before = clips()
-                mouse(ruler, [CGFloat(y), CGFloat(y)])
-                try? await Task.sleep(for: .milliseconds(300))
-                print("ruler \(ruler.frame.size) click \(y): clip y left/right \(before) → \(clips())")
-            }
-            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewGutter"), sides.count == 2, let separator = spec.firstIndex(of: ":") {
-                let side = spec[..<separator] == "left" ? sides[0] : sides[1]
-                let lines = spec[spec.index(after: separator)...].split(separator: "-").compactMap { Int($0) }
-                let host = sides[1].unifiedOriginal == nil ? side : sides[1]
-                let drag = {
-                    let ys = lines.map { line in
-                        let y = side.top(ofRow: side.side?.rows[line - 1] ?? 0) + side.rowHeight / 2
-                        return host.gutter.map { $0.convert(host.convert(NSPoint(x: 0, y: y), to: nil), from: nil).y } ?? 0
-                    }
-                    if let gutter = host.gutter { mouse(gutter, ys + [ys.last ?? 0]) }
-                }
-                let draft = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.first(where: \.field.isEditable) }
-                let type = { (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) in
-                    guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { return }
-
-                    window.sendEvent(event)
-                }
-                let clock = ContinuousClock.now
-                drag()
-                let opened = ContinuousClock.now - clock
-                try? await Task.sleep(for: .milliseconds(500))
-                print("gutter \(spec) opened in \(opened): selected \(sides.map { $0.selectedLines.map { "\($0)" } ?? "-" }), draft \(draft().map { "\($0.frame) in \($0.superview === sides[0] ? "left" : "right")" } ?? "none"), first responder is draft field \(window.firstResponder === draft()?.field)")
-                report("draft")
-                save(".draft.png")
-                type("\u{1B}", 53, [])
-                try? await Task.sleep(for: .milliseconds(300))
-                print("after esc: draft \(draft() == nil ? "closed" : "open"), selected \(sides.map { $0.selectedLines.map { "\($0)" } ?? "-" }), reserved \(sides[1].reserved)")
-                drag()
-                try? await Task.sleep(for: .milliseconds(300))
-                for (character, keyCode, flags) in [("f", 3, []), ("i", 34, []), ("x", 7, []), ("\r", 36, .shift), ("i", 34, []), ("t", 17, [])] as [(String, UInt16, NSEvent.ModifierFlags)] {
-                    type(character, keyCode, flags)
-                }
-                try? await Task.sleep(for: .milliseconds(300))
-                print("typed: field \(draft()?.field.string.debugDescription ?? "-"), Add Comment enabled \(draft()?.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Add Comment" }?.isEnabled ?? false), draft height \(draft()?.frame.height ?? -1), reserved \(sides[1].reserved)")
-                report("typed")
-                type("\r", 36, [])
-                try? await Task.sleep(for: .milliseconds(500))
-                print("comments: \(model.comments.map { "\($0.path):\($0.line)-\($0.endLine) \($0.side) \($0.compare.map { "\($0)" } ?? "file") \($0.text.debugDescription) snippet \($0.snippet.debugDescription)" }), draft \(draft() == nil ? "closed" : "open")")
-                report("card")
-                save(".card.png")
-                if let spec = UserDefaults.standard.string(forKey: "snapshotReviewRestyle"), let separator = spec.firstIndex(of: ":") {
-                    let keys = [ReviewStyle.colorSchemeKey, ReviewStyle.lineHeightKey]
-                    let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
+                    state("double-clicked")
                     // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
-                    UserDefaults.standard.set(String(spec[..<separator]), forKey: keys[0])
-                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
-                    UserDefaults.standard.set(Double(spec[spec.index(after: separator)...]) ?? 1.3, forKey: keys[1])
-                    try? await Task.sleep(for: .milliseconds(800))
-                    print("restyled \(spec): text view background \(sides[1].backgroundColor), row height \(sides[1].rowHeight), inline \(sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.map { "\($0.frame) \($0.appearance?.name.rawValue ?? "-")" })")
-                    report("restyled")
-                    save(".restyled.png")
-                    // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
-                    for (key, value) in zip(keys, saved) { UserDefaults.standard.set(value, forKey: key) }
+                    UserDefaults.standard.set(saved, forKey: "reviewReferencesSplitRatio")
                 }
-                if UserDefaults.standard.bool(forKey: "snapshotReviewDelete") {
-                    let button = sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.flatMap(\.subviews).compactMap { $0 as? NSButton }.first { $0.toolTip == "Delete Comment" }
-                    button?.performClick(nil)
-                    try? await Task.sleep(for: .milliseconds(500))
-                    let cards = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.count }
-                    print("after card delete: comments \(model.comments.map(\.id)), cards \(cards())")
-                    report("deleted")
-                    model.comments.append(ReviewComment(id: "list", path: model.selectedDocument?.path ?? "", line: 1, endLine: 1, text: "From the list", snippet: "", compare: model.selectedDocument.flatMap(\.compare)))
-                    try? await Task.sleep(for: .milliseconds(500))
-                    let added = cards()
-                    model.comments.removeAll { $0.id == "list" }
-                    try? await Task.sleep(for: .milliseconds(500))
-                    print("model append then list delete: cards \(added) → \(cards()), reserved \(sides[1].reserved)")
-                }
-            }
-            if UserDefaults.standard.bool(forKey: "snapshotReviewEditComment"), sides.count == 2 {
-                let inline = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment } }
-                let box = { inline().first(where: \.field.isEditable) }
-                let card = { inline().first { !$0.field.isEditable && !$0.isHidden } }
-                let state = { (label: String) in
-                    print("edit \(label): comments \(model.comments.enumerated().map { "\($0.offset) \($0.element.id) \($0.element.line)-\($0.element.endLine) \($0.element.side) \($0.element.compare.map { "\($0)" } ?? "file") \($0.element.text.debugDescription)" }), box \(box().map { "\($0.frame) \($0.header.stringValue) text \($0.field.string.debugDescription) caret \($0.field.selectedRange().location)+\($0.field.selectedRange().length) of \(($0.field.string as NSString).length), buttons \($0.subviews.compactMap { $0 as? NSButton }.map { "\($0.title) \($0.isEnabled ? "enabled" : "disabled")" })" } ?? "closed"), first responder is box field \(box().map { window.firstResponder === $0.field } ?? false), cards \(inline().filter { !$0.field.isEditable }.map { "\($0.isHidden ? "hidden" : "shown") \($0.frame) \($0.field.string.debugDescription)" }), reserved \(sides[1].reserved)")
-                    report("edit-\(label)")
-                }
-                let type = { (text: String) in
-                    for character in text {
-                        let keyCode: UInt16 = character == "\r" || character == "\n" ? 36 : character == "\u{1B}" ? 53 : 0
-                        let typed = character == "\n" ? "\r" : String(character)
-                        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: character == "\n" ? .shift : [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: typed, charactersIgnoringModifiers: typed, isARepeat: false, keyCode: keyCode) else { continue }
-
-                        window.sendEvent(event)
-                    }
-                }
-                let press = { (view: NSView, clicks: Int) in
-                    let location = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+                key(shown.list, 125, "\u{F701}", [])
+                print("references \(spec) after ↓: \(describePeek(shown))")
+                save(".references-\(name)-down.png")
+                let press = { (view: NSView, point: NSPoint, clicks: Int) in
+                    let location = view.convert(point, to: nil)
                     let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
                     event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
                     event(.leftMouseDown).map(window.sendEvent)
                 }
-                let doubleClick = {
-                    guard let field = card()?.field else { return print("edit: no card to click") }
+                shown.list.scrollRowToVisible(shown.list.numberOfRows - 1)
+                let lastRow = NSPoint(x: shown.list.rect(ofRow: shown.list.numberOfRows - 1).midX, y: shown.list.rect(ofRow: shown.list.numberOfRows - 1).midY)
+                press(shown.list, lastRow, 1)
+                try? await Task.sleep(for: .milliseconds(300))
+                print("references \(spec) after clicking the last row: \(describePeek(shown))")
+                window.makeFirstResponder(descendants(shown).first { $0 is NSTextView })
+                let previewResponder = window.firstResponder
+                if let responder = previewResponder as? NSView { key(responder, 53, "\u{1B}", []) }
+                await waitForPeek(false)
+                print("references \(spec) after Esc in \(previewResponder.map { "\(type(of: $0))" } ?? "nil"): peek \(peek() == nil ? "closed" : "open"), reserved \(views().map(\.reserved)), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
 
-                    press(field, 1)
-                    try? await Task.sleep(for: .milliseconds(500))
+                let numbers = spec.split(separator: ":").compactMap { Int($0) }
+                let reopen = {
+                    guard let (textView, clicked, target) = locate(spec) else { return }
+
+                    let menu = NSEvent.mouseEvent(with: .rightMouseDown, location: clicked.convert(target, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1).flatMap(clicked.menu(for:))
+                    if clicked === textView, numbers.count == 2 {
+                        window.makeFirstResponder(textView)
+                        textView.setSelectedRange(NSRange(location: textView.offset(of: LanguageServerPosition(line: numbers[0] - 1, character: numbers[1] - 1)), length: 0))
+                        key(textView, 111, "\u{F70F}", .shift)
+                    } else if let item = menu?.items.first(where: { $0.title == "Find References" }), let action = item.action {
+                        NSApp.sendAction(action, to: item.target, from: item)
+                    }
+                    await waitForPeek(true)
                 }
-                let pencil = {
-                    if let field = card()?.field { press(field, 1) }
-                    try? await Task.sleep(for: .milliseconds(500))
+                await reopen()
+                guard let reopened = peek() else {
+                    print("references \(spec): no peek after \(clicked === textView ? "⇧F12" : "the context menu")")
+                    continue
                 }
-                state("before")
-                await pencil()
-                state("pencil")
-                save(".editing.png")
-                type(" more\nx")
-                try? await Task.sleep(for: .milliseconds(300))
-                state("typed")
-                type("\u{1B}")
-                try? await Task.sleep(for: .milliseconds(300))
-                state("esc")
-                await doubleClick()
-                state("double-click")
-                type(" Edited")
-                type("\r")
-                try? await Task.sleep(for: .milliseconds(500))
-                state("saved")
-                save(".edited.png")
-                if let shown = card(), let event = NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil) {
-                    shown.mouseEntered(with: event)
-                    try? await Task.sleep(for: .milliseconds(300))
-                    print("edit hover: card buttons \(shown.subviews.compactMap { $0 as? NSButton }.map { "\($0.toolTip ?? "-") \($0.isHidden ? "hidden" : "shown") \($0.frame)" })")
-                    save(".card-hover.png")
-                    shown.mouseExited(with: event)
+
+                print("references \(spec) after \(clicked === textView ? "⇧F12" : "the context menu's Find References"): \(describePeek(reopened))")
+                press(reopened, NSPoint(x: reopened.bounds.width - 18, y: 13), 1)
+                await waitForPeek(false)
+                print("references \(spec) after clicking ×: peek \(peek() == nil ? "closed" : "open"), reserved \(views().map(\.reserved))")
+
+                let land = { (gesture: String, chosen: ReviewReference?) in
+                    let started = ContinuousClock.now
+                    while ContinuousClock.now - started < .seconds(10), model.reveal != nil || peek() != nil { try? await Task.sleep(for: .milliseconds(100)) }
+                    try? await Task.sleep(for: .seconds(1))
+                    let landed = window.firstResponder as? ReviewTextView ?? right()
+                    let selection = landed?.selectedRange() ?? NSRange()
+                    print("references \(spec) after \(gesture) on \(chosen.map { "\($0.path):\($0.location.range.start.line + 1)\($0.isBase ? " (old)" : "")" } ?? "-"): peek \(peek() == nil ? "closed" : "open"), reveal pending \(model.reveal != nil), \(describe(model)), first responder is a diff side \(window.firstResponder is ReviewTextView), \(landed.map { $0 === views().first ? "left" : "right" } ?? "-") selects \(landed.map { "\($0.position(ofOffset: selection.location).line + 1):\($0.position(ofOffset: selection.location).character + 1) \(($0.string as NSString).substring(with: selection).debugDescription)" } ?? "-"), clips \(clipYs())")
                 }
-                print("edit prompt: \(ReviewComment.prompt(for: model.comments, branch: "b", base: "main").debugDescription)")
-                await pencil()
-                box()?.field.selectAll(nil)
-                box()?.field.delete(nil)
-                type("\r")
-                try? await Task.sleep(for: .milliseconds(300))
-                state("emptied")
-                await pencil()
-                if let gutter = sides[1].gutter {
-                    let y = gutter.convert(sides[1].convert(NSPoint(x: 0, y: sides[1].top(ofRow: sides[1].side?.rows.first ?? 0) + sides[1].rowHeight / 2), to: nil), from: nil).y
-                    mouse(gutter, [y, y])
+                await reopen()
+                if let again = peek() {
+                    key(again.list, 125, "\u{F701}", [])
+                    let chosen = again.selectedReference
+                    key(again.list, 36, "\r", [])
+                    await land("↩", chosen)
+                    save(".references-\(name)-opened.png")
                 }
-                try? await Task.sleep(for: .milliseconds(300))
-                state("gutter over edit")
-                type("\u{1B}")
-                try? await Task.sleep(for: .milliseconds(300))
-                store.closeDiff()
-                try? await Task.sleep(for: .milliseconds(500))
-                print("edit closed diff: \(describe(model))")
-                model.showsCommentList = true
-                try? await Task.sleep(for: .milliseconds(500))
-                let row = NSPoint(x: 100, y: 90)
-                for clicks in [1, 2] {
-                    let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: row, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
-                    event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
-                    event(.leftMouseDown).map(window.sendEvent)
-                    try? await Task.sleep(for: .milliseconds(100))
+                if model.selectedDocument != file {
+                    model.open(file)
+                    try? await Task.sleep(for: .seconds(2))
                 }
-                try? await Task.sleep(for: .seconds(2))
-                print("edit panel double-click: \(describe(model)), request pending \(model.editingComment != nil)")
-                state("panel double-click")
-                save(".panel-edit.png")
-                type("\u{1B}")
-                try? await Task.sleep(for: .milliseconds(300))
-                await pencil()
-                let first = model.comments.first?.id
-                model.comments.removeAll { $0.id == first }
-                try? await Task.sleep(for: .milliseconds(500))
-                state("deleted while editing")
-            }
-            if UserDefaults.standard.bool(forKey: "snapshotPerf") { await measurePerformance(window: window, store: store) }
-            let resize = UserDefaults.standard.double(forKey: "snapshotReviewResize")
-            if resize > 0 {
-                window.setContentSize(NSSize(width: resize, height: 900))
-                try? await Task.sleep(for: .seconds(1))
-                report("resized")
-                save(".resized.png")
-            }
-            if UserDefaults.standard.bool(forKey: "snapshotReviewSurfaces"), let split = descendantViews(window.contentView ?? NSView()).first(where: { $0.identifier?.rawValue == "terminalSplit" }) as? NSSplitView, let claude = store.tabs.first(where: { $0.id == store.selectedTabID }) {
-                let file = model.selectedDocument
-                let mounted = { store.tabs.map { tab in tab.terminal.attachedPlatformView.map { [ObjectIdentifier($0), $0.superview.map(ObjectIdentifier.init)] } ?? [] } }
-                let windows = { store.tabs.map { $0.terminal.attachedPlatformView?.window === window } }
-                let starts = { (try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0 }
-                let processes = ProcessAncestry.descendants()
-                let views = mounted()
-                let ptyCount = ptys()
-                let shellStarts = starts()
-                print("surfaces before: window \(Int(window.frame.width)), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), \(split.arrangedSubviews.map { Int($0.frame.width) }), \(store.tabs.count) tabs, descendants \(processes.map(\.pid).sorted()), ptys \(ptyCount), shell starts \(shellStarts)")
-                let flipSidebar = {
-                    var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
-                    arguments["sidebarPosition"] = UserDefaults.standard.string(forKey: "sidebarPosition") == "right" ? "left" : "right"
-                    UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
-                }
-                let flipBelow = {
-                    var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
-                    arguments[GeneralSettings.terminalBelowKey] = !UserDefaults.standard.bool(forKey: GeneralSettings.terminalBelowKey)
-                    UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
-                }
-                let steps: [(String, () -> Void)] = [
-                    ("close diff", { store.closeDiff() }),
-                    ("open diff", { if let file { model.open(file) } }),
-                    ("hide changes", { AppAction.hideChanges.perform(on: store) }),
-                    ("show changes", { AppAction.showChanges.perform(on: store) }),
-                    ("select terminal", { store.activate(store.terminals.first.map { SidebarItem.tab($0.id) }) }),
-                    ("select claude", { store.activate(.tab(claude.id)) }),
-                    ("harbor", { store.isHarborShown = true }),
-                    ("leave harbor", { store.isHarborShown = false }),
-                    ("flip sidebar", flipSidebar),
-                    ("flip back", flipSidebar),
-                    ("flip terminal placement", flipBelow),
-                    ("flip terminal placement back", flipBelow),
-                    ("scroll right side to x 40", { descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last.map { $0.scroll(NSPoint(x: 40, y: $0.visibleRect.minY)) } }),
-                    ("live resize after scroll", {
-                        window.setContentSize(NSSize(width: window.contentLayoutRect.width - 80, height: window.contentLayoutRect.height))
-                        for side in descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewTextView }) {
-                            side.viewWillStartLiveResize()
-                            side.viewDidEndLiveResize()
-                        }
-                    }),
-                    ("narrow to 1200", { window.setContentSize(NSSize(width: 1200, height: window.contentLayoutRect.height)) }),
-                    ("close diff again", { store.closeDiff() }),
-                    ("reopen diff", { if let file { model.open(file) } }),
-                    ("close diff once more", { store.closeDiff() }),
-                ]
-                for (label, step) in steps {
-                    step()
-                    try? await Task.sleep(for: .seconds(1.5))
-                    let now = ProcessAncestry.descendants()
-                    print("\(label): sidebar \(UserDefaults.standard.string(forKey: "sidebarPosition") ?? "left"), text clip x \(descendantViews(window.contentView ?? NSView()).compactMap { ($0 as? ReviewTextView)?.enclosingScrollView?.contentView.bounds.minX }), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), panel \(store.showsReviewPanel ? "shown" : "hidden"), harbor \(store.isHarborShown), diff \(store.reviewModel?.selectedDocument?.path ?? "closed"), split \(split.arrangedSubviews.map { "\(Int($0.frame.width))x\(Int($0.frame.height))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" }), same views \(mounted() == views), in window \(windows()), lost \(processes.subtracting(now).count), new \(now.subtracting(processes).count), ptys \(ptys()), shell starts \(starts())")
-                    save(".\(label.replacing(" ", with: "-")).png")
+                await reopen()
+                if let again = peek() {
+                    again.list.selectRowIndexes(IndexSet(integer: again.list.numberOfRows - 1), byExtendingSelection: false)
+                    if let action = again.list.doubleAction { NSApp.sendAction(action, to: again.list.target, from: again.list) }
+                    await land("the list's double-click action", again.selectedReference)
                 }
             }
         }
+    }
+
+    private static func captureReviewDiagnostics(model: ReviewModel, file: ReviewDocument, right: () -> ReviewTextView?, crop: (String, NSView, NSRect) -> Void) async {
+        let clock = ContinuousClock.now
+        while ContinuousClock.now - clock < .seconds(120), file.compare != .committed, right()?.diagnostics.isEmpty != false { try? await Task.sleep(for: .milliseconds(250)) }
+        let waited = ContinuousClock.now - clock
+        var settled = (diagnostics: right()?.diagnostics ?? [], at: ContinuousClock.now)
+        while ContinuousClock.now - settled.at < .seconds(3), ContinuousClock.now - clock < .seconds(150) {
+            try? await Task.sleep(for: .milliseconds(250))
+            if let shown = right()?.diagnostics, shown != settled.diagnostics { settled = (shown, .now) }
+        }
+        if let textView = right(), let gutter = textView.gutter {
+            print("diagnostics shown after \(waited): " + textView.diagnostics.map { "\($0.range.start.line + 1):\($0.range.start.character + 1)-\($0.range.end.line + 1):\($0.range.end.character + 1) \($0.severity.map { "\($0)" } ?? "-") \($0.message.debugDescription) (\($0.source ?? "-")) tags \($0.tags.map { "\($0)" }.sorted())" }.joined(separator: "; "))
+            if let first = textView.diagnostics.first, let segment = textView.segments(of: NSRange(location: textView.offset(of: first.range.start), length: 1)).first {
+                let middle = NSPoint(x: segment.rect.midX, y: segment.rect.midY)
+                let mark = gutter.convert(middle, from: textView)
+                print("diagnostic tooltip: gutter \(gutter.view(gutter, stringForToolTip: 0, point: NSPoint(x: 7, y: mark.y), userData: nil).debugDescription)")
+                crop(".diagnostic.png", gutter, NSRect(x: 0, y: mark.y - 40, width: gutter.bounds.width + 520, height: 80))
+            }
+        }
+        let servers = {
+            ProcessAncestry.descendants().map(\.pid).filter { pid in
+                var name = [CChar](repeating: 0, count: 256)
+                proc_name(pid, &name, 256)
+                return String(decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) == "sourcekit-lsp"
+            }.sorted()
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotReviewToggleServers") {
+            let setEnabled = { (isEnabled: Bool) in
+                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                arguments[GeneralSettings.languageServersKey] = isEnabled
+                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            }
+            let before = servers()
+            setEnabled(false)
+            try? await Task.sleep(for: .seconds(3))
+            print("toggle: servers \(before) → off \(servers()), diagnostics \(right()?.diagnostics.count ?? -1)")
+            setEnabled(true)
+            let clock = ContinuousClock.now
+            while ContinuousClock.now - clock < .seconds(30), right()?.diagnostics.isEmpty != false { try? await Task.sleep(for: .milliseconds(250)) }
+            print("toggle: on again \(servers()), diagnostics \(right()?.diagnostics.count ?? -1) after \(ContinuousClock.now - clock)")
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotReviewCrash"), let other = model.changes?.uncommitted.first(where: { $0.path != file.path })?.path {
+            let killed = servers()
+            killed.forEach { kill($0, SIGKILL) }
+            try? await Task.sleep(for: .seconds(1.5))
+            print("crash: killed \(killed), servers now \(servers()), still showing \(model.selectedDocument?.path ?? "-") with \(right()?.diagnostics.count ?? -1) diagnostics")
+            model.open(model.workingDocument(other))
+            try? await Task.sleep(for: .seconds(2))
+            model.open(file)
+            let clock = ContinuousClock.now
+            while ContinuousClock.now - clock < .seconds(30), servers().isEmpty { try? await Task.sleep(for: .milliseconds(250)) }
+            try? await Task.sleep(for: .seconds(3))
+            print("crash: after showing \(other) and \(file) again, servers \(servers()), diagnostics \(right()?.diagnostics.map(\.message) ?? [])")
+        }
+    }
+
+    private static func captureReviewInteractions(store: Store, window: NSWindow, model: ReviewModel, sides: [ReviewTextView], clips: () -> String, save: (String) -> Void, report: @escaping (String) -> Void) async {
+        if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last, model.selectedDocument?.compare?.isHistorical != true {
+            window.makeFirstResponder(right)
+            right.setSelectedRange(NSRange(location: 0, length: 0))
+            right.insertText(edit, replacementRange: right.selectedRange())
+            try? await Task.sleep(for: .seconds(2))
+            print("review after edit: draft \(model.drafts[model.selectedDocument?.path ?? ""] != nil), \(describe(model)), undo \(right.undoManager?.canUndo ?? false), first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
+            report("edited")
+        }
+        let scrollY = UserDefaults.standard.double(forKey: "snapshotReviewScroll")
+        if scrollY > 0, let right = sides.last {
+            right.scroll(NSPoint(x: 0, y: scrollY))
+            try? await Task.sleep(for: .milliseconds(500))
+            report("scrolled")
+        }
+        func descendantViews(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendantViews) }
+        if let spec = UserDefaults.standard.string(forKey: "snapshotReviewWheel"), sides.count == 2, let separator = spec.firstIndex(of: ":"), let delta = Int32(spec[spec.index(after: separator)...]) {
+            let views = descendantViews(window.contentView ?? NSView())
+            let targets: [Substring: NSView?] = ["left": sides[0].enclosingScrollView, "right": sides[1].enclosingScrollView, "gutter-left": sides[0].gutter, "minimap": views.first { $0 is ReviewMinimap }, "ruler": views.first { $0 is ReviewOverviewRuler }]
+            let area = targets[spec[..<separator]].flatMap(\.self) ?? NSView()
+            let point = area.convert(NSPoint(x: area.bounds.midX, y: area.bounds.midY), to: nil)
+            let target = window.contentView?.hitTest(window.contentView?.superview?.convert(point, from: nil) ?? point)
+            let before = clips()
+            if let cgEvent = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -delta, wheel2: 0, wheel3: 0), let event = NSEvent(cgEvent: cgEvent) { target?.scrollWheel(with: event) }
+            try? await Task.sleep(for: .milliseconds(500))
+            print("wheel \(spec) over \(target.map { "\(type(of: $0))" } ?? "nil"): clip y left/right \(before) → \(clips())")
+        }
+        let mouse = { (view: NSView, ys: [CGFloat]) in
+            for (index, y) in ys.enumerated() {
+                let type: NSEvent.EventType = index == 0 ? .leftMouseDown : index == ys.count - 1 ? .leftMouseUp : .leftMouseDragged
+                guard let event = NSEvent.mouseEvent(with: type, location: view.convert(NSPoint(x: view.bounds.midX, y: y), to: nil), modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+
+                if type == .leftMouseDown { view.mouseDown(with: event) } else if type == .leftMouseDragged { view.mouseDragged(with: event) } else { view.mouseUp(with: event) }
+            }
+        }
+        if let spec = UserDefaults.standard.string(forKey: "snapshotReviewMinimap"), let minimap = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewMinimap }).first, !minimap.isHidden {
+            let ys = spec.split(separator: "-").compactMap { Double($0) }.map { CGFloat($0) }
+            let before = (clips(), minimap.renders)
+            mouse(minimap, ys + [ys.last ?? 0])
+            try? await Task.sleep(for: .milliseconds(300))
+            print("minimap \(minimap.isHidden ? "hidden" : "shown") \(minimap.frame.size) drag \(spec): clip y left/right \(before.0) → \(clips()), renders \(before.1) → \(minimap.renders)")
+        }
+        if let y = UserDefaults.standard.string(forKey: "snapshotReviewRuler").flatMap(Double.init), let ruler = descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewOverviewRuler }).first {
+            let before = clips()
+            mouse(ruler, [CGFloat(y), CGFloat(y)])
+            try? await Task.sleep(for: .milliseconds(300))
+            print("ruler \(ruler.frame.size) click \(y): clip y left/right \(before) → \(clips())")
+        }
+        if let spec = UserDefaults.standard.string(forKey: "snapshotReviewGutter"), sides.count == 2, let separator = spec.firstIndex(of: ":") {
+            let side = spec[..<separator] == "left" ? sides[0] : sides[1]
+            let lines = spec[spec.index(after: separator)...].split(separator: "-").compactMap { Int($0) }
+            let host = sides[1].unifiedOriginal == nil ? side : sides[1]
+            let drag = {
+                let ys = lines.map { line in
+                    let y = side.top(ofRow: side.side?.rows[line - 1] ?? 0) + side.rowHeight / 2
+                    return host.gutter.map { $0.convert(host.convert(NSPoint(x: 0, y: y), to: nil), from: nil).y } ?? 0
+                }
+                if let gutter = host.gutter { mouse(gutter, ys + [ys.last ?? 0]) }
+            }
+            let draft = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.first(where: \.field.isEditable) }
+            let type = { (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags) in
+                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { return }
+
+                window.sendEvent(event)
+            }
+            let clock = ContinuousClock.now
+            drag()
+            let opened = ContinuousClock.now - clock
+            try? await Task.sleep(for: .milliseconds(500))
+            print("gutter \(spec) opened in \(opened): selected \(sides.map { $0.selectedLines.map { "\($0)" } ?? "-" }), draft \(draft().map { "\($0.frame) in \($0.superview === sides[0] ? "left" : "right")" } ?? "none"), first responder is draft field \(window.firstResponder === draft()?.field)")
+            report("draft")
+            save(".draft.png")
+            type("\u{1B}", 53, [])
+            try? await Task.sleep(for: .milliseconds(300))
+            print("after esc: draft \(draft() == nil ? "closed" : "open"), selected \(sides.map { $0.selectedLines.map { "\($0)" } ?? "-" }), reserved \(sides[1].reserved)")
+            drag()
+            try? await Task.sleep(for: .milliseconds(300))
+            for (character, keyCode, flags) in [("f", 3, []), ("i", 34, []), ("x", 7, []), ("\r", 36, .shift), ("i", 34, []), ("t", 17, [])] as [(String, UInt16, NSEvent.ModifierFlags)] {
+                type(character, keyCode, flags)
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            print("typed: field \(draft()?.field.string.debugDescription ?? "-"), Add Comment enabled \(draft()?.subviews.compactMap { $0 as? NSButton }.first { $0.title == "Add Comment" }?.isEnabled ?? false), draft height \(draft()?.frame.height ?? -1), reserved \(sides[1].reserved)")
+            report("typed")
+            type("\r", 36, [])
+            try? await Task.sleep(for: .milliseconds(500))
+            print("comments: \(model.comments.map { "\($0.path):\($0.line)-\($0.endLine) \($0.side) \($0.compare.map { "\($0)" } ?? "file") \($0.text.debugDescription) snippet \($0.snippet.debugDescription)" }), draft \(draft() == nil ? "closed" : "open")")
+            report("card")
+            save(".card.png")
+            if let spec = UserDefaults.standard.string(forKey: "snapshotReviewRestyle"), let separator = spec.firstIndex(of: ":") {
+                let keys = [ReviewStyle.colorSchemeKey, ReviewStyle.lineHeightKey]
+                let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
+                // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
+                UserDefaults.standard.set(String(spec[..<separator]), forKey: keys[0])
+                // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
+                UserDefaults.standard.set(Double(spec[spec.index(after: separator)...]) ?? 1.3, forKey: keys[1])
+                try? await Task.sleep(for: .milliseconds(800))
+                print("restyled \(spec): text view background \(sides[1].backgroundColor), row height \(sides[1].rowHeight), inline \(sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.map { "\($0.frame) \($0.appearance?.name.rawValue ?? "-")" })")
+                report("restyled")
+                save(".restyled.png")
+                // swiftlint:disable:next snapshot_defaults_write - the app writes it or it is restored right after
+                for (key, value) in zip(keys, saved) { UserDefaults.standard.set(value, forKey: key) }
+            }
+            if UserDefaults.standard.bool(forKey: "snapshotReviewDelete") {
+                let button = sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.flatMap(\.subviews).compactMap { $0 as? NSButton }.first { $0.toolTip == "Delete Comment" }
+                button?.performClick(nil)
+                try? await Task.sleep(for: .milliseconds(500))
+                let cards = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment }.count }
+                print("after card delete: comments \(model.comments.map(\.id)), cards \(cards())")
+                report("deleted")
+                model.comments.append(ReviewComment(id: "list", path: model.selectedDocument?.path ?? "", line: 1, endLine: 1, text: "From the list", snippet: "", compare: model.selectedDocument.flatMap(\.compare)))
+                try? await Task.sleep(for: .milliseconds(500))
+                let added = cards()
+                model.comments.removeAll { $0.id == "list" }
+                try? await Task.sleep(for: .milliseconds(500))
+                print("model append then list delete: cards \(added) → \(cards()), reserved \(sides[1].reserved)")
+            }
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotReviewEditComment"), sides.count == 2 {
+            let inline = { sides.flatMap(\.subviews).compactMap { $0 as? ReviewInlineComment } }
+            let box = { inline().first(where: \.field.isEditable) }
+            let card = { inline().first { !$0.field.isEditable && !$0.isHidden } }
+            let state = { (label: String) in
+                print("edit \(label): comments \(model.comments.enumerated().map { "\($0.offset) \($0.element.id) \($0.element.line)-\($0.element.endLine) \($0.element.side) \($0.element.compare.map { "\($0)" } ?? "file") \($0.element.text.debugDescription)" }), box \(box().map { "\($0.frame) \($0.header.stringValue) text \($0.field.string.debugDescription) caret \($0.field.selectedRange().location)+\($0.field.selectedRange().length) of \(($0.field.string as NSString).length), buttons \($0.subviews.compactMap { $0 as? NSButton }.map { "\($0.title) \($0.isEnabled ? "enabled" : "disabled")" })" } ?? "closed"), first responder is box field \(box().map { window.firstResponder === $0.field } ?? false), cards \(inline().filter { !$0.field.isEditable }.map { "\($0.isHidden ? "hidden" : "shown") \($0.frame) \($0.field.string.debugDescription)" }), reserved \(sides[1].reserved)")
+                report("edit-\(label)")
+            }
+            let type = { (text: String) in
+                for character in text {
+                    let keyCode: UInt16 = character == "\r" || character == "\n" ? 36 : character == "\u{1B}" ? 53 : 0
+                    let typed = character == "\n" ? "\r" : String(character)
+                    guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: character == "\n" ? .shift : [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: typed, charactersIgnoringModifiers: typed, isARepeat: false, keyCode: keyCode) else { continue }
+
+                    window.sendEvent(event)
+                }
+            }
+            let press = { (view: NSView, clicks: Int) in
+                let location = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+                let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
+                event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
+                event(.leftMouseDown).map(window.sendEvent)
+            }
+            let doubleClick = {
+                guard let field = card()?.field else { return print("edit: no card to click") }
+
+                press(field, 1)
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            let pencil = {
+                if let field = card()?.field { press(field, 1) }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            state("before")
+            await pencil()
+            state("pencil")
+            save(".editing.png")
+            type(" more\nx")
+            try? await Task.sleep(for: .milliseconds(300))
+            state("typed")
+            type("\u{1B}")
+            try? await Task.sleep(for: .milliseconds(300))
+            state("esc")
+            await doubleClick()
+            state("double-click")
+            type(" Edited")
+            type("\r")
+            try? await Task.sleep(for: .milliseconds(500))
+            state("saved")
+            save(".edited.png")
+            if let shown = card(), let event = NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil) {
+                shown.mouseEntered(with: event)
+                try? await Task.sleep(for: .milliseconds(300))
+                print("edit hover: card buttons \(shown.subviews.compactMap { $0 as? NSButton }.map { "\($0.toolTip ?? "-") \($0.isHidden ? "hidden" : "shown") \($0.frame)" })")
+                save(".card-hover.png")
+                shown.mouseExited(with: event)
+            }
+            print("edit prompt: \(ReviewComment.prompt(for: model.comments, branch: "b", base: "main").debugDescription)")
+            await pencil()
+            box()?.field.selectAll(nil)
+            box()?.field.delete(nil)
+            type("\r")
+            try? await Task.sleep(for: .milliseconds(300))
+            state("emptied")
+            await pencil()
+            if let gutter = sides[1].gutter {
+                let y = gutter.convert(sides[1].convert(NSPoint(x: 0, y: sides[1].top(ofRow: sides[1].side?.rows.first ?? 0) + sides[1].rowHeight / 2), to: nil), from: nil).y
+                mouse(gutter, [y, y])
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            state("gutter over edit")
+            type("\u{1B}")
+            try? await Task.sleep(for: .milliseconds(300))
+            store.closeDiff()
+            try? await Task.sleep(for: .milliseconds(500))
+            print("edit closed diff: \(describe(model))")
+            model.showsCommentList = true
+            try? await Task.sleep(for: .milliseconds(500))
+            let row = NSPoint(x: 100, y: 90)
+            for clicks in [1, 2] {
+                let event = { (type: NSEvent.EventType) in NSEvent.mouseEvent(with: type, location: row, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) }
+                event(.leftMouseUp).map { NSApp.postEvent($0, atStart: false) }
+                event(.leftMouseDown).map(window.sendEvent)
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            try? await Task.sleep(for: .seconds(2))
+            print("edit panel double-click: \(describe(model)), request pending \(model.editingComment != nil)")
+            state("panel double-click")
+            save(".panel-edit.png")
+            type("\u{1B}")
+            try? await Task.sleep(for: .milliseconds(300))
+            await pencil()
+            let first = model.comments.first?.id
+            model.comments.removeAll { $0.id == first }
+            try? await Task.sleep(for: .milliseconds(500))
+            state("deleted while editing")
+        }
+        await captureReviewSurfaces(store: store, window: window, model: model, descendantViews: descendantViews, save: save, report: report)
+    }
+
+    private static func captureReviewSurfaces(store: Store, window: NSWindow, model: ReviewModel, descendantViews: @escaping (NSView) -> [NSView], save: (String) -> Void, report: (String) -> Void) async {
+        if UserDefaults.standard.bool(forKey: "snapshotPerf") { await measurePerformance(window: window, store: store) }
+        let resize = UserDefaults.standard.double(forKey: "snapshotReviewResize")
+        if resize > 0 {
+            window.setContentSize(NSSize(width: resize, height: 900))
+            try? await Task.sleep(for: .seconds(1))
+            report("resized")
+            save(".resized.png")
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotReviewSurfaces"), let split = descendantViews(window.contentView ?? NSView()).first(where: { $0.identifier?.rawValue == "terminalSplit" }) as? NSSplitView, let claude = store.tabs.first(where: { $0.id == store.selectedTabID }) {
+            let file = model.selectedDocument
+            let mounted = { store.tabs.map { tab in tab.terminal.attachedPlatformView.map { [ObjectIdentifier($0), $0.superview.map(ObjectIdentifier.init)] } ?? [] } }
+            let windows = { store.tabs.map { $0.terminal.attachedPlatformView?.window === window } }
+            let starts = { (try? String(contentsOfFile: NSTemporaryDirectory() + "berth-shell-starts", encoding: .utf8))?.split(separator: "\n").count ?? 0 }
+            let processes = ProcessAncestry.descendants()
+            let views = mounted()
+            let ptyCount = ptys()
+            let shellStarts = starts()
+            print("surfaces before: window \(Int(window.frame.width)), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), \(split.arrangedSubviews.map { Int($0.frame.width) }), \(store.tabs.count) tabs, descendants \(processes.map(\.pid).sorted()), ptys \(ptyCount), shell starts \(shellStarts)")
+            let flipSidebar = {
+                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                arguments["sidebarPosition"] = UserDefaults.standard.string(forKey: "sidebarPosition") == "right" ? "left" : "right"
+                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            }
+            let flipBelow = {
+                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                arguments[GeneralSettings.terminalBelowKey] = !UserDefaults.standard.bool(forKey: GeneralSettings.terminalBelowKey)
+                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+            }
+            let steps: [(String, () -> Void)] = [
+                ("close diff", { store.closeDiff() }),
+                ("open diff", { if let file { model.open(file) } }),
+                ("hide changes", { AppAction.hideChanges.perform(on: store) }),
+                ("show changes", { AppAction.showChanges.perform(on: store) }),
+                ("select terminal", { store.activate(store.terminals.first.map { SidebarItem.tab($0.id) }) }),
+                ("select claude", { store.activate(.tab(claude.id)) }),
+                ("harbor", { store.isHarborShown = true }),
+                ("leave harbor", { store.isHarborShown = false }),
+                ("flip sidebar", flipSidebar),
+                ("flip back", flipSidebar),
+                ("flip terminal placement", flipBelow),
+                ("flip terminal placement back", flipBelow),
+                ("scroll right side to x 40", { descendantViews(window.contentView ?? NSView()).compactMap { $0 as? ReviewTextView }.last.map { $0.scroll(NSPoint(x: 40, y: $0.visibleRect.minY)) } }),
+                ("live resize after scroll", {
+                    window.setContentSize(NSSize(width: window.contentLayoutRect.width - 80, height: window.contentLayoutRect.height))
+                    for side in descendantViews(window.contentView ?? NSView()).compactMap({ $0 as? ReviewTextView }) {
+                        side.viewWillStartLiveResize()
+                        side.viewDidEndLiveResize()
+                    }
+                }),
+                ("narrow to 1200", { window.setContentSize(NSSize(width: 1200, height: window.contentLayoutRect.height)) }),
+                ("close diff again", { store.closeDiff() }),
+                ("reopen diff", { if let file { model.open(file) } }),
+                ("close diff once more", { store.closeDiff() }),
+            ]
+            for (label, step) in steps {
+                step()
+                try? await Task.sleep(for: .seconds(1.5))
+                let now = ProcessAncestry.descendants()
+                print("\(label): sidebar \(UserDefaults.standard.string(forKey: "sidebarPosition") ?? "left"), text clip x \(descendantViews(window.contentView ?? NSView()).compactMap { ($0 as? ReviewTextView)?.enclosingScrollView?.contentView.bounds.minX }), split x \(Int(split.convert(split.bounds, to: nil).minX))-\(Int(split.convert(split.bounds, to: nil).maxX)), panel \(store.showsReviewPanel ? "shown" : "hidden"), harbor \(store.isHarborShown), diff \(store.reviewModel?.selectedDocument?.path ?? "closed"), split \(split.arrangedSubviews.map { "\(Int($0.frame.width))x\(Int($0.frame.height))\(store.tabs.first?.terminal.attachedPlatformView?.isDescendant(of: $0) == true ? " terminal" : " diff")\(split.isSubviewCollapsed($0) ? " collapsed" : "")" }), same views \(mounted() == views), in window \(windows()), lost \(processes.subtracting(now).count), new \(now.subtracting(processes).count), ptys \(ptys()), shell starts \(starts())")
+                save(".\(label.replacing(" ", with: "-")).png")
+            }
+        }
+    }
+
+    private static func captureWindowProbes(to output: URL, store: Store, window: NSWindow, topSessions: [SessionSummary], showsStats: Bool) async {
         if let spec = UserDefaults.standard.string(forKey: "snapshotMultiSelect") {
             let order = topSessions.map { SidebarItem.session($0.id) }
             let rows = spec.split(separator: "|").map(String.init)
@@ -1881,6 +1935,9 @@ enum Snapshot {
                 save(".blocked.png")
             }
         }
+    }
+
+    private static func captureTerminalProbes(to output: URL, store: Store, window: NSWindow, hosting: NSViewController) async {
         try? await Task.sleep(for: .seconds(UserDefaults.standard.string(forKey: "snapshotClaude") == nil && UserDefaults.standard.string(forKey: "snapshotResume") == nil ? 3 : 10))
         try? await Task.sleep(for: .seconds(UserDefaults.standard.integer(forKey: "snapshotHold")))
         if UserDefaults.standard.bool(forKey: "snapshotCloseNested"), let nested = store.tabs.first(where: { $0.parentTabID != nil }) {
@@ -1981,6 +2038,9 @@ enum Snapshot {
             try? await Task.sleep(for: .milliseconds(500))
             print("after esc: bar \(store.terminalSearch == nil ? "closed" : "open"), first responder \(responder())")
         }
+    }
+
+    private static func captureKeyboardProbes(to output: URL, store: Store, window: NSWindow) async {
         if let keys = UserDefaults.standard.string(forKey: "snapshotKeys") {
             SettingsSnapshot.keepWindowsOffScreen()
             window.identifier = NSUserInterfaceItemIdentifier("main-snapshot")
@@ -2171,27 +2231,37 @@ enum Snapshot {
                 NSPasteboard.general.setString(savedPasteboard, forType: .string)
             }
         }
+    }
+
+    private static func finishCapture(to output: URL, store: Store, window: NSWindow, showsStats: Bool) async {
         if let keys = launcherKeys {
             let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
             let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
             window.identifier = NSUserInterfaceItemIdentifier("main-snapshot")
-            store.launcherMode = issueInboxQuery != nil ? .issues : issueQuery != nil ? .pullRequests : .newSession
+            store.launcherMode = issueInboxQuery != nil ? .issues : issueQuery != nil ? .pullRequests : UserDefaults.standard.bool(forKey: "snapshotProjectsLauncher") ? .projects : .newSession
             try? await Task.sleep(for: .seconds(1))
             print("launcher first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
-            let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "alt-shift-enter": (36, "\r"), "tab": (48, "\t")]
+            let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "alt-shift-enter": (36, "\r"), "tab": (48, "\t"), "ctrl-tab": (48, "\t"), "ctrl-shift-tab": (48, "\t")]
             let letters: [Character: UInt16] = ["h": 4, "u": 32, "b": 11, "x": 7, "i": 34, "-": 27, "r": 15, "o": 31, "n": 45, "d": 2, "#": 20]
             for spec in keys.split(separator: " ").map(String.init) {
                 let strokes = special[spec].map { [$0] } ?? spec.compactMap { character in letters[character].map { (keyCode: $0, characters: String(character)) } }
+                let flags: NSEvent.ModifierFlags = switch spec {
+                case "alt-enter": .option
+                case "alt-shift-enter": [.option, .shift]
+                case "ctrl-tab": .control
+                case "ctrl-shift-tab": [.control, .shift]
+                case "down", "up": [.function, .numericPad]
+                default: []
+                }
                 for stroke in strokes {
-                    let flags: NSEvent.ModifierFlags = spec == "alt-enter" ? .option : spec == "alt-shift-enter" ? [.option, .shift] : ["down", "up"].contains(spec) ? [.function, .numericPad] : []
                     guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: stroke.characters, charactersIgnoringModifiers: stroke.characters, isARepeat: false, keyCode: stroke.keyCode) else { continue }
 
-                    window.sendEvent(event)
+                    if spec.hasPrefix("ctrl-") { NSApp.sendEvent(event) } else { window.sendEvent(event) }
                     try? await Task.sleep(for: .milliseconds(300))
                 }
-                print("\(spec): launcher \(String(describing: store.launcherMode))")
+                print("\(spec): launcher \(String(describing: store.launcherMode))\(store.launcherMode == .projects ? ", column \(store.projects.launcherColumn ?? "All")" : "")")
             }
             for harness in Harness.all {
                 let calls = store.probeOpened.filter { $0.agent == harness.agent }
@@ -2225,10 +2295,8 @@ enum Snapshot {
 
         ProcessAncestry.hangUpDescendants()
         exit(0)
-        #endif
     }
 
-    #if DEBUG
     private static func dropFiles(in window: NSWindow, store: Store) async {
         let folder = URL(filePath: NSTemporaryDirectory()).appending(path: "berth-drop")
         try? FileManager.default.removeItem(at: folder)

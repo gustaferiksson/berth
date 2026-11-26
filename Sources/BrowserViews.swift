@@ -101,7 +101,7 @@ private struct BrowserHeader: View {
                                 pinnedTabs(pinned, spacing: spacing)
                                     .frame(width: pinnedWidth)
                             } else {
-                                expandedPinnedTabs(pinned, selectedPinned: selectedPinned, spacing: spacing, isCompact: isCompact)
+                                expandedPinnedTabs(pinned, spacing: spacing, isCompact: isCompact)
                             }
                         }
                         if !sessionTabs.isEmpty {
@@ -114,7 +114,7 @@ private struct BrowserHeader: View {
                         .frame(minWidth: 0, idealWidth: 200, maxWidth: .infinity)
                         .frame(height: Self.controlSize)
                 }
-                if selectedSession != nil || selectedPinned != nil { Spacer(minLength: 0) }
+                if sessionTabs.isEmpty, selectedPinned != nil { Spacer(minLength: 0) }
                 trailingActions(tabs: pinned + sessionTabs)
                 BrowserDownloadsButton(browser: browser)
                     .fixedSize()
@@ -128,10 +128,9 @@ private struct BrowserHeader: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 
-    private func expandedPinnedTabs(_ pinned: [BrowserTab], selectedPinned: BrowserTab?, spacing: CGFloat, isCompact: Bool) -> some View {
+    private func expandedPinnedTabs(_ pinned: [BrowserTab], spacing: CGFloat, isCompact: Bool) -> some View {
         let circlesWidth = CGFloat(pinned.count - 1) * (Self.controlSize + spacing)
-        let idealActive = selectedPinned.map { editingTabID == $0.id } == true ? BrowserSessionTabs.editingWidth : BrowserSessionTabs.maximumTabWidth
-        let activeWidth = min(idealActive, max(BrowserSessionTabs.minimumActiveWidth, pinnedViewportWidth - circlesWidth))
+        let activeWidth = min(BrowserSessionTabs.maximumTabWidth, max(BrowserSessionTabs.minimumActiveWidth, pinnedViewportWidth - circlesWidth))
         let selection = pinned.first { $0 === tab }?.id
         return ScrollViewReader { proxy in
             ScrollView(.horizontal) {
@@ -145,7 +144,7 @@ private struct BrowserHeader: View {
                 }
             }
             .scrollIndicators(.hidden)
-            .frame(minWidth: BrowserSessionTabs.minimumActiveWidth, maxWidth: circlesWidth + idealActive)
+            .frame(minWidth: BrowserSessionTabs.minimumActiveWidth, maxWidth: circlesWidth + BrowserSessionTabs.maximumTabWidth)
             .frame(height: Self.controlSize)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pinnedViewportWidth = $0 }
             .onChange(of: selection, initial: true) {
@@ -310,7 +309,6 @@ private struct BrowserSessionTabs: View {
     private static let minimumTabWidth: CGFloat = 52
     static let minimumActiveWidth: CGFloat = 120
     static let maximumTabWidth: CGFloat = 220
-    static let editingWidth: CGFloat = 360
     private static let minimumTitleWidth: CGFloat = 120
     private static let capsuleInset: CGFloat = 3
     private static let dropWidth: CGFloat = 6
@@ -329,10 +327,8 @@ private struct BrowserSessionTabs: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
-        let inactiveCount = CGFloat(tabs.count - (selection == nil ? 0 : 1))
-        let maximumWidth = inactiveCount * Self.maximumTabWidth + (selection == nil ? 0 : isEditing ? Self.editingWidth : Self.maximumTabWidth) + 2 * Self.capsuleInset
         Color.clear
-            .frame(minWidth: (selection == nil ? Self.minimumTabWidth : Self.minimumActiveWidth) + 2 * Self.capsuleInset, maxWidth: maximumWidth)
+            .frame(minWidth: (selection == nil ? Self.minimumTabWidth : Self.minimumActiveWidth) + 2 * Self.capsuleInset, maxWidth: .infinity, alignment: .leading)
             .frame(height: BrowserHeader.controlSize + 4)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { stripWidth = $0 }
             .onHover { if !$0 { frozenTabWidth = nil } }
@@ -344,7 +340,6 @@ private struct BrowserSessionTabs: View {
 
                 frozenTabWidth = widths(width: max(0, stripWidth - 2 * Self.capsuleInset), count: old).inactive
             }
-            .animation(.easeInOut(duration: 0.16), value: isEditing)
             .animation(frozenTabWidth == nil ? .easeInOut(duration: 0.16) : nil, value: tabs.count)
             .overlay {
                 tabStrip(width: max(0, stripWidth - 2 * Self.capsuleInset))
@@ -376,10 +371,7 @@ private struct BrowserSessionTabs: View {
         let equal = width / CGFloat(count)
         let active = min(Self.maximumTabWidth, max(Self.minimumActiveWidth, equal))
         let inactive = min(Self.maximumTabWidth, max(Self.minimumTabWidth, (width - active) / max(1, inactiveCount)))
-        guard isEditing else { return (active, inactive) }
-
-        let editing = max(active, min(Self.editingWidth, width - inactiveCount * Self.minimumTabWidth))
-        return (editing, min(Self.maximumTabWidth, max(Self.minimumTabWidth, (width - editing) / max(1, inactiveCount))))
+        return (active, inactive)
     }
 
     private func tabStrip(width: CGFloat) -> some View {

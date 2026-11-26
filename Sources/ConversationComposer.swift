@@ -33,11 +33,13 @@ struct ConversationComposer: View {
         let stops = isWorking && draft.isEmpty
         let canSend = stops || !(draft.isEmpty || model.isSending)
         let font = isShell ? theme.codeFont : theme.composerFont
+        let singleRowWidth = ConversationComposerLayout.fieldBounds(in: width, isExpanded: false, canAttach: canAttach).width
+        let isExpanded = !draft.files.isEmpty || shownText.contains(where: \.isNewline) || width > 0 && (shownText as NSString).size(withAttributes: [.font: font]).width > singleRowWidth
         let animation = reduceMotion ? nil : Animation.smooth(duration: 0.25)
         let inset = ConversationComposerLayout.inset
         let controlSize = ConversationComposerLayout.controlSize
-        let fieldWidth = ConversationComposerLayout.fieldBounds(in: width, canAttach: canAttach).width
-        let fieldHeight = ConversationComposerField.height(of: shownText, font: font, width: fieldWidth)
+        let fieldWidth = ConversationComposerLayout.fieldBounds(in: width, isExpanded: isExpanded, canAttach: canAttach).width
+        let fieldHeight = ConversationComposerField.height(of: shownText, font: font, width: fieldWidth, rendersImageTags: !isShell)
         let animatesHeight = abs(fieldHeight - settledHeight) > controlSize * 1.5
         let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
         let placeholder = hidesBang ? "Run a shell command" : model.blocksSending ? "Wait for \(harness.name) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harness.name)"
@@ -68,7 +70,7 @@ struct ConversationComposer: View {
                         }
                         .padding([.horizontal, .top], inset)
                     }
-                    ConversationComposerLayout(fieldHeight: fieldHeight, canAttach: canAttach) {
+                    ConversationComposerLayout(progress: isExpanded ? 1 : 0, fieldHeight: fieldHeight, canAttach: canAttach) {
                         if canAttach {
                             Menu {
                                 Button("Attach Files…", systemImage: "paperclip") { isImporting = true }
@@ -92,6 +94,7 @@ struct ConversationComposer: View {
                             font: font,
                             color: NSColor(theme.foreground),
                             hidesBang: hidesBang,
+                            rendersImageTags: !isShell,
                             focusRequest: focusRequest,
                             layoutWidth: fieldWidth,
                             slashPicker: isShell ? nil : slashPicker,
@@ -123,7 +126,7 @@ struct ConversationComposer: View {
                 .overlay { shape.strokeBorder(theme.shellAttached.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
                 .glassEffect(.regular, in: shape)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-                .animation(draft.isEmpty ? nil : animation, value: animatesHeight ? fieldHeight : 0)
+                .animation(draft.isEmpty ? nil : animation, value: [isExpanded ? 1 : 0, animatesHeight ? fieldHeight : 0])
                 .onChange(of: fieldHeight) { settledHeight = fieldHeight }
                 .animation(.smooth(duration: 0.2), value: isShell)
             }
@@ -221,36 +224,49 @@ struct ConversationComposer: View {
 private struct ConversationComposerLayout: Layout {
     static let inset: CGFloat = 10
     static let controlSize: CGFloat = 24
+    private static let fieldTop: CGFloat = 12
+    private static let fieldGap: CGFloat = 8
 
+    var progress: CGFloat
     var fieldHeight: CGFloat
     let canAttach: Bool
 
-    var animatableData: CGFloat {
-        get { fieldHeight }
-        set { fieldHeight = newValue }
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(progress, fieldHeight) }
+        set { (progress, fieldHeight) = (newValue.first, newValue.second) }
     }
 
-    static func fieldBounds(in width: CGFloat, canAttach: Bool) -> (leading: CGFloat, width: CGFloat) {
+    static func fieldBounds(in width: CGFloat, isExpanded: Bool, canAttach: Bool) -> (leading: CGFloat, width: CGFloat) {
         let controlInset = controlSize + 2 * inset
-        let leading: CGFloat = canAttach ? controlInset : 16
-        return (leading, max(0, width - leading - controlInset))
+        let leading: CGFloat = isExpanded ? inset : !canAttach ? 16 : controlInset
+        let trailing: CGFloat = isExpanded ? inset : controlInset
+        return (leading, max(0, width - leading - trailing))
+    }
+
+    private func blend(_ collapsed: CGFloat, _ expanded: CGFloat) -> CGFloat {
+        collapsed + (expanded - collapsed) * progress
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
         _ = subviews[1].sizeThatFits(.unspecified)
         let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 400
-        return CGSize(width: width, height: max(fieldHeight, Self.controlSize) + 2 * Self.inset)
+        let collapsed = max(fieldHeight, Self.controlSize) + 2 * Self.inset
+        let expanded = Self.fieldTop + fieldHeight + Self.fieldGap + Self.controlSize + Self.inset
+        return CGSize(width: width, height: blend(collapsed, expanded))
     }
 
     func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
-        let field = Self.fieldBounds(in: bounds.width, canAttach: canAttach)
+        let collapsed = Self.fieldBounds(in: bounds.width, isExpanded: false, canAttach: canAttach)
+        let expanded = Self.fieldBounds(in: bounds.width, isExpanded: true, canAttach: canAttach)
         let controlsInset = Self.inset
         let controlsTop = bounds.maxY - controlsInset - Self.controlSize
         subviews[0].place(at: CGPoint(x: bounds.minX + controlsInset, y: controlsTop), anchor: .topLeading, proposal: .unspecified)
+        let fieldY = blend(bounds.midY - fieldHeight / 2, bounds.minY + Self.fieldTop)
+        let roomAboveControls = max(0, controlsTop - Self.fieldGap - fieldY)
         subviews[1].place(
-            at: CGPoint(x: bounds.minX + field.leading, y: bounds.midY - fieldHeight / 2),
+            at: CGPoint(x: bounds.minX + blend(collapsed.leading, expanded.leading), y: fieldY),
             anchor: .topLeading,
-            proposal: ProposedViewSize(width: field.width, height: fieldHeight)
+            proposal: ProposedViewSize(width: blend(collapsed.width, expanded.width), height: progress > 0 && fieldHeight > Self.controlSize ? min(fieldHeight, roomAboveControls) : fieldHeight)
         )
         subviews[2].place(at: CGPoint(x: bounds.maxX - controlsInset, y: controlsTop), anchor: .topTrailing, proposal: .unspecified)
     }

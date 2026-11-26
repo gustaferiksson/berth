@@ -5,7 +5,10 @@ import Darwin
 import Foundation
 import GhosttyTerminal
 import Observation
+import os
 import SwiftUI
+
+let paneLog = Logger(subsystem: "dev.gustaf.berth", category: "panes")
 
 struct Tab: Identifiable {
     enum Kind: String, Codable {
@@ -45,22 +48,14 @@ enum SidebarItem: Hashable {
     case task(String)
 }
 
-enum NewSessionCheckout {
+enum NewSessionCheckout: String, CaseIterable {
     case preferred, main, worktree
-}
 
-enum PullRequestPrompt {
-    case summarize, steward
-
-    func text(for link: PullRequestLink, url: URL) -> String {
+    var title: String {
         switch self {
-        case .summarize:
-            (UserDefaults.standard.string(forKey: GeneralSettings.pullRequestPromptKey) ?? GeneralSettings.defaultPullRequestPrompt)
-                .replacing("{number}", with: String(link.number))
-                .replacing("{url}", with: url.absoluteString)
-                .replacing("{repo}", with: link.repository)
-
-        case .steward: "/steward \(url.absoluteString)"
+        case .preferred: "Same as new sessions"
+        case .main: "Main checkout"
+        case .worktree: "Worktree"
         }
     }
 }
@@ -781,9 +776,9 @@ final class Store {
             .sorted { $0.lastActivity > $1.lastActivity }
     }
 
-    func opening(of pullRequest: PullRequestLink, prompt: PullRequestPrompt = .summarize) -> PullRequestOpening {
+    func opening(of pullRequest: PullRequestLink) -> PullRequestOpening {
         let matching = sessions(for: pullRequest)
-        if prompt == .summarize, let session = matching.first { return .session(session) }
+        if let session = matching.first { return .session(session) }
         let claude = matching.filter { $0.agent == .claude }
         if let session = claude.first(where: { tab(forSession: $0.id) != nil }) { return .session(session) }
         let repository = pullRequest.repository.lowercased()
@@ -807,7 +802,7 @@ final class Store {
     }
 
     @discardableResult
-    func openPullRequest(_ link: PullRequestLink, url: URL, opening: PullRequestOpening, prompt: PullRequestPrompt = .summarize, selectsTab: Bool = true) -> Bool {
+    func openPullRequest(_ link: PullRequestLink, url: URL, opening: PullRequestOpening, selectsTab: Bool = true) -> Bool {
         let existing: SidebarItem
         switch opening {
         case let .session(session): existing = .session(session.id)
@@ -817,7 +812,7 @@ final class Store {
             let key = PullRequestLink(repository: link.repository.lowercased(), number: link.number)
             guard !preparingPullRequests.contains(key) else { return true }
 
-            if opensAreProbed { return startPullRequestSession(key, in: root, url: url, prompt: prompt, selectsTab: selectsTab) }
+            if opensAreProbed { return startPullRequestSession(key, in: root, url: url, selectsTab: selectsTab) }
 
             preparingPullRequests.append(key)
             let previous = pullRequestPreparation
@@ -838,49 +833,35 @@ final class Store {
 
                         path = try await PullRequestCheckout.prepare(root: root, number: key.number, head: head)
                     }
-                    startPullRequestSession(key, in: path, url: url, prompt: prompt, selectsTab: selectsTab)
+                    startPullRequestSession(key, in: path, url: url, selectsTab: selectsTab)
                 } catch {
                     pullRequestFailure = (error as? PullRequestCheckout.Failure)?.message ?? "Couldn’t prepare a worktree for PR #\(key.number)."
                 }
             }
             return true
         }
-        guard activate(existing, selectsTab: selectsTab) else { return false }
-        guard prompt == .steward else { return true }
-
-        let reused: Tab? = switch existing {
-        case let .session(id): tab(forSession: id)
-        case let .tab(id): tabs.first { $0.id == id }
-        default: nil
-        }
-        guard let tab = reused, tab.agent == .claude, let sessionID = tab.sessionID else {
-            pullRequestFailure = "Open the Claude session first, then choose Steward with Claude again"
-            return false
-        }
-
-        if selectedTabID == tab.id { setConversation(false) }
-        Task { await paste(prompt.text(for: link, url: url), intoStartingSession: sessionID, tab: tab.id) }
-        return true
+        return activate(existing, selectsTab: selectsTab)
     }
 
     private var opensAreProbed: Bool {
         #if DEBUG
-        Snapshot.showsPullRequestActions || Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || Snapshot.issueInboxQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil || UserDefaults.standard.bool(forKey: "snapshotControl")
+        Snapshot.launcherKeys != nil || Snapshot.issueQuery != nil || Snapshot.issueInboxQuery != nil || UserDefaults.standard.string(forKey: "snapshotOrphan") != nil || UserDefaults.standard.bool(forKey: "snapshotControl")
         #else
         false
         #endif
     }
 
     @discardableResult
-    private func startPullRequestSession(_ key: PullRequestLink, in folder: String, url: URL, prompt: PullRequestPrompt, selectsTab: Bool) -> Bool {
-        let text = prompt.text(for: key, url: url)
+    private func startPullRequestSession(_ key: PullRequestLink, in folder: String, url: URL, selectsTab: Bool) -> Bool {
+        let text = (UserDefaults.standard.string(forKey: GeneralSettings.pullRequestPromptKey) ?? GeneralSettings.defaultPullRequestPrompt)
+            .replacing("{number}", with: String(key.number))
+            .replacing("{url}", with: url.absoluteString)
+            .replacing("{repo}", with: key.repository)
+
         guard let id = openSession(cwd: folder, checkout: .main, pasting: text.isEmpty ? nil : text, selectsTab: selectsTab) else { return false }
 
         pullRequestTabs[key] = id
-        if selectsTab {
-            isHarborShown = false
-            if prompt == .steward, selectedTabID == id { setConversation(false) }
-        }
+        if selectsTab { isHarborShown = false }
         return true
     }
 
@@ -1467,6 +1448,9 @@ final class Store {
     }
 
     func selectPane(_ mode: SessionPane) {
+        let before = shownPane
+        defer { paneLog.info("selectPane \(mode.rawValue, privacy: .public) shown \(before?.rawValue ?? "none", privacy: .public) to \(self.shownPane?.rawValue ?? "none", privacy: .public)") }
+
         if shownPane == mode {
             hideSessionPanel()
         } else if mode == .terminal {
