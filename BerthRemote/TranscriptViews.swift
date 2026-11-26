@@ -222,10 +222,10 @@ private struct PromptBubble: View {
         let text = (attachments == nil ? entry.text.replacing(uploads, with: "") : entry.text).trimmingCharacters(in: .whitespacesAndNewlines)
         let lineLimit = 20
         let moreLines = text.count(where: \.isNewline) + 1 - lineLimit
-        let parts = PromptTextPart.split(text)
-        let numbers = imageNumbers(parts: parts, count: images.count)
+        let numbers = imageNumbers(parts: PromptTextPart.split(text), count: images.count)
+        let parts = PromptTextPart.split(images.isEmpty ? text : PromptTextPart.removingImageTags(numbers, from: text))
         let viewerImages = images.enumerated().map { ViewerImage(id: String($0.offset), data: $0.element) }
-        let showsText = !text.isEmpty && !(!images.isEmpty && text.replacing(PromptTextPart.imageToken, with: "").allSatisfy(\.isWhitespace))
+        let showsText = !parts.isEmpty
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 4, topTrailingRadius: 20, style: .continuous)
 
         return VStack(alignment: .trailing, spacing: 6) {

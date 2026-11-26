@@ -75,11 +75,12 @@ struct ConversationPrompt: View {
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 2, topTrailingRadius: 10, style: .continuous)
 
         let hasImages = entry.images?.isEmpty == false
-        let showsText = !entry.text.isEmpty && !(hasImages && entry.text.replacing(PromptTextPart.imageToken, with: "").allSatisfy(\.isWhitespace))
+        let numbers = entry.imageNumbers ?? Array(1...max(entry.images?.count ?? 0, 1))
+        let text = hasImages ? PromptTextPart.removingImageTags(numbers, from: entry.text) : entry.text
+        let showsText = !text.isEmpty
 
         return VStack(alignment: .trailing, spacing: 6) {
             if let images = entry.images {
-                let numbers = entry.imageNumbers ?? Array(1...max(images.count, 1))
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
                         ConversationPromptImage(entryID: entry.id, thumbnail: data, index: index, number: numbers[index])
@@ -88,7 +89,7 @@ struct ConversationPrompt: View {
             }
             if showsText {
                 let itemID = selectionID ?? expansionID
-                ConversationTextView(text: Self.attributed(entry.text, theme: theme, displayScale: displayScale, itemID: itemID, expanded: expansion?.keys ?? []), selectionID: selectionID, sizing: .hug)
+                ConversationTextView(text: Self.attributed(text, theme: theme, displayScale: displayScale, itemID: itemID, expanded: expansion?.keys ?? []), selectionID: selectionID, sizing: .hug)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .background(bubble.fill(theme.foreground.opacity(0.07)))

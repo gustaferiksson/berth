@@ -46,6 +46,8 @@ struct TranscriptTailTests {
         }
 
         #expect(before == "regarding this\n" && block == "lamps: string[]" && after == "\n\nis it fine?")
+        #expect(PromptTextPart.removingImageTags([228, 230], from: "[Image #228]\n\n this is a\n\n\nthis is b\n\n[Image #230]") == "this is a\n\nthis is b")
+        #expect(PromptTextPart.removingImageTags([1], from: "see [Image #2] here") == "see [Image #2] here")
         #expect(PromptTextPart.plain("a <pasted_content>b</pasted_content> c") == "a b c")
     }
 
