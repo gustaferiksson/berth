@@ -637,6 +637,7 @@ extension Snapshot {
             try? await Task.sleep(for: .seconds(1))
         }
         surface("in conversation")
+        if let command = UserDefaults.standard.string(forKey: "snapshotConversationQueuedShell") { store.conversationModels[tab.id]?.show(pending: "!\(command)", sentAt: .now) }
         if showsSlashCommands { save(".slash-open.png") }
         if showsSlashCommands, UserDefaults.standard.bool(forKey: "snapshotConversationSlashAccept"), let composer {
             print("slash accepted \(composer.slashPicker?.accept() ?? false)")
