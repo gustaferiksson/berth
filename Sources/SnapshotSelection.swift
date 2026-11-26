@@ -16,7 +16,7 @@ extension Snapshot {
 
         let results = await heavyConversationTurns > 0
             ? [selectAllLoadedTurns(store: store, tab: tab, window: window), autoscrollUp(store: store, tab: tab, window: window)]
-            : [dragAcrossItems(window: window, save: save), dragAcrossTurns(window: window), shiftClick(window: window), selectAllFixture(window: window), clickLink(window: window), reopen(store: store, window: window)]
+            : [dragAcrossItems(window: window, save: save), dragInCodeBlock(window: window, save: save), dragProseIntoCodeBlock(window: window), dragAcrossTurns(window: window), shiftClick(window: window), selectAllFixture(window: window), clickLink(window: window), reopen(store: store, window: window)]
         let passed = results.allSatisfy(\.self)
         print(passed ? "select: ALL PASS" : "select: FAILED")
         ProcessAncestry.hangUpDescendants()
@@ -33,6 +33,57 @@ extension Snapshot {
         await click(from: from, to: to, in: window)
         save(".selection.png")
         return check("drag", copied(), inOrder: ["export code and the CI log", "The date formatter has no fixed time zone", "formatter.timeZone = TimeZone", "UTC"], excluding: ["I'll start with the", "Why does the usage export"])
+    }
+
+    private static func dragInCodeBlock(window: NSWindow, save: (String) -> Void) async -> Bool {
+        guard let view = await reply(containing: "Fixed. The export", in: window, revealing: true),
+              await reveal("fields.filter", in: view),
+              let from = point(in: view, before: "fields.filter"),
+              let to = point(in: view, after: "(name)).length")
+        else { return fail("code drag", "fixture code block is not on screen") }
+
+        await click(from: from, to: to, in: window)
+        save(".code.png")
+        let text = copied()
+        guard check("code drag", text, inOrder: ["fields.filter((name) => !blank(name)).length"], excluding: ["const total", "formatter.timeZone", "```"]) else { return false }
+        guard let selected = point(in: view, before: "fields.filter"), let plain = point(in: view, before: "values.size") else { return fail("code highlight", "points are not on screen") }
+
+        let origin = view.convert(selected, from: nil)
+        let colors = [origin.y, view.convert(plain, from: nil).y].map { pixel(in: view, at: NSPoint(x: origin.x, y: $0 - 8)) }
+        print("select: code pixels selected \(String(describing: colors[0])) plain \(String(describing: colors[1]))")
+        guard colors[0] != colors[1] else { return fail("code highlight", "selected code looks like unselected code") }
+
+        print("select: code highlight PASS")
+        return true
+    }
+
+    private static func dragProseIntoCodeBlock(window: NSWindow) async -> Bool {
+        guard let view = await reply(containing: "Fixed. The export", in: window, revealing: true),
+              await reveal("Nothing else", in: view),
+              await reveal("const total", in: view),
+              let from = point(in: view, before: "Nothing else"),
+              let to = point(in: view, after: "const total")
+        else { return fail("prose into code", "fixture reply is not on screen") }
+
+        await click(from: from, to: to, in: window)
+        return check("prose into code", copied(), inOrder: ["Nothing else reads the formatter", "formatter.timeZone = TimeZone(identifier: \"Europe/Stockholm\")", "const blank", "const total"], excluding: ["```", "= fields", "Both export tests pass"])
+    }
+
+    private static func reveal(_ text: String, in view: ConversationNSTextView) async -> Bool {
+        let range = (view.string as NSString).range(of: text)
+        guard range.location != NSNotFound else { return false }
+
+        view.scrollRangeToVisible(range)
+        try? await Task.sleep(for: .milliseconds(300))
+        return true
+    }
+
+    private static func pixel(in view: NSView, at point: NSPoint) -> NSColor? {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+        return rep.colorAt(x: Int(point.x * scale), y: Int((view.isFlipped ? point.y : view.bounds.height - point.y) * scale))
     }
 
     private static func dragAcrossTurns(window: NSWindow) async -> Bool {
