@@ -365,7 +365,7 @@ extension Snapshot {
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + mentionRecords(base: base)
+        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + mentionRecords(base: base)
         let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
         guard repetitions > 1 else { return records }
 
@@ -406,6 +406,14 @@ extension Snapshot {
         guard UserDefaults.standard.bool(forKey: "snapshotConversationImageOnly") else { return [] }
 
         return [base("user", 1, ["role": "user", "content": [["type": "text", "text": "[Image #1]"], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]]])]
+    }
+
+    private static func pastedImageRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        guard UserDefaults.standard.bool(forKey: "snapshotConversationPastedImages") else { return [] }
+
+        let text = "[Image #247] unselected\n\n[Image #248]\n\n<pasted_content id=\"4cbd\">\n selected\n\nwhy is the second row not right\n\nalso is this how the composer should look like? \n</pasted_content id=\"4cbd\">\n\n[Image #250] I thought it was supposed to be like this? [Image #251]"
+        let image: [String: Any] = ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]
+        return [base("user", 1, ["role": "user", "content": [["type": "text", "text": text], image, image, image, image]]).merging(["imagePasteIds": [247, 248, 250, 251]]) { $1 }]
     }
 
     private static func mentionRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
