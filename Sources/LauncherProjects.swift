@@ -28,9 +28,9 @@ struct ProjectColumnBar: View {
         if columns.count > 1 {
             ScrollView(.horizontal) {
                 HStack(spacing: 6) {
-                    chip("All", count: columns.reduce(0) { $0 + $1.count }, isSelected: selection == nil, shortcut: 0) { select(nil) }
-                    ForEach(Array(columns.prefix(9).enumerated()), id: \.element.name) { index, column in
-                        chip(column.name, count: column.count, isSelected: selection == column.name, shortcut: index + 1) { select(column.name) }
+                    chip("All", count: columns.reduce(0) { $0 + $1.count }, isSelected: selection == nil) { select(nil) }
+                    ForEach(columns, id: \.name) { column in
+                        chip(column.name, count: column.count, isSelected: selection == column.name) { select(column.name) }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -40,7 +40,7 @@ struct ProjectColumnBar: View {
         }
     }
 
-    private func chip(_ title: String, count: Int, isSelected: Bool, shortcut: Int, action: @escaping () -> Void) -> some View {
+    private func chip(_ title: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Text(title)
@@ -55,7 +55,7 @@ struct ProjectColumnBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityValue(isSelected ? "Selected" : "")
-        .help("Show \(title) (⌥\(shortcut))")
+        .help("Show \(title)")
     }
 }
 

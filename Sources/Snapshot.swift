@@ -2243,15 +2243,22 @@ enum Snapshot {
             store.launcherMode = issueInboxQuery != nil ? .issues : issueQuery != nil ? .pullRequests : UserDefaults.standard.bool(forKey: "snapshotProjectsLauncher") ? .projects : .newSession
             try? await Task.sleep(for: .seconds(1))
             print("launcher first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
-            let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "alt-shift-enter": (36, "\r"), "tab": (48, "\t"), "alt-0": (29, "0"), "alt-1": (18, "1"), "alt-2": (19, "2"), "alt-3": (20, "3")]
+            let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "alt-shift-enter": (36, "\r"), "tab": (48, "\t"), "ctrl-tab": (48, "\t"), "ctrl-shift-tab": (48, "\t")]
             let letters: [Character: UInt16] = ["h": 4, "u": 32, "b": 11, "x": 7, "i": 34, "-": 27, "r": 15, "o": 31, "n": 45, "d": 2, "#": 20]
             for spec in keys.split(separator: " ").map(String.init) {
                 let strokes = special[spec].map { [$0] } ?? spec.compactMap { character in letters[character].map { (keyCode: $0, characters: String(character)) } }
+                let flags: NSEvent.ModifierFlags = switch spec {
+                case "alt-enter": .option
+                case "alt-shift-enter": [.option, .shift]
+                case "ctrl-tab": .control
+                case "ctrl-shift-tab": [.control, .shift]
+                case "down", "up": [.function, .numericPad]
+                default: []
+                }
                 for stroke in strokes {
-                    let flags: NSEvent.ModifierFlags = spec == "alt-enter" ? .option : spec == "alt-shift-enter" ? [.option, .shift] : spec.hasPrefix("alt-") ? .option : ["down", "up"].contains(spec) ? [.function, .numericPad] : []
                     guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: stroke.characters, charactersIgnoringModifiers: stroke.characters, isARepeat: false, keyCode: stroke.keyCode) else { continue }
 
-                    window.sendEvent(event)
+                    if spec.hasPrefix("ctrl-") { NSApp.sendEvent(event) } else { window.sendEvent(event) }
                     try? await Task.sleep(for: .milliseconds(300))
                 }
                 print("\(spec): launcher \(String(describing: store.launcherMode))\(store.launcherMode == .projects ? ", column \(store.projects.launcherColumn ?? "All")" : "")")

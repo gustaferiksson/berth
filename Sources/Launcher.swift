@@ -137,15 +137,6 @@ struct Launcher: View {
         }
     }
 
-    private func selectProjectColumn(number: Int) -> KeyPress.Result {
-        let names = projectSections.map(\.name)
-        guard number == 0 || names.indices.contains(number - 1) else { return .ignored }
-
-        store.projects.launcherColumn = number == 0 ? nil : names[number - 1]
-        highlighted = 0
-        return .handled
-    }
-
     private var highlightedProject: ProjectItem? {
         let entries = projectEntries
         return entries.indices.contains(highlighted) ? entries[highlighted].item : nil
@@ -189,11 +180,6 @@ struct Launcher: View {
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
                     .modifier(LauncherItemPreview(url: pullRequest?.url ?? issueRow?.url, highlighted: highlighted, query: query, store: store))
-                    .onKeyPress(phases: .down) { press in
-                        guard mode == .projects, press.modifiers == .option, let number = press.key.character.wholeNumberValue else { return .ignored }
-
-                        return selectProjectColumn(number: number)
-                    }
                     .onKeyPress(.tab) {
                         guard let nextScope else { return .ignored }
 
@@ -228,6 +214,12 @@ struct Launcher: View {
                         return .handled
                     }
                     .onSubmit(submit)
+                    .onChange(of: store.projects.columnSteps) { old, new in
+                        let columns = [nil] + projectSections.map { Optional($0.name) }
+                        let index = columns.firstIndex(of: store.projects.launcherColumn) ?? 0
+                        store.projects.launcherColumn = columns[((index + new - old) % columns.count + columns.count) % columns.count]
+                        highlighted = 0
+                    }
                     .onChange(of: query) {
                         highlighted = 0
                         selectedIssue = nil
@@ -334,7 +326,7 @@ struct Launcher: View {
                         if item.url != nil { LauncherKeyHint("⌥↩", "GitHub") }
                     }
                     LauncherKeyHint("↑↓", "Item")
-                    if projectSections.count > 1 { LauncherKeyHint("⌥1-9", "Column") }
+                    if projectSections.count > 1 { LauncherKeyHint("⌃⇥", "Column") }
                 } else if mode == .palette {
                     LauncherKeyHint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
                     LauncherKeyHint("↑↓", "Select")
