@@ -561,6 +561,7 @@ private struct BrowserAddressField: View {
     @Environment(\.ghosttyTheme) private var theme
     @FocusState private var isFocused: Bool
     @AppStorage(BrowserModel.searchKey) private var search = BrowserSearch.duckDuckGo
+    @AppStorage(BrowserModel.developerToolsKey) private var developerTools = true
 
     var body: some View {
         let showsPageActions = (isMerged || isCompact) && tab?.url != nil
@@ -622,6 +623,10 @@ private struct BrowserAddressField: View {
                         }
                         ShareLink(item: url).help("Share this page")
                         BrowserLinkActions(browser: browser, url: url)
+                        if developerTools, tab?.canShowInspector == true {
+                            let action = AppAction.showWebInspector
+                            Button(action.title, systemImage: action.symbol) { browser.perform(action) }
+                        }
                     } label: {
                         Image(systemName: "line.3.horizontal.decrease")
                             .font(.system(size: 11, weight: .medium))

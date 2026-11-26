@@ -19,6 +19,7 @@ struct BerthApp: App {
         GhosttyConfig.registerBundledFonts()
         // The AutoFill heuristic controller loops in SwiftUI's key-view search and hangs the main thread; macOS 26 reads the first key, macOS 27 the second.
         UserDefaults.standard.register(defaults: ["NSAutoFillHeuristicControllerEnabled": false, "NSAutoFillHeuristicsEnabled": false])
+        UserDefaults.standard.register(defaults: [BrowserModel.developerToolsKey: true])
         // Restyling a SwiftUI List's scroll view afterwards re-tiles it inside a SwiftUI update, which crashes outline lists.
         var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         arguments["AppleShowScrollBars"] = "WhenScrolling"
@@ -222,7 +223,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.cycleTab(by: flags.contains(.shift) ? -1 : 1)
                 return nil
             }
-            if flags == .command, let key = [33: "[", 30: "]"][event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key }), action.isAvailable(in: store) {
+            let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
+            let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
+            let browserKeys: [String?] = if flags == .command, let bracket = [33: "[", 30: "]"][event.keyCode] { [bracket] } else { keys }
+            if let action = AppAction.browser.first(where: { $0.shortcut?.modifiers == modifiers && browserKeys.contains($0.shortcut.map { String($0.key.character) }) }), action.isAvailable(in: store) {
                 action.perform(on: store)
                 return nil
             }
@@ -242,8 +246,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.closeDiff()
                 return nil
             }
-            let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
-            let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
             if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showPullRequestInReview, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showTasksPane, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil

@@ -980,7 +980,7 @@ enum Snapshot {
         window.orderFrontRegardless()
         if UserDefaults.standard.bool(forKey: "snapshotControlBrowser") { await captureControlBrowser(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotControl") { await captureControl(store: store, window: window, output: output) }
-        if UserDefaults.standard.bool(forKey: "snapshotBrowser") { await captureBrowser(store: store, window: window) }
+        if browserFixtures != nil { await captureBrowser(store: store, window: window) }
         if let mode = UserDefaults.standard.string(forKey: "snapshotHost") { await captureHost(mode: mode, store: store, window: window, output: output) }
         if let backgroundTasksFolder {
             await captureBackgroundTasks(in: backgroundTasksFolder, store: store, window: window, output: output)
@@ -1891,7 +1891,7 @@ enum Snapshot {
             let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
-            let probesBrowserAddress = UserDefaults.standard.bool(forKey: "snapshotBrowser")
+            let probesBrowserAddress = browserFixtures != nil
             if probesBrowserAddress { window.becomeKey() }
             let tabs = { "\(store.tabs.map { "\($0.kind)/\($0.parentTabID == nil ? "top" : "nested")\($0.id == store.selectedTabID ? "*" : "")" })" }
             for point in clicks.split(separator: ";").map({ $0.split(separator: ",").compactMap { Double($0) } }) where point.count == 2 {

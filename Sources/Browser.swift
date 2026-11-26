@@ -41,6 +41,8 @@ enum BrowserLinkTarget: String {
 
 @Observable
 final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+    private static let showInspectorSelector = NSSelectorFromString("show")
+
     let id = UUID()
     var url: URL?
     var title: String
@@ -83,9 +85,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
         view.appearance = BrowserAppearance(rawValue: UserDefaults.standard.string(forKey: BrowserModel.appearanceKey) ?? "")?.appearance
-        #if DEBUG
         view.isInspectable = true
-        #endif
         observations = [
             view.observe(\.title) { [weak self] view, _ in MainActor.assumeIsolated { if let title = view.title, !title.isEmpty { self?.title = title } } },
             view.observe(\.url) { [weak self] view, _ in MainActor.assumeIsolated { if let url = view.url { self?.url = url } } },
@@ -97,6 +97,28 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         loadedWebView = view
         if let url, browser.mayLoad { pendingNavigation = view.load(URLRequest(url: url)) }
         return view
+    }
+
+    var webInspector: NSObject? {
+        let selector = NSSelectorFromString("_inspector")
+        guard let view = loadedWebView, view.responds(to: selector),
+              let inspector = view.perform(selector)?.takeUnretainedValue() as? NSObject,
+              inspector.responds(to: Self.showInspectorSelector)
+        else { return nil }
+
+        return inspector
+    }
+
+    var canShowInspector: Bool {
+        UserDefaults.standard.bool(forKey: BrowserModel.developerToolsKey) && webInspector != nil
+    }
+
+    @discardableResult
+    func showInspector() -> Bool {
+        guard UserDefaults.standard.bool(forKey: BrowserModel.developerToolsKey), let webInspector else { return false }
+
+        webInspector.perform(Self.showInspectorSelector)
+        return true
     }
 
     func load(_ url: URL) {
@@ -310,6 +332,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     static let linksKey = "conversationLinksOpenIn"
     static let githubLinksKey = "githubLinksOpenInBerth"
     static let appearanceKey = "browserAppearance"
+    static let developerToolsKey = "browserDeveloperTools"
     private static let pinnedKey = "browserPinnedTabs"
     private static let sessionTabsKey = "browserSessionTabs"
     private static let ephemeralStore = WKWebsiteDataStore.nonPersistent()
@@ -382,6 +405,11 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         configuration.applicationNameForUserAgent = "Version/\(major).0 Safari/605.1.15"
         configuration.websiteDataStore = !isSnapshot && UserDefaults.standard.bool(forKey: Self.persistentDataKey) ? .default() : Self.ephemeralStore
+        // WebKit exposes in-app inspection through private API.
+        let preferences = configuration.preferences
+        if UserDefaults.standard.bool(forKey: Self.developerToolsKey), preferences.responds(to: NSSelectorFromString("_setDeveloperExtrasEnabled:")) {
+            preferences.setValue(true, forKey: "developerExtrasEnabled")
+        }
         if let snapshotRules { configuration.userContentController.add(snapshotRules) }
         return configuration
     }
@@ -515,6 +543,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
 
         if action == .closeBrowserTab { return close(tab, in: key) }
         if action == .reloadPage, tab.loadedWebView != nil { tab.reload() }
+        if action == .showWebInspector { tab.showInspector() }
         if action == .browserBack { tab.loadedWebView?.goBack() }
         if action == .browserForward { tab.loadedWebView?.goForward() }
     }
