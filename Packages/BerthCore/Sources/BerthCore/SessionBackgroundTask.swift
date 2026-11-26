@@ -19,8 +19,9 @@ public struct SessionBackgroundTask: Identifiable, Equatable, Sendable {
     public var status: Status
     public var outputFile: URL?
     public var result: String?
+    public var runsInForeground: Bool
 
-    public init(id: String, kind: Kind, title: String, started: Date, toolUseID: String? = nil, agentID: String? = nil, prompt: String? = nil, status: Status = .running, outputFile: URL? = nil, result: String? = nil) {
+    public init(id: String, kind: Kind, title: String, started: Date, toolUseID: String? = nil, agentID: String? = nil, prompt: String? = nil, status: Status = .running, outputFile: URL? = nil, result: String? = nil, runsInForeground: Bool = false) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -31,6 +32,7 @@ public struct SessionBackgroundTask: Identifiable, Equatable, Sendable {
         self.status = status
         self.outputFile = outputFile
         self.result = result
+        self.runsInForeground = runsInForeground
     }
 
     public init(_ task: RemoteTask) {

@@ -8,7 +8,9 @@ extension TranscriptActivity {
             guard Self.agentTools.contains(launch.tool) || launch.requestsBackground else { return nil }
 
             let active = ["busy", "waiting"].contains(live?.status ?? "") && launch.started >= started
-            return launch.backgroundTask(id: id, status: active ? .running : .finished)
+            var task = launch.backgroundTask(id: id, status: active ? .running : .finished)
+            task.runsInForeground = task.kind == .agent && !launch.requestsBackground
+            return task
         }
         let history = taskHistory.values.map { task in
             guard task.status == .running else { return task }
