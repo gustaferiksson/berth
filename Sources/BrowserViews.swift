@@ -474,6 +474,12 @@ private struct BrowserHeaderTab: View {
             if let key = browser.sessionKey {
                 if isPinned {
                     Button("Unpin Tab") { browser.unpin(tab, into: key) }
+                    if tab.isLocked {
+                        Button("Unlock") { browser.unlock(tab) }
+                    } else {
+                        Button("Lock to Page") { browser.lock(tab) }
+                            .disabled(tab.url == nil)
+                    }
                 } else {
                     Button("Pin Tab") { browser.pin(tab) }
                 }
@@ -485,10 +491,20 @@ private struct BrowserHeaderTab: View {
         }
     }
 
+    @ViewBuilder private var lockMarker: some View {
+        if tab.isLocked {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(theme.foreground)
+                .accessibilityLabel("Locked to page")
+        }
+    }
+
     private var pinnedButton: some View {
         Button(action: select) {
             BrowserFavicon(tab: tab, fallback: tab.displayTitle.first.map(String.init))
                 .frame(width: BrowserHeader.controlSize, height: BrowserHeader.controlSize)
+                .overlay(alignment: .bottomTrailing) { lockMarker.padding(6) }
                 .contentShape(.circle)
         }
         .accessibilityLabel(tab.displayTitle)
@@ -725,9 +741,10 @@ private struct BrowserAddressField: View {
     private func go() {
         guard let key = browser.sessionKey, let url = WebAddress.resolve(address, searchTemplate: search.template) else { return }
 
-        let target = tab ?? browser.open(url, in: key)
-        tab?.load(url)
+        if let tab { tab.load(url) } else { browser.open(url, in: key) }
         finishEditing()
+        guard let target = browser.selectedTab(in: key) else { return }
+
         if let webView = target.loadedWebView, let window = webView.window {
             window.makeFirstResponder(webView)
         } else {

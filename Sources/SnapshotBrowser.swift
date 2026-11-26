@@ -49,7 +49,14 @@ extension Snapshot {
             store.browser.open(nil, in: session.id, title: "Document \(index + 1)", selects: false)
         }
         let scenario = UserDefaults.standard.string(forKey: "snapshotBrowserPin") ?? ""
-        if scenario == "single" || scenario == "pinOnly" {
+        if UserDefaults.standard.bool(forKey: "snapshotBrowserLocked") {
+            let tabs = browserPages.prefix(3).map { store.browser.open(folder.appending(path: $0.file), in: session.id, title: $0.title, selects: false) }
+            tabs.prefix(2).forEach { store.browser.pin($0) }
+            store.browser.lock(tabs[0])
+            if UserDefaults.standard.string(forKey: "snapshotBrowserSelect") == "pinned" {
+                store.browser.select(tabs[0], in: session.id)
+            }
+        } else if scenario == "single" || scenario == "pinOnly" {
             let tab = store.browser.open(folder.appending(path: "invoices.html"), in: session.id, title: "Invoices")
             if scenario == "pinOnly" { store.browser.pin(tab) }
         } else if scenario == "pinnedSelected" {
