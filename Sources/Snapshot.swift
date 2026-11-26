@@ -980,7 +980,9 @@ enum Snapshot {
         window.orderFrontRegardless()
         if UserDefaults.standard.bool(forKey: "snapshotControlBrowser") { await captureControlBrowser(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotControl") { await captureControl(store: store, window: window, output: output) }
+        if UserDefaults.standard.bool(forKey: "snapshotBrowserApproval") { await captureBrowserApproval(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotBrowser") { await captureBrowser(store: store, window: window) }
+        if let url = UserDefaults.standard.string(forKey: "snapshotIncomingURL") { probeIncomingURL(url, store: store) }
         if let mode = UserDefaults.standard.string(forKey: "snapshotHost") { await captureHost(mode: mode, store: store, window: window, output: output) }
         if let backgroundTasksFolder {
             await captureBackgroundTasks(in: backgroundTasksFolder, store: store, window: window, output: output)

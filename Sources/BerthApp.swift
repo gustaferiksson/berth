@@ -206,6 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.cycleTab(by: event.keyCode == 30 ? 1 : -1)
                 return nil
             }
+            let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
             let responder = event.window?.firstResponder as? NSView
             let ancestors = responder.map { Array(sequence(first: $0, next: \.superview)) } ?? []
             if store.shownPane == .browser, ancestors.contains(where: { $0 is NSHostingView<PaneHost> }) {
@@ -222,7 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.cycleTab(by: flags.contains(.shift) ? -1 : 1)
                 return nil
             }
-            if flags == .command, let key = [33: "[", 30: "]"][event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key }), action.isAvailable(in: store) {
+            if flags == .command || flags == [.command, .shift], let key = [33: "[", 30: "]"][event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key && $0.shortcut?.modifiers == modifiers }), action.isAvailable(in: store) {
                 action.perform(on: store)
                 return nil
             }
@@ -242,7 +243,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.closeDiff()
                 return nil
             }
-            let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
             let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
             if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showPullRequestInReview, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showTasksPane, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
@@ -276,6 +276,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         store.persistsTabs = false
         store.start(restoringTabs: false)
         Task { await Snapshot.capture(to: output, store: store) }
+    }
+
+    func application(_: NSApplication, open urls: [URL]) {
+        for url in urls { store.openIncomingURL(url) }
     }
 
     func applicationWillTerminate(_: Notification) {
