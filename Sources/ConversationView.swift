@@ -54,19 +54,20 @@ struct ConversationView: View {
             }
             .onChange(of: live?.status) { model.refresh() }
             .overlay {
-                if !model.hasLoaded {
-                    ConversationSpinner()
-                        .allowsHitTesting(false)
-                } else if showsStart {
-                    Text(verbatim: URL(filePath: tab.folder).lastPathComponent)
-                        .font(.title2.weight(.semibold))
-                        .foregroundStyle(theme.foreground)
-                        .lineLimit(1)
-                        .padding(.horizontal, 18)
+                ZStack {
+                    if !model.hasLoaded {
+                        ConversationSpinner()
+                            .allowsHitTesting(false)
+                    } else if showsStart {
+                        ConversationWelcome(folderName: URL(filePath: tab.folder).lastPathComponent, harness: harness) { suggestion in
+                            model.setText(suggestion)
+                            composerFocus += 1
+                        }
                         .padding(.bottom, barHeight)
-                        .accessibilityAddTraits(.isHeader)
-                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                    }
                 }
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: showsStart)
             }
             .overlay(alignment: .bottom) {
                 ConversationBottomBar(
