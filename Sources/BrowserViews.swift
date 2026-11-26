@@ -723,6 +723,15 @@ private struct BrowserAddressField: View {
     @ViewBuilder private var addressIcon: some View {
         if isMerged, let tab, tab.url != nil {
             BrowserFavicon(tab: tab, fallback: nil)
+                .overlay(alignment: .bottomTrailing) {
+                    if tab.isLocked {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(theme.foreground)
+                            .offset(x: 3, y: 3)
+                            .accessibilityLabel("Locked to page")
+                    }
+                }
         } else if tab?.url == nil || tab?.url?.scheme == "https" {
             Image(systemName: tab?.url == nil ? "magnifyingglass" : "lock.fill")
                 .font(.system(size: 11))
