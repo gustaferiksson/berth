@@ -13,7 +13,14 @@ enum ConversationHighlighting {
     }
 
     static func highlighted(_ text: String, language: String?, theme: GhosttyTheme) async -> NSAttributedString? {
-        await colored(text, language: language, style: ReviewStyle.stored(ghostty: theme))
+        let style = theme.code
+        guard let spans = await spans(text, language: language) else { return nil }
+
+        let colored = NSMutableAttributedString(string: text)
+        for span in spans where NSMaxRange(span.range) <= colored.length {
+            colored.addAttributes([.foregroundColor: style.color(forCapture: span.capture), .font: style.font(forCapture: span.capture)], range: span.range)
+        }
+        return colored
     }
 
     static func diffLines(_ rows: [(old: Bool, new: Bool, text: String)], language: String?, theme: GhosttyTheme) async -> [AttributedString] {
@@ -35,7 +42,7 @@ enum ConversationHighlighting {
         return result
     }
 
-    private static func colored(_ text: String, language: String?, style: ReviewStyle) async -> NSAttributedString? {
+    private static func spans(_ text: String, language: String?) async -> [CodeHighlighter.Span]? {
         guard let language, text.utf8.count < 200_000, text.split(separator: "\n", omittingEmptySubsequences: false).count <= maxLines else { return nil }
 
         let key = "\(language)\n\(text.count)\n\(text.hashValue)"
@@ -46,7 +53,11 @@ enum ConversationHighlighting {
             spans = await Task.detached(priority: .userInitiated) { CodeHighlighter.spans(in: text, language: language) }.value
             cache[key] = spans
         }
-        guard !spans.isEmpty else { return nil }
+        return spans.isEmpty ? nil : spans
+    }
+
+    private static func colored(_ text: String, language: String?, style: ReviewStyle) async -> NSAttributedString? {
+        guard let spans = await spans(text, language: language) else { return nil }
 
         let colored = NSMutableAttributedString(string: text)
         for span in spans where NSMaxRange(span.range) <= colored.length {

@@ -4,17 +4,15 @@ import SwiftUI
 struct ConversationSettings: View {
     @AppStorage(GeneralSettings.conversationKey) private var isConversationEnabled = false
     @AppStorage(GeneralSettings.conversationViewKey) private var conversationView = "terminal"
-    @AppStorage(ConversationTypography.bodyFontKey) private var bodyFont = ConversationBodyFont.monospaced
-    @AppStorage(ConversationTypography.bodyFamilyKey) private var bodyFamily = ""
-    @AppStorage(ConversationTypography.bodySizeKey) private var bodySize = 0.0
-    @AppStorage(ConversationTypography.lineSpacingKey) private var lineSpacing = ConversationLineSpacing.normal
-    @AppStorage(ConversationTypography.codeFamilyKey) private var codeFamily = ""
-    @AppStorage(ConversationTypography.codeSizeKey) private var codeSize = 0.0
-    @AppStorage(ConversationTypography.widthKey) private var width = ConversationWidth.normal
+    @AppStorage(ConversationTypography.bodyFontKey) private var bodyFont = ConversationTypeset.standard.bodyFont
+    @AppStorage(ConversationTypography.bodyFamilyKey) private var bodyFamily = ConversationTypeset.standard.bodyFamily
+    @AppStorage(ConversationTypography.bodySizeKey) private var bodySize = ConversationTypeset.standard.bodySize
+    @AppStorage(ConversationTypography.lineSpacingKey) private var lineSpacing = ConversationTypeset.standard.lineSpacing
+    @AppStorage(ConversationTypography.widthKey) private var width = ConversationTypeset.standard.width
 
     @AppStorage(ConversationShellCompleter.enabledKey) private var completesShell = false
     private let tine = TineStatus.shared
-    private let families = NSFontManager.shared.availableFontFamilies
+    private let familyGroups = ConversationTypography.familyGroups
 
     var body: some View {
         Form {
@@ -38,7 +36,11 @@ struct ConversationSettings: View {
                 } footer: {
                     Text(tine.isUnsupported ? "Needs tine 0.1.48" : tine.isAvailable ? "Suggests commands, flags and paths while you type after \"!\". Tab accepts and Esc hides the list." : "Install and open tine to turn this on.")
                 }
-                Section("Text") {
+                Section {
+                    Picker("Style", selection: style) {
+                        ForEach(ConversationStyle.allCases, id: \.self) { Text($0.title).tag(Optional($0)) }
+                        Text("Custom").tag(ConversationStyle?.none)
+                    }
                     Picker("Font", selection: $bodyFont) {
                         Text("System").tag(ConversationBodyFont.system)
                         Text("Monospaced").tag(ConversationBodyFont.monospaced)
@@ -47,7 +49,11 @@ struct ConversationSettings: View {
                     if bodyFont == .custom {
                         Picker("Family", selection: $bodyFamily) {
                             Text("Choose a font").tag("")
-                            ForEach(families, id: \.self) { Text($0).tag($0) }
+                            ForEach(familyGroups, id: \.title) { group in
+                                Section(group.title) {
+                                    ForEach(group.families, id: \.self) { Text($0).tag($0) }
+                                }
+                            }
                         }
                     }
                     LabeledContent("Size") {
@@ -56,47 +62,58 @@ struct ConversationSettings: View {
                     Picker("Line spacing", selection: $lineSpacing) {
                         Text("Compact").tag(ConversationLineSpacing.compact)
                         Text("Normal").tag(ConversationLineSpacing.normal)
+                        Text("Comfortable").tag(ConversationLineSpacing.comfortable)
                         Text("Relaxed").tag(ConversationLineSpacing.relaxed)
+                        Text("Spacious").tag(ConversationLineSpacing.spacious)
                     }
                     Picker("Message width", selection: $width) {
                         Text("Narrow").tag(ConversationWidth.narrow)
                         Text("Normal").tag(ConversationWidth.normal)
                         Text("Full").tag(ConversationWidth.full)
                     }
-                }
-                Section {
-                    Picker("Font", selection: $codeFamily) {
-                        Text("Terminal font").tag("")
-                        ForEach(families, id: \.self) { Text($0).tag($0) }
-                    }
-                    LabeledContent("Size") {
-                        Stepper("\(Int(size($codeSize).wrappedValue)) pt", value: size($codeSize), in: 9...20)
-                    }
                 } header: {
-                    Text("Code")
+                    Text("Text")
                 } footer: {
-                    Text("Sizes start at the terminal font size. Code covers code blocks, inline code, shell lines and diffs.")
+                    Text("Code blocks, inline code and shell lines use Review's font, size and colours (Settings > Review).")
                 }
                 Section {
-                    Button("Reset Text Settings", action: reset)
+                    Button("Reset Text Settings") { apply(.standard) }
                 }
             }
         }
         .formStyle(.grouped)
-        .frame(height: isConversationEnabled ? (bodyFont == .custom ? 810 : 760) : 230)
+        .frame(height: isConversationEnabled ? (bodyFont == .custom ? 715 : 670) : 230)
     }
 
     private func size(_ stored: Binding<Double>) -> Binding<Double> {
         Binding(get: { stored.wrappedValue > 0 ? stored.wrappedValue : ConversationTypography.terminalSize.rounded() }, set: { stored.wrappedValue = $0 })
     }
 
-    private func reset() {
-        bodyFont = .monospaced
-        bodyFamily = ""
-        bodySize = 0
-        lineSpacing = .normal
-        codeFamily = ""
-        codeSize = 0
-        width = .normal
+    private var typeset: ConversationTypeset {
+        ConversationTypeset(bodyFont: bodyFont, bodyFamily: bodyFamily, bodySize: bodySize, lineSpacing: lineSpacing, width: width)
+    }
+
+    private var style: Binding<ConversationStyle?> {
+        Binding(
+            get: {
+                var current = typeset
+                if current.bodyFont != .custom { current.bodyFamily = "" }
+
+                return ConversationStyle.allCases.first { $0.typeset == current }
+            },
+            set: { style in
+                guard let style else { return }
+
+                apply(style.typeset)
+            }
+        )
+    }
+
+    private func apply(_ typeset: ConversationTypeset) {
+        bodyFont = typeset.bodyFont
+        bodyFamily = typeset.bodyFamily
+        bodySize = typeset.bodySize
+        lineSpacing = typeset.lineSpacing
+        width = typeset.width
     }
 }

@@ -158,7 +158,7 @@ struct GhosttyTheme: Equatable {
     let isDark: Bool
     let background: Color?
     let chrome: Color?
-    let foreground: Color
+    var foreground: Color
     let secondary: Color
     let needsYou: Color
     let working: Color
@@ -173,6 +173,7 @@ struct GhosttyTheme: Equatable {
     var codeFont: NSFont
     var composerFont: NSFont
     var lineHeightMultiple: CGFloat = 1
+    var codeStyle: ReviewStyle?
     var messageWidth: CGFloat = 860
 
     init(values: [String: String]) {

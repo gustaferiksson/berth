@@ -36,13 +36,11 @@ Changes apply to a running Berth without a relaunch, except where the table says
 | `reviewWrapsLines` | `-bool` | `false` | Soft-wrap long lines in the diff and file viewer instead of scrolling horizontally (strip button, View ▸ Wrap Lines, ⌥⌘Z). |
 | `reviewDiffLayout` | `-string` | `auto` | `auto` (side by side from 760 pt of diff column), `sideBySide` or `inline`. |
 | `reviewTerminalBelow` | `-bool` | `false` | Put the Claude terminal under the diff instead of beside it. |
-| `conversationBodyFont` | `-string` | `monospaced` | Conversation text: `system`, `monospaced` (the terminal font) or `custom`. Settings > Conversation. |
+| `conversationBodyFont` | `-string` | `system` | Conversation text: `system`, `monospaced` (the terminal font) or `custom`. Settings > Conversation (Style presets Clean, Spacious, Reading and Terminal write these keys together). |
 | `conversationBodyFamily` | `-string` | empty | Font family used when `conversationBodyFont` is `custom`. |
-| `conversationBodySize` | `-float` | `0` | Points; `0` uses the terminal font size. Settings offers 11 to 20. |
-| `conversationLineSpacing` | `-string` | `normal` | `compact`, `normal` or `relaxed`. |
-| `conversationCodeFamily` | `-string` | empty | Font family for code, shell lines and diffs; empty uses the terminal font. |
-| `conversationCodeSize` | `-float` | `0` | Points; `0` uses the terminal font size. Settings offers 9 to 20. |
-| `conversationMessageWidth` | `-string` | `normal` | `narrow` (680 pt), `normal` (860 pt) or `full`. |
+| `conversationBodySize` | `-float` | `16` | Points; `0` uses the terminal font size. Settings offers 11 to 20. |
+| `conversationLineSpacing` | `-string` | `relaxed` | `compact`, `normal`, `comfortable`, `relaxed` or `spacious` (line height multiples 0.9, 1, 1.15, 1.3, 1.45). |
+| `conversationMessageWidth` | `-string` | `narrow` | `narrow` (680 pt), `normal` (860 pt) or `full`. |
 | `reviewTerminalBelowRatio` | `-float` | `0.6` | The diff's share of the height in that layout, written by dragging the divider. |
 | `reviewChangesAsTree` | `-bool` | `false` | Show Uncommitted and Committed as a folder tree instead of a list. |
 | `reviewBaseBranches` | `-dict` | unset | The base picked in Review's header, per repository root: `{"<root>" = {"<branch>" = "<ref>";};}`. Unset branches use the PR's base, else `gh-merge-base` or an upstream on another branch, else the nearest branch towards the default branch. |
