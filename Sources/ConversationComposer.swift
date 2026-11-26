@@ -172,7 +172,7 @@ struct ConversationComposer: View {
                     ConversationPickerRow(
                         name: command.name,
                         detail: command.summary,
-                        symbol: "command",
+                        symbol: "",
                         source: command.source,
                         help: command.argumentHint.map { "\(command.name) \($0)" } ?? command.summary
                     )
@@ -190,7 +190,7 @@ struct ConversationComposer: View {
                     return ConversationPickerRow(
                         name: item.name,
                         detail: item.description,
-                        symbol: item.kind.symbol,
+                        symbol: "chevron.right.square",
                         help: item.description.isEmpty ? item.name : item.description,
                         matches: item.matches,
                         isDangerous: item.isDangerous

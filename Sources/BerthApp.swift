@@ -19,6 +19,7 @@ struct BerthApp: App {
         GhosttyConfig.registerBundledFonts()
         // The AutoFill heuristic controller loops in SwiftUI's key-view search and hangs the main thread; macOS 26 reads the first key, macOS 27 the second.
         UserDefaults.standard.register(defaults: ["NSAutoFillHeuristicControllerEnabled": false, "NSAutoFillHeuristicsEnabled": false])
+        UserDefaults.standard.register(defaults: [BrowserModel.developerToolsKey: true])
         // Restyling a SwiftUI List's scroll view afterwards re-tiles it inside a SwiftUI update, which crashes outline lists.
         var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         arguments["AppleShowScrollBars"] = "WhenScrolling"
@@ -223,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.cycleTab(by: flags.contains(.shift) ? -1 : 1)
                 return nil
             }
-            if flags == .command || flags == [.command, .shift], let key = [33: "[", 30: "]"][event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key && $0.shortcut?.modifiers == modifiers }), action.isAvailable(in: store) {
+            if flags.contains(.command), let key = [33: "[", 30: "]"][event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key && $0.shortcut?.modifiers == modifiers }), action.isAvailable(in: store) {
                 action.perform(on: store)
                 return nil
             }

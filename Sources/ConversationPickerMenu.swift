@@ -10,13 +10,12 @@ struct ConversationPickerRow {
     var matches: [Int] = []
     var isDangerous = false
 
-    func highlightedName(isSelected: Bool) -> AttributedString {
+    var highlightedName: AttributedString {
         var title = AttributedString(name)
         for offset in matches {
             guard let range = Range(NSRange(location: offset, length: 1), in: title) else { continue }
 
-            title[range].foregroundColor = isSelected ? .white : isDangerous ? .red : .accentColor
-            title[range].underlineStyle = .single
+            title[range].font = .system(size: 13, weight: .bold)
         }
         return title
     }
@@ -31,9 +30,11 @@ struct ConversationPickerMenu<Element, ID: Hashable>: View {
     let row: (Element) -> ConversationPickerRow
 
     var body: some View {
-        let rowHeight = 23.0
+        let rowHeight = 24.0
+        let inset = 6.0
+        let panelRadius = 16.0
         let selected = selected ?? items.first?[keyPath: id]
-        let shape = RoundedRectangle(cornerRadius: 8)
+        let shape = RoundedRectangle(cornerRadius: panelRadius)
 
         ScrollViewReader { scroll in
             ScrollView {
@@ -45,9 +46,9 @@ struct ConversationPickerMenu<Element, ID: Hashable>: View {
                             choose(item)
                         } label: {
                             rowLabel(content, isSelected: isSelected)
-                                .padding(.horizontal, 6)
+                                .padding(.horizontal, 8)
                                 .frame(height: rowHeight)
-                                .background(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : .clear, in: .rect(cornerRadius: 4))
+                                .background(isSelected ? Color(nsColor: .selectedContentBackgroundColor) : .clear, in: .rect(cornerRadius: panelRadius - inset))
                                 .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
@@ -57,7 +58,7 @@ struct ConversationPickerMenu<Element, ID: Hashable>: View {
                         .help(content.help)
                     }
                 }
-                .padding(.horizontal, 4)
+                .padding(.horizontal, inset)
             }
             .scrollBounceBehavior(.basedOnSize)
             .frame(height: rowHeight * Double(min(items.count, 8)))
@@ -65,11 +66,8 @@ struct ConversationPickerMenu<Element, ID: Hashable>: View {
                 if let selected { scroll.scrollTo(selected) }
             }
         }
-        .padding(.vertical, 4)
-        .background { ConversationPickerMaterial() }
-        .clipShape(shape)
-        .overlay { shape.strokeBorder(.primary.opacity(0.12)).allowsHitTesting(false) }
-        .shadow(color: .black.opacity(0.23), radius: 8, y: 3)
+        .padding(.vertical, inset)
+        .glassEffect(.regular, in: shape)
         .accessibilityLabel(label)
     }
 
@@ -78,13 +76,13 @@ struct ConversationPickerMenu<Element, ID: Hashable>: View {
         let secondary: Color = isSelected ? .white.opacity(0.8) : .secondary
 
         return HStack(spacing: 7) {
-            Image(systemName: content.isDangerous ? "exclamationmark.triangle.fill" : content.symbol)
+            Image(systemName: isSelected ? "return" : content.isDangerous ? "exclamationmark.triangle.fill" : content.symbol)
                 .font(.system(size: 11, weight: .medium))
                 .frame(width: 14)
-                .foregroundStyle(content.isDangerous ? foreground : secondary)
+                .foregroundStyle(content.isDangerous && !isSelected ? foreground : secondary)
                 .accessibilityHidden(true)
-            Text(content.highlightedName(isSelected: isSelected))
-                .font(.system(size: 13))
+            Text(content.highlightedName)
+                .font(.system(size: 13, weight: content.matches.isEmpty ? .semibold : .regular))
                 .foregroundStyle(foreground)
                 .layoutPriority(1)
             if !content.detail.isEmpty {
@@ -101,16 +99,4 @@ struct ConversationPickerMenu<Element, ID: Hashable>: View {
         }
         .lineLimit(1)
     }
-}
-
-private struct ConversationPickerMaterial: NSViewRepresentable {
-    func makeNSView(context _: Context) -> NSView {
-        let view = NSVisualEffectView()
-        view.material = .menu
-        view.blendingMode = .withinWindow
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_: NSView, context _: Context) {}
 }

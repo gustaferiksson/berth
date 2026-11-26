@@ -5,7 +5,8 @@ import WebKit
 
 extension Snapshot {
     static let browserFixtures: [SessionSummary]? = {
-        guard UserDefaults.standard.bool(forKey: "snapshotBrowser") else { return nil }
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: "snapshotBrowser") || defaults.bool(forKey: "snapshotBrowserInspector") else { return nil }
 
         let folder = NSTemporaryDirectory() + "berth-browser"
         try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -146,6 +147,12 @@ extension Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserNewTab") { await probeNewTabKeyViewLoop(store: store, window: window) }
         let shown = store.browser.shownTab
+        if UserDefaults.standard.bool(forKey: "snapshotBrowserInspector"), let shown {
+            let view = shown.webView
+            let preferences = view.configuration.preferences
+            let developerExtras = preferences.responds(to: NSSelectorFromString("_developerExtrasEnabled")) && (preferences.value(forKey: "developerExtrasEnabled") as? Bool == true)
+            print("snapshot browser inspector isInspectable=\(view.isInspectable) developerExtras=\(developerExtras) showPath=\(shown.webInspector != nil)")
+        }
         let pinned = store.browser.pinned
         let sessionTabs = store.browser.tabs(in: session.id)
         let all = pinned + sessionTabs
