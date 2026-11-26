@@ -90,7 +90,7 @@ struct ConversationPrompt: View {
                 }
             }
             if let images = entry.images {
-                HStack(spacing: 6) {
+                FlowLayout {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
                         ConversationPromptImage(entryID: entry.id, thumbnail: data, index: index, number: numbers[index])
                     }
