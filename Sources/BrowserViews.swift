@@ -288,6 +288,8 @@ private struct BrowserSessionTabs: View {
     @State private var stripWidth = 0.0
     @State private var frozenTabWidth: CGFloat?
     @State private var hasTrailingOverflow = false
+    @State private var hoveredTabID: UUID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
@@ -341,17 +343,22 @@ private struct BrowserSessionTabs: View {
     private func tabStrip(width: CGFloat) -> some View {
         let selectedID = selection?.id
         let (activeWidth, inactiveWidth) = widths(width: width, count: tabs.count)
+        let isHovered = { (tab: BrowserTab) in hoveredTabID == tab.id || Snapshot.forcedHover.contains(tab.displayTitle) }
         return ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
                     ForEach(tabs.enumerated(), id: \.element.id) { index, tab in
                         let isSelected = tab === selection
-                        BrowserHeaderTab(browser: browser, tab: tab, isPinned: false, isSelected: isSelected, isCompact: isCompact, showsTitle: inactiveWidth >= Self.minimumTitleWidth, editingTabID: $editingTabID) { select(tab) }
+                        BrowserHeaderTab(browser: browser, tab: tab, isPinned: false, isSelected: isSelected, isCompact: isCompact, showsTitle: inactiveWidth >= Self.minimumTitleWidth, onHoverChange: { hovering in hoveredTabID = hovering ? tab.id : (hoveredTabID == tab.id ? nil : hoveredTabID) }, editingTabID: $editingTabID, select: { select(tab) })
                             .frame(width: isSelected ? activeWidth : inactiveWidth)
                             .overlay(alignment: .leading) {
-                                if index > 0, !isSelected, tabs[index - 1] !== selection {
+                                if index > 0 {
+                                    let previous = tabs[index - 1]
+                                    let isVisible = !isSelected && previous !== selection && !isHovered(tab) && !isHovered(previous)
                                     Hairline(axis: .vertical)
                                         .frame(height: 20)
+                                        .opacity(isVisible ? 1 : 0)
+                                        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isVisible)
                                         .allowsHitTesting(false)
                                 }
                             }
@@ -460,6 +467,7 @@ private struct BrowserHeaderTab: View {
     let isSelected: Bool
     var isCompact = false
     var showsTitle = true
+    var onHoverChange: (Bool) -> Void = { _ in }
     @Binding var editingTabID: UUID?
     let select: () -> Void
     @State private var isHovering = false
@@ -477,7 +485,10 @@ private struct BrowserHeaderTab: View {
                     .frame(height: BrowserHeader.controlSize - 2)
             } else {
                 sessionButton
-                    .onHover { isHovering = $0 }
+                    .onHover { hovering in
+                        isHovering = hovering
+                        onHoverChange(hovering)
+                    }
             }
         }
         .help(tab.displayTitle)
