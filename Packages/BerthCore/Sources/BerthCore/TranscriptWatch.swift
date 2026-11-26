@@ -2,29 +2,17 @@ import Foundation
 
 extension TranscriptActivity {
     static let watchMarkers = [
-        "<command-name>", "steward --tend", "<task-notification>", "<local-command-stdout>",
+        "<command-name>", "<task-notification>", "<local-command-stdout>",
         #""session_end""#, #""session_resume""#, #""relocated""#, #""worktree-state""#,
-        #""CronCreate""#, #""CronDelete""#, #""TaskStop""#, "[Request interrupted by user",
+        "[Request interrupted by user",
     ].map { Array($0.utf8) }
     static let branchKey = Array(#""gitBranch":""#.utf8)
 
     public func pullRequestWatch(of live: LiveSession?, now: Date) -> PullRequestWatch? {
-        guard let live, live.status != nil else { return nil }
+        guard let live, live.status != nil, let watch = commandWatch, now < watch.expiresAt else { return nil }
 
         let started = live.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .distantPast
-        let active = { (watch: PullRequestWatch) in watch.since >= started && now < watch.expiresAt }
-        let command = commandWatch.flatMap { $0.since >= started ? $0 : nil }
-        if let command, !active(command) { return nil }
-        let scheduled = running.values.compactMap { launch -> PullRequestWatch? in
-            guard ["CronCreate", "Monitor"].contains(launch.tool), let prompt = launch.tendPrompt, launch.deadline.map({ now < $0 }) ?? true else { return nil }
-
-            let watch = Self.watch(argument: prompt.dropFirst(2).first, at: launch.started)
-            return active(watch) ? watch : nil
-        }.max { $0.since < $1.since }
-        guard let command, let scheduled else { return command ?? scheduled }
-        guard command.number == nil || command.number == scheduled.number else { return command }
-
-        return PullRequestWatch(number: command.number ?? scheduled.number, repository: command.repository ?? scheduled.repository, since: command.since)
+        return watch.since >= started ? watch : nil
     }
 
     static func watch(argument: Substring?, at date: Date) -> PullRequestWatch {
@@ -68,13 +56,13 @@ extension TranscriptActivity {
             stopWatch(at: date)
             return
         }
-        guard ["/ship", "/steward"].contains(name.1) else { return }
+        guard name.1 == "/ship" else { return }
 
         let arguments = text.firstMatch(of: /<command-args>([^<]*)<\/command-args>/)?.1 ?? name.2
         let argument = arguments.split(whereSeparator: \.isWhitespace).first
         if argument == "stop" {
             stopWatch(at: date)
-        } else if argument != "--tend", date >= watchEndedAt {
+        } else if date >= watchEndedAt {
             stopWatch(at: date)
             commandWatch = Self.watch(argument: argument, at: date)
             watchBranch = branch
@@ -84,19 +72,6 @@ extension TranscriptActivity {
     mutating func stopWatch(at date: Date) {
         watchEndedAt = max(watchEndedAt, date)
         if commandWatch.map({ $0.since <= date }) == true { commandWatch = nil }
-        for (id, launch) in running where launch.tendPrompt != nil && launch.started <= date { end(id, at: date) }
-        if commandWatch == nil, !running.values.contains(where: { $0.tendPrompt != nil }) { watchBranch = nil }
-    }
-}
-
-extension TranscriptActivity.Launch {
-    var tendPrompt: [Substring]? {
-        for text in [command, title].compactMap(\.self) {
-            guard let first = text.firstIndex(where: { !$0.isWhitespace }), text[first...].hasPrefix("/steward") else { continue }
-
-            let words = text[first...].split(whereSeparator: \.isWhitespace)
-            if words.starts(with: ["/steward", "--tend"]) { return words }
-        }
-        return nil
+        if commandWatch == nil { watchBranch = nil }
     }
 }

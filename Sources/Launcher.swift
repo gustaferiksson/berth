@@ -4,22 +4,6 @@ import GhosttyTerminal
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct StewardPullRequestButton: View {
-    static let title = "Steward with Claude"
-    let link: PullRequestLink
-    let url: URL
-
-    @Environment(Store.self) private var store
-
-    var body: some View {
-        let opening = store.opening(of: link, prompt: .steward)
-        Button(Self.title, systemImage: "eye") {
-            if store.openPullRequest(link, url: url, opening: opening, prompt: .steward) { store.launcherMode = nil }
-        }
-        .disabled(!opening.isOpenable)
-    }
-}
-
 enum LauncherMode {
     case newSession, search, palette, pullRequests, showPullRequestInReview, issues, projects
 }
@@ -116,7 +100,7 @@ struct Launcher: View {
         return PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now)
     }
 
-    private var projectEntries: [ProjectEntry] {
+    private var projectSections: [ProjectSection] {
         guard mode == .projects, issueReference == nil else { return [] }
 
         let boards = store.projects.selectedBoards
@@ -126,7 +110,7 @@ struct Launcher: View {
         let names = groups.map(\.statusName).reduce(into: [String]()) { names, name in
             if !names.contains(name) { names.append(name) }
         }
-        return (names.filter { $0 != ProjectBoard.noStatusName } + names.filter { $0 == ProjectBoard.noStatusName }).flatMap { name in
+        return (names.filter { $0 != ProjectBoard.noStatusName } + names.filter { $0 == ProjectBoard.noStatusName }).map { name in
             let matching = groups.filter { $0.statusName == name }
             let items = matching.flatMap(\.items).sorted { left, right in
                 let leftMine = left.assignees.contains { $0.caseInsensitiveCompare(login) == .orderedSame }
@@ -135,8 +119,20 @@ struct Launcher: View {
             }
             let total = items.count + matching.reduce(0) { $0 + $1.hiddenCount }
             let title = total > items.count ? "\(name) · latest \(items.count)" : name
-            return items.enumerated().map { index, item in
-                ProjectEntry(header: index == 0 ? title : nil, count: total, project: boards.count > 1 ? titles[item.projectID] : nil, item: item)
+            return ProjectSection(name: name, title: title, total: total, items: items, projectTitles: boards.count > 1 ? titles : [:])
+        }
+    }
+
+    private var projectColumn: String? {
+        let sections = projectSections
+        return sections.contains { $0.name == store.projects.launcherColumn } ? store.projects.launcherColumn : nil
+    }
+
+    private var projectEntries: [ProjectEntry] {
+        let column = projectColumn
+        return projectSections.filter { column == nil || $0.name == column }.flatMap { section in
+            section.items.enumerated().map { index, item in
+                ProjectEntry(header: index == 0 ? section.title : nil, count: section.total, project: section.projectTitles[item.projectID], item: item)
             }
         }
     }
@@ -218,6 +214,12 @@ struct Launcher: View {
                         return .handled
                     }
                     .onSubmit(submit)
+                    .onChange(of: store.projects.columnSteps) { old, new in
+                        let columns = [nil] + projectSections.map { Optional($0.name) }
+                        let index = columns.firstIndex(of: store.projects.launcherColumn) ?? 0
+                        store.projects.launcherColumn = columns[((index + new - old) % columns.count + columns.count) % columns.count]
+                        highlighted = 0
+                    }
                     .onChange(of: query) {
                         highlighted = 0
                         selectedIssue = nil
@@ -265,23 +267,18 @@ struct Launcher: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
             }
+            if mode == .projects, issue == nil {
+                ProjectColumnBar(columns: projectSections.map { ($0.name, $0.total) }, selection: projectColumn) { name in
+                    store.projects.launcherColumn = name
+                    highlighted = 0
+                }
+            }
             Divider()
             if mode == .newSession {
                 folderList(matches)
             } else {
                 results(rows, pullRequests: ranked, issues: issues, issue: issue, linked: linked)
             }
-            #if DEBUG
-            if Snapshot.showsPullRequestActions, let pullRequest {
-                Divider()
-                StewardPullRequestButton(link: PullRequestLink(repository: pullRequest.repository, number: pullRequest.number), url: pullRequest.url)
-                    .labelStyle(.titleAndIcon)
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-            }
-            #endif
             if let pullRequest, missingCheckout == pullRequest {
                 Divider()
                 checkoutNotice(repository: pullRequest.repository, url: pullRequest.url)
@@ -329,6 +326,7 @@ struct Launcher: View {
                         if item.url != nil { LauncherKeyHint("⌥↩", "GitHub") }
                     }
                     LauncherKeyHint("↑↓", "Item")
+                    if projectSections.count > 1 { LauncherKeyHint("⌃⇥", "Column") }
                 } else if mode == .palette {
                     LauncherKeyHint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
                     LauncherKeyHint("↑↓", "Select")
@@ -458,7 +456,6 @@ struct Launcher: View {
                                     Button("Show in Review", systemImage: AppAction.showPullRequestInReview.symbol) { showInReview(link) }
                                         .disabled(!AppAction.showPullRequestInReview.isAvailable(in: store))
                                     Button("Open on GitHub", systemImage: "arrow.up.right.square") { openOnGitHub(pullRequest.url) }
-                                    if mode == .pullRequests { StewardPullRequestButton(link: link, url: pullRequest.url) }
                                 }
                         }
                         if pullRequests.isEmpty {
@@ -558,9 +555,6 @@ struct Launcher: View {
             }
             .buttonStyle(.plain)
             .disabled(!row.opening.isOpenable)
-            .contextMenu {
-                StewardPullRequestButton(link: row.pullRequest.link, url: row.pullRequest.url)
-            }
         }
         if linked.isEmpty, let selectedIssue, case .success? = issueResult, store.localCheckout(of: selectedIssue.repository) == nil {
             checkoutNotice(repository: selectedIssue.repository, url: selectedIssue.url)
@@ -1000,7 +994,7 @@ struct Launcher: View {
 
     private func openIssueResult(_ linked: [LinkedPullRequest]) {
         if linked.isEmpty, let selectedIssue {
-            store.startIssueSession(repository: selectedIssue.repository, number: selectedIssue.number, url: selectedIssue.url)
+            store.startIssueSession(repository: selectedIssue.repository, number: selectedIssue.number, url: selectedIssue.url, title: selectedIssue.title)
         } else {
             openLinkedPullRequests(linked)
         }

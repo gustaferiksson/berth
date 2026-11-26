@@ -9,8 +9,10 @@ let elapsedFormat = Duration.UnitsFormatStyle.units(allowed: [.hours, .minutes, 
 
 #if DEBUG
 let conversationExpandsAll = UserDefaults.standard.bool(forKey: "snapshotConversationExpanded")
+let conversationShowsTasks = UserDefaults.standard.bool(forKey: "snapshotConversationTasks")
 #else
 let conversationExpandsAll = false
+let conversationShowsTasks = false
 #endif
 
 private let markerWidth = 16.0
@@ -88,7 +90,7 @@ struct ConversationPrompt: View {
                 }
             }
             if let images = entry.images {
-                HStack(spacing: 6) {
+                FlowLayout {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
                         ConversationPromptImage(entryID: entry.id, thumbnail: data, index: index, number: numbers[index])
                     }
@@ -121,7 +123,7 @@ struct ConversationPrompt: View {
     static func attributed(_ text: String, theme: GhosttyTheme, displayScale: CGFloat? = nil, itemID: String? = nil, expanded: Set<String> = []) -> NSAttributedString {
         let font = theme.conversationNSFont()
         let style = NSMutableParagraphStyle()
-        style.lineHeightMultiple = theme.lineHeightMultiple
+        style.lineSpacing = (font.ascender - font.descender + font.leading) * (theme.lineHeightMultiple - 1)
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(theme.foreground), .paragraphStyle: style]
         let prose = { (raw: Substring) -> Segment in
             let rendered = attributedProse(String(raw), attributes: attributes, font: font, theme: theme, displayScale: displayScale)
