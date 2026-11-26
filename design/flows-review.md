@@ -267,7 +267,7 @@ opening a Review file another way (`berth show-pr`, a notification) switches bac
   ⌘-click to open the file.
 - Click a PR card or row to open a read-only PR #N diff tab. It starts at the first changed
   file. Use the path bar to switch files. The menu also offers Show Diff in Review,
-  Show Details, Open on GitHub, Steward with Claude for open or draft PRs,
+  Show Details, Open on GitHub, 
   Move To Status for editable project items, and Copy Link.
 - Show Details opens a PR #N details tab with the linked issue, selectable Markdown description,
   reviewers, latest comments and named checks. It uses the same preview, keep, history and close

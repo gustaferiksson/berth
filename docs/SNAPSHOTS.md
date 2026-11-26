@@ -208,9 +208,7 @@ Add `-snapshotLauncherLoading YES` to `-snapshotIssues ""` or `-snapshotPullRequ
 
 `-snapshotIssue "owner/repo#1"` opens Pull Requests with one fixture linked PR. `-snapshotIssue "acme/api#10"` shows four PRs across repositories, with three known checkouts and an unavailable row for `acme/infra`. The snapshot prints each row's status. Add `-snapshotLauncherKeys "enter"` to print the recorded `openClaude` calls and whether the launcher stays open. The issue lookup uses fixtures and session opens are recorded as probes.
 
-`-snapshotWatching YES` adds a **Watching #N** row to the sidebar fixtures and works with `-snapshotFakeStatus YES`. With `-snapshotConversation YES` and the empty fixture home used by Conversation snapshots, it writes an invented `/steward` record, defaults Claude to idle, and exercises transcript detection in the footer.
-
-`-snapshotPullRequestActions YES` opens the pull request launcher with invented inbox rows. It prints the menu title and renders the highlighted PR’s **Steward with Claude** context-menu item below the results for offscreen capture.
+`-snapshotWatching YES` adds a **Watching #N** row to the sidebar fixtures and works with `-snapshotFakeStatus YES`. With `-snapshotConversation YES` and the empty fixture home used by Conversation snapshots, it writes a fixture `/ship` record, defaults Claude to idle, and exercises transcript detection in the footer.
 
 ### Conversation view
 

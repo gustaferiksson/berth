@@ -113,7 +113,7 @@ extension Snapshot {
         var lines = effort + [#"{"type":"permission-mode","permissionMode":"\#(mode)","sessionId":"\#(conversationSession)"}"#] + records.map { String(decoding: (try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data(), as: UTF8.self) }
         if showsWatching, !showsEmptyConversation {
             let timestamp = Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
-            lines.append(#"{"type":"user","uuid":"steward-fixture","sessionId":"\#(conversationSession)","cwd":"\#(conversationFolder)","timestamp":"\#(timestamp)","message":{"role":"user","content":"<command-name>/steward</command-name>\n<command-args>https://github.com/acme/billing/pull/4821</command-args>"}}"#)
+            lines.append(#"{"type":"user","uuid":"ship-fixture","sessionId":"\#(conversationSession)","cwd":"\#(conversationFolder)","timestamp":"\#(timestamp)","message":{"role":"user","content":"<command-name>/ship</command-name>\n<command-args>https://github.com/acme/billing/pull/4821</command-args>"}}"#)
         }
         try? (lines.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
         guard !showsEmptyConversation else { return }
