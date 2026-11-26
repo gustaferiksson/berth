@@ -43,6 +43,7 @@ enum BrowserLinkTarget: String {
 final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     let id = UUID()
     var url: URL?
+    var lockedURL: URL?
     var title: String
     var favicon: NSImage?
     var isLoading = false
@@ -61,11 +62,14 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     @ObservationIgnored private var consoleSequence = 0
     @ObservationIgnored private unowned let browser: BrowserModel
 
-    init(url: URL?, title: String = "", browser: BrowserModel) {
+    init(url: URL?, title: String = "", lockedURL: URL? = nil, browser: BrowserModel) {
         self.url = url
         self.title = title
+        self.lockedURL = lockedURL
         self.browser = browser
     }
+
+    var isLocked: Bool { lockedURL != nil }
 
     var displayTitle: String {
         if !title.isEmpty { return title }
@@ -88,7 +92,25 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         #endif
         observations = [
             view.observe(\.title) { [weak self] view, _ in MainActor.assumeIsolated { if let title = view.title, !title.isEmpty { self?.title = title } } },
-            view.observe(\.url) { [weak self] view, _ in MainActor.assumeIsolated { if let url = view.url { self?.url = url } } },
+            view.observe(\.url, options: [.old]) { [weak self] view, change in
+                let previousURL = change.oldValue ?? nil
+                MainActor.assumeIsolated {
+                    guard let self, let url = view.url else { return }
+                    guard let lockedURL = self.lockedURL, !view.isLoading, let previousURL,
+                          PageLock.isSamePage(previousURL, lockedURL), !PageLock.isSamePage(url, lockedURL)
+                    else {
+                        self.url = url
+                        return
+                    }
+
+                    self.browser.openFromPage(url, opener: self, selects: true)
+                    if let previousItem = view.backForwardList.backItem, PageLock.isSamePage(previousItem.url, lockedURL) {
+                        view.goBack()
+                    } else {
+                        self.pendingNavigation = view.load(URLRequest(url: lockedURL))
+                    }
+                }
+            },
             view.observe(\.estimatedProgress) { [weak self] view, _ in MainActor.assumeIsolated { self?.progress = view.estimatedProgress } },
             view.observe(\.isLoading) { [weak self] view, _ in MainActor.assumeIsolated { self?.isLoading = view.isLoading } },
             view.observe(\.canGoBack) { [weak self] view, _ in MainActor.assumeIsolated { self?.canGoBack = view.canGoBack } },
@@ -100,6 +122,12 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     }
 
     func load(_ url: URL) {
+        if let lockedURL, let currentURL = loadedWebView?.url,
+           PageLock.isSamePage(currentURL, lockedURL), !PageLock.isSamePage(url, lockedURL) {
+            browser.openFromPage(url, opener: self, selects: true)
+            return
+        }
+
         self.url = url
         guard browser.mayLoad else { return }
 
@@ -154,7 +182,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         for waiter in waiters { waiter.resume() }
     }
 
-    func webView(_: WKWebView, decidePolicyFor action: WKNavigationAction, preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
         if action.shouldPerformDownload { return (.download, preferences) }
         guard let url = action.request.url, let scheme = url.scheme?.lowercased() else { return (.allow, preferences) }
 
@@ -163,11 +191,17 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
             return (.cancel, preferences)
         }
         let opensInNewTab = action.navigationType == .linkActivated && (action.modifierFlags.contains(.command) || action.buttonNumber == 4)
-        if opensInNewTab, ["http", "https", "file"].contains(scheme) {
+        let isPage = ["http", "https", "file"].contains(scheme)
+        if opensInNewTab, isPage {
             browser.openFromPage(url, opener: self, selects: action.modifierFlags.contains(.shift))
             return (.cancel, preferences)
         }
-        if ["http", "https", "file", "about", "data", "blob", "javascript"].contains(scheme) { return (.allow, preferences) }
+        if isPage, action.targetFrame?.isMainFrame == true, let lockedURL, let currentURL = webView.url,
+           PageLock.isSamePage(currentURL, lockedURL), !PageLock.isSamePage(url, lockedURL) {
+            if action.navigationType != .backForward { browser.openFromPage(url, opener: self, selects: true) }
+            return (.cancel, preferences)
+        }
+        if isPage || ["about", "data", "blob", "javascript"].contains(scheme) { return (.allow, preferences) }
 
         if action.navigationType == .linkActivated { browser.openOutside(url) }
         return (.cancel, preferences)
@@ -303,6 +337,13 @@ final class BrowserDownload: Identifiable {
     var failed = false
 }
 
+private struct ClosedTab {
+    let url: URL?
+    let title: String
+    let index: Int
+    let isPinned: Bool
+}
+
 @Observable
 final class BrowserModel: NSObject, WKDownloadDelegate {
     static let searchKey = "browserSearchEngine"
@@ -312,12 +353,14 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     static let appearanceKey = "browserAppearance"
     private static let pinnedKey = "browserPinnedTabs"
     private static let sessionTabsKey = "browserSessionTabs"
+    private static let closedTabLimit = 20
     private static let ephemeralStore = WKWebsiteDataStore.nonPersistent()
     private static let faviconSession = URLSession(configuration: .ephemeral)
 
     private struct Saved: Codable {
         let url: URL?
         let title: String
+        let lockedURL: URL?
     }
 
     var pinned: [BrowserTab] = []
@@ -325,6 +368,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     var selectedIDs: [String: BrowserTab.ID] = [:]
     var downloads: [BrowserDownload] = []
     var addressFocusRequests = 0
+    @ObservationIgnored private var closedTabs: [String: [ClosedTab]] = [:]
     let access = BrowserAccess()
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var appearanceObserver: (any NSObjectProtocol)?
@@ -443,8 +487,13 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     }
 
     func close(_ tab: BrowserTab, in key: String) {
-        let siblings = pinned.contains { $0 === tab } ? pinned : tabs(in: key)
+        let isPinned = pinned.contains { $0 === tab }
+        let siblings = isPinned ? pinned : tabs(in: key)
         let index = siblings.firstIndex { $0 === tab } ?? 0
+        if tab.url != nil {
+            closedTabs[key, default: []].append(ClosedTab(url: tab.url, title: tab.title, index: index, isPinned: isPinned))
+            if closedTabs[key, default: []].count > Self.closedTabLimit { closedTabs[key]?.removeFirst() }
+        }
         tab.unload()
         pinned.removeAll { $0 === tab }
         sessionTabs[key]?.removeAll { $0 === tab }
@@ -453,6 +502,15 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
             selectedIDs[key] = remaining.isEmpty ? nil : remaining[min(index, remaining.count - 1)].id
         }
         save()
+    }
+
+    func reopenClosedTab(in key: String) {
+        guard let closed = closedTabs[key]?.popLast() else { return }
+
+        let tab = BrowserTab(url: closed.url, title: closed.title, browser: self)
+        if closed.isPinned { pin(tab, at: closed.index) } else { unpin(tab, into: key, at: closed.index) }
+        tab.needsPageFocus = true
+        select(tab, in: key)
     }
 
     func pin(_ tab: BrowserTab, at index: Int? = nil) {
@@ -464,9 +522,22 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
 
     func unpin(_ tab: BrowserTab, into key: String, at index: Int? = nil) {
         pinned.removeAll { $0 === tab }
+        tab.lockedURL = nil
         sessionTabs[key]?.removeAll { $0 === tab }
         let count = tabs(in: key).count
         sessionTabs[key, default: []].insert(tab, at: min(index ?? count, count))
+        save()
+    }
+
+    func lock(_ tab: BrowserTab) {
+        guard pinned.contains(where: { $0 === tab }), let url = tab.url else { return }
+
+        tab.lockedURL = url
+        save()
+    }
+
+    func unlock(_ tab: BrowserTab) {
+        tab.lockedURL = nil
         save()
     }
 
@@ -511,6 +582,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
             open(nil, in: key)
             return
         }
+        if action == .reopenBrowserTab { return reopenClosedTab(in: key) }
         guard let tab = shownTab else { return }
 
         if action == .closeBrowserTab { return close(tab, in: key) }
@@ -531,15 +603,16 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     func save() {
         guard store.persistsTabs else { return }
 
-        let encode = { (tabs: [BrowserTab]) in tabs.compactMap { tab in tab.url.map { Saved(url: $0, title: tab.title) } } }
-        UserDefaults.standard.set(try? JSONEncoder().encode(encode(pinned)), forKey: Self.pinnedKey)
+        let encode = { (tabs: [BrowserTab]) in tabs.compactMap { tab in tab.url.map { Saved(url: $0, title: tab.title, lockedURL: nil) } } }
+        let savedPinned = pinned.compactMap { tab in tab.url.map { Saved(url: $0, title: tab.title, lockedURL: tab.lockedURL) } }
+        UserDefaults.standard.set(try? JSONEncoder().encode(savedPinned), forKey: Self.pinnedKey)
         UserDefaults.standard.set(try? JSONEncoder().encode(sessionTabs.filter { !$0.value.isEmpty }.mapValues(encode)), forKey: Self.sessionTabsKey)
     }
 
     func restore() {
         let decoder = JSONDecoder()
         if let data = UserDefaults.standard.data(forKey: Self.pinnedKey), let saved = try? decoder.decode([Saved].self, from: data) {
-            pinned = saved.map { BrowserTab(url: $0.url, title: $0.title, browser: self) }
+            pinned = saved.map { BrowserTab(url: $0.url, title: $0.title, lockedURL: $0.lockedURL, browser: self) }
         }
         if let data = UserDefaults.standard.data(forKey: Self.sessionTabsKey), let saved = try? decoder.decode([String: [Saved]].self, from: data) {
             sessionTabs = saved.mapValues { tabs in tabs.map { BrowserTab(url: $0.url, title: $0.title, browser: self) } }
