@@ -291,8 +291,17 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
                   let textRange = NSTextRange(location: start, end: end)
             else { return }
 
-            manager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
-                NSBezierPath(roundedRect: frame.insetBy(dx: -3, dy: 1), xRadius: 5, yRadius: 5).fill()
+            let font = textStorage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
+
+            manager.enumerateTextSegments(in: textRange, type: .standard, options: []) { segment, frame, _, _ in
+                var box = frame.insetBy(dx: -3, dy: 1)
+                if let font, let location = segment?.location,
+                   let fragment = manager.textLayoutFragment(for: location),
+                   let line = fragment.textLineFragments.first(where: { $0.characterRange.contains(storage.offset(from: fragment.rangeInElement.location, to: location)) }) {
+                    let baseline = fragment.layoutFragmentFrame.minY + line.typographicBounds.minY + line.glyphOrigin.y
+                    box = NSRect(x: frame.minX - 3, y: baseline - font.ascender - 1, width: frame.width + 6, height: font.ascender - font.descender + 2)
+                }
+                NSBezierPath(roundedRect: box, xRadius: 5, yRadius: 5).fill()
                 return true
             }
         }

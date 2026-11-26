@@ -182,7 +182,10 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     func updateScrollerStyle(reinstallScripts: Bool = true) {
         guard let view = loadedWebView else { return }
 
-        if reinstallScripts { installUserScripts(in: view.configuration.userContentController) }
+        if reinstallScripts {
+            installUserScripts(in: view.configuration.userContentController)
+            if #available(macOS 27.0, *) { view.superview?.invalidateCornerConfiguration() }
+        }
         let source = "globalThis.berthSetLegacyScrollbars?.(\(browser.scrollerStyle.isLegacy))"
         view.evaluateJavaScript(source, in: nil, in: Self.scrollerWorld, completionHandler: nil)
     }
@@ -379,7 +382,10 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
       style.textContent = `
         ::-webkit-scrollbar { width: 17px; height: 17px; }
         ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #fafafa; }
-        ::-webkit-scrollbar-track:vertical { border-left: 1px solid #e8e8e8; }
+        ::-webkit-scrollbar-track:vertical {
+          border-left: 1px solid #e8e8e8;
+          margin-block: 0 \(CardBorder.radius)px;
+        }
         ::-webkit-scrollbar-track:horizontal { border-top: 1px solid #e8e8e8; }
         ::-webkit-scrollbar-thumb {
           background-color: #c1c1c1;
