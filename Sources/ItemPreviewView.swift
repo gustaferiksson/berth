@@ -13,6 +13,7 @@ struct ItemPreviewActions {
 
 struct ItemPreviewView: View {
     static let width: CGFloat = 440
+    static let maxBodyHeight: CGFloat = 420
 
     let preview: ItemPreview
     let actions: ItemPreviewActions
@@ -22,6 +23,7 @@ struct ItemPreviewView: View {
     @Environment(\.openURL) private var openURL
     @State private var checksExpanded: Bool
     @State private var nodes: [MarkdownNode]?
+    @State private var bodyHeight: CGFloat = 0
 
     init(preview: ItemPreview, actions: ItemPreviewActions, checksExpanded: Bool = false, initialNodes: [MarkdownNode]? = nil) {
         self.preview = preview
@@ -34,23 +36,13 @@ struct ItemPreviewView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             authorRow
-            if !preview.labels.isEmpty {
-                FlowLayout {
-                    ForEach(preview.labels, id: \.name) { label in
-                        labelChip(label)
-                    }
-                }
+            ScrollView {
+                scrolledContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bodyHeight = $0 }
             }
-            people
-            if preview.kind == .pullRequest {
-                if preview.additions != nil || preview.deletions != nil || preview.changedFiles != nil { stats }
-                if let checks = preview.checks, !checks.items.isEmpty { checksBlock(checks) }
-            }
-            if !preview.related.isEmpty { related }
-            Divider()
-            description
-            if preview.commentCount > 0 || !preview.comments.isEmpty { comments }
-            Divider()
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(bodyHeight, Self.maxBodyHeight))
             footer
         }
         .padding(16)
@@ -68,6 +60,27 @@ struct ItemPreviewView: View {
     nonisolated static func markdownNodes(in source: String) -> [MarkdownNode] {
         let cleaned = source.replacing(/(?s)<!--.*?(?:-->|$)/, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty ? [] : MarkdownDocument.nodes(in: cleaned)
+    }
+
+    private var scrolledContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if !preview.labels.isEmpty {
+                FlowLayout {
+                    ForEach(preview.labels, id: \.name) { label in
+                        labelChip(label)
+                    }
+                }
+            }
+            people
+            if preview.kind == .pullRequest {
+                if preview.additions != nil || preview.deletions != nil || preview.changedFiles != nil { stats }
+                if let checks = preview.checks, !checks.items.isEmpty { checksBlock(checks) }
+            }
+            if !preview.related.isEmpty { related }
+            Divider()
+            description
+            if preview.commentCount > 0 || !preview.comments.isEmpty { comments }
+        }
     }
 
     private var header: some View {
@@ -337,27 +350,12 @@ struct ItemPreviewView: View {
         if let nodes, !nodes.isEmpty {
             let style = ReviewStyle(scheme: .terminal, fontFamily: "", fontSize: 12, lineHeightMultiple: 1.3, ghostty: theme)
             let markdown = MarkdownRenderStyle(style: style, source: .preview, size: 12)
-            let content = VStack(alignment: .leading, spacing: 8) {
-                ForEach(nodes.prefix(10).enumerated(), id: \.offset) { _, node in
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(nodes.enumerated(), id: \.offset) { _, node in
                     MarkdownNodeView(node: node, markdown: markdown)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
-
-            ItemPreviewDescriptionLayout(maxHeight: 260) {
-                ViewThatFits(in: .vertical) {
-                    if nodes.count <= 10 { content }
-                    content.mask(alignment: .top) {
-                        VStack(spacing: 0) {
-                            Rectangle()
-                            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                                .frame(height: 26)
-                        }
-                        .frame(maxHeight: 260)
-                    }
-                }
-            }
-            .clipped()
             .environment(\.openURL, OpenURLAction { url in
                 guard let scheme = url.scheme?.lowercased(), ["https", "http", "mailto"].contains(scheme) else { return .discarded }
 
@@ -528,21 +526,6 @@ private struct FlowLayout: Layout {
             rowHeight = max(rowHeight, size.height)
             return frame
         }
-    }
-}
-
-private struct ItemPreviewDescriptionLayout: Layout {
-    let maxHeight: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
-        guard let content = subviews.first else { return .zero }
-
-        let ideal = content.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
-        return CGSize(width: proposal.width ?? ideal.width, height: min(ideal.height, maxHeight))
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal _: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
-        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
     }
 }
 
