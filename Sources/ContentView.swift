@@ -21,6 +21,7 @@ struct ContentView: View {
     @AppStorage(GeneralSettings.terminalBelowKey) private var isTerminalBelow = false
     @AppStorage(WindowBackdrop.transparencyKey) private var windowTransparency = 0.0
     @AppStorage(WindowBackdrop.backgroundKey) private var windowBackground = WindowBackground.theme
+    @AppStorage(WindowBackdrop.matchesSidebarKey) private var matchesSidebarBackground = false
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
     @State private var paneSidebarWidth = SessionPanel.idealWidth
@@ -39,7 +40,7 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanelSidebar ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
                 measuredSessionPanel
-                    .glassSidebarTint(store.theme)
+                    .glassSidebarTint(store.theme, matchesWindow: matchesSidebarBackground)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
                     .toolbar {
                         if showsPanelSidebar { ChangesToolbar(store: store, host: "panel") }
@@ -47,7 +48,7 @@ struct ContentView: View {
                     .navigationSplitViewColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
             } else {
                 Sidebar()
-                    .glassSidebarTint(store.theme)
+                    .glassSidebarTint(store.theme, matchesWindow: matchesSidebarBackground)
                     .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
                         guard store.persistsTabs, isDraggedByUser, width >= 220, abs(width - leadingSidebarWidth) >= 0.5 else { return }
 
@@ -141,7 +142,7 @@ struct ContentView: View {
             if isTrailing {
                 Sidebar()
                     .listStyle(.sidebar)
-                    .glassSidebarTint(store.theme)
+                    .glassSidebarTint(store.theme, matchesWindow: matchesSidebarBackground)
                     .background(ScrollPocketSeparatorRemover())
                     .onGeometryChange(for: Double.self) { $0.size.width } action: { width in
                         guard store.persistsTabs, isDraggedByUser, width >= 220, abs(width - trailingSidebarWidth) >= 0.5 else { return }
@@ -154,7 +155,7 @@ struct ContentView: View {
                     }
             } else {
                 measuredSessionPanel
-                    .glassSidebarTint(store.theme)
+                    .glassSidebarTint(store.theme, matchesWindow: matchesSidebarBackground)
                     .background(ScrollPocketSeparatorRemover())
                     .inspectorColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
                     .toolbar {
@@ -661,8 +662,11 @@ struct Hairline: View {
 }
 
 private extension View {
-    func glassSidebarTint(_: GhosttyTheme) -> some View {
+    func glassSidebarTint(_ theme: GhosttyTheme, matchesWindow: Bool) -> some View {
         scrollContentBackground(.hidden)
+            .background {
+                if matchesWindow, let background = theme.background { background.ignoresSafeArea() }
+            }
     }
 }
 
@@ -688,6 +692,7 @@ enum WindowBackground: String, CaseIterable {
 struct WindowBackdrop: View {
     static let transparencyKey = "windowTransparency"
     static let backgroundKey = "windowBackground"
+    static let matchesSidebarKey = "matchesSidebarBackground"
     static let maxTransparency = 0.8
 
     let chrome: Color?

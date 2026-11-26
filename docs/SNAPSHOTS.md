@@ -8,7 +8,7 @@ Use `-snapshotGhosttyTheme "Atom One Light"` for light snapshots because the app
 
 Snapshot without touching the screen (Debug build only): `.build/Build/Products/Debug/Berth.app/Contents/MacOS/Berth -snapshot /abs/out.png` plus `-AppleInterfaceStyle Dark`, `-snapshotShell YES` (two terminals in the Terminals group, the second showing a fake `npm run dev` title and working dots; add `-snapshotShellCd "<args>"` to type `cd <args>` into the first one), `-snapshotClaudeTab YES` (a shell-backed claude tab with no transcript yet), or `-snapshotClaude /abs/dir` (launches real `claude` without `-w` whatever the setting, shows its trust prompt), or `-snapshotResume <sessionId>` (the sidebar click path, `claude --resume`).
 
-Use `-windowBackground theme|glass|darker` to select the detail background through the argument domain. For example, pass `-windowBackground darker` to show the cards' theme background colour in the gaps. System glass requires an on-screen window to render.
+Use `-windowBackground theme|glass|darker` to select the detail background through the argument domain. For example, pass `-windowBackground darker` to show the cards' theme background colour in the gaps. System glass requires an on-screen window to render. `-matchesSidebarBackground YES` fills the sidebar and Review panel with the theme background.
 
 ## Sidebar fixtures
 
@@ -164,7 +164,7 @@ It prints the window title, toolbar items, the File and View menus (Group By wit
 
 ## Settings snapshot
 
-Settings snapshot (rinse's pattern): `Berth -settingsSnapshot /abs/out.png -settingsTab general|sidebar|terminal|conversation|review|github|browser|remote|about`, a stored `appearance` opens Sidebar (plus `-AppleInterfaceStyle Dark`). It opens Settings through the app menu's ⌘, item with window ordering swizzled so the window never touches a display and its saved frame isn't overwritten. `-settingsScroll <y>` scrolls the form to y before capture (420 shows General's Language Servers section with Review and language servers on).
+Settings snapshot (rinse's pattern): `Berth -settingsSnapshot /abs/out.png -settingsTab general|appearance|sidebar|terminal|conversation|review|github|browser|remote|about`, a stored `appearance` opens Appearance (plus `-AppleInterfaceStyle Dark`). It opens Settings through the app menu's ⌘, item with window ordering swizzled so the window never touches a display and its saved frame isn't overwritten. `-settingsScroll <y>` scrolls the form to y before capture (420 shows General's Language Servers section with Review and language servers on).
 
 `-snapshotProjects YES` enables GitHub Projects and installs two fixture boards without calling `gh` (`-snapshotProjectsLauncher YES` opens the launcher's Project scope, `-snapshotHover` shows the status on a fixture PR's hover card with `-snapshotLongNames YES`), and `-snapshotProjectsState needsScope|noCLI|failed` shows a notice in `-settingsTab github`.
 
