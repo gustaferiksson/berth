@@ -29,7 +29,7 @@ struct BrowserPane: View {
             }
             .background(theme.background ?? Color(nsColor: .textBackgroundColor))
             .clipShape(.rect(cornerRadius: CardBorder.radius, style: .continuous))
-            .overlay { CardBorder() }
+            .overlay { if tab?.url == nil { CardBorder() } }
         }
     }
 }
