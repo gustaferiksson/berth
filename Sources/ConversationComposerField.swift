@@ -7,7 +7,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let placeholder: String
     let font: NSFont
     let color: NSColor
-    let promptColor: NSColor?
+    let hidesBang: Bool
     let focusRequest: Int
     let layoutWidth: CGFloat
     let slashPicker: ConversationSlashPicker?
@@ -15,6 +15,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let submit: () -> Void
     let attach: ([URL]) -> String
     let recall: () -> Bool
+    let leaveShell: () -> Void
 
     private static let maxLines = 8.0
 
@@ -78,6 +79,8 @@ struct ConversationComposerField: NSViewRepresentable {
         textView.onSubmit = submit
         textView.onAttach = attach
         textView.onRecall = recall
+        textView.onLeaveShell = leaveShell
+        textView.hiddenPrefix = hidesBang ? "!" : ""
         textView.shellCompleter = shellCompleter
         shellCompleter?.field = textView
         if textView.slashPicker !== slashPicker || textView.string != text {
@@ -96,9 +99,6 @@ struct ConversationComposerField: NSViewRepresentable {
 
                 textView.refreshCompletions()
             }
-        }
-        if let promptColor, text.hasPrefix("!") {
-            textView.textStorage?.addAttribute(.foregroundColor, value: promptColor, range: NSRange(location: 0, length: 1))
         }
         guard focusRequest != context.coordinator.focusRequest else { return }
 
@@ -153,6 +153,8 @@ final class ComposerTextView: NSTextView {
     var onSubmit: () -> Void = {}
     var onAttach: ([URL]) -> String = { _ in "" }
     var onRecall: () -> Bool = { false }
+    var onLeaveShell: () -> Void = {}
+    var hiddenPrefix = ""
     weak var slashPicker: ConversationSlashPicker?
     weak var shellCompleter: ConversationShellCompleter?
 
@@ -169,7 +171,7 @@ final class ComposerTextView: NSTextView {
         slashPicker?.update(query: slashCompletion?.query)
         guard let shellCompleter, !hasMarkedText(), selectedRange().length == 0 else { return }
 
-        shellCompleter.update(draft: string, caret: selectedRange().location)
+        shellCompleter.update(draft: hiddenPrefix + string, caret: selectedRange().location + hiddenPrefix.utf16.count)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -187,6 +189,12 @@ final class ComposerTextView: NSTextView {
         let viewport = ConversationComposerField.height(of: string, font: font, width: frame.width)
         scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, layout.usageBoundsForTextContainer.height - viewport)))
         scrollView.reflectScrolledClipView(scrollView.contentView)
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        guard !hiddenPrefix.isEmpty, selectedRange() == NSRange(location: 0, length: 0) else { return super.deleteBackward(sender) }
+
+        onLeaveShell()
     }
 
     override func didChangeText() {
