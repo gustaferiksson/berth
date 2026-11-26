@@ -14,6 +14,7 @@ struct BackgroundTaskSource: Hashable, Sendable {
 final class BackgroundTaskModel {
     private(set) var source: BackgroundTaskSource?
     private(set) var tasks: [SessionBackgroundTask] = []
+    var stoppedIDs: Set<String> = []
     @ObservationIgnored private var activity = TranscriptActivity(keepsTaskHistory: true)
 
     func observe(_ source: BackgroundTaskSource, store: Store) async {
@@ -58,7 +59,13 @@ extension Store {
         guard let tab = sessionTab else { return [] }
 
         let source = backgroundTaskSource
-        let history = source != nil && backgroundTaskModel.source == source ? backgroundTaskModel.tasks : []
+        let history = (source != nil && backgroundTaskModel.source == source ? backgroundTaskModel.tasks : []).map { task in
+            guard task.status == .running, backgroundTaskModel.stoppedIDs.contains(task.id) else { return task }
+
+            var stopped = task
+            stopped.status = .stopped
+            return stopped
+        }
         let live = (conversationModels[tab.id]?.tasks ?? []).filter { task in
             !history.contains { $0.id == task.id || $0.toolUseID == task.id }
         }.map(SessionBackgroundTask.init)
@@ -68,6 +75,21 @@ extension Store {
             return SessionBackgroundTask(id: owned.id.uuidString, kind: .terminal, title: title, started: owned.opened)
         }
         return history + live + terminals + finishedTerminalTasks[tab.id, default: []]
+    }
+
+    func canStop(_ task: SessionBackgroundTask) -> Bool {
+        task.kind == .shell && task.status == .running && task.outputFile != nil && sessionTab?.sessionID.flatMap { liveBySession[$0] } != nil
+    }
+
+    func stopBackgroundTask(_ id: String) {
+        let matches = backgroundTasks.filter { $0.id == id || $0.toolUseID == id }
+        guard let task = matches.first(where: { $0.outputFile != nil }) ?? matches.first, canStop(task),
+              let output = task.outputFile, let pid = sessionTab?.sessionID.flatMap({ liveBySession[$0]?.pid }) else { return }
+
+        Task {
+            let stopped = await Task.detached { await ProcessAncestry.stopShell(writing: output, under: pid) }.value
+            if stopped { backgroundTaskModel.stoppedIDs.insert(task.id) }
+        }
     }
 
     var canShowTasksPane: Bool {
