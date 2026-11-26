@@ -6,7 +6,7 @@ import WebKit
 extension Snapshot {
     static let browserFixtures: [SessionSummary]? = {
         let defaults = UserDefaults.standard
-        guard defaults.bool(forKey: "snapshotBrowser") || defaults.bool(forKey: "snapshotBrowserInspector") else { return nil }
+        guard defaults.bool(forKey: "snapshotBrowser") || defaults.bool(forKey: "snapshotBrowserInspector") || defaults.bool(forKey: "snapshotBrowserError") else { return nil }
 
         let folder = NSTemporaryDirectory() + "berth-browser"
         try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -58,13 +58,14 @@ extension Snapshot {
     static func captureBrowser(store: Store, window: NSWindow) async {
         guard let session = browserFixtures?.first else { return }
 
+        let showsError = UserDefaults.standard.bool(forKey: "snapshotBrowserError")
         let folder = URL(filePath: session.cwd)
         for page in browserPages {
             let icon = "data:image/svg+xml;base64," + Data("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='\(page.color)'/></svg>".utf8).base64EncodedString()
             let html = "<!doctype html><html><head><meta charset='utf-8'><title>\(page.title)</title><link rel='icon' href='\(icon)'><style>body{font:14px -apple-system,sans-serif;margin:32px;color:#1f2328}@media(prefers-color-scheme:dark){body{background:#1e1f22;color:#e6e6e6}}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:8px;border-bottom:1px solid #8884}</style></head><body>\(page.body)</body></html>"
             try? Data(html.utf8).write(to: folder.appending(path: page.file))
         }
-        await store.browser.prepareSnapshotRules()
+        await store.browser.prepareSnapshotRules(allowsErrorHost: showsError)
 
         let parent = UUID()
         store.openShell(cwd: session.cwd, id: parent)
@@ -113,6 +114,9 @@ extension Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotBrowserAgent") {
             store.browser.open(URL(string: "http://127.0.0.1:45779/session-4f9a1c2e-7b3d-4e8a-9c15-0d2e6f8a1b37/dashboard")!, in: session.id, title: "Dev Server", selects: !UserDefaults.standard.bool(forKey: "snapshotBrowserAgentInactive")).isDrivenByAgent = true
         }
+        if showsError {
+            store.browser.open(URL(string: "http://\(BrowserModel.snapshotErrorHost)")!, in: session.id)
+        }
         store.showBrowserPane()
         for tab in store.browser.pinned + store.browser.tabs(in: session.id) where tab.url != nil {
             let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
@@ -120,6 +124,7 @@ extension Snapshot {
             if tab.webView.responds(to: selector) { tab.webView.perform(selector, with: nil) }
         }
         try? await Task.sleep(for: .seconds(3))
+        if showsError, let tab = store.browser.shownTab { await tab.waitForNavigation(in: tab.webView) }
 
         if let history = UserDefaults.standard.string(forKey: "snapshotBrowserHistory"), let tab = store.browser.shownTab {
             let view = tab.webView
@@ -147,6 +152,7 @@ extension Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserNewTab") { await probeNewTabKeyViewLoop(store: store, window: window) }
         let shown = store.browser.shownTab
+        if showsError { print("browser error \(shown?.loadError?.title ?? "unavailable")") }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserInspector"), let shown {
             let view = shown.webView
             let preferences = view.configuration.preferences

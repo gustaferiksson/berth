@@ -39,6 +39,33 @@ enum BrowserLinkTarget: String {
     case defaultBrowser, berth
 }
 
+struct BrowserLoadError {
+    let symbol: String
+    let title: String
+    let explanation: String
+    let url: URL
+
+    static func describe(_ error: NSError, url: URL) -> Self {
+        let code = error.domain == NSURLErrorDomain ? URLError.Code(rawValue: error.code) : nil
+        let details: (symbol: String, title: String, explanation: String) = switch code {
+        case .cannotFindHost, .dnsLookupFailed:
+            ("globe", "Can't Find the Server", "The server at \(url.host(percentEncoded: false) ?? "this address") couldn't be found.")
+        case .notConnectedToInternet, .networkConnectionLost:
+            ("wifi.slash", "No Internet Connection", "Check your internet connection and reload the page.")
+        case .cannotConnectToHost:
+            ("exclamationmark.circle", "Can't Connect to the Server", "The server isn't accepting connections.")
+        case .secureConnectionFailed, .serverCertificateHasBadDate, .serverCertificateUntrusted, .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid, .clientCertificateRejected, .clientCertificateRequired:
+            ("lock.slash", "Secure Connection Failed", "A secure connection to the server couldn't be established.")
+        case .timedOut:
+            ("clock", "Connection Timed Out", "The server took too long to respond.")
+        default:
+            ("exclamationmark.triangle", "Can't Open the Page", error.localizedDescription)
+        }
+        return Self(symbol: details.symbol, title: details.title, explanation: details.explanation, url: url)
+    }
+}
+
 @Observable
 final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     private static let showInspectorSelector = NSSelectorFromString("show")
@@ -48,6 +75,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     var lockedURL: URL?
     var title: String
     var favicon: NSImage?
+    private(set) var loadError: BrowserLoadError?
     var isLoading = false
     var progress = 0.0
     var canGoBack = false
@@ -176,10 +204,15 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     }
 
     func reload() {
-        if let loadedWebView {
-            pendingNavigation = loadedWebView.reload()
-        } else {
+        guard let loadedWebView else {
             _ = webView
+            return
+        }
+
+        if let loadError {
+            pendingNavigation = loadedWebView.load(URLRequest(url: loadError.url))
+        } else {
+            pendingNavigation = loadedWebView.reload()
         }
     }
 
@@ -189,6 +222,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         loadedWebView?.stopLoading()
         loadedWebView?.removeFromSuperview()
         loadedWebView = nil
+        loadError = nil
         needsPageFocus = false
         isLoading = false
         progress = 0
@@ -223,12 +257,13 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         if action.shouldPerformDownload { return (.download, preferences) }
         guard let url = action.request.url, let scheme = url.scheme?.lowercased() else { return (.allow, preferences) }
 
-        if browser.isSnapshot, !["file", "about", "data", "blob"].contains(scheme) {
+        let isPage = ["http", "https", "file"].contains(scheme)
+        if browser.isSnapshot, !["file", "about", "data", "blob"].contains(scheme),
+           !(browser.allowsSnapshotErrorHost && isPage && url.host(percentEncoded: false) == BrowserModel.snapshotErrorHost) {
             print("snapshot browser blocked \(url.absoluteString)")
             return (.cancel, preferences)
         }
         let opensInNewTab = action.navigationType == .linkActivated && (action.modifierFlags.contains(.command) || action.buttonNumber == 4)
-        let isPage = ["http", "https", "file"].contains(scheme)
         if opensInNewTab, isPage {
             browser.openFromPage(url, opener: self, selects: action.modifierFlags.contains(.shift))
             return (.cancel, preferences)
@@ -263,6 +298,12 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         pendingNavigation = navigation
     }
 
+    func webView(_ webView: WKWebView, didCommit _: WKNavigation?) {
+        guard webView === loadedWebView else { return }
+
+        loadError = nil
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         guard webView === loadedWebView else { return }
 
@@ -277,9 +318,15 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
 
         if navigation === pendingNavigation { finishNavigation() }
         let failure = error as NSError
-        if failure.domain != NSURLErrorDomain || failure.code != NSURLErrorCancelled {
-            recordConsole(level: "error", text: "Navigation failed: \(failure.localizedDescription)")
-        }
+        guard failure.domain != NSURLErrorDomain || failure.code != NSURLErrorCancelled else { return }
+
+        recordConsole(level: "error", text: "Navigation failed: \(failure.localizedDescription)")
+        guard failure.domain != "WebKitErrorDomain" || failure.code != 102,
+              let failingURL = failure.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? url
+        else { return }
+
+        url = failingURL
+        loadError = BrowserLoadError.describe(failure, url: failingURL)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
@@ -436,6 +483,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     static let githubLinksKey = "githubLinksOpenInBerth"
     static let appearanceKey = "browserAppearance"
     static let developerToolsKey = "browserDeveloperTools"
+    static let snapshotErrorHost = "berth-missing.invalid"
     private static let pinnedKey = "browserPinnedTabs"
     private static let sessionTabsKey = "browserSessionTabs"
     private static let closedTabLimit = 20
@@ -459,6 +507,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var appearanceObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var snapshotRules: WKContentRuleList?
+    @ObservationIgnored private(set) var allowsSnapshotErrorHost = false
     @ObservationIgnored var lastPaneSize = NSSize(width: 1280, height: 800)
     @ObservationIgnored private var downloadsByTask: [ObjectIdentifier: BrowserDownload] = [:]
     @ObservationIgnored private var progressObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
@@ -526,12 +575,14 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         return configuration
     }
 
-    /// Snapshots load local fixture pages only, so every subresource that isn't file, data or about is blocked too.
-    func prepareSnapshotRules() async {
-        let rules: [[String: [String: String]]] = [["trigger": ["url-filter": ".*"], "action": ["type": "block"]]] + ["^file:", "^data:", "^about:"].map { ["trigger": ["url-filter": $0], "action": ["type": "ignore-previous-rules"]] }
+    func prepareSnapshotRules(allowsErrorHost: Bool = false) async {
+        let errorHost = Self.snapshotErrorHost.replacing(".", with: #"\."#)
+        let allowed = ["^file:", "^data:", "^about:"] + (allowsErrorHost ? ["^https?://\(errorHost)(:[0-9]+)?/"] : [])
+        let rules: [[String: [String: String]]] = [["trigger": ["url-filter": ".*"], "action": ["type": "block"]]] + allowed.map { ["trigger": ["url-filter": $0], "action": ["type": "ignore-previous-rules"]] }
         guard let data = try? JSONSerialization.data(withJSONObject: rules) else { return }
 
         snapshotRules = try? await WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "berth-browser-snapshot", encodedContentRuleList: String(decoding: data, as: UTF8.self))
+        allowsSnapshotErrorHost = allowsErrorHost
         print("snapshot browser rules \(snapshotRules == nil ? "failed, nothing loads" : "compiled")")
     }
 

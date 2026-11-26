@@ -23,7 +23,9 @@ Use `-windowBackground theme|glass|darker` to select the detail background throu
 
 Add `-snapshotBrowserLocked YES` for two pinned tabs and one selected session tab, with a lock marker on the collapsed Berth Docs tab.
 
-The fixture loads via `file:` and embeds its favicons as `data:` URLs. The content rule list permits only `file:`, `data:` and `about:` resources. Other navigations print `snapshot browser blocked <url>`. The store runs in memory. Web views turn off WebKit's window occlusion check so the offscreen window can paint the page.
+The fixture loads via `file:` and embeds its favicons as `data:` URLs. By default, the content rule list permits `file:`, `data:` and `about:` resources. Other navigations print `snapshot browser blocked <url>`. The store runs in memory. Web views turn off WebKit's window occlusion check so the offscreen window can paint the page.
+
+`-snapshotBrowserError YES` opens the browser fixture with a selected tab at `http://berth-missing.invalid` and prints `browser error <title>` after waiting for the load to fail. This flag allows the reserved host `berth-missing.invalid` through the snapshot navigation and content rules.
 
 Add `-snapshotIncomingURL <url>` (with or without `-snapshotBrowser YES`) to feed a URL to `Store.openIncomingURL` and print the session, browser tab counts, pane, launcher and pending URL.
 
