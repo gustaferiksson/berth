@@ -13,11 +13,14 @@ struct BrowserPane: View {
     var body: some View {
         let browser = store.browser
         let tab = browser.shownTab
+        let background = theme.background ?? Color(nsColor: .textBackgroundColor)
         VStack(spacing: 0) {
             BrowserHeader(browser: browser, tab: tab)
             Group {
                 if let tab, tab.url != nil {
                     BrowserWebView(tab: tab, scrollerStyle: browser.scrollerStyle)
+                        .allowsHitTesting(tab.loadError == nil)
+                        .accessibilityHidden(tab.loadError != nil)
                 } else {
                     ContentUnavailableView {
                         Label("New Tab", systemImage: "globe")
@@ -32,9 +35,39 @@ struct BrowserPane: View {
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
                 if size.width > 0, size.height > 0 { browser.lastPaneSize = size }
             }
-            .background(theme.background ?? Color(nsColor: .textBackgroundColor))
+            .background(background)
+            .overlay {
+                if let tab, let error = tab.loadError {
+                    BrowserLoadErrorView(error: error, reload: tab.reload)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(background)
+                }
+            }
             .clipShape(.rect(cornerRadius: CardBorder.radius, style: .continuous))
             .overlay { CardBorder() }
+        }
+    }
+}
+
+private struct BrowserLoadErrorView: View {
+    let error: BrowserLoadError
+    let reload: @MainActor () -> Void
+
+    var body: some View {
+        ContentUnavailableView {
+            Label {
+                Text(error.title)
+            } icon: {
+                Image(systemName: error.symbol)
+                    .accessibilityHidden(true)
+            }
+        } description: {
+            Text(error.explanation)
+        } actions: {
+            Button("Reload", action: reload)
+                .buttonStyle(.borderedProminent)
+            Button("Copy Link") { copyToPasteboard(error.url.absoluteString) }
+                .buttonStyle(.bordered)
         }
     }
 }
@@ -877,11 +910,8 @@ private struct BrowserLinkActions: View {
     var body: some View {
         Button("Open in Default Browser") { browser.openOutside(url) }
             .help("Open in Default Browser")
-        Button("Copy Link") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(url.absoluteString, forType: .string)
-        }
-        .help("Copy Link")
+        Button("Copy Link") { copyToPasteboard(url.absoluteString) }
+            .help("Copy Link")
     }
 }
 
