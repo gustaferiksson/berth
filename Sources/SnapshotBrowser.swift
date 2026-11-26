@@ -147,6 +147,22 @@ extension Snapshot {
         if let view = shown?.loadedWebView {
             let userAgent = try? await view.evaluateJavaScript("navigator.userAgent") as? String
             print("browser user agent \(userAgent ?? "unavailable")")
+            let scrollbar = try? await view.evaluateJavaScript("""
+            (() => {
+              if (!document.body) return 'unavailable';
+              const probe = document.createElement('div');
+              probe.style.cssText = 'position:fixed;left:-10000px;width:300px;height:200px;overflow:scroll';
+              const child = document.createElement('div');
+              child.style.cssText = 'width:900px;height:900px';
+              probe.append(child);
+              document.body.append(probe);
+              const width = probe.offsetWidth - probe.clientWidth;
+              const height = probe.offsetHeight - probe.clientHeight;
+              probe.remove();
+              return `${width}x${height}`;
+            })()
+            """) as? String
+            print("browser scrollbar probe \(scrollbar ?? "unavailable"), system style \(store.browser.scrollerStyle.styleDescription), appkit style \(NSScroller.preferredScrollerStyle.rawValue)")
             let scheme = try? await view.evaluateJavaScript("matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'") as? String
             print("browser prefers-color-scheme \(scheme ?? "unavailable")")
         }
