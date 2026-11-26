@@ -1,5 +1,6 @@
 import BerthCore
 import GhosttyTerminal
+import os
 import SwiftUI
 
 enum SidebarPosition: String {
