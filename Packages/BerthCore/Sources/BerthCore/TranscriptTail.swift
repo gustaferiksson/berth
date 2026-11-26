@@ -120,7 +120,7 @@ public enum TranscriptTail {
                 if type == "assistant", let blockType = block["type"] as? String, blockType == "text" || blockType == "thinking",
                    blockType == "text" || isNarration(signature: block["signature"] as? String),
                    let text = block[blockType] as? String, !text.isEmpty {
-                    return RemoteEntry(id: id, kind: .reply, text: cappedProse(text), date: date)
+                    return RemoteEntry(id: id, kind: .reply, text: cappedProse(text), isError: object["isApiErrorMessage"] as? Bool == true, date: date)
                 }
                 if type == "assistant", block["type"] as? String == "tool_use", let name = block["name"] as? String {
                     let input = block["input"] as? [String: Any] ?? [:]

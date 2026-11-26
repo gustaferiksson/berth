@@ -22,6 +22,17 @@ struct TranscriptTailTests {
         #expect(parsed.entries[4].command == "swift test" && parsed.entries[4].toolID == "t2")
     }
 
+    @Test func marksAnApiErrorReply() {
+        let data = Data("""
+        {"type":"assistant","uuid":"a1","isApiErrorMessage":true,"error":"unknown","message":{"content":[{"type":"text","text":"API Error: The lantern server is unreachable (ENOTFOUND)"}]}}
+        {"type":"assistant","uuid":"a2","message":{"content":[{"type":"text","text":"All lit."}]}}
+
+        """.utf8)
+        let entries = TranscriptTail.entries(in: data, dropFirst: false, queue: []).entries
+
+        #expect(entries.map(\.isError) == [true, false])
+    }
+
     @Test func skipsAStandaloneSystemReminderBeforeThePrompt() {
         let line = #"{"type":"user","uuid":"u1","message":{"content":[{"type":"text","text":" <system-reminder>\nA lantern is lit.\n</system-reminder>\n"},{"type":"text","text":"Sketch the island"}]}}"#
         let entries = TranscriptTail.entries(in: Data((line + "\n").utf8), dropFirst: false, queue: []).entries
