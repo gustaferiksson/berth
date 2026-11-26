@@ -29,6 +29,14 @@ extension Snapshot {
         ("release.html", "Release Checklist", "#39c5cf", "<h1>Release Checklist</h1><ul><li>Verify the CSV headers</li><li>Publish the export documentation</li></ul>"),
     ]
 
+    static func probeIncomingURL(_ text: String, store: Store) {
+        let before = store.sessionTab.map { store.browser.tabs(in: BrowserModel.key(of: $0)).count } ?? 0
+        store.openIncomingURL(URL(string: text)!)
+        let session = store.sessionTab
+        let tabs = session.map { store.browser.tabs(in: BrowserModel.key(of: $0)) } ?? []
+        print("incoming url \(text): session \(session != nil), browser tabs \(before) -> \(tabs.count), newest \(tabs.last?.url?.absoluteString ?? "-"), pane \(store.shownPane?.rawValue ?? "hidden"), launcher \(store.launcherMode.map { "\($0)" } ?? "closed"), pending \(store.pendingIncomingURL?.absoluteString ?? "-")")
+    }
+
     static func captureBrowserApproval(store: Store, window: NSWindow, output: URL) async {
         let access = store.browser.access
         var session = SessionSummary(id: "fixture-approval", cwd: "/Users/dev/acme-billing.worktrees/export-invoices-csv", title: "Export the invoice list as CSV with the new billing service headers and a download button", lastActivity: .now, branch: "feat/invoice-export")

@@ -25,6 +25,8 @@ Add `-snapshotBrowserLocked YES` for two pinned tabs and one selected session ta
 
 The fixture loads via `file:` and embeds its favicons as `data:` URLs. The content rule list permits only `file:`, `data:` and `about:` resources. Other navigations print `snapshot browser blocked <url>`. The store runs in memory. Web views turn off WebKit's window occlusion check so the offscreen window can paint the page.
 
+Add `-snapshotIncomingURL <url>` (with or without `-snapshotBrowser YES`) to feed a URL to `Store.openIncomingURL` and print the session, browser tab counts, pane, launcher and pending URL.
+
 Add `-snapshotBrowserApproval YES` to raise the Allow Browser Access sheet for a long-titled worktree session with a requested URL and save only the sheet to the output path (use `-snapshotGhosttyTheme "Atom One Light"` for light).
 
 Add `-snapshotBrowserHistory back|forward|both` to navigate the selected tab through the local pages and capture the requested history controls. The summary prints whether Back and Forward are available. Use `-snapshotWindowWidth 1600 -reviewTerminalBelow YES` to give the browser enough width to show the controls in the header.

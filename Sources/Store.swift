@@ -169,6 +169,8 @@ final class Store {
     var planUsage: PlanUsage?
     var codexUsage: CodexUsage?
     var isSettingsRequested = false
+    @ObservationIgnored var pendingIncomingURL: URL?
+
     var isHarborShown = false {
         didSet {
             if isHarborShown { endTerminalSearch() }
@@ -1515,6 +1517,20 @@ final class Store {
         if browser.shownTab == nil { browser.open(nil, in: BrowserModel.key(of: session)) }
     }
 
+    func openIncomingURL(_ url: URL) {
+        guard WebAddress.allows(url) || url.isFileURL && ["html", "htm", "xhtml"].contains(url.pathExtension.lowercased()) else { return }
+
+        if sessionTab == nil, let session = tabs.last(where: { $0.kind == .claude }) { activate(.tab(session.id)) }
+        guard let session = sessionTab else {
+            pendingIncomingURL = url
+            launcherMode = .newSession
+            return
+        }
+
+        browser.open(url, in: BrowserModel.key(of: session))
+        showBrowserPane()
+    }
+
     var linkOpeningAction: OpenURLAction {
         OpenURLAction { url in
             self.openLink(url)
@@ -2043,6 +2059,10 @@ final class Store {
             recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
         }
         if let prompt, let session { Task { await paste(prompt, intoStartingSession: session, tab: id) } }
+        if selectsTab, let url = pendingIncomingURL {
+            pendingIncomingURL = nil
+            openIncomingURL(url)
+        }
         return id
     }
 
