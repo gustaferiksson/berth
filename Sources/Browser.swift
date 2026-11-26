@@ -76,7 +76,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         if let loadedWebView { return loadedWebView }
 
         let configuration = browser.configuration()
-        configuration.userContentController.addUserScript(WKUserScript(source: Self.consoleScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        installUserScripts(in: configuration.userContentController)
         configuration.userContentController.add(self, name: Self.consoleBridge)
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
@@ -97,6 +97,21 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         loadedWebView = view
         if let url, browser.mayLoad { pendingNavigation = view.load(URLRequest(url: url)) }
         return view
+    }
+
+    private func installUserScripts(in controller: WKUserContentController) {
+        controller.removeAllUserScripts()
+        controller.addUserScript(WKUserScript(source: Self.consoleScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let source = Self.scrollerScript + "(\(browser.scrollerStyle.isLegacy));"
+        controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: Self.scrollerWorld))
+    }
+
+    func updateScrollerStyle(reinstallScripts: Bool = true) {
+        guard let view = loadedWebView else { return }
+
+        if reinstallScripts { installUserScripts(in: view.configuration.userContentController) }
+        let source = "globalThis.berthSetLegacyScrollbars?.(\(browser.scrollerStyle.isLegacy))"
+        view.evaluateJavaScript(source, in: nil, in: Self.scrollerWorld, completionHandler: nil)
     }
 
     func load(_ url: URL) {
@@ -195,6 +210,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         guard webView === loadedWebView else { return }
 
+        updateScrollerStyle(reinstallScripts: false)
         if navigation === pendingNavigation { finishNavigation() }
         browser.save()
         Task { favicon = await browser.favicon(of: webView) ?? favicon }
@@ -248,6 +264,48 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         browser.openFromPage(url, opener: self, selects: !isBackground)
         return nil
     }
+
+    private static let scrollerWorld = WKContentWorld.world(name: "Berth Scrollbars")
+    private static let scrollerScript = """
+    (legacy => {
+      const style = document.createElement('style');
+      style.id = 'berth-legacy-scrollbars';
+      style.textContent = `
+        ::-webkit-scrollbar { width: 15px; height: 15px; }
+        ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #f5f5f5; }
+        ::-webkit-scrollbar-thumb {
+          background: #b9b9b9;
+          border: 3px solid transparent;
+          border-radius: 8px;
+          background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-thumb:hover { background-color: #969696; }
+        @media (prefers-color-scheme: dark) {
+          ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #292929; }
+          ::-webkit-scrollbar-thumb { background-color: #646464; }
+          ::-webkit-scrollbar-thumb:hover { background-color: #808080; }
+        }
+      `;
+      const apply = () => {
+        if (!legacy) return style.remove();
+        if (document.documentElement) document.documentElement.append(style);
+      };
+      globalThis.berthSetLegacyScrollbars = enabled => {
+        legacy = enabled;
+        apply();
+      };
+      if (document.documentElement) {
+        apply();
+        return;
+      }
+      const observer = new MutationObserver(() => {
+        if (!document.documentElement) return;
+        observer.disconnect();
+        apply();
+      });
+      observer.observe(document, { childList: true });
+    })
+    """
 
     private static let consoleBridge = "berthConsole"
     private static let consoleScript = #"""
@@ -326,6 +384,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     var downloads: [BrowserDownload] = []
     var addressFocusRequests = 0
     let access = BrowserAccess()
+    let scrollerStyle = SystemScrollerStyle()
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var appearanceObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var snapshotRules: WKContentRuleList?
@@ -336,6 +395,11 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     init(store: Store) {
         self.store = store
         super.init()
+        scrollerStyle.onChange = { [weak self] in
+            guard let self else { return }
+
+            for tab in pinned + sessionTabs.values.flatMap(\.self) { tab.updateScrollerStyle() }
+        }
         appearanceObserver = DistributedNotificationCenter.default().addObserver(forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyAppearance() }
         }
