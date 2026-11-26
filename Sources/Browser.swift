@@ -305,19 +305,23 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
       const style = document.createElement('style');
       style.id = 'berth-legacy-scrollbars';
       style.textContent = `
-        ::-webkit-scrollbar { width: 15px; height: 15px; }
-        ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #f5f5f5; }
+        ::-webkit-scrollbar { width: 17px; height: 17px; }
+        ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #fafafa; }
+        ::-webkit-scrollbar-track:vertical { border-left: 1px solid #e8e8e8; }
+        ::-webkit-scrollbar-track:horizontal { border-top: 1px solid #e8e8e8; }
         ::-webkit-scrollbar-thumb {
-          background: #b9b9b9;
+          background-color: #c1c1c1;
           border: 3px solid transparent;
-          border-radius: 8px;
+          border-radius: 10px;
           background-clip: padding-box;
         }
-        ::-webkit-scrollbar-thumb:hover { background-color: #969696; }
+        ::-webkit-scrollbar-thumb:hover { background-color: #a8a8a8; }
         @media (prefers-color-scheme: dark) {
-          ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #292929; }
-          ::-webkit-scrollbar-thumb { background-color: #646464; }
-          ::-webkit-scrollbar-thumb:hover { background-color: #808080; }
+          ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: #1e1e1e; }
+          ::-webkit-scrollbar-track:vertical { border-left-color: #333333; }
+          ::-webkit-scrollbar-track:horizontal { border-top-color: #333333; }
+          ::-webkit-scrollbar-thumb { background-color: #5a5a5a; }
+          ::-webkit-scrollbar-thumb:hover { background-color: #787878; }
         }
       `;
       const apply = () => {
