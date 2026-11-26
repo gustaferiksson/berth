@@ -278,6 +278,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await Snapshot.capture(to: output, store: store) }
     }
 
+    func application(_: NSApplication, open urls: [URL]) {
+        for url in urls { store.openIncomingURL(url) }
+    }
+
     func applicationWillTerminate(_: Notification) {
         store.isTerminating = true
         store.saveOpenTabs()
