@@ -18,10 +18,10 @@ struct SubagentStopTests {
 
     @Test func aLoneAgentIsStoppedFromItsDetailView() {
         let agent = task("a", .agent, at: 10)
-        #expect(SubagentStop.keys(stopping: agent, among: [agent]) == [.command("/tasks"), .enter, .stop])
+        #expect(SubagentStop.keys(stopping: agent, among: [agent]) == [.command("/tasks"), .enter, .stop, .escape])
     }
 
-    @Test func agentsSitBehindShellsAndMonitorsInStartOrder() {
+    @Test func agentsSitBehindShellsAndMonitorsNewestFirst() {
         let tasks = [
             task("late", .agent, at: 30),
             task("early", .agent, at: 20),
@@ -31,8 +31,8 @@ struct SubagentStopTests {
             task("done", .agent, at: 2, status: .completed),
             task("inline", .agent, at: 3, foreground: true),
         ]
-        #expect(SubagentStop.keys(stopping: tasks[1], among: tasks) == [.command("/tasks"), .enter, .down, .down, .stop, .escape])
-        #expect(SubagentStop.keys(stopping: tasks[0], among: tasks) == [.command("/tasks"), .enter, .down, .down, .down, .stop, .escape])
+        #expect(SubagentStop.keys(stopping: tasks[1], among: tasks) == [.command("/tasks"), .enter, .down, .down, .down, .stop, .escape])
+        #expect(SubagentStop.keys(stopping: tasks[0], among: tasks) == [.command("/tasks"), .enter, .down, .down, .stop, .escape])
     }
 
     @Test func foregroundFinishedAndNonAgentTasksHaveNoKeys() {

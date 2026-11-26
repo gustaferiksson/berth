@@ -16,6 +16,7 @@ extension Snapshot {
     private static let codexConversationSession = "5b34c260-0c36-4721-bcfa-d56c78a9ce31"
     private static let codexConversationChild = "e6883ec6-0344-4bec-8511-cf586a4e2efc"
     private static var showsEmptyConversation: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationEmpty") }
+    private static var showsForegroundAgent: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationForegroundAgent") }
     private static var showsLongCode: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationLongCode") }
     private static var showsCodexApproval: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexApproval") }
     private static var showsCodexTasks: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexTasks") }
@@ -351,8 +352,8 @@ extension Snapshot {
             result("t6b", "The file \(file) has been updated.", 1, [:]),
             assistant(6, [text("Column added. Starting the migration check and the docs review now."), use("t7", "Bash", ["command": "swift test --filter MigrationTests --parallel", "description": "Run the migration check in the background", "run_in_background": true])]),
             result("t7", "Command running in background with ID: bg-migration. Output is being written to: /private/tmp/bg-migration.output", 1, ["toolUseResult": ["backgroundTaskId": "bg-migration"]]),
-            assistant(3, [use("t8", "Agent", ["description": "Review the docs for the export column", "subagent_type": "general-purpose", "prompt": "Read docs/columns.md and list what must change for the plan name column.", "run_in_background": true])]),
-            result("t8", "Async agent launched successfully.\nagentId: agent-docs (internal ID, do not mention to user)", 1, ["toolUseResult": ["isAsync": true, "status": "async_launched", "agentId": "agent-docs", "description": "Review the docs for the export column"]]),
+            assistant(3, [use("t8", "Agent", ["description": "Review the docs for the export column", "subagent_type": "general-purpose", "prompt": "Read docs/columns.md and list what must change for the plan name column.", "run_in_background": !showsForegroundAgent])]),
+            result(showsForegroundAgent ? "t8-unused" : "t8", "Async agent launched successfully.\nagentId: agent-docs (internal ID, do not mention to user)", 1, ["toolUseResult": ["isAsync": true, "status": "async_launched", "agentId": "agent-docs", "description": "Review the docs for the export column"]]),
             assistant(4, [use("t10", "REPL", ["code": "await $`ls docs`", "description": "List the docs folder"])]),
             result("t10", "(dispatched #12)", 1, [:]),
             assistant(2, [use("t11", "Poll", [:])]),

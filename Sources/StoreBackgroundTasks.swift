@@ -108,8 +108,9 @@ extension Store {
         guard task.kind == .agent, task.status == .running, let sessionID = sessionTab?.sessionID, tab(forSession: sessionID) != nil,
               let live = liveBySession[sessionID], live.status != "waiting" else { return nil }
 
-        if SubagentStop.isSupported(version: live.version), SubagentStop.keys(stopping: task, among: backgroundTasks) != nil { return .subagent }
-        return live.status == "busy" ? .turn : nil
+        let canDrive = SubagentStop.isSupported(version: live.version) && SubagentStop.keys(stopping: task, among: backgroundTasks) != nil
+        if canDrive, live.status == "idle" { return .subagent }
+        return live.status == "busy" && (task.runsInForeground || !canDrive) ? .turn : nil
     }
 
     func stopSubagent(_ task: SessionBackgroundTask) {
