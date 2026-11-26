@@ -29,6 +29,23 @@ extension Snapshot {
         ("release.html", "Release Checklist", "#39c5cf", "<h1>Release Checklist</h1><ul><li>Verify the CSV headers</li><li>Publish the export documentation</li></ul>"),
     ]
 
+    static func captureBrowserApproval(store: Store, window: NSWindow, output: URL) async {
+        let access = store.browser.access
+        var session = SessionSummary(id: "fixture-approval", cwd: "/Users/dev/acme-billing.worktrees/export-invoices-csv", title: "Export the invoice list as CSV with the new billing service headers and a download button", lastActivity: .now, branch: "feat/invoice-export")
+        session.checkout = "/Users/dev/acme-billing"
+        let pending = Task { await access.authorize(key: session.id, title: session.title, session: session, folder: session.cwd, url: "https://staging.acme.example/billing/invoices?status=open") }
+        try? await Task.sleep(for: .seconds(2))
+        guard let sheet = window.attachedSheet, let image = image(of: sheet), let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]), let request = access.requests.first else {
+            fail("the approval prompt should be attached to the window")
+        }
+
+        try? png.write(to: output)
+        access.resolve(request, with: .denied)
+        _ = await pending.value
+        print("approval prompt saved to \(output.path)")
+        exit(0)
+    }
+
     static func captureBrowser(store: Store, window: NSWindow) async {
         guard let session = browserFixtures?.first else { return }
 
@@ -49,7 +66,14 @@ extension Snapshot {
             store.browser.open(nil, in: session.id, title: "Document \(index + 1)", selects: false)
         }
         let scenario = UserDefaults.standard.string(forKey: "snapshotBrowserPin") ?? ""
-        if scenario == "single" || scenario == "pinOnly" {
+        if UserDefaults.standard.bool(forKey: "snapshotBrowserLocked") {
+            let tabs = browserPages.prefix(3).map { store.browser.open(folder.appending(path: $0.file), in: session.id, title: $0.title, selects: false) }
+            tabs.prefix(2).forEach { store.browser.pin($0) }
+            store.browser.lock(tabs[0])
+            if UserDefaults.standard.string(forKey: "snapshotBrowserSelect") == "pinned" {
+                store.browser.select(tabs[0], in: session.id)
+            }
+        } else if scenario == "single" || scenario == "pinOnly" {
             let tab = store.browser.open(folder.appending(path: "invoices.html"), in: session.id, title: "Invoices")
             if scenario == "pinOnly" { store.browser.pin(tab) }
         } else if scenario == "pinnedSelected" {
@@ -78,7 +102,7 @@ extension Snapshot {
             store.browser.select(store.browser.tabs(in: session.id)[extraTabs], in: session.id)
         }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserAgent") {
-            store.browser.open(URL(string: "http://127.0.0.1:45779/session-4f9a1c2e-7b3d-4e8a-9c15-0d2e6f8a1b37/dashboard")!, in: session.id, title: "Dev Server").isDrivenByAgent = true
+            store.browser.open(URL(string: "http://127.0.0.1:45779/session-4f9a1c2e-7b3d-4e8a-9c15-0d2e6f8a1b37/dashboard")!, in: session.id, title: "Dev Server", selects: !UserDefaults.standard.bool(forKey: "snapshotBrowserAgentInactive")).isDrivenByAgent = true
         }
         store.showBrowserPane()
         for tab in store.browser.pinned + store.browser.tabs(in: session.id) where tab.url != nil {

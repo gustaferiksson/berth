@@ -104,6 +104,7 @@ struct ConversationComposer: View {
                             model.interrupt()
                         } label: {
                             Image(systemName: stops ? "stop.fill" : "arrow.up")
+                                .contentTransition(.symbolEffect(.replace))
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(canSend ? AnyShapeStyle(.white) : AnyShapeStyle(.tertiary))
                                 .frame(width: controlSize, height: controlSize)
@@ -119,7 +120,7 @@ struct ConversationComposer: View {
                 .overlay { shape.strokeBorder(theme.shellAttached.opacity(0.6), lineWidth: 1).opacity(isShell ? 1 : 0).allowsHitTesting(false) }
                 .glassEffect(.regular, in: shape)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-                .animation(animation, value: animatesHeight ? fieldHeight : 0)
+                .animation(draft.isEmpty ? nil : animation, value: animatesHeight ? fieldHeight : 0)
                 .onChange(of: fieldHeight) { settledHeight = fieldHeight }
                 .animation(.smooth(duration: 0.2), value: isShell)
             }
