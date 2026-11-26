@@ -2129,8 +2129,17 @@ final class Store {
         let tabAge = tabs.first { $0.id == id }.map { Date.now.timeIntervalSince($0.opened) } ?? 0
         try? await Task.sleep(for: .seconds(max(2, 5 - tabAge)))
         refreshLive()
-        guard let terminal = tabs.first(where: { $0.id == id })?.terminal, liveBySession[sessionID].map({ $0.status != "waiting" }) == true else { return }
+        guard let tab = tabs.first(where: { $0.id == id }), liveBySession[sessionID].map({ $0.status != "waiting" }) == true else { return }
 
+        if showsConversation(tab) {
+            var draft = conversationDrafts[id] ?? ConversationDraft()
+            draft.text = draft.text.isEmpty ? prompt : draft.text + "\n" + prompt
+            conversationDrafts[id] = draft
+            if selectedTabID == id, launcherMode == nil { conversationFocusRequests += 1 }
+            return
+        }
+
+        let terminal = tab.terminal
         if let clear = TerminalKeyPress(typing: "u", modifiers: .ctrl) {
             terminal.sendKey(clear)
             try? await Task.sleep(for: .milliseconds(200))
