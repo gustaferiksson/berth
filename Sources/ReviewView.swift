@@ -76,7 +76,7 @@ final class ReviewModel {
     private(set) var error: (any Error)?
     private(set) var isLoading = false
     private(set) var contents: [ReviewDocument: ReviewContents] = [:]
-    private(set) var blameRevision = UUID()
+    var blameHead: String? { changes?.head }
     private(set) var language: ReviewLanguage?
     private(set) var tabs: [ReviewTab] = []
     private(set) var graphCommits: [GraphCommit] = []
@@ -174,8 +174,8 @@ final class ReviewModel {
     private func loadLists() async {
         loadCount += 1
         defer {
-            blameCache.removeAll()
-            blameRevision = UUID()
+            let head = changes?.head
+            blameCache = blameCache.filter { $0.key.head == head }
         }
         if isSessionFiles {
             contents = contents.filter { $0.key == selectedDocument }
@@ -554,9 +554,8 @@ final class ReviewModel {
               changes.uncommitted.first(where: { $0.path == path })?.status.hasOriginal != false
         else { return nil }
 
-        let revision = blameRevision
         let contentHash = await Task.detached { text.hashValue }.value
-        guard revision == blameRevision, !Task.isCancelled else { return nil }
+        guard !Task.isCancelled else { return nil }
 
         let key = ReviewBlameKey(root: changes.root, path: path, head: changes.head, contentHash: contentHash)
         let snapshot = await cachedBlame(for: key, text: text, changes: changes)
@@ -695,8 +694,6 @@ final class ReviewModel {
         drafts[path] = nil
         if selectedDocument == ReviewDocument(path: path, compare: .committed) { savedFromCommitted.insert(path) }
         setWorkingTreeText(.text(text), of: path)
-        blameCache = blameCache.filter { $0.key.path != path }
-        blameRevision = UUID()
     }
 
     private func setWorkingTreeText(_ text: ReviewText?, of path: String) {
@@ -2179,7 +2176,7 @@ struct ReviewDiffColumn: View {
                             replyDrafts: Bindable(model).replyDrafts,
                             isWritingPullRequest: model.isWritingPullRequest,
                             style: style,
-                            blameRevision: model.blameRevision,
+                            blameHead: model.blameHead,
                             loadBlame: { [weak store] in
                                 var blame = await model.loadBlame(for: document)
                                 blame?.openLink = { store?.openLink($0) }

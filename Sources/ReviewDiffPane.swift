@@ -12,7 +12,7 @@ struct ReviewDiffPane: View {
     @Binding var replyDrafts: [String: String]
     let isWritingPullRequest: Bool
     let style: ReviewStyle
-    let blameRevision: UUID
+    let blameHead: String?
     let loadBlame: () async -> ReviewBlameSnapshot?
     let language: ReviewLanguage?
     let reveal: LanguageServerRange?
@@ -37,7 +37,7 @@ struct ReviewDiffPane: View {
     @AppStorage(LanguageServerEntry.storageKey) private var configuredServers = ""
     @AppStorage("reviewSplitRatio") private var splitRatio = 0.5
     @State private var analysis: ReviewDiffAnalysis?
-    @State private var blame: (revision: UUID, source: String, snapshot: ReviewBlameSnapshot?)?
+    @State private var blame: (path: String, source: String, snapshot: ReviewBlameSnapshot?)?
 
     var body: some View {
         if let unavailable = [contents.original, contents.modified].compactMap(\.self).first(where: { if case .text = $0 { false } else { true } }) {
@@ -64,7 +64,7 @@ struct ReviewDiffPane: View {
                 isModifiedAbsent: contents.modified == nil,
                 analysis: analysis,
                 style: style,
-                blame: showsBlame && blame?.revision == blameRevision && blame?.source == loaded ? blame?.snapshot : nil,
+                blame: showsBlame && blame?.path == path && blame?.source == loaded ? blame?.snapshot : nil,
                 showsMinimap: showsMinimap,
                 wrapsLines: wrapsLines,
                 comments: $comments,
@@ -92,13 +92,13 @@ struct ReviewDiffPane: View {
                 onEdit: { draft = $0 == loaded ? nil : $0 },
                 onSplit: { splitRatio = $0 }
             )
-            .task(id: showsBlame ? blameRevision : nil) {
+            .task(id: showsBlame ? [path, blameHead ?? "", loaded] : nil) {
                 guard showsBlame else { return }
 
                 let snapshot = await loadBlame()
                 guard !Task.isCancelled else { return }
 
-                blame = (blameRevision, loaded, snapshot)
+                blame = (path, loaded, snapshot)
             }
             .task(id: [original, modified, configuredServers]) {
                 if analysis != nil { try? await Task.sleep(for: .milliseconds(300)) }
