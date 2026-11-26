@@ -7,13 +7,13 @@ enum AppAction: Hashable {
     case groupBy(GroupingMode)
     case showTriage, hideTriage, newGroup, collapseAllGroups, expandAllGroups, showStats, harbor, showChanges, hideChanges, showChangesPane, showFilesPane, showTasksPane, showBrowser, openPreview, showSideBySide, showInline, wrapLines, showRenderedMarkdown, showMarkdownSource, showClaudeBelow, showClaudeBeside, showConversation, showTerminal, save, settings, checkForUpdates
     case goBack, goForward, previousChange, nextChange
-    case openLocation, newBrowserTab, closeBrowserTab, reloadPage, browserBack, browserForward, showWebInspector
+    case openLocation, newBrowserTab, closeBrowserTab, reopenBrowserTab, reloadPage, browserBack, browserForward, showWebInspector
     case caret(CaretAction)
 
     static let palette: [Self] = [.filterSidebar, .newSession, .pullRequests, .showPullRequestInReview, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
         + GroupingMode.allCases.map(Self.groupBy)
         + [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showTasksPane, .showBrowser, .openPreview, .showSideBySide, .showInline, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
-    static let browser: [Self] = [.openLocation, .newBrowserTab, .closeBrowserTab, .reloadPage, .browserBack, .browserForward, .showWebInspector]
+    static let browser: [Self] = [.openLocation, .newBrowserTab, .closeBrowserTab, .reopenBrowserTab, .reloadPage, .browserBack, .browserForward, .showWebInspector]
     static let carets = CaretAction.allCases.map(Self.caret)
     static let routedPastTerminal = ([.commandPalette] + palette + carets + [.goBack, .goForward, .previousChange, .nextChange]).filter { $0.shortcut != nil }
 
@@ -50,6 +50,7 @@ enum AppAction: Hashable {
         case .openLocation: "Open Location…"
         case .newBrowserTab: "New Browser Tab"
         case .closeBrowserTab: "Close Browser Tab"
+        case .reopenBrowserTab: "Reopen Closed Tab"
         case .reloadPage: "Reload Page"
         case .browserBack: "Back"
         case .browserForward: "Forward"
@@ -134,7 +135,7 @@ enum AppAction: Hashable {
         case .showChanges, .hideChanges, .showChangesPane: "plus.forwardslash.minus"
         case .showFilesPane: "folder"
         case .showTasksPane: "list.bullet.rectangle"
-        case .openPreview, .showBrowser, .openLocation, .newBrowserTab, .closeBrowserTab, .reloadPage, .showWebInspector: "globe"
+        case .openPreview, .showBrowser, .openLocation, .newBrowserTab, .closeBrowserTab, .reopenBrowserTab, .reloadPage, .showWebInspector: "globe"
         case .browserBack: "chevron.backward"
         case .browserForward: "chevron.forward"
         case .showSideBySide: "rectangle.split.2x1"
@@ -178,6 +179,7 @@ enum AppAction: Hashable {
         case .openLocation: KeyboardShortcut("l")
         case .newBrowserTab: KeyboardShortcut("t")
         case .closeBrowserTab: KeyboardShortcut("w")
+        case .reopenBrowserTab: KeyboardShortcut("t", modifiers: [.command, .shift])
         case .reloadPage: KeyboardShortcut("r")
         case .browserBack: KeyboardShortcut("[")
         case .browserForward: KeyboardShortcut("]")
@@ -212,7 +214,7 @@ enum AppAction: Hashable {
         case .showTasksPane: store.canShowTasksPane
         case .showBrowser: store.sessionTab != nil
         case .openLocation: store.shownPane == .browser
-        case .newBrowserTab, .closeBrowserTab, .reloadPage, .browserBack, .browserForward:
+        case .newBrowserTab, .closeBrowserTab, .reopenBrowserTab, .reloadPage, .browserBack, .browserForward:
             store.shownPane == .browser && (NSApp.keyWindow?.firstResponder as? NSView).map { sequence(first: $0, next: \.superview).contains { $0 is NSHostingView<PaneHost> } } == true
         case .showWebInspector: Self.reloadPage.isAvailable(in: store) && store.browser.shownTab?.canShowInspector == true
         case .openPreview: Self.hideChanges.isAvailable(in: store) && store.reviewModel?.isPreviewSelected == false
@@ -285,7 +287,7 @@ enum AppAction: Hashable {
 
         case .showBrowser: if store.shownPane == .browser { store.hideSessionPanel() } else { store.showBrowserPane() }
 
-        case .openLocation, .newBrowserTab, .closeBrowserTab, .reloadPage, .browserBack, .browserForward, .showWebInspector: store.browser.perform(self)
+        case .openLocation, .newBrowserTab, .closeBrowserTab, .reopenBrowserTab, .reloadPage, .browserBack, .browserForward, .showWebInspector: store.browser.perform(self)
 
         case .hideChanges: store.hideSessionPanel()
 

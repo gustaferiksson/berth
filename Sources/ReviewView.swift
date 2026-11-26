@@ -1016,12 +1016,12 @@ struct ReviewFileList: View {
                 .reviewRow(bottom: 6)
         }
         if !changes.uncommitted.isEmpty {
-            SidebarSection(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count, isExpanded: expansion(of: "uncommitted", root: shownRepo)) {
+            SidebarSection(title: "Uncommitted", help: "HEAD to the working tree", count: changes.uncommitted.count, files: changes.uncommitted, isExpanded: expansion(of: "uncommitted", root: shownRepo)) {
                 changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: root)
             }
         }
         if !changes.committed.isEmpty {
-            SidebarSection(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count, isExpanded: expansion(of: "committed", root: shownRepo)) {
+            SidebarSection(title: "Committed", help: "\(changes.base ?? "The base") to HEAD", count: changes.committed.count, files: changes.committed, isExpanded: expansion(of: "committed", root: shownRepo)) {
                 changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: root)
             }
         }
@@ -1256,11 +1256,11 @@ struct ReviewFileList: View {
                 .reviewRow(bottom: 6)
         }
         if !changes.uncommitted.isEmpty {
-            ReviewSubheading(title: "Uncommitted", count: changes.uncommitted.count)
+            ReviewSubheading(title: "Uncommitted", count: changes.uncommitted.count, files: changes.uncommitted)
             changeRows(changes.uncommitted, compare: .uncommitted, changes: changes, in: model, root: root)
         }
         if !changes.committed.isEmpty {
-            ReviewSubheading(title: "Committed", count: changes.committed.count)
+            ReviewSubheading(title: "Committed", count: changes.committed.count, files: changes.committed)
             changeRows(changes.committed, compare: .committed, changes: changes, in: model, root: root)
         }
     }

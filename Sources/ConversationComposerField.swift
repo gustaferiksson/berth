@@ -86,6 +86,7 @@ struct ConversationComposerField: NSViewRepresentable {
             if textView.string != text {
                 context.coordinator.isUpdatingText = true
                 textView.string = text
+                if text.isEmpty { scrollView.contentView.scroll(to: .zero) }
                 textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
                 textView.needsDisplay = true
                 context.coordinator.isUpdatingText = false

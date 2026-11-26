@@ -110,6 +110,14 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSMinimumSystemVersion: "26.0"
         NSHumanReadableCopyright: "Berth"
+        CFBundleURLTypes:
+          - CFBundleURLName: Web site URL
+            CFBundleURLSchemes: [http, https]
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: HTML document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.html, public.xhtml]
         NSAppTransportSecurity:
           NSAllowsArbitraryLoadsInWebContent: true
         UTExportedTypeDeclarations:
