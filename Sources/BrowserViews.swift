@@ -81,7 +81,7 @@ private struct BrowserHeader: View {
                         .frame(minWidth: 0, idealWidth: 200, maxWidth: .infinity)
                         .frame(height: Self.controlSize)
                 }
-                if selectedSession != nil || selectedPinned != nil { Spacer(minLength: 0) }
+                if sessionTabs.isEmpty, selectedPinned != nil { Spacer(minLength: 0) }
                 trailingActions(tabs: pinned + sessionTabs)
                 BrowserDownloadsButton(browser: browser)
                     .fixedSize()
