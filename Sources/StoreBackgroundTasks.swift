@@ -81,8 +81,10 @@ extension Store {
         task.kind == .shell && task.status == .running && task.outputFile != nil && sessionTab?.sessionID.flatMap { liveBySession[$0] } != nil
     }
 
-    func stop(_ task: SessionBackgroundTask) {
-        guard canStop(task), let output = task.outputFile, let pid = sessionTab?.sessionID.flatMap({ liveBySession[$0]?.pid }) else { return }
+    func stopBackgroundTask(_ id: String) {
+        let matches = backgroundTasks.filter { $0.id == id || $0.toolUseID == id }
+        guard let task = matches.first(where: { $0.outputFile != nil }) ?? matches.first, canStop(task),
+              let output = task.outputFile, let pid = sessionTab?.sessionID.flatMap({ liveBySession[$0]?.pid }) else { return }
 
         Task {
             let stopped = await Task.detached { await ProcessAncestry.stopShell(writing: output, under: pid) }.value

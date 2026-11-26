@@ -55,7 +55,7 @@ struct BackgroundTaskSidebar: View {
             .listRowSeparator(.hidden)
             .tag(task.id)
             .contextMenu {
-                if store.canStop(task) { Button("Stop Shell", systemImage: "stop.fill") { store.stop(task) } }
+                if store.canStop(task) { Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) } }
             }
         }
     }
@@ -166,7 +166,7 @@ private struct BackgroundTaskDetail: View {
                 action("Open Terminal", symbol: "arrow.up.right") { store.activate(.tab(terminalID)) }
             }
             if store.canStop(task) {
-                action("Stop Shell", symbol: "stop.fill") { store.stop(task) }
+                action("Stop Shell", symbol: "stop.fill") { store.stopBackgroundTask(task.id) }
             }
             if agent != nil {
                 action(showsTranscript ? "Show Text Output" : "Open Transcript", symbol: showsTranscript ? "text.alignleft" : "doc.text") {
