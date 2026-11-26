@@ -20,7 +20,7 @@ struct AppearanceSettings: View {
             } header: {
                 Text("Sidebar")
             } footer: {
-                Text("Session rows show status, pull request and age on one line. Turn on Two-line rows to show the repository and branch below the title. Matching fills the sidebar and Review panel with the terminal theme’s background instead of the system material, so the window reads as one surface.")
+                Text("Session rows show status, pull request and age on one line. Turn on Two-line rows to show the repository and branch below the title. Matching fills the sidebar and Review panel with the terminal theme’s background instead of the system material, so the window reads as one surface. With the Glass window background, both stay glass.")
             }
             Section {
                 Picker(selection: $windowBackground) {

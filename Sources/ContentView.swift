@@ -36,8 +36,9 @@ struct ContentView: View {
         let selected = store.tabs.first { $0.id == store.selectedTabID }
         let taskSource = store.backgroundTaskSource
         let isTrailing = sidebarPosition == .right
-        let sidebarFill = matchesSidebarBackground ? store.theme.background?.opacity(1 - min(windowTransparency, WindowBackdrop.maxTransparency)) : nil
-        let windowChrome = matchesSidebarBackground ? store.theme.background ?? store.theme.chrome : store.theme.chrome
+        let matchesTheme = matchesSidebarBackground && windowBackground != .glass
+        let sidebarFill = matchesTheme ? store.theme.background?.opacity(1 - min(windowTransparency, WindowBackdrop.maxTransparency)) : nil
+        let windowChrome = matchesTheme ? store.theme.background ?? store.theme.chrome : store.theme.chrome
         let reviewRoots = showsPanel ? store.sessionReviewModels.compactMap { $0.changes?.root } : []
         let folderWithoutRepository: String? = if showsPanel, let model = store.primaryReviewModel, case ReviewGitError.notARepository? = model.error { model.folder } else { nil }
         let reviewRequests = store.inbox?.count { $0.role == .reviewRequested } ?? 0
@@ -94,14 +95,14 @@ struct ContentView: View {
                 .animation(.default, value: store.preparingPullRequests)
                 .animation(.default, value: store.updater.pendingRestart?.deadline)
                 .background {
-                    if windowBackground == .theme || matchesSidebarBackground, windowTransparency == 0 {
+                    if windowBackground == .theme || matchesTheme, windowTransparency == 0 {
                         (windowChrome ?? .clear).ignoresSafeArea()
-                    } else if windowBackground == .glass, !matchesSidebarBackground {
+                    } else if windowBackground == .glass {
                         // The oversized glass rim is clipped offscreen.
                         Color.clear.glassEffect(.regular, in: .rect)
                             .scaleEffect(x: 4, y: 1.2)
                             .ignoresSafeArea()
-                    } else if windowBackground == .darker || matchesSidebarBackground {
+                    } else if windowBackground == .darker || matchesTheme {
                         (store.theme.background ?? .clear)
                             .opacity(windowTransparency > 0 ? 1 - windowTransparency : 1)
                             .ignoresSafeArea()
