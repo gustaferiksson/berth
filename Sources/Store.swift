@@ -5,7 +5,10 @@ import Darwin
 import Foundation
 import GhosttyTerminal
 import Observation
+import os
 import SwiftUI
+
+let paneLog = Logger(subsystem: "dev.gustaf.berth", category: "panes")
 
 struct Tab: Identifiable {
     enum Kind: String, Codable {
@@ -1437,6 +1440,9 @@ final class Store {
     }
 
     func selectPane(_ mode: SessionPane) {
+        let before = shownPane
+        defer { paneLog.info("selectPane \(mode.rawValue, privacy: .public) shown \(before?.rawValue ?? "none", privacy: .public) to \(self.shownPane?.rawValue ?? "none", privacy: .public)") }
+
         if shownPane == mode {
             hideSessionPanel()
         } else if mode == .terminal {
