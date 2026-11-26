@@ -182,7 +182,7 @@ struct ConversationPrompt: View {
                 result.append(NSAttributedString(string: "\n", attributes: attributes.merging([.conversationCopyText: ""]) { $1 }))
             }
             let title = isCollapsed ? "Show \(total - visible) more lines" : "Show less"
-            result.append(MarkdownAttributedString.expansionLink(title, key: key, copyText: isCollapsed ? "\n" + hidden : "", attributes: attributes, theme: theme))
+            result.append(MarkdownAttributedString.expansionLink(title, key: key, copyText: isCollapsed ? "\n" + hidden : "", attributes: attributes, color: NSColor(theme.secondary)))
         }
         return result
     }
@@ -436,7 +436,7 @@ private enum ConversationMarkdownCache {
 
     private static var cached: [Key: Run] = [:]
 
-    static func run(text: String, theme: GhosttyTheme, itemID: String?, expanded: Set<String>, palette: [String] = [ReviewStyle.colorSchemeKey, ReviewStyle.syntaxColorsKey].map { UserDefaults.standard.string(forKey: $0) ?? "" }) -> Run {
+    static func run(text: String, theme: GhosttyTheme, itemID: String?, expanded: Set<String>, palette: [String] = [ReviewStyle.colorSchemeKey, ReviewStyle.syntaxColorsKey, ReviewStyle.fontFamilyKey, ReviewStyle.fontSizeKey, ReviewStyle.lineHeightKey].map { UserDefaults.standard.object(forKey: $0).map { "\($0)" } ?? "" }) -> Run {
         let relevant: Set<String> = itemID.map { id in Set(expanded.filter { $0.hasPrefix(id + "#code") }) } ?? []
         let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font, codeFont: theme.codeFont, lineHeightMultiple: theme.lineHeightMultiple, palette: palette, itemID: itemID, expanded: relevant)
         if let run = cached[key] { return run }
