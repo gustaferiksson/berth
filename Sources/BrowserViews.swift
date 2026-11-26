@@ -1,7 +1,10 @@
 import AppKit
 import BerthCore
+import os
 import SwiftUI
 import WebKit
+
+let browserFocusLog = Logger(subsystem: "dev.gustaf.berth", category: "browser-focus")
 
 struct BrowserPane: View {
     let store: Store
@@ -148,24 +151,18 @@ private struct BrowserHeader: View {
         }
     }
 
-    @ViewBuilder private var navigationControls: some View {
-        let canGoBack = tab?.canGoBack == true
-        let canGoForward = tab?.canGoForward == true
-        if canGoBack || canGoForward {
-            HStack(spacing: 0) {
-                if canGoBack {
-                    iconButton("Back", symbol: "chevron.backward") { browser.perform(.browserBack) }
-                        .help("Back (⌘[)")
-                }
-                if canGoBack, canGoForward { actionDivider }
-                if canGoForward {
-                    iconButton("Forward", symbol: "chevron.forward") { browser.perform(.browserForward) }
-                        .help("Forward (⌘])")
-                }
-            }
-            .glassEffect(.regular.interactive(), in: .capsule)
-            .fixedSize()
+    private var navigationControls: some View {
+        HStack(spacing: 0) {
+            iconButton("Back", symbol: "chevron.backward") { browser.perform(.browserBack) }
+                .disabled(tab?.canGoBack != true)
+                .help("Back (⌘[)")
+            actionDivider
+            iconButton("Forward", symbol: "chevron.forward") { browser.perform(.browserForward) }
+                .disabled(tab?.canGoForward != true)
+                .help("Forward (⌘])")
         }
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .fixedSize()
     }
 
     private func trailingActions(tabs: [BrowserTab]) -> some View {
@@ -600,6 +597,8 @@ private struct BrowserAddressField: View {
     @State private var address = ""
     @State private var isEditing = false
     @State private var selection: TextSelection?
+    @State private var isHovering = false
+    @State private var responderObservation: NSKeyValueObservation?
     @Environment(\.ghosttyTheme) private var theme
     @FocusState private var isFocused: Bool
     @AppStorage(BrowserModel.searchKey) private var search = BrowserSearch.duckDuckGo
@@ -618,18 +617,18 @@ private struct BrowserAddressField: View {
                     .focused($isFocused)
                     .onSubmit(go)
                     .onExitCommand {
-                        finishEditing()
+                        finishEditing("escape")
                         if let webView = tab?.loadedWebView { webView.window?.makeFirstResponder(webView) }
                     }
             }
-            .padding(.leading, 9)
+            .padding(.leading, showsClose ? 30 : 9)
             .padding(.trailing, accessoryWidth)
             .opacity(isEditing ? 1 : 0)
             .allowsHitTesting(isEditing)
             .accessibilityHidden(!isEditing)
 
             if !isEditing {
-                Button(action: beginEditing) {
+                Button { beginEditing("click") } label: {
                     HStack(spacing: 5) {
                         addressIcon
                         Text(displayAddress)
@@ -700,19 +699,42 @@ private struct BrowserAddressField: View {
             }
         }
         .overlay(alignment: .leading) {
-            if showsClose, !isEditing, let tab { BrowserCloseButton(browser: browser, tab: tab) }
+            if showsClose, isHovering || Snapshot.forcedHover.contains(tab?.displayTitle ?? ""), let tab { BrowserCloseButton(browser: browser, tab: tab) }
         }
         .glassEffect(.regular.interactive(), in: .capsule)
+        .onHover { isHovering = $0 }
         .onChange(of: tab?.id, initial: true) {
-            finishEditing()
-            if let tab, tab.url == nil { beginEditing() }
+            finishEditing("tab-change")
+            if let tab, tab.url == nil { beginEditing("tab-change") }
         }
         .onChange(of: browser.addressFocusRequests) {
-            if isEditing { selectAddress() } else { beginEditing() }
+            if isEditing { selectAddress() } else { beginEditing("focus-request") }
         }
-        .onChange(of: isEditing) { onEditingChange(isEditing) }
-        .onDisappear { onEditingChange(false) }
+        .onChange(of: isEditing) {
+            browserFocusLog.info("isEditing \(isEditing, privacy: .public) tab \(tab?.id.uuidString ?? "none", privacy: .public)")
+            onEditingChange(isEditing)
+        }
+        .onAppear {
+            browserFocusLog.info("appear tab \(tab?.id.uuidString ?? "none", privacy: .public)")
+            responderObservation = (NSApp.keyWindow ?? NSApp.mainWindow)?.observe(\.firstResponder, options: [.old, .new]) { _, change in
+                let old = change.oldValue.flatMap(\.self).map { String(describing: type(of: $0)) } ?? "nil"
+                let new = change.newValue.flatMap(\.self).map { String(describing: type(of: $0)) } ?? "nil"
+                browserFocusLog.info("first responder \(old, privacy: .public) to \(new, privacy: .public)")
+            }
+        }
+        .onDisappear {
+            browserFocusLog.info("disappear tab \(tab?.id.uuidString ?? "none", privacy: .public)")
+            responderObservation = nil
+            onEditingChange(false)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            browserFocusLog.info("window became key tab \(tab?.id.uuidString ?? "none", privacy: .public)")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+            browserFocusLog.info("window resigned key tab \(tab?.id.uuidString ?? "none", privacy: .public)")
+        }
         .onChange(of: isFocused) {
+            browserFocusLog.info("isFocused \(isFocused, privacy: .public) tab \(tab?.id.uuidString ?? "none", privacy: .public)")
             if isFocused { selectAddress() } else { isEditing = false }
         }
     }
@@ -759,9 +781,10 @@ private struct BrowserAddressField: View {
         .help(tab?.isLoading == true ? "Stop" : "Reload (⌘R)")
     }
 
-    private func beginEditing() {
+    private func beginEditing(_ reason: String) {
         guard !isEditing else { return }
 
+        browserFocusLog.info("begin editing \(reason, privacy: .public) tab \(tab?.id.uuidString ?? "none", privacy: .public)")
         address = tab?.url?.absoluteString ?? ""
         isEditing = true
         Task {
@@ -775,7 +798,8 @@ private struct BrowserAddressField: View {
         selection = TextSelection(range: address.startIndex..<address.endIndex)
     }
 
-    private func finishEditing() {
+    private func finishEditing(_ reason: String) {
+        browserFocusLog.info("finish editing \(reason, privacy: .public) tab \(tab?.id.uuidString ?? "none", privacy: .public)")
         isFocused = false
         isEditing = false
     }
@@ -784,7 +808,7 @@ private struct BrowserAddressField: View {
         guard let key = browser.sessionKey, let url = WebAddress.resolve(address, searchTemplate: search.template) else { return }
 
         if let tab { tab.load(url) } else { browser.open(url, in: key) }
-        finishEditing()
+        finishEditing("submit")
         guard let target = browser.selectedTab(in: key) else { return }
 
         if let webView = target.loadedWebView, let window = webView.window {
