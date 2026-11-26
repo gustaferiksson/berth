@@ -5,6 +5,7 @@ import SwiftUI
 extension NSAttributedString.Key {
     static let markdownCodeBlock = NSAttributedString.Key("berth.markdownCodeBlock")
     static let markdownTable = NSAttributedString.Key("berth.markdownTable")
+    static let markdownInlineCode = NSAttributedString.Key("berth.markdownInlineCode")
 }
 
 enum MarkdownAttributedString {
@@ -30,7 +31,7 @@ enum MarkdownAttributedString {
 
     static func render(_ blocks: [MarkdownBlock], theme: GhosttyTheme, highlighted: [String: NSAttributedString] = [:], proseFont: NSFont? = nil, itemID: String? = nil, expanded: Set<String> = []) -> NSAttributedString {
         let font = proseFont ?? theme.conversationNSFont()
-        let gap: [NSAttributedString.Key: Any] = [.font: font.withSize(4)]
+        let gap: [NSAttributedString.Key: Any] = [.font: font.withSize(font.fontDescriptor.symbolicTraits.contains(.monoSpace) ? 4 : (font.pointSize * 0.5).rounded())]
         var units: [Unit] = []
         var codeIndex = 0
         for (index, block) in blocks.enumerated() {
@@ -68,18 +69,24 @@ enum MarkdownAttributedString {
     static func inline(_ source: String, font: NSFont, theme: GhosttyTheme, traits: NSFontDescriptor.SymbolicTraits = []) -> NSMutableAttributedString {
         let parsed = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
         let result = NSMutableAttributedString()
+        let isProportional = !font.fontDescriptor.symbolicTraits.contains(.monoSpace)
         for run in parsed.runs {
             let intent = run.inlinePresentationIntent ?? []
             var runTraits = traits
             if intent.contains(.stronglyEmphasized) { runTraits.insert(.bold) }
             if intent.contains(.emphasized) { runTraits.insert(.italic) }
 
-            let runFont = intent.contains(.code) ? theme.conversationCodeNSFont().withSize(font.pointSize) : font
+            let codePoints = isProportional ? (font.pointSize * 0.9).rounded() : font.pointSize
+            let runFont = intent.contains(.code) ? theme.conversationCodeNSFont().withSize(codePoints) : font
             var attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont(descriptor: runFont.fontDescriptor.withSymbolicTraits(runFont.fontDescriptor.symbolicTraits.union(runTraits)), size: font.pointSize) ?? runFont,
+                .font: NSFont(descriptor: runFont.fontDescriptor.withSymbolicTraits(runFont.fontDescriptor.symbolicTraits.union(runTraits)), size: runFont.pointSize) ?? runFont,
                 .foregroundColor: NSColor(theme.foreground),
             ]
-            if intent.contains(.code) { attributes[.foregroundColor] = NSColor(theme.inlineCode) }
+            if intent.contains(.code), isProportional {
+                attributes[.markdownInlineCode] = true
+            } else if intent.contains(.code) {
+                attributes[.foregroundColor] = NSColor(theme.inlineCode)
+            }
             if intent.contains(.strikethrough) { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if let link = run.link {
                 attributes[.link] = link
@@ -115,23 +122,25 @@ enum MarkdownAttributedString {
         return Unit(content: content, terminator: terminator)
     }
 
-    static func expansionLink(_ title: String, key: String, copyText: String, attributes: [NSAttributedString.Key: Any], theme: GhosttyTheme) -> NSAttributedString {
+    static func expansionLink(_ title: String, key: String, copyText: String, attributes: [NSAttributedString.Key: Any], color: NSColor) -> NSAttributedString {
         var components = URLComponents()
         components.scheme = "berth-expand"
         components.host = "toggle"
         components.queryItems = [URLQueryItem(name: "key", value: key)]
         var attributes = attributes
         attributes[.link] = components.url
-        attributes[.foregroundColor] = NSColor(theme.secondary)
+        attributes[.foregroundColor] = color
         attributes[.conversationCopyText] = copyText
         return NSAttributedString(string: title, attributes: attributes)
     }
 
     static func codeUnits(_ code: String, language: String, theme: GhosttyTheme, highlighted: NSAttributedString? = nil, key: String? = nil, expanded: Set<String> = []) -> [Unit] {
-        let font = theme.conversationCodeNSFont(-1)
-        let whole = NSMutableAttributedString(string: code, attributes: [.font: font, .foregroundColor: NSColor(theme.foreground)])
-        highlighted?.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: min(highlighted?.length ?? 0, whole.length))) { color, range, _ in
-            if let color { whole.addAttribute(.foregroundColor, value: color, range: range) }
+        let review = theme.code
+        let font = review.font
+        let rowPadding = ((review.lineHeight - (font.ascender - font.descender + font.leading)) / 2).rounded()
+        let whole = NSMutableAttributedString(string: code, attributes: [.font: font, .foregroundColor: review.foreground])
+        highlighted?.enumerateAttributes(in: NSRange(location: 0, length: min(highlighted?.length ?? 0, whole.length))) { attributes, range, _ in
+            whole.addAttributes(attributes, range: range)
         }
 
         let nsCode = code as NSString
@@ -148,20 +157,24 @@ enum MarkdownAttributedString {
             style.firstLineHeadIndent = blockPadding
             style.headIndent = blockPadding
             style.tailIndent = -blockPadding
+            style.minimumLineHeight = review.lineHeight - rowPadding
+            style.maximumLineHeight = review.lineHeight - rowPadding
+            style.paragraphSpacing = rowPadding
             if index == 0 { style.paragraphSpacingBefore = top }
             if index == visible || index == visible - 1 && toggleKey == nil { style.paragraphSpacing = blockPadding + 1 }
 
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: style, .markdownCodeBlock: language]
+            let lineAttributes: [NSAttributedString.Key: Any] = [.paragraphStyle: style, .markdownCodeBlock: language]
+            let attributes = lineAttributes.merging([.font: font]) { $1 }
             if index == visible, let toggleKey {
                 let hidden = isCollapsed ? lineRanges.dropFirst(visible).map { nsCode.substring(with: $0) }.joined(separator: "\n") : ""
                 let title = isCollapsed ? "Show \(lineRanges.count - visible) more lines" : "Show less"
-                let link = expansionLink(title, key: toggleKey, copyText: isCollapsed ? "\n" + hidden : "", attributes: attributes, theme: theme)
+                let link = expansionLink(title, key: toggleKey, copyText: isCollapsed ? "\n" + hidden : "", attributes: attributes, color: review.secondary)
                 return Unit(content: link, terminator: attributes)
             }
 
             let content = NSMutableAttributedString(attributedString: whole.attributedSubstring(from: lineRanges[index]))
             let range = NSRange(location: 0, length: content.length)
-            content.addAttributes(attributes, range: range)
+            content.addAttributes(lineAttributes, range: range)
             if isCollapsed, index >= visible - 3 {
                 let alpha = [0.70, 0.45, 0.25][index - (visible - 3)]
                 content.enumerateAttribute(.foregroundColor, in: range) { value, run, _ in

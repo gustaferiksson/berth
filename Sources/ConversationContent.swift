@@ -75,11 +75,12 @@ struct ConversationPrompt: View {
         let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 2, topTrailingRadius: 10, style: .continuous)
 
         let hasImages = entry.images?.isEmpty == false
-        let showsText = !entry.text.isEmpty && !(hasImages && entry.text.replacing(PromptTextPart.imageToken, with: "").allSatisfy(\.isWhitespace))
+        let numbers = entry.imageNumbers ?? Array(1...max(entry.images?.count ?? 0, 1))
+        let text = hasImages ? PromptTextPart.removingImageTags(numbers, from: entry.text) : entry.text
+        let showsText = !text.isEmpty
 
         return VStack(alignment: .trailing, spacing: 6) {
             if let images = entry.images {
-                let numbers = entry.imageNumbers ?? Array(1...max(images.count, 1))
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
                         ConversationPromptImage(entryID: entry.id, thumbnail: data, index: index, number: numbers[index])
@@ -88,7 +89,7 @@ struct ConversationPrompt: View {
             }
             if showsText {
                 let itemID = selectionID ?? expansionID
-                ConversationTextView(text: Self.attributed(entry.text, theme: theme, displayScale: displayScale, itemID: itemID, expanded: expansion?.keys ?? []), selectionID: selectionID, sizing: .hug)
+                ConversationTextView(text: Self.attributed(text, theme: theme, displayScale: displayScale, itemID: itemID, expanded: expansion?.keys ?? []), selectionID: selectionID, sizing: .hug)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .background(bubble.fill(theme.foreground.opacity(0.07)))
@@ -181,7 +182,7 @@ struct ConversationPrompt: View {
                 result.append(NSAttributedString(string: "\n", attributes: attributes.merging([.conversationCopyText: ""]) { $1 }))
             }
             let title = isCollapsed ? "Show \(total - visible) more lines" : "Show less"
-            result.append(MarkdownAttributedString.expansionLink(title, key: key, copyText: isCollapsed ? "\n" + hidden : "", attributes: attributes, theme: theme))
+            result.append(MarkdownAttributedString.expansionLink(title, key: key, copyText: isCollapsed ? "\n" + hidden : "", attributes: attributes, color: NSColor(theme.secondary)))
         }
         return result
     }
@@ -435,7 +436,7 @@ private enum ConversationMarkdownCache {
 
     private static var cached: [Key: Run] = [:]
 
-    static func run(text: String, theme: GhosttyTheme, itemID: String?, expanded: Set<String>, palette: [String] = [ReviewStyle.colorSchemeKey, ReviewStyle.syntaxColorsKey].map { UserDefaults.standard.string(forKey: $0) ?? "" }) -> Run {
+    static func run(text: String, theme: GhosttyTheme, itemID: String?, expanded: Set<String>, palette: [String] = [ReviewStyle.colorSchemeKey, ReviewStyle.syntaxColorsKey, ReviewStyle.fontFamilyKey, ReviewStyle.fontSizeKey, ReviewStyle.lineHeightKey].map { UserDefaults.standard.object(forKey: $0).map { "\($0)" } ?? "" }) -> Run {
         let relevant: Set<String> = itemID.map { id in Set(expanded.filter { $0.hasPrefix(id + "#code") }) } ?? []
         let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font, codeFont: theme.codeFont, lineHeightMultiple: theme.lineHeightMultiple, palette: palette, itemID: itemID, expanded: relevant)
         if let run = cached[key] { return run }

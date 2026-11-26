@@ -251,24 +251,51 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
 
     override func draw(_ dirtyRect: NSRect) {
         drawHighlight()
-        let fill = NSColor(theme.foreground).withAlphaComponent(0.06)
-        let secondary = NSColor(theme.secondary)
+        let tint = NSColor(theme.foreground).withAlphaComponent(0.06)
+        drawInlineCode()
         for (index, block) in blocks().enumerated() where block.rect.intersects(dirtyRect) {
-            fill.setFill()
-            NSBezierPath(roundedRect: block.rect, xRadius: 10, yRadius: 10).fill()
-            guard let language = block.language else { continue }
+            let path = NSBezierPath(roundedRect: block.rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
+            guard let language = block.language else {
+                tint.setFill()
+                path.fill()
+                continue
+            }
+
+            let code = theme.code
+            code.background.setFill()
+            path.fill()
+            code.foreground.withAlphaComponent(0.12).setStroke()
+            path.stroke()
 
             if !language.isEmpty {
-                NSAttributedString(string: language, attributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: secondary])
+                NSAttributedString(string: language, attributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: code.secondary])
                     .draw(at: NSPoint(x: MarkdownAttributedString.blockPadding, y: block.rect.minY + 8))
             }
             guard hoveredBlock == index || copiedBlock == index else { continue }
 
             let symbol = copiedBlock == index ? "checkmark" : "doc.on.doc"
-            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Copy")?.withSymbolConfiguration(.init(paletteColors: [secondary]))
+            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Copy")?.withSymbolConfiguration(.init(paletteColors: [code.secondary]))
             image?.draw(in: NSRect(x: copyFrame(of: block).midX - 7, y: copyFrame(of: block).midY - 7, width: 14, height: 14))
         }
         super.draw(dirtyRect)
+    }
+
+    private func drawInlineCode() {
+        guard let storage = textContentStorage, let manager = textLayoutManager, let textStorage else { return }
+
+        NSColor(theme.foreground).withAlphaComponent(0.08).setFill()
+        textStorage.enumerateAttribute(.markdownInlineCode, in: NSRange(location: 0, length: textStorage.length)) { value, range, _ in
+            guard value != nil,
+                  let start = storage.location(storage.documentRange.location, offsetBy: range.location),
+                  let end = storage.location(start, offsetBy: range.length),
+                  let textRange = NSTextRange(location: start, end: end)
+            else { return }
+
+            manager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
+                NSBezierPath(roundedRect: frame.insetBy(dx: -3, dy: 1), xRadius: 5, yRadius: 5).fill()
+                return true
+            }
+        }
     }
 
     private func drawHighlight() {

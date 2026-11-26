@@ -16,6 +16,12 @@ public enum PromptTextPart: Sendable {
         }
     }
 
+    public static func removingImageTags(_ numbers: [Int], from text: String) -> String {
+        let stripped = text.replacing(imageToken) { numbers.contains(Int($0.output.1) ?? -1) ? "" : String($0.output.0) }
+        let collapsed = stripped == text ? text : stripped.replacing(/\n[ \t]*(\n[ \t]*)+/, with: "\n\n")
+        return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     public static func plain(_ text: String) -> String {
         text.replacing(pastedBlock) { String($0.output.1) }
     }
