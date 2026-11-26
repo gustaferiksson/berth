@@ -29,6 +29,23 @@ extension Snapshot {
         ("release.html", "Release Checklist", "#39c5cf", "<h1>Release Checklist</h1><ul><li>Verify the CSV headers</li><li>Publish the export documentation</li></ul>"),
     ]
 
+    static func captureBrowserApproval(store: Store, window: NSWindow, output: URL) async {
+        let access = store.browser.access
+        var session = SessionSummary(id: "fixture-approval", cwd: "/Users/dev/acme-billing.worktrees/export-invoices-csv", title: "Export the invoice list as CSV with the new billing service headers and a download button", lastActivity: .now, branch: "feat/invoice-export")
+        session.checkout = "/Users/dev/acme-billing"
+        let pending = Task { await access.authorize(key: session.id, title: session.title, session: session, folder: session.cwd, url: "https://staging.acme.example/billing/invoices?status=open") }
+        try? await Task.sleep(for: .seconds(2))
+        guard let sheet = window.attachedSheet, let image = image(of: sheet), let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]), let request = access.requests.first else {
+            fail("the approval prompt should be attached to the window")
+        }
+
+        try? png.write(to: output)
+        access.resolve(request, with: .denied)
+        _ = await pending.value
+        print("approval prompt saved to \(output.path)")
+        exit(0)
+    }
+
     static func captureBrowser(store: Store, window: NSWindow) async {
         guard let session = browserFixtures?.first else { return }
 

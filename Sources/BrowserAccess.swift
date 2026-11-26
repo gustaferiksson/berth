@@ -1,4 +1,5 @@
 import AppKit
+import BerthCore
 import Foundation
 import UserNotifications
 
@@ -27,6 +28,9 @@ final class BrowserAccess {
         let id = UUID()
         let key: String
         let title: String
+        let session: SessionSummary?
+        let folder: String
+        let url: String?
     }
 
     static let policyKey = "agentBrowserControl"
@@ -43,7 +47,7 @@ final class BrowserAccess {
         AgentBrowserPolicy(rawValue: UserDefaults.standard.string(forKey: Self.policyKey) ?? "") ?? .ask
     }
 
-    func authorize(key: String, title: String) async -> String? {
+    func authorize(key: String, title: String, session: SessionSummary?, folder: String, url: String?) async -> String? {
         if policy == .off { return Self.offMessage }
 
         if decisions[key] == .denied { return Self.deniedMessage }
@@ -54,7 +58,7 @@ final class BrowserAccess {
             waiters[key, default: []].append(continuation)
             guard waiters[key]?.count == 1 else { return }
 
-            let request = Request(key: key, title: title)
+            let request = Request(key: key, title: title, session: session, folder: folder, url: url)
             requests.append(request)
             notifyIfInactive(request)
             Task {
