@@ -113,7 +113,7 @@ public struct ToolCall: Identifiable, Sendable {
 }
 
 public enum ToolKind: Sendable {
-    case command, read, edit, search, web, agent, todo, question, other
+    case command, read, edit, search, web, agent, todo, question, skill, other
 
     public init(name: String) {
         self = switch name {
@@ -125,6 +125,7 @@ public enum ToolKind: Sendable {
         case "Agent", "Task": .agent
         case "TodoWrite": .todo
         case "AskUserQuestion": .question
+        case "Skill": .skill
         default: .other
         }
     }
@@ -139,6 +140,7 @@ public enum ToolKind: Sendable {
         case .agent: "person.2"
         case .todo: "checklist"
         case .question: "questionmark.bubble"
+        case .skill: "sparkles"
         case .other: "hammer"
         }
     }
@@ -152,6 +154,7 @@ public enum ToolKind: Sendable {
         case .agent: ("Ran agent", "Running agent")
         case .todo: ("Updated the todo list", "Updating the todo list")
         case .question: ("Asked", "Asking")
+        case .skill: ("Loaded", "Loading")
         case .other: ("Used", "Using")
         }
     }
@@ -167,6 +170,7 @@ public enum ToolKind: Sendable {
         case .agent: "ran \(count) \(count == 1 ? "agent" : "agents")"
         case .todo: "updated the todo list"
         case .question: "asked \(count) \(count == 1 ? "question" : "questions")"
+        case .skill: "loaded \(count) \(count == 1 ? "skill" : "skills")"
         case .other: "used \(count) \(count == 1 ? "tool" : "tools")"
         }
     }

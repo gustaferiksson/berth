@@ -28,6 +28,8 @@ struct ConversationComposer: View {
 
     var body: some View {
         let draft = model.draft
+        let hidesBang = isShell && draft.text.hasPrefix("!")
+        let shownText = hidesBang ? String(draft.text.dropFirst()) : draft.text
         let stops = isWorking && draft.isEmpty
         let canSend = stops || !(draft.isEmpty || model.isSending)
         let font = isShell ? theme.codeFont : theme.composerFont
@@ -35,10 +37,10 @@ struct ConversationComposer: View {
         let inset = ConversationComposerLayout.inset
         let controlSize = ConversationComposerLayout.controlSize
         let fieldWidth = ConversationComposerLayout.fieldBounds(in: width, canAttach: canAttach).width
-        let fieldHeight = ConversationComposerField.height(of: draft.text, font: font, width: fieldWidth)
+        let fieldHeight = ConversationComposerField.height(of: shownText, font: font, width: fieldWidth)
         let animatesHeight = abs(fieldHeight - settledHeight) > controlSize * 1.5
         let shape = RoundedRectangle(cornerRadius: controlSize / 2 + inset)
-        let placeholder = model.blocksSending ? "Wait for \(harness.name) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harness.name)"
+        let placeholder = hidesBang ? "Run a shell command" : model.blocksSending ? "Wait for \(harness.name) to finish, or stop it" : waiting != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(harness.name)"
         let slashScope = isShell || slashPicker.query == nil ? nil : ConversationSlashPicker.Scope(folder: folder, agent: harness.agent)
 
         GlassEffectContainer(spacing: 8) {
@@ -85,18 +87,19 @@ struct ConversationComposer: View {
                                 .accessibilityHidden(true)
                         }
                         ConversationComposerField(
-                            text: Binding { model.draft.text } set: { model.setText($0) },
+                            text: Binding { shownText } set: { model.setText(hidesBang ? "!" + $0 : $0) },
                             placeholder: placeholder,
                             font: font,
                             color: NSColor(theme.foreground),
-                            promptColor: isShell ? NSColor(theme.shellAttached) : nil,
+                            hidesBang: hidesBang,
                             focusRequest: focusRequest,
                             layoutWidth: fieldWidth,
                             slashPicker: isShell ? nil : slashPicker,
                             shellCompleter: isShell && completesShell ? shellCompleter : nil,
                             submit: send,
                             attach: { canAttach ? model.attach($0) : "" },
-                            recall: recallQueued
+                            recall: recallQueued,
+                            leaveShell: { model.setText(shownText) }
                         )
                         Button {
                             guard stops else { return send() }

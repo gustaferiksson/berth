@@ -61,6 +61,20 @@ import Testing
     #expect(ToolCall.summary(of: Array(calls.prefix(2))) == "Ran 1 command and read 1 file")
 }
 
+@Test func skillCallsAreCountedAsLoadedSkills() {
+    let entries = [
+        RemoteEntry(id: "a", kind: .toolUse, text: "{}", toolID: "toolu_1", name: "Skill", detail: "acme:review"),
+        RemoteEntry(id: "b", kind: .toolUse, text: "{}", toolID: "toolu_2", name: "Skill", detail: "acme:deploy"),
+        RemoteEntry(id: "c", kind: .toolUse, text: "{}", toolID: "toolu_3", name: "Bash", detail: "List"),
+    ]
+    guard case let .work(calls) = Turn.turns(from: entries)[0].parts[0] else { Issue.record("expected work"); return }
+
+    #expect(calls.map(\.kind) == [.skill, .skill, .command])
+    #expect(calls[0].subject == "acme:review")
+    #expect(ToolCall.summary(of: calls) == "Loaded 2 skills and ran 1 command")
+    #expect(ToolCall.summary(of: [calls[0]]) == "Loaded 1 skill")
+}
+
 @Test func failedScriptShowsItsErrorRowInsteadOfTheWrapper() {
     let entries = [
         RemoteEntry(id: "p", kind: .prompt, text: "go"),

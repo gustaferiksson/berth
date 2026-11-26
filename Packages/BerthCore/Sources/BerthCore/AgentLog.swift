@@ -4,7 +4,7 @@ public struct AgentLog: Sendable {
     static let chunkBytes = 4 << 20
     static let recentCalls = 20
     static let replyCharacters = 4000
-    static let summaryKeys = ["description", "command", "file_path", "pattern", "query", "url", "path", "prompt"]
+    static let summaryKeys = ["description", "command", "file_path", "pattern", "query", "url", "skill", "path", "prompt"]
     static let assistantMarker = Data(#""type":"assistant""#.utf8)
 
     public private(set) var end = 0

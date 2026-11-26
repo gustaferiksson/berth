@@ -79,12 +79,13 @@ final class ConversationShellCompleter {
 
     func accept(_ row: Row? = nil) -> Bool {
         guard let row = row ?? rows.first(where: { $0.id == selectedID }) ?? rows.first,
-              let field, field.string == rowsDraft else { return false }
+              let field, field.hiddenPrefix + field.string == rowsDraft else { return false }
 
         let item = row.item
         field.window?.makeFirstResponder(field)
-        field.insertText(item.text, replacementRange: item.replacement)
-        field.setSelectedRange(NSRange(location: item.caret, length: 0))
+        let shift = field.hiddenPrefix.utf16.count
+        field.insertText(item.text, replacementRange: NSRange(location: item.replacement.location - shift, length: item.replacement.length))
+        field.setSelectedRange(NSRange(location: item.caret - shift, length: 0))
         return true
     }
 
