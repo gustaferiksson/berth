@@ -389,12 +389,15 @@ struct ReviewRepositoryAccessory: View {
 struct ReviewSubheading: View {
     let title: String
     let count: Int
+    let files: [ReviewFile]
 
     var body: some View {
         HStack(spacing: 4) {
             Text(title)
                 .lineLimit(1)
             Spacer(minLength: 4)
+            ReviewFileStats(files: files)
+                .font(.caption)
             Text(count, format: .number)
                 .font(.caption.monospacedDigit())
                 .fixedSize()
@@ -413,12 +416,23 @@ enum ReviewInset {
 }
 
 struct ReviewFileStats: View {
-    let file: ReviewFile
+    let additions: Int?
+    let deletions: Int?
     @Environment(\.ghosttyTheme) private var theme
 
+    init(file: ReviewFile) {
+        additions = file.additions
+        deletions = file.deletions
+    }
+
+    init(files: [ReviewFile]) {
+        additions = files.compactMap(\.additions).reduce(0, +)
+        deletions = files.compactMap(\.deletions).reduce(0, +)
+    }
+
     var body: some View {
-        let additions = file.additions.flatMap { $0 > 0 ? $0 : nil }
-        let deletions = file.deletions.flatMap { $0 > 0 ? $0 : nil }
+        let additions = additions.flatMap { $0 > 0 ? $0 : nil }
+        let deletions = deletions.flatMap { $0 > 0 ? $0 : nil }
         var text = AttributedString()
         if let additions {
             var part = AttributedString("+\(additions)")

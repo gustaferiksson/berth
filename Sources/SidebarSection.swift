@@ -1,3 +1,4 @@
+import BerthCore
 import SwiftUI
 
 extension EnvironmentValues {
@@ -29,9 +30,9 @@ struct SidebarSection<Content: View, Header: View>: View {
 }
 
 extension SidebarSection where Header == SidebarSectionHeader<EmptyView, EmptyView> {
-    init(title: String, help: String, count: Int? = nil, tint: Color? = nil, isExpanded: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) {
+    init(title: String, help: String, count: Int? = nil, tint: Color? = nil, files: [ReviewFile]? = nil, isExpanded: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) {
         self.init(isExpanded: isExpanded, content: content) { expansion in
-            SidebarSectionHeader<EmptyView, EmptyView>(title: title, help: help, count: count, tint: tint, isExpanded: expansion, accessory: nil, replacementTitle: nil)
+            SidebarSectionHeader<EmptyView, EmptyView>(title: title, help: help, count: count, tint: tint, files: files, isExpanded: expansion, accessory: nil, replacementTitle: nil)
         }
     }
 }
@@ -41,6 +42,7 @@ struct SidebarSectionHeader<Accessory: View, ReplacementTitle: View>: View {
     let help: String
     let count: Int?
     var tint: Color?
+    var files: [ReviewFile]?
     @Binding var isExpanded: Bool
     let accessory: Accessory?
     let replacementTitle: ReplacementTitle?
@@ -79,6 +81,11 @@ struct SidebarSectionHeader<Accessory: View, ReplacementTitle: View>: View {
                 .accessibilityValue(isExpanded ? "expanded" : "collapsed")
             }
 
+            if let files {
+                ReviewFileStats(files: files)
+                    .font(.caption)
+            }
+
             ZStack(alignment: .trailing) {
                 if replacementTitle == nil, !isExpanded, let count {
                     Text(count, format: .number)
@@ -101,7 +108,7 @@ struct SidebarSectionHeader<Accessory: View, ReplacementTitle: View>: View {
         .font(.subheadline.weight(.medium))
         .foregroundStyle(tint ?? Color.secondary)
         .frame(minHeight: 20)
-        .padding(.trailing, SidebarRowLayout.horizontalInset - Self.listTrailingInset)
+        .padding(.trailing, files == nil ? SidebarRowLayout.horizontalInset - Self.listTrailingInset : 4.5)
         .contentShape([.interaction, .dragPreview], .rect(cornerRadius: 6))
         .onHover { isHovering = $0 }
     }
