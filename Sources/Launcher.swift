@@ -100,7 +100,7 @@ struct Launcher: View {
         return PullRequestInbox.rank(query, in: (store.inbox ?? []).filter { store.launcherRole == nil || $0.role == store.launcherRole }, now: .now)
     }
 
-    private var projectEntries: [ProjectEntry] {
+    private var projectSections: [ProjectSection] {
         guard mode == .projects, issueReference == nil else { return [] }
 
         let boards = store.projects.selectedBoards
@@ -110,7 +110,7 @@ struct Launcher: View {
         let names = groups.map(\.statusName).reduce(into: [String]()) { names, name in
             if !names.contains(name) { names.append(name) }
         }
-        return (names.filter { $0 != ProjectBoard.noStatusName } + names.filter { $0 == ProjectBoard.noStatusName }).flatMap { name in
+        return (names.filter { $0 != ProjectBoard.noStatusName } + names.filter { $0 == ProjectBoard.noStatusName }).map { name in
             let matching = groups.filter { $0.statusName == name }
             let items = matching.flatMap(\.items).sorted { left, right in
                 let leftMine = left.assignees.contains { $0.caseInsensitiveCompare(login) == .orderedSame }
@@ -119,10 +119,31 @@ struct Launcher: View {
             }
             let total = items.count + matching.reduce(0) { $0 + $1.hiddenCount }
             let title = total > items.count ? "\(name) · latest \(items.count)" : name
-            return items.enumerated().map { index, item in
-                ProjectEntry(header: index == 0 ? title : nil, count: total, project: boards.count > 1 ? titles[item.projectID] : nil, item: item)
+            return ProjectSection(name: name, title: title, total: total, items: items, projectTitles: boards.count > 1 ? titles : [:])
+        }
+    }
+
+    private var projectColumn: String? {
+        let sections = projectSections
+        return sections.contains { $0.name == store.projects.launcherColumn } ? store.projects.launcherColumn : nil
+    }
+
+    private var projectEntries: [ProjectEntry] {
+        let column = projectColumn
+        return projectSections.filter { column == nil || $0.name == column }.flatMap { section in
+            section.items.enumerated().map { index, item in
+                ProjectEntry(header: index == 0 ? section.title : nil, count: section.total, project: section.projectTitles[item.projectID], item: item)
             }
         }
+    }
+
+    private func selectProjectColumn(number: Int) -> KeyPress.Result {
+        let names = projectSections.map(\.name)
+        guard number == 0 || names.indices.contains(number - 1) else { return .ignored }
+
+        store.projects.launcherColumn = number == 0 ? nil : names[number - 1]
+        highlighted = 0
+        return .handled
     }
 
     private var highlightedProject: ProjectItem? {
@@ -168,6 +189,11 @@ struct Launcher: View {
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
                     .modifier(LauncherItemPreview(url: pullRequest?.url ?? issueRow?.url, highlighted: highlighted, query: query, store: store))
+                    .onKeyPress(phases: .down) { press in
+                        guard mode == .projects, press.modifiers == .option, let number = press.key.character.wholeNumberValue else { return .ignored }
+
+                        return selectProjectColumn(number: number)
+                    }
                     .onKeyPress(.tab) {
                         guard let nextScope else { return .ignored }
 
@@ -249,6 +275,12 @@ struct Launcher: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
             }
+            if mode == .projects, issue == nil {
+                ProjectColumnBar(columns: projectSections.map { ($0.name, $0.total) }, selection: projectColumn) { name in
+                    store.projects.launcherColumn = name
+                    highlighted = 0
+                }
+            }
             Divider()
             if mode == .newSession {
                 folderList(matches)
@@ -302,6 +334,7 @@ struct Launcher: View {
                         if item.url != nil { LauncherKeyHint("⌥↩", "GitHub") }
                     }
                     LauncherKeyHint("↑↓", "Item")
+                    if projectSections.count > 1 { LauncherKeyHint("⌥1-9", "Column") }
                 } else if mode == .palette {
                     LauncherKeyHint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
                     LauncherKeyHint("↑↓", "Select")

@@ -36,6 +36,13 @@ final class ProjectsModel {
     }
 
     private(set) var moveFailure: MoveFailure?
+    private var launcherColumns: [String: String] = [:]
+
+    var launcherColumn: String? {
+        get { launcherColumns[selectedIDs.joined(separator: ",")] }
+        set { launcherColumns[selectedIDs.joined(separator: ",")] = newValue }
+    }
+
     private var fetchState = State.off
     @ObservationIgnored private var fetchedAt = Date.distantPast
 
