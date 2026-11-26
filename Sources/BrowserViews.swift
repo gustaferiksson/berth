@@ -87,8 +87,6 @@ private struct BrowserHeader: View {
                     .fixedSize()
             }
             .frame(maxWidth: .infinity)
-            .animation(.easeInOut(duration: 0.16), value: tab?.canGoBack == true)
-            .animation(.easeInOut(duration: 0.16), value: tab?.canGoForward == true)
         }
         .buttonStyle(.plain)
         .font(.callout)
@@ -154,24 +152,20 @@ private struct BrowserHeader: View {
     @ViewBuilder private var navigationControls: some View {
         let canGoBack = tab?.canGoBack == true
         let canGoForward = tab?.canGoForward == true
-        let transition = AnyTransition.opacity.combined(with: .scale(scale: 0.94, anchor: .leading))
         if canGoBack || canGoForward {
             HStack(spacing: 0) {
                 if canGoBack {
                     iconButton("Back", symbol: "chevron.backward") { browser.perform(.browserBack) }
                         .help("Back (⌘[)")
-                        .transition(transition)
                 }
-                if canGoBack, canGoForward { actionDivider.transition(.opacity) }
+                if canGoBack, canGoForward { actionDivider }
                 if canGoForward {
                     iconButton("Forward", symbol: "chevron.forward") { browser.perform(.browserForward) }
                         .help("Forward (⌘])")
-                        .transition(transition)
                 }
             }
             .glassEffect(.regular.interactive(), in: .capsule)
             .fixedSize()
-            .transition(transition)
         }
     }
 
