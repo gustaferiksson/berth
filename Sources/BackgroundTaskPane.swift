@@ -54,6 +54,9 @@ struct BackgroundTaskSidebar: View {
             .accessibilityElement(children: .combine)
             .listRowSeparator(.hidden)
             .tag(task.id)
+            .contextMenu {
+                if store.canStop(task) { Button("Stop Shell", systemImage: "stop.fill") { store.stop(task) } }
+            }
         }
     }
 }
@@ -161,6 +164,9 @@ private struct BackgroundTaskDetail: View {
             if let terminalID {
                 action("Stop Terminal", symbol: "stop.fill") { store.close(terminalID, stopsTask: true) }
                 action("Open Terminal", symbol: "arrow.up.right") { store.activate(.tab(terminalID)) }
+            }
+            if store.canStop(task) {
+                action("Stop Shell", symbol: "stop.fill") { store.stop(task) }
             }
             if agent != nil {
                 action(showsTranscript ? "Show Text Output" : "Open Transcript", symbol: showsTranscript ? "text.alignleft" : "doc.text") {
