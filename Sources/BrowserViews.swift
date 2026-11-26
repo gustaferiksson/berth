@@ -148,24 +148,18 @@ private struct BrowserHeader: View {
         }
     }
 
-    @ViewBuilder private var navigationControls: some View {
-        let canGoBack = tab?.canGoBack == true
-        let canGoForward = tab?.canGoForward == true
-        if canGoBack || canGoForward {
-            HStack(spacing: 0) {
-                if canGoBack {
-                    iconButton("Back", symbol: "chevron.backward") { browser.perform(.browserBack) }
-                        .help("Back (⌘[)")
-                }
-                if canGoBack, canGoForward { actionDivider }
-                if canGoForward {
-                    iconButton("Forward", symbol: "chevron.forward") { browser.perform(.browserForward) }
-                        .help("Forward (⌘])")
-                }
-            }
-            .glassEffect(.regular.interactive(), in: .capsule)
-            .fixedSize()
+    private var navigationControls: some View {
+        HStack(spacing: 0) {
+            iconButton("Back", symbol: "chevron.backward") { browser.perform(.browserBack) }
+                .disabled(tab?.canGoBack != true)
+                .help("Back (⌘[)")
+            actionDivider
+            iconButton("Forward", symbol: "chevron.forward") { browser.perform(.browserForward) }
+                .disabled(tab?.canGoForward != true)
+                .help("Forward (⌘])")
         }
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .fixedSize()
     }
 
     private func trailingActions(tabs: [BrowserTab]) -> some View {
@@ -600,6 +594,7 @@ private struct BrowserAddressField: View {
     @State private var address = ""
     @State private var isEditing = false
     @State private var selection: TextSelection?
+    @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
     @FocusState private var isFocused: Bool
     @AppStorage(BrowserModel.searchKey) private var search = BrowserSearch.duckDuckGo
@@ -622,7 +617,7 @@ private struct BrowserAddressField: View {
                         if let webView = tab?.loadedWebView { webView.window?.makeFirstResponder(webView) }
                     }
             }
-            .padding(.leading, 9)
+            .padding(.leading, showsClose ? 30 : 9)
             .padding(.trailing, accessoryWidth)
             .opacity(isEditing ? 1 : 0)
             .allowsHitTesting(isEditing)
@@ -700,9 +695,10 @@ private struct BrowserAddressField: View {
             }
         }
         .overlay(alignment: .leading) {
-            if showsClose, !isEditing, let tab { BrowserCloseButton(browser: browser, tab: tab) }
+            if showsClose, isHovering || Snapshot.forcedHover.contains(tab?.displayTitle ?? ""), let tab { BrowserCloseButton(browser: browser, tab: tab) }
         }
         .glassEffect(.regular.interactive(), in: .capsule)
+        .onHover { isHovering = $0 }
         .onChange(of: tab?.id, initial: true) {
             finishEditing()
             if let tab, tab.url == nil { beginEditing() }
