@@ -405,8 +405,9 @@ private struct BrowserAgentBadge: View {
         Menu {
             BrowserAgentAccessButton(browser: browser, key: key)
         } label: {
-            Text("Agent")
+            Label("Agent", systemImage: "sparkles")
                 .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tint)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(.tint.opacity(0.2), in: .capsule)
@@ -414,7 +415,7 @@ private struct BrowserAgentBadge: View {
         .menuStyle(.button)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("An agent is driving this tab")
+        .help("An agent can control this tab. Click to stop agent access.")
     }
 }
 
@@ -563,7 +564,8 @@ private struct BrowserAddressField: View {
 
     var body: some View {
         let showsPageActions = (isMerged || isCompact) && tab?.url != nil
-        let accessoryWidth: CGFloat = showsPageActions ? 38 : 24
+        let showsAgentBadge = isMerged && tab?.isDrivenByAgent == true && browser.sessionKey != nil
+        let accessoryWidth: CGFloat = (showsPageActions ? 38 : 24) + (showsAgentBadge ? 66 : 0)
         ZStack {
             HStack(spacing: 5) {
                 addressIcon
@@ -604,7 +606,7 @@ private struct BrowserAddressField: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .trailing) {
             HStack(spacing: 3) {
-                if isMerged, tab?.isDrivenByAgent == true, let key = browser.sessionKey { BrowserAgentBadge(browser: browser, key: key) }
+                if showsAgentBadge, let key = browser.sessionKey { BrowserAgentBadge(browser: browser, key: key) }
                 if showsPageActions, let url = tab?.url {
                     Menu {
                         if isCompact {
