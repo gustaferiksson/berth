@@ -215,6 +215,17 @@ struct PendingPromptsTests {
         #expect(done.turns.count == 1 && doneRow.shellOutput == "clean")
     }
 
+    @Test func showsAQueuedShellCommandAsOneRunningRow() {
+        let pending = [PendingPrompt(text: "!git status", sentAt: sent)]
+        let queued = ["git status"]
+        let kept = PendingPrompts.reconcile(pending, entries: [], queued: queued, now: sent.addingTimeInterval(60))
+
+        #expect(kept.count == 1)
+        #expect(PendingPrompts.unqueued(kept, queued: queued).isEmpty)
+        #expect(PendingPrompts.queuedShellCommand("git status", pending: kept) == "git status")
+        #expect(PendingPrompts.queuedShellCommand("git log", pending: kept) == nil)
+    }
+
     @Test func keepsAShellCommandApartFromHumanPrompts() {
         let pending = [PendingPrompt(text: "!ls", sentAt: sent)]
         let human = RemoteEntry(id: "u1", kind: .prompt, text: "ls", date: sent.addingTimeInterval(1))

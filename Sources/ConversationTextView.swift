@@ -250,7 +250,6 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        drawHighlight()
         let tint = NSColor(theme.foreground).withAlphaComponent(0.06)
         drawInlineCode()
         for (index, block) in blocks().enumerated() where block.rect.intersects(dirtyRect) {
@@ -277,6 +276,7 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
             let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Copy")?.withSymbolConfiguration(.init(paletteColors: [code.secondary]))
             image?.draw(in: NSRect(x: copyFrame(of: block).midX - 7, y: copyFrame(of: block).midY - 7, width: 14, height: 14))
         }
+        drawHighlight()
         super.draw(dirtyRect)
     }
 

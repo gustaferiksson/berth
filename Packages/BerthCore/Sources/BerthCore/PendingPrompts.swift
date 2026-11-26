@@ -66,6 +66,8 @@ public enum PendingPrompts {
             guard var prompt = remaining[index] else { continue }
 
             if prompt.shellCommand != nil {
+                if isQueued(prompt, queued: queued) { continue }
+
                 if now.timeIntervalSince(prompt.sentAt) > grace { remaining[index] = nil }
                 continue
             }
@@ -101,6 +103,11 @@ public enum PendingPrompts {
         return entries.count { $0.kind == .prompt && matches($0.text, text: text, attachmentCount: attachmentCount) }
     }
 
+    public static func queuedShellCommand(_ queued: String, pending: [PendingPrompt]) -> String? {
+        let text = normalised(queued)
+        return pending.lazy.compactMap(\.shellCommand).first { normalised($0) == text || normalised("!\($0)") == text }
+    }
+
     public static func unqueued(_ pending: [PendingPrompt], queued: [String]) -> [PendingPrompt] {
         pending.filter { $0.isFailed || !isQueued($0, queued: queued) }
     }
@@ -116,7 +123,7 @@ public enum PendingPrompts {
     private static func isQueued(_ prompt: PendingPrompt, queued: [String]) -> Bool {
         if queued.contains(prompt.text) { return true }
 
-        let text = normalised(prompt.text)
+        let text = normalised(prompt.shellCommand ?? prompt.text)
         return queued.contains { normalised($0) == text }
     }
 
