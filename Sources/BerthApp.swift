@@ -202,6 +202,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let flags = event.modifierFlags.intersection([.command, .shift, .control, .option])
             let isTab = event.keyCode == 48
             let isTabCycle = isTab && (flags == .control || flags == [.control, .shift])
+            if isTabCycle, store.launcherMode == .projects {
+                store.projects.stepColumn(by: flags.contains(.shift) ? -1 : 1)
+                return nil
+            }
             let tabNumber = flags == .command ? event.charactersIgnoringModifiers.flatMap(Int.init).flatMap { (1...9).contains($0) ? $0 : nil } : nil
             if flags == [.command, .shift], event.keyCode == 30 || event.keyCode == 33 {
                 store.cycleTab(by: event.keyCode == 30 ? 1 : -1)
