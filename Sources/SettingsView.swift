@@ -20,7 +20,7 @@ struct SettingsView: View {
             SwiftUI.Tab("Remote", systemImage: "iphone.gen3.radiowaves.left.and.right", value: .remote) { RemoteSettings() }
             SwiftUI.Tab("About", systemImage: "info.circle", value: .about) { AboutSettings() }
         }
-        .frame(width: 560)
+        .frame(width: 720)
     }
 
     private var tab: Binding<SettingsTab> {
