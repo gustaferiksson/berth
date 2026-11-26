@@ -2,9 +2,6 @@ import AppKit
 import SwiftUI
 
 struct TerminalSettings: View {
-    @AppStorage(WindowBackdrop.transparencyKey) private var windowTransparency = 0.0
-    @AppStorage(WindowBackdrop.backgroundKey) private var windowBackground = WindowBackground.theme
-
     var body: some View {
         let configFile = GhosttyConfig.configFiles.last
         Form {
@@ -43,26 +40,8 @@ struct TerminalSettings: View {
             } footer: {
                 Text("~/.config/berth/ghostty is read after your Ghostty config, so its settings win. Set the font, font size or theme there.")
             }
-            Section {
-                Picker(selection: $windowBackground) {
-                    ForEach(WindowBackground.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
-                } label: {
-                    Text("Window Background")
-                    Text("Theme uses the theme’s window colour. Glass adds Liquid Glass. Darker matches the cards.")
-                }
-                Slider(value: $windowTransparency, in: 0...WindowBackdrop.maxTransparency) {
-                    Text("Window Transparency")
-                    Text("Lets the desktop show through behind the sidebar and Review panel, and through the gaps around the cards with Theme or Darker.")
-                } minimumValueLabel: {
-                    Text("Opaque")
-                } maximumValueLabel: {
-                    Text("Clear")
-                }
-            } header: {
-                Text("Window")
-            }
         }
         .formStyle(.grouped)
-        .frame(height: 570)
+        .frame(height: 450)
     }
 }

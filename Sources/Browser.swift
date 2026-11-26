@@ -1,5 +1,6 @@
 import AppKit
 import BerthCore
+import os
 import WebKit
 
 enum BrowserSearch: String, CaseIterable {
@@ -301,12 +302,14 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     func webView(_ webView: WKWebView, didCommit _: WKNavigation?) {
         guard webView === loadedWebView else { return }
 
+        browserFocusLog.info("webview didCommit tab \(self.id.uuidString, privacy: .public)")
         loadError = nil
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         guard webView === loadedWebView else { return }
 
+        browserFocusLog.info("webview didFinish tab \(self.id.uuidString, privacy: .public)")
         updateScrollerStyle(reinstallScripts: false)
         if navigation === pendingNavigation { finishNavigation() }
         browser.save()
