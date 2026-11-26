@@ -146,6 +146,7 @@ extension Snapshot {
             try? await Task.sleep(for: .seconds(1))
         }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserNewTab") { await probeNewTabKeyViewLoop(store: store, window: window) }
+        if UserDefaults.standard.bool(forKey: "snapshotBrowserTabFocus") { await probeTabFocus(store: store, window: window) }
         let shown = store.browser.shownTab
         if UserDefaults.standard.bool(forKey: "snapshotBrowserInspector"), let shown {
             let view = shown.webView
@@ -452,6 +453,35 @@ extension Snapshot {
         let after = gaps()
         let isRestored = abs(after.leading - expectedLeading) <= 1 && abs(after.trailing - expectedTrailing) <= 1
         print("remembered sizes sidebars \(isRight ? "right" : "left") \(isRestored ? "PASS" : "FAIL"): leading \(after.leading) expected \(expectedLeading), trailing \(after.trailing) expected \(expectedTrailing)")
+    }
+
+    private static func probeTabFocus(store: Store, window: NSWindow) async {
+        guard let key = store.browser.sessionKey else { return }
+
+        let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
+        let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
+        method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
+        method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
+        window.becomeKey()
+        let page = store.browser.tabs(in: key).first { $0.url != nil }
+        let empty = store.browser.open(nil, in: key, title: "New Tab")
+        try? await Task.sleep(for: .seconds(1))
+        if let page { store.browser.select(page, in: key) }
+        try? await Task.sleep(for: .seconds(1))
+
+        var gains = 0
+        var losses = 0
+        let observation = window.observe(\.firstResponder, options: [.old, .new]) { _, change in
+            let old = change.oldValue.flatMap(\.self) as? NSTextView
+            let new = change.newValue.flatMap(\.self) as? NSTextView
+            if new?.isFieldEditor == true { gains += 1 }
+            if old?.isFieldEditor == true { losses += 1 }
+        }
+        empty.needsPageFocus = empty.url != nil
+        store.browser.select(empty, in: key)
+        try? await Task.sleep(for: .seconds(1))
+        observation.invalidate()
+        print("browser tab focus probe \(gains <= 1 && losses == 0 ? "PASS" : "FAIL"): address field focus gained \(gains), lost \(losses), now \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
     }
 
     private static func probeNewTabKeyViewLoop(store: Store, window: NSWindow) async {
