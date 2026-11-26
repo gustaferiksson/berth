@@ -48,8 +48,16 @@ enum SidebarItem: Hashable {
     case task(String)
 }
 
-enum NewSessionCheckout {
+enum NewSessionCheckout: String, CaseIterable {
     case preferred, main, worktree
+
+    var title: String {
+        switch self {
+        case .preferred: "Same as new sessions"
+        case .main: "Main checkout"
+        case .worktree: "Worktree"
+        }
+    }
 }
 
 enum PullRequestOpening {
