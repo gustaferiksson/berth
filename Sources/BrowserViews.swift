@@ -23,13 +23,15 @@ struct BrowserPane: View {
                     }
                 }
             }
+            .clipShape(.rect(cornerRadius: CardBorder.radius - 1, style: .continuous))
+            .padding(1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
                 if size.width > 0, size.height > 0 { browser.lastPaneSize = size }
             }
             .background(theme.background ?? Color(nsColor: .textBackgroundColor))
             .clipShape(.rect(cornerRadius: CardBorder.radius, style: .continuous))
-            .overlay { if tab?.url == nil { CardBorder() } }
+            .overlay { CardBorder() }
         }
     }
 }
