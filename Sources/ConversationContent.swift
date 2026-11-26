@@ -64,6 +64,7 @@ struct ConversationPrompt: View {
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.conversationFolder) private var folder
     @Environment(\.conversationExpansion) private var expansion
     @State private var isExpanded = conversationExpandsAll
 
@@ -76,10 +77,16 @@ struct ConversationPrompt: View {
 
         let hasImages = entry.images?.isEmpty == false
         let numbers = entry.imageNumbers ?? Array(1...max(entry.images?.count ?? 0, 1))
-        let text = hasImages ? PromptTextPart.removingImageTags(numbers, from: entry.text) : entry.text
+        let mentioned = PromptMentions.resolve(hasImages ? PromptTextPart.removingImageTags(numbers, from: entry.text) : entry.text, folder: folder)
+        let text = mentioned.text
         let showsText = !text.isEmpty
 
         return VStack(alignment: .trailing, spacing: 6) {
+            if !mentioned.mentions.isEmpty {
+                VStack(alignment: .trailing, spacing: 6) {
+                    ForEach(mentioned.mentions) { ConversationMentionCard(mention: $0) }
+                }
+            }
             if let images = entry.images {
                 HStack(spacing: 6) {
                     ForEach(images.enumerated(), id: \.offset) { index, data in
@@ -287,6 +294,10 @@ final class ConversationImagePreview: NSObject, QLPreviewPanelDataSource {
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
         try? png(data).write(to: destination)
+    }
+
+    func showFile(_ file: URL) {
+        present(file, size: 0)
     }
 
     func showOriginal(_ data: Data) {

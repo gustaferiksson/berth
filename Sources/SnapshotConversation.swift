@@ -360,7 +360,7 @@ extension Snapshot {
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base)
+        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + mentionRecords(base: base)
         let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
         guard repetitions > 1 else { return records }
 
@@ -401,6 +401,13 @@ extension Snapshot {
         guard UserDefaults.standard.bool(forKey: "snapshotConversationImageOnly") else { return [] }
 
         return [base("user", 1, ["role": "user", "content": [["type": "text", "text": "[Image #1]"], ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]]])]
+    }
+
+    private static func mentionRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        guard let folder = UserDefaults.standard.string(forKey: "snapshotConversationMentions") else { return [] }
+
+        let text = "@\(folder)/Screen Recording demo.mov break down this video, then compare @\(folder)/diagram.png with @\(folder)/notes.txt and @\(folder)/gone.pdf"
+        return [base("user", 1, ["role": "user", "content": text])]
     }
 
     private static func queuedRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
