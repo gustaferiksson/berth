@@ -123,7 +123,7 @@ struct ConversationPrompt: View {
     static func attributed(_ text: String, theme: GhosttyTheme, displayScale: CGFloat? = nil, itemID: String? = nil, expanded: Set<String> = []) -> NSAttributedString {
         let font = theme.conversationNSFont()
         let style = NSMutableParagraphStyle()
-        style.lineHeightMultiple = theme.lineHeightMultiple
+        style.lineSpacing = (font.ascender - font.descender + font.leading) * (theme.lineHeightMultiple - 1)
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(theme.foreground), .paragraphStyle: style]
         let prose = { (raw: Substring) -> Segment in
             let rendered = attributedProse(String(raw), attributes: attributes, font: font, theme: theme, displayScale: displayScale)
