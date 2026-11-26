@@ -490,7 +490,7 @@ private struct ItemPreviewAvatar: View {
     }
 }
 
-private struct FlowLayout: Layout {
+struct FlowLayout: Layout {
     var spacing: CGFloat = 6
     var rowSpacing: CGFloat = 5
 

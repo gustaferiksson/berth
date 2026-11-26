@@ -36,6 +36,17 @@ final class ProjectsModel {
     }
 
     private(set) var moveFailure: MoveFailure?
+    private var launcherColumns: [String: String] = [:]
+
+    private(set) var columnSteps = 0
+
+    func stepColumn(by offset: Int) { columnSteps += offset }
+
+    var launcherColumn: String? {
+        get { launcherColumns[selectedIDs.joined(separator: ",")] }
+        set { launcherColumns[selectedIDs.joined(separator: ",")] = newValue }
+    }
+
     private var fetchState = State.off
     @ObservationIgnored private var fetchedAt = Date.distantPast
 
