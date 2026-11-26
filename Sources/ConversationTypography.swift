@@ -55,9 +55,9 @@ enum ConversationStyle: String, CaseIterable {
 
     var typeset: ConversationTypeset {
         switch self {
-        case .clean: ConversationTypeset(bodyFont: .system, bodyFamily: "", bodySize: 16, lineSpacing: .relaxed, width: .narrow)
-        case .spacious: ConversationTypeset(bodyFont: .system, bodyFamily: "", bodySize: 17, lineSpacing: .spacious, width: .narrow)
-        case .reading: ConversationTypeset(bodyFont: .custom, bodyFamily: "Charter", bodySize: 17, lineSpacing: .relaxed, width: .narrow)
+        case .clean: ConversationTypeset(bodyFont: .system, bodyFamily: "", bodySize: 14, lineSpacing: .relaxed, width: .narrow)
+        case .spacious: ConversationTypeset(bodyFont: .system, bodyFamily: "", bodySize: 15, lineSpacing: .spacious, width: .narrow)
+        case .reading: ConversationTypeset(bodyFont: .custom, bodyFamily: "Charter", bodySize: 16, lineSpacing: .relaxed, width: .narrow)
         case .terminal: ConversationTypeset(bodyFont: .monospaced, bodyFamily: "", bodySize: 0, lineSpacing: .normal, width: .normal)
         }
     }
