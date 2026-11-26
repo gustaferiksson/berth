@@ -17,8 +17,8 @@ struct BerthApp: App {
 
     init() {
         GhosttyConfig.registerBundledFonts()
-        // macOS 26's AutoFill heuristic controller loops forever in SwiftUI's key-view search and hangs the main thread.
-        UserDefaults.standard.register(defaults: ["NSAutoFillHeuristicControllerEnabled": false])
+        // The AutoFill heuristic controller loops in SwiftUI's key-view search and hangs the main thread; macOS 26 reads the first key, macOS 27 the second.
+        UserDefaults.standard.register(defaults: ["NSAutoFillHeuristicControllerEnabled": false, "NSAutoFillHeuristicsEnabled": false])
         // Restyling a SwiftUI List's scroll view afterwards re-tiles it inside a SwiftUI update, which crashes outline lists.
         var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
         arguments["AppleShowScrollBars"] = "WhenScrolling"

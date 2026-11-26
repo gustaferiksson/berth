@@ -8,7 +8,7 @@ Child processes survive the app exiting (claude ignores the pty hangup), so `app
 
 ## AutoFill heuristic controller
 
-`BerthApp.init` registers `NSAutoFillHeuristicControllerEnabled = false`. On macOS 26 the controller's `_showPasswordAutoFillIfNecessaryForView:` walks `previousValidKeyView`, and SwiftUI's `FocusNavigationSequence.next()` looped forever in the Browser address field (214 s hang after ⌘T; Chromium and Electron disable it for the same reason). WKWebView's own AutoFill and password managers are unaffected.
+`BerthApp.init` registers `NSAutoFillHeuristicControllerEnabled = false` (read on macOS 26) and `NSAutoFillHeuristicsEnabled = false` (the only key macOS 27 AppKit contains; the first is ignored there, found by searching the dyld shared cache strings). The controller's `_showPasswordAutoFillIfNecessaryForView:` walks `previousValidKeyView`, and SwiftUI's `FocusNavigationSequence.next()` looped forever in the Browser address field (214 s hang after ⌘T; Chromium and Electron disable it for the same reason). WKWebView's own AutoFill and password managers are unaffected.
 
 ## Needs-you alerts
 
