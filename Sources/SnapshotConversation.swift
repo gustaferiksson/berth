@@ -446,7 +446,7 @@ extension Snapshot {
         let started = Int(conversationStart.timeIntervalSince1970 * 1000) - 60_000
         let updated = Int((Date.now.timeIntervalSince1970 - updatedSecondsAgo) * 1000)
         let waiting = waitingFor.map { #","waitingFor":"\#($0)""# } ?? ""
-        return try? JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":\#(getpid()),"sessionId":"\#(conversationSession)","cwd":"\#(conversationFolder)","status":"\#(status)"\#(waiting),"statusUpdatedAt":\#(updated),"startedAt":\#(started)}"#.utf8))
+        return try? JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":\#(getpid()),"sessionId":"\#(conversationSession)","cwd":"\#(conversationFolder)","status":"\#(status)"\#(waiting),"statusUpdatedAt":\#(updated),"startedAt":\#(started),"version":"2.1.332"}"#.utf8))
     }
 
     private static func driveConversation(_ script: String, store: Store, tab: Tab, rawLog: String?, save: (String) -> Void) async {

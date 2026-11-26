@@ -712,8 +712,10 @@ struct ConversationTaskRow: View {
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(Store.self) private var store
 
     var body: some View {
+        let stoppable = task.flatMap { store.backgroundTask(matching: $0.id) }.flatMap { background in store.subagentStop(for: background).map { (background, $0) } }
         let isAgent = call.kind == .agent
         let isError = call.result?.isError == true
         let isRunning = task != nil
@@ -744,12 +746,25 @@ struct ConversationTaskRow: View {
                 }
             }
             .padding(10)
+            .padding(.trailing, stoppable == nil ? 0 : 28)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(theme.foreground.opacity(0.05), in: .rect(cornerRadius: 16))
             .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(theme.foreground.opacity(0.08)) }
             .accessibilityElement(children: .combine)
             .padding(.leading, markerWidth)
-            .contextMenu { Button("Copy Title") { copyToPasteboard(task?.title ?? call.cardTitle) } }
+            .contextMenu {
+                Button("Copy Title") { copyToPasteboard(task?.title ?? call.cardTitle) }
+                if let (background, mode) = stoppable { Button(mode.title, systemImage: "stop.fill") { store.stopSubagent(background) } }
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if let (background, mode) = stoppable {
+                Button(mode.title, systemImage: "stop.fill") { store.stopSubagent(background) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help(mode.title)
+                    .padding(.trailing, 14)
+            }
         }
     }
 

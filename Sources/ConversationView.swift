@@ -535,35 +535,44 @@ private struct ConversationTaskList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(tasks) { task in
-                ConversationAgentButton(isAgent: task.kind == RemoteTask.agent, agentID: task.id, toolUseID: task.id, title: task.title, dismissesPopover: true) {
-                    HStack(spacing: 10) {
-                        Image(systemName: task.symbol)
-                            .foregroundStyle(task.kind == RemoteTask.agent ? AgentTint.color(for: task.title) : theme.secondary)
-                            .frame(width: 20)
-                            .accessibilityHidden(true)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(verbatim: task.title)
-                                .lineLimit(1)
-                            Text(verbatim: task.agentType ?? task.kindName)
+                let stop = task.kind == RemoteTask.agent ? store.backgroundTask(matching: task.id).flatMap { backgroundTask in store.subagentStop(for: backgroundTask).map { (backgroundTask, $0) } } : nil
+                HStack(spacing: 0) {
+                    ConversationAgentButton(isAgent: task.kind == RemoteTask.agent, agentID: task.id, toolUseID: task.id, title: task.title, dismissesPopover: true) {
+                        HStack(spacing: 10) {
+                            Image(systemName: task.symbol)
+                                .foregroundStyle(task.kind == RemoteTask.agent ? AgentTint.color(for: task.title) : theme.secondary)
+                                .frame(width: 20)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(verbatim: task.title)
+                                    .lineLimit(1)
+                                Text(verbatim: task.agentType ?? task.kindName)
+                                    .font(.caption)
+                                    .foregroundStyle(theme.secondary)
+                            }
+                            Spacer(minLength: 12)
+                            ConversationElapsed(since: task.started)
                                 .font(.caption)
                                 .foregroundStyle(theme.secondary)
+                            if task.kind == RemoteTask.shell,
+                               let backgroundTask = store.backgroundTasks.first(where: { $0.id == task.id || $0.toolUseID == task.id }),
+                               store.canStop(backgroundTask) {
+                                Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) }
+                                    .labelStyle(.iconOnly)
+                                    .buttonStyle(.borderless)
+                                    .help("Stop Shell")
+                            }
                         }
-                        Spacer(minLength: 12)
-                        ConversationElapsed(since: task.started)
-                            .font(.caption)
-                            .foregroundStyle(theme.secondary)
-                        if task.kind == RemoteTask.shell,
-                           let backgroundTask = store.backgroundTasks.first(where: { $0.id == task.id || $0.toolUseID == task.id }),
-                           store.canStop(backgroundTask) {
-                            Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) }
-                                .labelStyle(.iconOnly)
-                                .buttonStyle(.borderless)
-                                .help("Stop Shell")
-                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .accessibilityElement(children: task.kind == RemoteTask.shell ? .contain : .combine)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .accessibilityElement(children: task.kind == RemoteTask.shell ? .contain : .combine)
+                    if let (backgroundTask, mode) = stop {
+                        Button(mode.title, systemImage: "stop.fill") { store.stopSubagent(backgroundTask) }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .help(mode.title)
+                    }
                 }
             }
             Divider()

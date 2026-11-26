@@ -240,6 +240,15 @@ struct ContentView: View {
         } message: { message in
             Text(message)
         }
+        .confirmationDialog("Stop the Whole Turn?", isPresented: Binding(get: { store.confirmingTurnStop != nil }, set: { if !$0 { store.confirmingTurnStop = nil } }), presenting: store.confirmingTurnStop) { _ in
+            Button("Stop Turn", role: .destructive) { store.stopTurn() }
+        } message: { task in
+            Text("Claude can’t stop “\(task.title)” on its own from here. Stop Turn interrupts everything Claude is doing in this session, the same as pressing Esc.")
+        }
+        .alert("Couldn’t Stop Subagent", isPresented: Binding(get: { store.subagentStopFailure != nil }, set: { if !$0 { store.subagentStopFailure = nil } }), presenting: store.subagentStopFailure) { _ in
+        } message: { message in
+            Text(message)
+        }
         .alert("Couldn’t Stop Watching", isPresented: Binding(get: { store.stopWatchingFailure != nil }, set: { if !$0 { store.stopWatchingFailure = nil } }), presenting: store.stopWatchingFailure) { _ in
         } message: { message in
             Text(message)

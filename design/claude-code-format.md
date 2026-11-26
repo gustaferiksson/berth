@@ -42,6 +42,21 @@ Completion can arrive in a `<task-notification>` on an enqueue operation, a queu
 
 An agent transcript lives at `<sessionId>/subagents/agent-<agentId>.jsonl`. Its sibling `.meta.json` can identify the launch via `toolUseId` or record completion via `finished` and `stoppedByUser`. Log writes more than five seconds after completion metadata suggest the agent resumed. The Tasks pane uses the current live process start time to mark unfinished history from an earlier process as Finished.
 
+
+### Stopping a background subagent
+
+Subagents run inside the claude process, so Berth can't signal them; it drives Claude Code's own `/tasks` dialog through the session's pty (`Store.stopSubagentThroughTasksDialog`, key plan in `SubagentStop`). Read from the 2.1.332 bundle (strings of `~/.local/share/claude/versions/2.1.332`); `SubagentStop.verifiedVersion` records it and `isSupported` gates on the 2.1 series, read from `version` in `~/.claude/sessions/<pid>.json`.
+
+- `/tasks` (alias `/bashes`) is an `immediate` local-jsx command titled "Background" (dialog id `background-tasks-dialog`). Section order: Shells, Monitors, MCP tasks, Cloud agents, Background agents, Completed, Dynamic workflows, Scheduled, Goal, Forks. Rows are labelled with the task description, which for an agent is the Agent call's `description`.
+- Only tasks with `isBackgrounded !== false` are listed, so an Agent call running in the foreground of the turn never appears. Berth marks those `SessionBackgroundTask.runsInForeground` (a pending Agent call without `run_in_background`) and offers Stop Turn (Esc) instead.
+- With exactly one listed running task (and the user not viewing an agent) the dialog opens straight in that task's detail view, with no list. Otherwise it opens the list, focused on the first row.
+- Keys: Down moves the focus, `x` stops the focused row (list) or the open agent (detail) with no confirmation, Esc closes. Detail view: left goes back, Enter, Space and Esc close. A stopped agent leaves the list. In detail view the dialog dismisses itself once the agent is gone, so no Esc is sent; in the list it stays open and Esc closes it. `Ctrl+X Ctrl+K` (`chat:killAgents`) stops all background agents; Berth doesn't use it.
+- The plan is `/tasks`, Enter, Down for each row ahead of the target (running shells, then monitors, then agents by start time), `x`, then Esc when two or more tasks are listed.
+- Berth can't read the dialog, so it re-checks that the session isn't `waiting` before every key, never types while it is, and counts success only when the transcript shows the task no longer running. Tasks Berth can't see (MCP tasks, cloud agents) ahead of the target would shift the row; the confirmation then fails or another row stops.
+- Fallback when the version is unknown, the task runs in the foreground or the plan can't be built: Stop Turn behind a confirmation, only while the session is busy. It sends Esc, which interrupts the whole turn.
+
+Docs: code.claude.com/docs/en/sub-agents ("/tasks and clearing rows", `x` stops the selected subagent) and interactive-mode (`Ctrl+X Ctrl+K`).
+
 ## Typed prompts
 
 Typed prompt: `origin` absent or `kind: human`; `task-notification` origins, `isCompactSummary` and `<bash-stdout>` records are not prompts; sidechains are skipped. A prompt sent mid-turn is not a user record but an `attachment` of type `queued_command` (`commandMode: prompt`, human origin or `humanTurn`); it counts for `lastPrompt` and `lastActivity` (other attachment lines are still skipped on raw bytes). Search and Stats don't read them yet; the remote tail does.
