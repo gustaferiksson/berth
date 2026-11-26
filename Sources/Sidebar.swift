@@ -352,7 +352,7 @@ private struct SidebarList: View, Equatable {
         .onKeyPress(.leftArrow) { setExpanded(false, in: groups) }
         .onKeyPress(.rightArrow) { setExpanded(true, in: groups) }
         .onHover { store.isPointerInSidebar = $0 }
-        .scrollEdgeEffectStyle(.soft, for: .top)
+        .scrollEdgeEffectStyle(.hard, for: .top)
         .fileImporter(isPresented: Binding(get: { browseRoot != nil }, set: { if !$0 { browseRoot = nil } }), allowedContentTypes: [.folder]) { result in
             guard case let .success(url) = result else { return }
 
