@@ -4,22 +4,6 @@ import GhosttyTerminal
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct StewardPullRequestButton: View {
-    static let title = "Steward with Claude"
-    let link: PullRequestLink
-    let url: URL
-
-    @Environment(Store.self) private var store
-
-    var body: some View {
-        let opening = store.opening(of: link, prompt: .steward)
-        Button(Self.title, systemImage: "eye") {
-            if store.openPullRequest(link, url: url, opening: opening, prompt: .steward) { store.launcherMode = nil }
-        }
-        .disabled(!opening.isOpenable)
-    }
-}
-
 enum LauncherMode {
     case newSession, search, palette, pullRequests, showPullRequestInReview, issues, projects
 }
@@ -271,17 +255,6 @@ struct Launcher: View {
             } else {
                 results(rows, pullRequests: ranked, issues: issues, issue: issue, linked: linked)
             }
-            #if DEBUG
-            if Snapshot.showsPullRequestActions, let pullRequest {
-                Divider()
-                StewardPullRequestButton(link: PullRequestLink(repository: pullRequest.repository, number: pullRequest.number), url: pullRequest.url)
-                    .labelStyle(.titleAndIcon)
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-            }
-            #endif
             if let pullRequest, missingCheckout == pullRequest {
                 Divider()
                 checkoutNotice(repository: pullRequest.repository, url: pullRequest.url)
@@ -458,7 +431,6 @@ struct Launcher: View {
                                     Button("Show in Review", systemImage: AppAction.showPullRequestInReview.symbol) { showInReview(link) }
                                         .disabled(!AppAction.showPullRequestInReview.isAvailable(in: store))
                                     Button("Open on GitHub", systemImage: "arrow.up.right.square") { openOnGitHub(pullRequest.url) }
-                                    if mode == .pullRequests { StewardPullRequestButton(link: link, url: pullRequest.url) }
                                 }
                         }
                         if pullRequests.isEmpty {
@@ -558,9 +530,6 @@ struct Launcher: View {
             }
             .buttonStyle(.plain)
             .disabled(!row.opening.isOpenable)
-            .contextMenu {
-                StewardPullRequestButton(link: row.pullRequest.link, url: row.pullRequest.url)
-            }
         }
         if linked.isEmpty, let selectedIssue, case .success? = issueResult, store.localCheckout(of: selectedIssue.repository) == nil {
             checkoutNotice(repository: selectedIssue.repository, url: selectedIssue.url)

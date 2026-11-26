@@ -85,6 +85,24 @@ enum ProcessAncestry {
         }.sorted { $0.started < $1.started }
     }
 
+    nonisolated static func stopShell(writing output: URL, under claude: Int32) async -> Bool {
+        var file = stat()
+        guard stat(output.path, &file) == 0 else { return false }
+
+        let shells = userProcesses().filter { process in
+            let pid = process.kp_proc.p_pid
+            return process.kp_eproc.e_ppid == claude && process.kp_eproc.e_pgid == pid && Int32(process.kp_proc.p_stat) != SZOMB && holds(file, pid: pid)
+        }
+        guard shells.count == 1, let group = shells.first?.kp_proc.p_pid, group > 1, group != getpgrp() else { return false }
+
+        killpg(group, SIGTERM)
+        for _ in 0..<30 where killpg(group, 0) == 0 {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if killpg(group, 0) == 0 { killpg(group, SIGKILL) }
+        return true
+    }
+
     private nonisolated static func holds(_ file: stat, pid: Int32) -> Bool {
         let size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
         guard size > 0 else { return false }

@@ -438,9 +438,6 @@ private struct ReviewPullRequestActions: View {
         let pullRequest = entry.pullRequest
         Button("Show Details") { model.openPullRequestDetails(entry) }
         Button("Open on GitHub") { openURL(pullRequest.url) }
-        if pullRequest.state == .open || pullRequest.state == .draft {
-            StewardPullRequestButton(link: entry.id, url: pullRequest.url)
-        }
         Button("Show Diff in Review") { Task { await model.openPullRequestDiff(entry) } }
         if projectsEnabled,
            let item = store.projects.selectedBoards.lazy.filter({ $0.statusFieldID != nil && !$0.statusOptions.isEmpty })
