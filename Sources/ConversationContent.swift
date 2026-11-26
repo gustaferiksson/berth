@@ -79,9 +79,9 @@ struct ConversationPrompt: View {
 
         let hasImages = entry.images?.isEmpty == false
         let numbers = entry.imageNumbers ?? Array(1...max(entry.images?.count ?? 0, 1))
-        let mentioned = PromptMentions.resolve(hasImages ? PromptTextPart.removingImageTags(numbers, from: entry.text) : entry.text, folder: folder)
+        let mentioned = PromptMentions.resolve(entry.text, folder: folder)
         let text = mentioned.text
-        let showsText = !text.isEmpty
+        let showsText = !(hasImages ? PromptTextPart.removingImageTags(numbers, from: text) : text).isEmpty
 
         return VStack(alignment: .trailing, spacing: 6) {
             if !mentioned.mentions.isEmpty {
