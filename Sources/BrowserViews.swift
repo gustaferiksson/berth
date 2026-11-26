@@ -14,7 +14,7 @@ struct BrowserPane: View {
             BrowserHeader(browser: browser, tab: tab)
             Group {
                 if let tab, tab.url != nil {
-                    BrowserWebView(tab: tab)
+                    BrowserWebView(tab: tab, scrollerStyle: browser.scrollerStyle)
                 } else {
                     ContentUnavailableView {
                         Label("New Tab", systemImage: "globe")
@@ -880,10 +880,15 @@ private struct BrowserDownloadsButton: View {
 
 private struct BrowserWebView: NSViewRepresentable {
     let tab: BrowserTab
+    let scrollerStyle: SystemScrollerStyle
     @AppStorage(BrowserModel.appearanceKey) private var appearance = BrowserAppearance.auto
 
     func makeNSView(context _: Context) -> NSView {
-        NSView()
+        guard #available(macOS 27.0, *) else { return NSView() }
+
+        let container = Container()
+        container.scrollerStyle = scrollerStyle
+        return container
     }
 
     func updateNSView(_ container: NSView, context _: Context) {
@@ -902,6 +907,17 @@ private struct BrowserWebView: NSViewRepresentable {
 
                 webView.window?.makeFirstResponder(webView)
             }
+        }
+    }
+
+    @available(macOS 27.0, *)
+    private final class Container: NSView {
+        var scrollerStyle: SystemScrollerStyle?
+
+        override var cornerConfiguration: NSViewCornerConfiguration? {
+            guard scrollerStyle?.isLegacy == false else { return nil }
+
+            return .uniformCorners(radius: .fixed(CardBorder.radius - 1))
         }
     }
 }
