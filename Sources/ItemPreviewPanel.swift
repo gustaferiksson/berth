@@ -240,7 +240,7 @@ final class ItemPreviewPanel {
 
     private func handle(_ event: NSEvent) -> NSEvent? {
         guard event.type == .keyDown else {
-            if event.window !== panel { hide() }
+            if event.window !== panel, !panel.frame.contains(NSEvent.mouseLocation) { hide() }
             return event
         }
 
