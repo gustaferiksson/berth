@@ -50,7 +50,7 @@ struct SessionRow: View {
         if showsTwoLines {
             VStack(alignment: .leading, spacing: 4) {
                 line(projectName: nil)
-                repoAndBranch
+                RepoAndBranch(checkout: session.checkout, branch: session.branch)
                     .padding(.leading, StatusSlot.width + Self.columnSpacing)
             }
             .padding(.vertical, 8)
@@ -127,9 +127,23 @@ struct SessionRow: View {
         }
     }
 
-    private var repoAndBranch: some View {
-        let repo = Text(verbatim: URL(filePath: session.checkout).lastPathComponent)
-        let details = session.branch.map { branch in
+    @ViewBuilder private var actions: some View {
+        if isArchived {
+            RowActionButton(title: "Mark as Not Done", symbol: "arrow.uturn.backward") { store.unarchive(session.id) }
+        } else {
+            RowActionButton(title: "Mark as Done", symbol: "checkmark") { store.archive(session.id) }
+        }
+    }
+}
+
+struct RepoAndBranch: View {
+    let checkout: String
+    let branch: String?
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        let repo = Text(verbatim: URL(filePath: checkout).lastPathComponent)
+        let details = branch.map { branch in
             Text("\(repo) · \(Text(verbatim: branch).foregroundStyle(theme.branch.opacity(0.8)))")
         } ?? repo
 
@@ -138,14 +152,6 @@ struct SessionRow: View {
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .truncationMode(.middle)
-    }
-
-    @ViewBuilder private var actions: some View {
-        if isArchived {
-            RowActionButton(title: "Mark as Not Done", symbol: "arrow.uturn.backward") { store.unarchive(session.id) }
-        } else {
-            RowActionButton(title: "Mark as Done", symbol: "checkmark") { store.archive(session.id) }
-        }
     }
 }
 

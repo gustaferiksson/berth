@@ -70,7 +70,7 @@ final class ControlService {
         if isBrowserCommand, let session = browserSession(for: caller) {
             let summary = session.sessionID.flatMap { store.sessionsByID[$0] }
             let title = summary?.title ?? URL(filePath: session.cwd).lastPathComponent
-            if let denial = await store.browser.access.authorize(key: BrowserModel.key(of: session), title: title) { return .failure(denial) }
+            if let denial = await store.browser.access.authorize(key: BrowserModel.key(of: session), title: title, session: summary, folder: session.cwd, url: request.url) { return .failure(denial) }
         }
 
         if request.operation == .openURL || request.operation == .browserOpen { return openURL(request, for: caller) }
