@@ -71,6 +71,24 @@ struct BackgroundTasksTests {
         #expect(task.outputFile == output)
     }
 
+    @Test func runningShellWithoutAnOutputPathFindsItsFileUnderTheSessionTasksFolder() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "repl-shell-\(UUID())")
+        let tasks = folder.appending(path: "tmp-root/-example-worktree/session/tasks")
+        try FileManager.default.createDirectory(at: tasks, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let transcript = folder.appending(path: "session.jsonl")
+        let output = tasks.appending(path: "watch.output")
+        try "".write(to: output, atomically: true, encoding: .utf8)
+        let records = #"{"type":"user","timestamp":"2026-11-01T10:00:02.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"repl_1","content":""}]},"toolUseResult":{"backgroundTaskId":"watch"}}"# + "\n"
+        try records.write(to: transcript, atomically: true, encoding: .utf8)
+        let live = LiveSession(pid: 1, sessionId: "session", cwd: folder.path, status: "idle", startedAt: Date(timeIntervalSince1970: 1_780_000_000).timeIntervalSince1970 * 1000 - 1000)
+        var activity = TranscriptActivity(keepsTaskHistory: true)
+        activity.read(transcript)
+        let task = try #require(activity.backgroundTasks(of: live, in: transcript, tasksRoot: folder.appending(path: "tmp-root")).first)
+        #expect(task.title == "Background shell")
+        #expect(task.outputFile?.resolvingSymlinksInPath() == output.resolvingSymlinksInPath())
+    }
+
     @Test func taskTailKeepsCompleteLinesAndBoundsLongLines() throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "task-tail-\(UUID()).output")
         defer { try? FileManager.default.removeItem(at: url) }

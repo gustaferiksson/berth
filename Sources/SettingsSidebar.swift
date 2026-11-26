@@ -2,27 +2,13 @@ import SwiftUI
 
 struct SidebarSettings: View {
     @Environment(Store.self) private var store
-    @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage(PlanUsageFetch.enabledKey) private var showsPlanUsage = false
     @AppStorage("showsSessionUsageDivisions") private var showsSessionUsageDivisions = false
     @AppStorage("showsWeeklyUsageDivisions") private var showsWeeklyUsageDivisions = false
-    @AppStorage("sidebarTwoLineRows") private var showsTwoLines = false
     @AppStorage(ItemPreviewSetting.key) private var richPreviews = false
 
     var body: some View {
         Form {
-            Section {
-                Picker("Position", selection: $sidebarPosition) {
-                    Text("Left").tag(SidebarPosition.left)
-                    Text("Right").tag(SidebarPosition.right)
-                }
-                .pickerStyle(.segmented)
-                Toggle("Two-line rows", isOn: $showsTwoLines)
-            } header: {
-                Text("Layout")
-            } footer: {
-                Text("Session rows show status, pull request and age on one line. Turn on Two-line rows to show the repository and branch below the title.")
-            }
             Section {
                 Toggle("Show plan usage", isOn: $showsPlanUsage)
                 Toggle("Divide session bar into hours", isOn: $showsSessionUsageDivisions)
@@ -43,7 +29,7 @@ struct SidebarSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 640)
+        .frame(height: 470)
         .onChange(of: showsPlanUsage) {
             Task {
                 await store.refreshPlanUsage()

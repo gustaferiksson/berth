@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable {
-    case general, sidebar, terminal, conversation, review, github, browser, remote, about
+    case general, appearance, sidebar, terminal, conversation, review, github, browser, remote, about
 }
 
 struct SettingsView: View {
@@ -10,6 +10,7 @@ struct SettingsView: View {
     var body: some View {
         TabView(selection: tab) {
             SwiftUI.Tab("General", systemImage: "gearshape", value: .general) { GeneralSettings() }
+            SwiftUI.Tab("Appearance", systemImage: "paintbrush", value: .appearance) { AppearanceSettings() }
             SwiftUI.Tab("Sidebar", systemImage: "sidebar.left", value: .sidebar) { SidebarSettings() }
             SwiftUI.Tab("Terminal", systemImage: "terminal", value: .terminal) { TerminalSettings() }
             SwiftUI.Tab("Conversation", systemImage: "bubble.left.and.text.bubble.right", value: .conversation) { ConversationSettings() }
@@ -19,12 +20,12 @@ struct SettingsView: View {
             SwiftUI.Tab("Remote", systemImage: "iphone.gen3.radiowaves.left.and.right", value: .remote) { RemoteSettings() }
             SwiftUI.Tab("About", systemImage: "info.circle", value: .about) { AboutSettings() }
         }
-        .frame(width: 560)
+        .frame(width: 720)
     }
 
     private var tab: Binding<SettingsTab> {
         Binding {
-            SettingsTab(rawValue: storedTab) ?? (storedTab == "appearance" ? .sidebar : .general)
+            SettingsTab(rawValue: storedTab) ?? .general
         } set: { newTab in
             storedTab = newTab.rawValue
         }

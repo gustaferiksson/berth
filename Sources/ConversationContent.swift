@@ -10,9 +10,11 @@ let elapsedFormat = Duration.UnitsFormatStyle.units(allowed: [.hours, .minutes, 
 #if DEBUG
 let conversationExpandsAll = UserDefaults.standard.bool(forKey: "snapshotConversationExpanded")
 let conversationShowsTasks = UserDefaults.standard.bool(forKey: "snapshotConversationTasks")
+let conversationShowsTasksExpanded = UserDefaults.standard.bool(forKey: "snapshotConversationTasksExpanded")
 #else
 let conversationExpandsAll = false
 let conversationShowsTasks = false
+let conversationShowsTasksExpanded = false
 #endif
 
 private let markerWidth = 16.0
