@@ -303,6 +303,13 @@ final class BrowserDownload: Identifiable {
     var failed = false
 }
 
+private struct ClosedTab {
+    let url: URL?
+    let title: String
+    let index: Int
+    let isPinned: Bool
+}
+
 @Observable
 final class BrowserModel: NSObject, WKDownloadDelegate {
     static let searchKey = "browserSearchEngine"
@@ -312,6 +319,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     static let appearanceKey = "browserAppearance"
     private static let pinnedKey = "browserPinnedTabs"
     private static let sessionTabsKey = "browserSessionTabs"
+    private static let closedTabLimit = 20
     private static let ephemeralStore = WKWebsiteDataStore.nonPersistent()
     private static let faviconSession = URLSession(configuration: .ephemeral)
 
@@ -325,6 +333,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     var selectedIDs: [String: BrowserTab.ID] = [:]
     var downloads: [BrowserDownload] = []
     var addressFocusRequests = 0
+    @ObservationIgnored private var closedTabs: [String: [ClosedTab]] = [:]
     let access = BrowserAccess()
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var appearanceObserver: (any NSObjectProtocol)?
@@ -443,8 +452,13 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     }
 
     func close(_ tab: BrowserTab, in key: String) {
-        let siblings = pinned.contains { $0 === tab } ? pinned : tabs(in: key)
+        let isPinned = pinned.contains { $0 === tab }
+        let siblings = isPinned ? pinned : tabs(in: key)
         let index = siblings.firstIndex { $0 === tab } ?? 0
+        if tab.url != nil {
+            closedTabs[key, default: []].append(ClosedTab(url: tab.url, title: tab.title, index: index, isPinned: isPinned))
+            if closedTabs[key, default: []].count > Self.closedTabLimit { closedTabs[key]?.removeFirst() }
+        }
         tab.unload()
         pinned.removeAll { $0 === tab }
         sessionTabs[key]?.removeAll { $0 === tab }
@@ -453,6 +467,15 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
             selectedIDs[key] = remaining.isEmpty ? nil : remaining[min(index, remaining.count - 1)].id
         }
         save()
+    }
+
+    func reopenClosedTab(in key: String) {
+        guard let closed = closedTabs[key]?.popLast() else { return }
+
+        let tab = BrowserTab(url: closed.url, title: closed.title, browser: self)
+        if closed.isPinned { pin(tab, at: closed.index) } else { unpin(tab, into: key, at: closed.index) }
+        tab.needsPageFocus = true
+        select(tab, in: key)
     }
 
     func pin(_ tab: BrowserTab, at index: Int? = nil) {
@@ -511,6 +534,7 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
             open(nil, in: key)
             return
         }
+        if action == .reopenBrowserTab { return reopenClosedTab(in: key) }
         guard let tab = shownTab else { return }
 
         if action == .closeBrowserTab { return close(tab, in: key) }
