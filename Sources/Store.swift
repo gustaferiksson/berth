@@ -138,7 +138,10 @@ final class Store {
     #endif
 
     var conversationTabIDs: Set<Tab.ID> = [] {
-        didSet { syncConversations() }
+        didSet {
+            saveOpenTabs()
+            syncConversations()
+        }
     }
 
     var conversationSuspended: Set<Tab.ID> = [] {
@@ -2034,13 +2037,20 @@ final class Store {
         )
         let launch = hostLaunch(harness.command(start, options), id: id)
         tabs.append(Tab(id: id, kind: .claude, cwd: cwd, sessionID: session, agent: agent, terminal: terminal(id: id, cwd: cwd, command: launch.command, environment: environment) { [weak self] in self?.close(id) }, isHosted: launch.isHosted))
-        if isConversationEnabled, harness.supports(.conversation), UserDefaults.standard.string(forKey: GeneralSettings.conversationViewKey) == "conversation" { conversationTabIDs.insert(id) }
+        applyConversationView(to: id, agent: agent, saved: nil)
         if selectsTab {
             selectedTabID = id
             recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
         }
         if let prompt, let session { Task { await paste(prompt, intoStartingSession: session, tab: id) } }
         return id
+    }
+
+    private func applyConversationView(to id: Tab.ID, agent: Agent, saved: Bool?) {
+        guard isConversationEnabled, agent.harness.supports(.conversation) else { return }
+
+        let isShown = saved ?? (UserDefaults.standard.string(forKey: GeneralSettings.conversationViewKey) == "conversation")
+        if isShown { conversationTabIDs.insert(id) } else { conversationTabIDs.remove(id) }
     }
 
     @discardableResult
@@ -2316,23 +2326,27 @@ final class Store {
         let agent: Agent?
         let parentID: Tab.ID?
         let isTaskTerminal: Bool?
+        let showsConversation: Bool?
     }
 
     func saveOpenTabs() {
         guard persistsTabs else { return }
 
-        let saved = tabs.map { SavedTab(id: $0.id, kind: $0.kind, cwd: $0.folder, sessionID: $0.sessionID, isSelected: $0.id == selectedTabID, agent: $0.agent, parentID: $0.parentTabID, isTaskTerminal: $0.taskTitle == nil ? nil : true) }
+        let saved = tabs.map { SavedTab(id: $0.id, kind: $0.kind, cwd: $0.folder, sessionID: $0.sessionID, isSelected: $0.id == selectedTabID, agent: $0.agent, parentID: $0.parentTabID, isTaskTerminal: $0.taskTitle == nil ? nil : true, showsConversation: isConversationEnabled && $0.kind == .claude ? conversationTabIDs.contains($0.id) : nil) }
         UserDefaults.standard.set(try? JSONEncoder().encode(saved), forKey: "openTabs")
     }
 
-    func reattach(id: UUID, kind: Tab.Kind, cwd: String, sessionID: String?, agent: Agent = .claude, parent: Tab.ID? = nil, taskTitle: String? = nil) {
+    func reattach(id: UUID, kind: Tab.Kind, cwd: String, sessionID: String?, agent: Agent = .claude, parent: Tab.ID? = nil, taskTitle: String? = nil, showsConversation: Bool? = nil) {
         guard let command = attachCommand(of: id) else { return }
 
         let environment = sessionID.map { [ClaudeLaunch.sessionVariable: $0] } ?? [:]
         tabs.append(Tab(id: id, kind: kind, cwd: cwd, sessionID: sessionID, agent: agent, parentTabID: parent, terminal: terminal(id: id, cwd: cwd, command: command, environment: environment) { [weak self] in self?.close(id) }, isHosted: true, taskTitle: taskTitle))
         selectedTabID = id
         recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
-        if kind == .claude { restoredTabIDs.insert(id) }
+        guard kind == .claude else { return }
+
+        restoredTabIDs.insert(id)
+        applyConversationView(to: id, agent: agent, saved: showsConversation)
     }
 
     private func restoreOpenTabs() async {
@@ -2346,7 +2360,7 @@ final class Store {
         for tab in saved {
             let parent = tab.parentID.flatMap { restored[$0] }.flatMap { id in tabs.contains { $0.id == id && $0.kind == .claude } ? id : nil }
             if let id = tab.id, let socket = hostSocket(of: id), SessionHost.probe(socketPath: socket) != nil {
-                reattach(id: id, kind: tab.kind, cwd: tab.cwd, sessionID: tab.sessionID, agent: tab.agent ?? .claude, parent: parent, taskTitle: tab.isTaskTerminal == true ? "Session terminal" : nil)
+                reattach(id: id, kind: tab.kind, cwd: tab.cwd, sessionID: tab.sessionID, agent: tab.agent ?? .claude, parent: parent, taskTitle: tab.isTaskTerminal == true ? "Session terminal" : nil, showsConversation: tab.showsConversation)
                 if tabs.contains(where: { $0.id == id }) { restored[id] = id }
                 if tab.isSelected == true { selected = id }
                 continue
@@ -2367,7 +2381,10 @@ final class Store {
                 guard !isStale else { continue }
 
                 resume(session)
-                if let id = selectedTabID { restoredTabIDs.insert(id) }
+                if let id = selectedTabID {
+                    restoredTabIDs.insert(id)
+                    applyConversationView(to: id, agent: session.agent, saved: tab.showsConversation)
+                }
             }
             if let id = tab.id { restored[id] = selectedTabID }
             if tab.isSelected == true { selected = selectedTabID }
