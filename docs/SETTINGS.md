@@ -38,7 +38,7 @@ Changes apply to a running Berth without a relaunch, except where the table says
 | `reviewTerminalBelow` | `-bool` | `false` | Put the Claude terminal under the diff instead of beside it. |
 | `conversationBodyFont` | `-string` | `system` | Conversation text: `system`, `monospaced` (the terminal font) or `custom`. Settings > Conversation (Style presets Clean, Spacious, Reading and Terminal write these keys together). |
 | `conversationBodyFamily` | `-string` | empty | Font family used when `conversationBodyFont` is `custom`. |
-| `conversationBodySize` | `-float` | `16` | Points; `0` uses the terminal font size. Settings offers 11 to 20. |
+| `conversationBodySize` | `-float` | `14` | Points; `0` uses the terminal font size. Settings offers 11 to 20. |
 | `conversationLineSpacing` | `-string` | `relaxed` | `compact`, `normal`, `comfortable`, `relaxed` or `spacious` (line height multiples 0.9, 1, 1.15, 1.3, 1.45). |
 | `conversationMessageWidth` | `-string` | `narrow` | `narrow` (680 pt), `normal` (860 pt) or `full`. |
 | `reviewTerminalBelowRatio` | `-float` | `0.6` | The diff's share of the height in that layout, written by dragging the divider. |
