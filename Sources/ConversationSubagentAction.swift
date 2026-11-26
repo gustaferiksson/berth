@@ -17,24 +17,23 @@ struct ConversationAgentButton<Content: View>: View {
     let agentID: String?
     let toolUseID: String?
     let title: String
-    var dismissesPopover = false
+    var beforeOpen: (() -> Void)?
     @ViewBuilder let content: () -> Content
 
     @Environment(\.openAgentConversation) private var open
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         if isAgent {
             Button {
-                if dismissesPopover { dismiss() }
+                beforeOpen?()
                 open(agentID, toolUseID)
             } label: {
                 content()
                     .contentShape(.rect)
             }
-            .buttonStyle(PopoverRowButtonStyle(isSelectable: dismissesPopover))
-            .focusEffectDisabled(dismissesPopover)
-            .accessibilityLabel("Open agent conversation: \(title)")
+            .buttonStyle(PopoverRowButtonStyle(isSelectable: beforeOpen != nil))
+            .focusEffectDisabled(beforeOpen != nil)
+            .accessibilityLabel("Open agent conversation for \(title)")
             .help("Open agent conversation")
         } else {
             content()
