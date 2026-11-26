@@ -8,7 +8,6 @@ import WebKit
 enum Snapshot {
     #if DEBUG
     static let showsWatching = UserDefaults.standard.bool(forKey: "snapshotWatching")
-    static let showsPullRequestActions = UserDefaults.standard.bool(forKey: "snapshotPullRequestActions")
     private static let remoteSectionsOutput = UserDefaults.standard.string(forKey: "snapshotRemoteSections").map { URL(filePath: $0) }
     static let output = UserDefaults.standard.string(forKey: "snapshot").map { URL(filePath: $0) } ?? remoteSectionsOutput
     #else
@@ -265,7 +264,7 @@ enum Snapshot {
     }()
 
     private static let inboxFixtures: (sessions: [SessionSummary], repositories: [String: String?], pullRequests: [PullRequestBranch: PullRequest?], inbox: [InboxPullRequest]?)? = {
-        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil || showsPullRequestActions || UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") else { return nil }
+        guard UserDefaults.standard.string(forKey: "snapshotPullRequests") != nil || UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") else { return nil }
 
         let code = NSTemporaryDirectory() + "berth-pull-requests"
         for name in ["billing/.git", "web/.git"] { try? FileManager.default.createDirectory(atPath: "\(code)/\(name)", withIntermediateDirectories: true) }
@@ -915,7 +914,7 @@ enum Snapshot {
         if UserDefaults.standard.string(forKey: "snapshotLauncher") != nil { store.launcherMode = .newSession }
         if UserDefaults.standard.string(forKey: "snapshotSearch") != nil { store.launcherMode = .search }
         if UserDefaults.standard.string(forKey: "snapshotPalette") != nil { store.launcherMode = .palette }
-        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") ?? (showsPullRequestActions ? "" : nil) {
+        if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") {
             let ranked = PullRequestInbox.rank(query, in: store.inbox ?? [], now: .now)
             print("pull requests for \"\(query)\": \(ranked.pullRequests.count) shown, \(ranked.older) older hidden, toolbar count \(store.inbox?.count { $0.role == .reviewRequested } ?? 0)")
             for pullRequest in ranked.pullRequests {
@@ -931,7 +930,6 @@ enum Snapshot {
                 print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: link).map(\.id)) | enter: \(action)")
             }
             if UserDefaults.standard.string(forKey: "snapshotLauncherRole") == "reviewRequested" { store.launcherRole = .reviewRequested }
-            if showsPullRequestActions { print("pull request menu \(StewardPullRequestButton.title)") }
             if launcherKeys == nil { store.launcherMode = .pullRequests }
         }
         if UserDefaults.standard.bool(forKey: "snapshotProjectsLauncher"), launcherKeys == nil { store.launcherMode = .projects }

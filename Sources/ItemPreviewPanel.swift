@@ -460,12 +460,6 @@ extension Store {
             self.launcherMode = nil
             dismiss()
         }
-        guard preview.state == .open || preview.state == .draft else { return actions }
-
-        actions.steward = {
-            if self.openPullRequest(link, url: preview.url, opening: opening, prompt: .steward) { self.launcherMode = nil }
-            dismiss()
-        }
         return actions
     }
 
