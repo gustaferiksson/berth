@@ -7,6 +7,7 @@ struct ConversationView: View {
 
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var isAtBottom = true
@@ -30,6 +31,7 @@ struct ConversationView: View {
         let harness = tab.agent.harness
         let live = tab.sessionID.flatMap { store.liveBySession[$0] }
         let isWorking = live?.activity == .working || model.isTurnOpen && !(live?.reportsWaiting ?? false)
+        let isBusy = isWorking || !model.queued.isEmpty
         let waitingFor: String?? = if case let .needsInput(reason)? = live?.activity { .some(reason) } else { nil }
         let since = tab.sessionID.flatMap { store.turnStarts[$0] } ?? model.turns.last?.prompt?.date
         let resolvedApproval = model.approval(for: live, harness: harness)
@@ -41,7 +43,7 @@ struct ConversationView: View {
         let canDeny = harness.approvalKeys.deny == .escape || approval?.isPermission == true
         let denial = canDeny ? waiting : nil
 
-        keyboard(transcript(isWorking: isWorking, waitingFor: waitingFor, since: since), approval: approval, waiting: waiting)
+        keyboard(transcript(isWorking: isWorking, showsStatus: isBusy, waitingFor: waitingFor, since: since), approval: approval, waiting: waiting)
             .onChange(of: needsTerminal, initial: true) { if needsTerminal { store.suspendConversation(tab.id) } }
             .task(id: live?.statusUpdatedAt) {
                 now = .now
@@ -73,8 +75,8 @@ struct ConversationView: View {
                     harness: harness,
                     canAttach: tab.agent.harness.supports(.modelEffortMenu),
                     since: since,
-                    isWorking: isWorking,
-                    isActive: isWorking || waitingFor != nil,
+                    isWorking: isBusy,
+                    isActive: isBusy || waitingFor != nil,
                     isAtBottom: isAtBottom,
                     approval: approval,
                     waiting: waiting,
@@ -120,30 +122,27 @@ struct ConversationView: View {
             .accessibilityLabel("Conversation")
     }
 
-    private func transcript(isWorking: Bool, waitingFor: String??, since: Date?) -> some View {
+    private func transcript(isWorking: Bool, showsStatus: Bool, waitingFor: String??, since: Date?) -> some View {
         let pending = PendingPrompts.unqueued(model.pending, queued: model.queued)
 
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
-                if model.turns.isEmpty {
-                    ForEach(model.queued.enumerated(), id: \.offset) { _, prompt in
-                        QueuedPrompt(text: prompt)
-                    }
-                }
                 ForEach(model.turns) { turn in
                     let isCurrent = turn.id == model.turns.last?.id
                     ConversationTurnView(
                         turn: turn,
                         isFinished: !(isCurrent && (isWorking || waitingFor != nil)),
-                        isWorking: isCurrent && isWorking,
+                        isWorking: false,
                         agent: tab.agent,
                         waitingFor: isCurrent ? waitingFor : nil,
                         since: since,
                         tasks: model.tasks,
                         details: model.details,
-                        queued: isCurrent ? model.queued : [],
                         reviewChanges: isReviewEnabled ? { store.showChanges(opening: $0) } : nil
                     )
+                }
+                ForEach(model.queued.enumerated(), id: \.offset) { _, prompt in
+                    QueuedPrompt(text: prompt)
                 }
                 ForEach(pending, id: \.sentAt) { prompt in
                     if let command = prompt.shellCommand {
@@ -152,6 +151,19 @@ struct ConversationView: View {
                         ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.text), expansionID: "pending:\(prompt.sentAt)")
                             .opacity(0.6)
                     }
+                }
+                if showsStatus {
+                    ConversationWorking(agent: tab.agent, since: since)
+                        .font(.subheadline)
+                        .foregroundStyle(theme.secondary)
+                        .padding(.leading, 2)
+                        // swiftlint:disable:next negative_padding - no controls, halves the stack spacing above the row
+                        .padding(.top, -14)
+                        .transition(.opacity)
+                        #if DEBUG
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { ConversationProbe.statusRowTop = $0 }
+                        .onDisappear { ConversationProbe.statusRowTop = nil }
+                        #endif
                 }
             }
             .frame(maxWidth: theme.messageWidth, alignment: .leading)
@@ -162,6 +174,7 @@ struct ConversationView: View {
         .contentMargins(.bottom, barHeight + (model.tasks.isEmpty ? 16 : 58), for: .scrollContent)
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: showsStatus)
         .scrollEdgeEffectHidden(true, for: .bottom)
         .environment(\.conversationSelection, selection)
         .environment(\.conversationExpansion, expansion)
@@ -265,7 +278,6 @@ struct ConversationTurnView: View {
     let since: Date?
     let tasks: [RemoteTask]
     let details: [String: ToolCallDetails]
-    var queued: [String] = []
     let reviewChanges: (([String]) -> Void)?
 
     @Environment(\.ghosttyTheme) private var theme
@@ -295,9 +307,6 @@ struct ConversationTurnView: View {
                 Label("Interrupted", systemImage: "stop.circle")
                     .font(.subheadline)
                     .foregroundStyle(theme.secondary)
-            }
-            ForEach(queued.enumerated(), id: \.offset) { _, prompt in
-                QueuedPrompt(text: prompt)
             }
             if isWorking {
                 working

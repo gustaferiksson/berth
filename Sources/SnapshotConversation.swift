@@ -4,6 +4,11 @@ import BerthCore
 import Foundation
 import GhosttyTerminal
 
+@MainActor
+enum ConversationProbe {
+    static var statusRowTop: CGFloat?
+}
+
 extension Snapshot {
     static let conversationFolder = "/private/tmp/berth-conversation-fixture"
     static let conversationSession = "conversation-fixture"
@@ -494,6 +499,35 @@ extension Snapshot {
                 if let data = await model.promptImage(entryID: prompt.id, index: 0) { ConversationImagePreview.shared.showOriginal(data) }
 
             case "log": log()
+
+            case "enqueue", "dequeue", "reply":
+                let operation: [String: Any] = name == "reply"
+                    ? ["type": "assistant", "uuid": UUID().uuidString, "message": ["role": "assistant", "id": "msg-\(UUID().uuidString)", "model": "claude-sonnet-4-5", "content": [["type": "text", "text": argument]]]]
+                    : ["type": "queue-operation", "operation": name, "content": argument]
+                let record = operation.merging(["timestamp": Date.now.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)), "sessionId": conversationSession, "cwd": conversationFolder]) { $1 }
+                var lines = [record]
+                if name == "dequeue" {
+                    lines.append(["type": "user", "uuid": UUID().uuidString, "timestamp": Date.now.addingTimeInterval(0.01).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)), "sessionId": conversationSession, "cwd": conversationFolder, "message": ["role": "user", "content": argument]])
+                }
+                let data = lines.compactMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .withoutEscapingSlashes]) }.reduce(into: Data()) { $0.append($1); $0.append(10) }
+                if let handle = try? FileHandle(forWritingTo: conversationTranscript) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    try? handle.close()
+                }
+
+            case "probe":
+                func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+                let parts = argument.split(separator: ":", maxSplits: 1).map(String.init)
+                let height = NSApp.windows.first?.contentView?.bounds.height ?? 0
+                var top: Int?
+                for _ in 0..<4 where top == nil && parts.count > 1 {
+                    let views = NSApp.windows.lazy.compactMap(\.contentView).flatMap(descendants)
+                    top = views.compactMap { $0 as? NSTextView }.first { $0.string.contains(parts[1]) }.map { Int(height - $0.convert($0.bounds, to: nil).maxY) }
+                    if top == nil { try? await Task.sleep(for: .milliseconds(250)) }
+                }
+                print("probe \(parts[0]) statusRowTop \(ConversationProbe.statusRowTop.map { String(Int($0)) } ?? "none")")
+                print("probe \(parts[0]) bubbleTop \(top.map(String.init) ?? "none")")
 
             case "keys":
                 let parts = argument.split(separator: ":").map(String.init)
