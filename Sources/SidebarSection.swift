@@ -83,7 +83,7 @@ struct SidebarSectionHeader<Accessory: View, ReplacementTitle: View>: View {
 
             if let files {
                 ReviewFileStats(files: files)
-                    .font(.caption)
+                    .font(.subheadline)
             }
 
             ZStack(alignment: .trailing) {
@@ -108,7 +108,7 @@ struct SidebarSectionHeader<Accessory: View, ReplacementTitle: View>: View {
         .font(.subheadline.weight(.medium))
         .foregroundStyle(tint ?? Color.secondary)
         .frame(minHeight: 20)
-        .padding(.trailing, files == nil ? SidebarRowLayout.horizontalInset - Self.listTrailingInset : 4.5)
+        .padding(.trailing, files == nil ? SidebarRowLayout.horizontalInset - Self.listTrailingInset : 1.5)
         .contentShape([.interaction, .dragPreview], .rect(cornerRadius: 6))
         .onHover { isHovering = $0 }
     }

@@ -397,7 +397,7 @@ struct ReviewSubheading: View {
                 .lineLimit(1)
             Spacer(minLength: 4)
             ReviewFileStats(files: files)
-                .font(.caption)
+                .font(.subheadline)
             Text(count, format: .number)
                 .font(.caption.monospacedDigit())
                 .fixedSize()
