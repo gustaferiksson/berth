@@ -240,7 +240,7 @@ final class ItemPreviewPanel {
 
     private func handle(_ event: NSEvent) -> NSEvent? {
         guard event.type == .keyDown else {
-            if event.window !== panel { hide() }
+            if event.window !== panel, !panel.frame.contains(NSEvent.mouseLocation) { hide() }
             return event
         }
 
@@ -298,17 +298,14 @@ private struct ItemPreviewHost: View {
     @State private var contentHeight: CGFloat = 120
 
     var body: some View {
-        ScrollView {
-            Group {
-                if let card { card } else { ItemPreviewPlaceholder() }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                contentHeight = height
-                onResize(min(height, maxHeight))
-            }
+        Group {
+            if let card { card } else { ItemPreviewPlaceholder() }
         }
-        .scrollBounceBehavior(.basedOnSize)
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            contentHeight = height
+            onResize(min(height, maxHeight))
+        }
         .frame(width: ItemPreviewView.width, height: min(contentHeight, maxHeight))
         .clipShape(.rect(cornerRadius: 14))
         .glassEffect(.regular, in: .rect(cornerRadius: 14))
