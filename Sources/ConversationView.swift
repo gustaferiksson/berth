@@ -548,17 +548,19 @@ private struct ConversationTaskList: View {
                         ConversationElapsed(since: task.started)
                             .font(.caption)
                             .foregroundStyle(theme.secondary)
-                        if task.kind == RemoteTask.shell,
-                           let backgroundTask = store.backgroundTasks.first(where: { $0.id == task.id || $0.toolUseID == task.id }),
-                           store.canStop(backgroundTask) {
+                        if task.kind == RemoteTask.shell {
+                            let backgroundTask = store.backgroundTasks.first { $0.id == task.id || $0.toolUseID == task.id }
+                            let canStop = backgroundTask.map(store.canStop) ?? false
                             Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) }
                                 .labelStyle(.iconOnly)
                                 .buttonStyle(.borderless)
-                                .help("Stop Shell")
+                                .disabled(!canStop)
+                                .help(canStop ? "Stop Shell" : "Berth can't identify this shell's process, so it can't be stopped here")
                         }
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
+                    .modifier(PopoverRowHover())
                     .accessibilityElement(children: task.kind == RemoteTask.shell ? .contain : .combine)
                 }
             }
@@ -575,6 +577,8 @@ private struct ConversationTaskList: View {
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .modifier(PopoverRowHover())
+            .focusEffectDisabled()
         }
         .padding(8)
         .frame(width: 320, alignment: .leading)

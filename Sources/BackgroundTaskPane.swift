@@ -18,12 +18,12 @@ struct BackgroundTaskSidebar: View {
         List(selection: selection) {
             if !groups.running.isEmpty {
                 SidebarSection(title: "Running", help: "Show or hide running tasks", count: groups.running.count, isExpanded: $showsRunning) {
-                    rows(groups.running)
+                    rows(groups.running, selected: selection.wrappedValue)
                 }
             }
             if !groups.finished.isEmpty {
                 SidebarSection(title: "Finished", help: "Show or hide finished tasks", count: groups.finished.count, isExpanded: $showsFinished) {
-                    rows(groups.finished)
+                    rows(groups.finished, selected: selection.wrappedValue)
                 }
             }
         }
@@ -31,32 +31,56 @@ struct BackgroundTaskSidebar: View {
         .accessibilityLabel("Background Tasks")
     }
 
-    private func rows(_ tasks: [SessionBackgroundTask]) -> some View {
+    private func rows(_ tasks: [SessionBackgroundTask], selected: String?) -> some View {
         ForEach(tasks) { task in
-            HStack(spacing: 9) {
-                Image(systemName: task.symbol)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 25, height: 25)
-                    .background(.primary.opacity(0.07), in: .rect(cornerRadius: 6))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: task.title)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(theme.foreground)
-                        .lineLimit(2)
-                    TaskStatusLine(task: task)
-                }
-                Spacer(minLength: 4)
-                if task.status == .running { TaskWorkingIndicator() }
+            BackgroundTaskRow(store: store, task: task, isSelected: task.id == selected)
+                .listRowSeparator(.hidden)
+                .tag(task.id)
+        }
+    }
+}
+
+private struct BackgroundTaskRow: View {
+    let store: Store
+    let task: SessionBackgroundTask
+    let isSelected: Bool
+
+    @Environment(\.ghosttyTheme) private var theme
+    @State private var isHovering = false
+
+    var body: some View {
+        let isShell = task.kind == .shell && task.status == .running
+        let canStop = store.canStop(task)
+        HStack(spacing: 9) {
+            Image(systemName: task.symbol)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 25, height: 25)
+                .background(.primary.opacity(0.07), in: .rect(cornerRadius: 6))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: task.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(theme.foreground)
+                    .lineLimit(2)
+                TaskStatusLine(task: task)
             }
-            .padding(.vertical, 5)
-            .accessibilityElement(children: .combine)
-            .listRowSeparator(.hidden)
-            .tag(task.id)
-            .contextMenu {
-                if store.canStop(task) { Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) } }
+            Spacer(minLength: 4)
+            if isShell, isHovering || isSelected {
+                Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .disabled(!canStop)
+                    .help(canStop ? "Stop Shell" : "Berth can't identify this shell's process, so it can't be stopped here")
+            } else if task.status == .running {
+                TaskWorkingIndicator()
             }
+        }
+        .padding(.vertical, 5)
+        .onHover { isHovering = $0 }
+        .accessibilityElement(children: isShell ? .contain : .combine)
+        .contextMenu {
+            if canStop { Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) } }
         }
     }
 }

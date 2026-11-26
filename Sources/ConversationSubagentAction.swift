@@ -42,6 +42,16 @@ struct ConversationAgentButton<Content: View>: View {
     }
 }
 
+struct PopoverRowHover: ViewModifier {
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(Color.primary.opacity(isHovering ? 0.08 : 0), in: .rect(cornerRadius: 8))
+            .onHover { isHovering = $0 }
+    }
+}
+
 private struct PopoverRowButtonStyle: ButtonStyle {
     let isSelectable: Bool
 
