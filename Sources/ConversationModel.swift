@@ -470,7 +470,7 @@ final class ConversationModel {
                     }
                 }
                 if let tasks, transcriptTasks != tasks { transcriptTasks = tasks }
-                apply(chunk, result, url: url)
+                ConversationPerfCounters.time("apply") { apply(chunk, result, url: url) }
             }
             if needsRead { refresh() }
         }
@@ -520,7 +520,7 @@ final class ConversationModel {
     }
 
     private func rebuildTurns() {
-        turns = Turn.turns(from: entries)
+        turns = ConversationPerfCounters.time("turns") { Turn.turns(from: entries) }
         var currentDetails: [String: ToolCallDetails] = [:]
         var currentCompleted: Set<String> = []
         for turn in turns {
