@@ -2059,7 +2059,13 @@ final class Store {
             selectedTabID = id
             recentTabIDs = [id] + recentTabIDs.filter { $0 != id }
         }
-        if let prompt, let session { Task { await paste(prompt, intoStartingSession: session, tab: id) } }
+        if let prompt, let session {
+            if let tab = tabs.first(where: { $0.id == id }), showsConversation(tab) {
+                draftPrompt(prompt, in: id)
+            } else {
+                Task { await paste(prompt, intoStartingSession: session, tab: id) }
+            }
+        }
         if selectsTab, let url = pendingIncomingURL {
             pendingIncomingURL = nil
             openIncomingURL(url)
@@ -2133,10 +2139,7 @@ final class Store {
         guard let tab = tabs.first(where: { $0.id == id }), liveBySession[sessionID].map({ $0.status != "waiting" }) == true else { return }
 
         if showsConversation(tab) {
-            var draft = conversationDrafts[id] ?? ConversationDraft()
-            draft.text = draft.text.isEmpty ? prompt : draft.text + "\n" + prompt
-            conversationDrafts[id] = draft
-            if selectedTabID == id, launcherMode == nil { conversationFocusRequests += 1 }
+            draftPrompt(prompt, in: id)
             return
         }
 
