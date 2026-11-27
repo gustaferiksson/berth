@@ -27,6 +27,7 @@ struct ContentView: View {
     @State private var keepsSidebarForDiff = false
     @State private var paneSidebarWidth = SessionPanel.idealWidth
     @State private var hostFlips = PaneHostFlips()
+    @State private var settledFlips = 0
     @State private var previousLauncherScope: LauncherMode?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -48,7 +49,7 @@ struct ContentView: View {
                     .glassSidebarTint(fill: sidebarFill)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
                     .toolbar {
-                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: hostFlips.count(isPanel: showsPanelSidebar)) }
+                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: hostFlips.count(isPanel: showsPanelSidebar), isRebuilding: hostFlips.count(isPanel: showsPanelSidebar) != settledFlips) }
                     }
                     .navigationSplitViewColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
             } else {
@@ -142,7 +143,7 @@ struct ContentView: View {
                     if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
                         ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
-                    if !showsPanelSidebar { ChangesToolbar(store: store, host: "detail", flips: hostFlips.count(isPanel: showsPanelSidebar)) }
+                    if !showsPanelSidebar { ChangesToolbar(store: store, host: "detail", flips: hostFlips.count(isPanel: showsPanelSidebar), isRebuilding: hostFlips.count(isPanel: showsPanelSidebar) != settledFlips) }
                     if isTrailing, !showsSessions {
                         if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
                         ToolbarItem(placement: .primaryAction) { sessionsToggle }
@@ -170,7 +171,7 @@ struct ContentView: View {
                     .background(ScrollPocketSeparatorRemover())
                     .inspectorColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
                     .toolbar {
-                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: hostFlips.count(isPanel: showsPanelSidebar)) }
+                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: hostFlips.count(isPanel: showsPanelSidebar), isRebuilding: hostFlips.count(isPanel: showsPanelSidebar) != settledFlips) }
                     }
             }
         }
@@ -202,6 +203,13 @@ struct ContentView: View {
         .task(id: taskSource) {
             if let taskSource, taskSource.agent.harness.usesTranscriptActivity {
                 await store.backgroundTaskModel.observe(taskSource, store: store)
+            }
+        }
+        .onChange(of: showsPanelSidebar) {
+            DispatchQueue.main.async {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { settledFlips = hostFlips.count(isPanel: showsPanelSidebar) }
             }
         }
         .onChange(of: showsColumn) {
@@ -272,7 +280,7 @@ struct ContentView: View {
     }
 }
 
-// Read while the toolbar is declared, so the new host and its fresh item id land in the same render.
+// Read while the toolbar is declared, so the gate closes in the same render that flips the host.
 final class PaneHostFlips {
     private var lastIsPanel: Bool?
     private var flips = 0
