@@ -42,6 +42,15 @@ extension Snapshot {
         let access = store.browser.access
         var session = SessionSummary(id: "fixture-approval", cwd: "/Users/dev/acme-billing.worktrees/export-invoices-csv", title: "Export the invoice list as CSV with the new billing service headers and a download button", lastActivity: .now, branch: "feat/invoice-export")
         session.checkout = "/Users/dev/acme-billing"
+        if UserDefaults.standard.bool(forKey: "snapshotBrowserApprovalPaneOpen") {
+            let tab = UUID()
+            store.openShell(cwd: session.cwd, id: tab)
+            store.tabs = store.tabs.map { $0.id == tab ? Tab(id: tab, kind: .claude, cwd: session.cwd, sessionID: "fixture-open", terminal: $0.terminal) : $0 }
+            store.activate(.tab(tab))
+            store.showBrowserPane()
+            try? await Task.sleep(for: .seconds(1))
+        }
+        let responder = window.firstResponder
         let pending = Task { await access.authorize(key: session.id, title: session.title, session: session, folder: session.cwd, url: "https://staging.acme.example/billing/invoices?status=open") }
         try? await Task.sleep(for: .seconds(2))
         guard window.attachedSheet == nil, let image = image(of: window),
@@ -50,6 +59,9 @@ extension Snapshot {
         else {
             fail("could not capture the nonmodal approval prompt")
         }
+        guard window.firstResponder === responder else { fail("the approval prompt moved the first responder") }
+
+        print("approval prompt probe PASS: first responder unchanged, pane \(store.shownPane?.rawValue ?? "hidden")")
 
         try? png.write(to: output)
         access.resolve(request, with: .denied)

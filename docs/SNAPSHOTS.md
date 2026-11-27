@@ -33,7 +33,7 @@ The fixture loads via `file:` and embeds its favicons as `data:` URLs. By defaul
 
 Add `-snapshotIncomingURL <url>` (with or without `-snapshotBrowser YES`) to feed a URL to `Store.openIncomingURL` and print the session, browser tab counts, pane, launcher and pending URL.
 
-Add `-snapshotBrowserApproval YES` to show the Allow Browser Access prompt for a long-titled worktree session with a requested URL and save the window to the output path (use `-snapshotGhosttyTheme "Atom One Light"` for light).
+Add `-snapshotBrowserApproval YES` to show the Allow Browser Access prompt for a long-titled worktree session with a requested URL and save the window to the output path (use `-snapshotGhosttyTheme "Atom One Light"` for light). Add `-snapshotBrowserApprovalPaneOpen YES` to open the Browser pane first; the prompt stays centred in the window either way, and the run fails if the first responder changes.
 
 Add `-snapshotBrowserHistory back|forward|both` to navigate the selected tab through the local pages and capture the requested history controls. The summary prints whether Back and Forward are available. Use `-snapshotWindowWidth 1600 -reviewTerminalBelow YES` to give the browser enough width to show the controls in the header.
 
