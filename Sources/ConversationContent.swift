@@ -77,9 +77,9 @@ struct ConversationPrompt: View {
         if entry.name == "bash" { shell } else { promptBubble }
     }
 
-    private var promptBubble: some View {
-        let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 2, topTrailingRadius: 10, style: .continuous)
+    private static let bubble = UnevenRoundedRectangle(topLeadingRadius: 10, bottomLeadingRadius: 10, bottomTrailingRadius: 2, topTrailingRadius: 10, style: .continuous)
 
+    private var promptBubble: some View {
         let hasImages = entry.images?.isEmpty == false
         let numbers = entry.imageNumbers ?? Array(1...max(entry.images?.count ?? 0, 1))
         let mentions = PromptMentions.resolve(entry.text, folder: folder)
@@ -104,7 +104,7 @@ struct ConversationPrompt: View {
                 ConversationTextView(text: Self.attributed(mentions, theme: theme, displayScale: displayScale, colorScheme: colorScheme, itemID: itemID, expanded: expansion?.keys ?? []), selectionID: selectionID, sizing: .hug)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
-                    .background(bubble.fill(theme.foreground.opacity(0.07)))
+                    .background(Self.bubble.fill(theme.foreground.opacity(0.07)))
                     .contextMenu { Button("Copy") { copyToPasteboard(PromptTextPart.plain(entry.text)) } }
             }
         }
@@ -309,7 +309,10 @@ struct ConversationPrompt: View {
         }
         .font(Font(theme.conversationCodeNSFont()))
         .foregroundStyle(theme.foreground)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Self.bubble.fill(theme.foreground.opacity(0.07)))
     }
 }
 
