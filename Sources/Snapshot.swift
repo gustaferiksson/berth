@@ -660,7 +660,7 @@ enum Snapshot {
     #if DEBUG
     private static func prepareCapture(store: Store) async -> (graphCommitIndex: Int?, expandedPullRequestNumber: Int?, showsReviewThreads: Bool) {
         NSApp.setActivationPolicy(.accessory)
-        if UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" { NSApp.appearance = NSAppearance(named: .darkAqua) }
+        SnapshotThemes.applyAppearance()
         if let path = UserDefaults.standard.string(forKey: "snapshotCustomGroups"), let data = FileManager.default.contents(atPath: path) {
             store.customGroups = (try? JSONDecoder().decode([CustomGroup].self, from: data)) ?? []
         }

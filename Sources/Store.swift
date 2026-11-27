@@ -961,7 +961,7 @@ final class Store {
         return Array(branches[...found])
     }
 
-    private func reloadTheme() {
+    func reloadTheme() {
         GhosttyConfig.reload()
         let values = GhosttyConfig.appliedValues
         theme = GhosttyTheme(values: values)

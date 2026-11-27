@@ -2140,7 +2140,7 @@ struct ReviewDiffColumn: View {
     private var isUnified: Bool { diffLayout == .inline || diffLayout == .auto && isNarrow }
 
     var body: some View {
-        let style = ReviewStyle(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme).withSyntaxColors(syntaxColors)
+        let style = ReviewStyle.matching(scheme: colorScheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeight, ghostty: store.theme).withSyntaxColors(syntaxColors)
         Group {
             if let model = store.reviewModel, model.isPreviewSelected, !isFiles {
                 VStack(spacing: 0) {

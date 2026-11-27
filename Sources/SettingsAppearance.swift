@@ -1,6 +1,22 @@
 import SwiftUI
 
+enum AppearanceMode: String, CaseIterable {
+    case system, light, dark
+
+    static let key = "appearanceMode"
+    static var stored: Self { Self(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .system }
+
+    var appearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
 struct AppearanceSettings: View {
+    @AppStorage(AppearanceMode.key) private var appearanceMode = AppearanceMode.system
     @AppStorage("sidebarPosition") private var sidebarPosition = SidebarPosition.left
     @AppStorage("sidebarTwoLineRows") private var showsTwoLines = false
     @AppStorage(WindowBackdrop.transparencyKey) private var windowTransparency = 0.0
@@ -9,6 +25,17 @@ struct AppearanceSettings: View {
 
     var body: some View {
         Form {
+            Section {
+                Picker("Appearance", selection: $appearanceMode) {
+                    ForEach(AppearanceMode.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: appearanceMode) { NSApp.appearance = appearanceMode.appearance }
+            } header: {
+                Text("Theme")
+            } footer: {
+                Text("Picks the light or dark half of a Ghostty theme written as light:Name,dark:Name, and follows the system with System. A single theme keeps its own look.")
+            }
             Section {
                 Picker("Position", selection: $sidebarPosition) {
                     Text("Left").tag(SidebarPosition.left)
@@ -42,6 +69,6 @@ struct AppearanceSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 520)
+        .frame(height: 600)
     }
 }
