@@ -35,10 +35,11 @@ final class BackgroundTaskModel {
             let previous = activity
             let live = store.liveBySession[source.sessionID]
             let url = source.transcript
+            let claudePID = live?.pid
             let (updated, tasks) = await Task.detached {
                 var activity = previous
                 activity.read(url)
-                return (activity, activity.backgroundTasks(of: live, in: url))
+                return (activity, activity.backgroundTasks(of: live, in: url, isProcessGone: { output in claudePID.map { ProcessAncestry.isOutputGone(output, under: $0) } ?? false }))
             }.value
             guard !Task.isCancelled else { return }
 
