@@ -35,9 +35,15 @@ struct SlashCommandsTests {
 
         let claude = SlashCommand.load(home: home, folder: cwd, harness: .claude)
         #expect(claude.map(\.name) == [
-            "/add-dir", "/clear", "/compact", "/context", "/cost", "/init", "/model", "/review", "/security-review",
+            "/add-dir", "/advisor", "/agents", "/auto-mode-setup", "/autocompact", "/batch", "/claude-api", "/clear",
+            "/code-review", "/color", "/compact", "/config", "/context", "/cost", "/debug", "/doctor", "/effort",
+            "/fast", "/fewer-permission-prompts", "/focus", "/goal", "/heapdump", "/import", "/init", "/insights",
+            "/list-agents", "/loop", "/mcp", "/model", "/output-style", "/recap", "/reload-plugins", "/reload-skills",
+            "/rename", "/review", "/run", "/security-review", "/simplify", "/skill-doctor", "/team-onboarding",
+            "/update-config", "/usage", "/verify",
             "/check-ledger", "/shared", "/reconcile", "/ledger-kit:balance", "/ledger-kit:export",
         ])
+        #expect(SlashCommand.claudeBuiltIns.contains { $0.name == "/reload-skills" })
         #expect(claude.filter(\.requiresArguments).map(\.name) == ["/add-dir", "/model"])
         #expect(claude.first { $0.name == "/compact" }?.argumentHint == "[instructions]")
         #expect(claude.suffix(5).map(\.source) == ["project", "project", "user", "ledger-kit", "ledger-kit"])
@@ -54,8 +60,13 @@ struct SlashCommandsTests {
     @Test func ranksPrefixMatchesBeforeFuzzyMatches() {
         let commands = SlashCommand.builtIns(for: .claude)
         #expect(SlashCommand.matching("/", in: commands) == commands)
-        #expect(SlashCommand.matching("/co", in: commands).map(\.name) == ["/compact", "/context", "/cost"])
-        #expect(SlashCommand.matching("/re", in: commands).prefix(2).map(\.name) == ["/review", "/security-review"])
+        #expect(SlashCommand.matching("/co", in: commands).map(\.name) == [
+            "/code-review", "/color", "/compact", "/config", "/context", "/cost",
+            "/autocompact", "/update-config", "/doctor", "/skill-doctor",
+        ])
+        #expect(SlashCommand.matching("/re", in: commands).prefix(6).map(\.name) == [
+            "/recap", "/reload-plugins", "/reload-skills", "/rename", "/review", "/code-review",
+        ])
         #expect(SlashCommand.matching("/mdl", in: commands).map(\.name) == ["/model"])
         #expect(SlashCommand.matching("/zz", in: commands).isEmpty)
     }
