@@ -17,6 +17,7 @@ struct BerthApp: App {
 
     init() {
         GhosttyConfig.registerBundledFonts()
+        NSApplication.shared.appearance = AppearanceMode.stored.appearance
         // The AutoFill heuristic controller loops in SwiftUI's key-view search and hangs the main thread; macOS 26 reads the first key, macOS 27 the second.
         UserDefaults.standard.register(defaults: ["NSAutoFillHeuristicControllerEnabled": false, "NSAutoFillHeuristicsEnabled": false])
         UserDefaults.standard.register(defaults: [BrowserModel.developerToolsKey: true])
@@ -174,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = Store.shared
 
     private var keyMonitor: Any?
+    private var appearanceObservation: NSKeyValueObservation?
 
     func applicationWillFinishLaunching(_: Notification) {
         guard Snapshot.output != nil || settingsSnapshot != nil else { return }
@@ -182,6 +184,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_: Notification) {
+        appearanceObservation = NSApplication.shared.observe(\.effectiveAppearance) { [store] _, _ in
+            MainActor.assumeIsolated { store.reloadTheme() }
+        }
         // Rows draw their own grey selection and hover; AppKit's blue context-menu ring has no public switch.
         if let method = class_getInstanceMethod(NSTableView.self, NSSelectorFromString("drawContextMenuHighlightForRow:")) {
             let noHighlight: @convention(block) (NSTableView, Int) -> Void = { _, _ in }

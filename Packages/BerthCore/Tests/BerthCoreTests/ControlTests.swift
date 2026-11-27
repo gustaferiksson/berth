@@ -392,7 +392,10 @@ struct ControlTests {
         let clear = try ControlCommand.parse(["review", "marks", "clear"], environment: environment, currentDirectory: "/work/app")
         #expect(clear.request == ControlRequest(token: "tok", caller: "me", operation: .reviewClearMarks))
         #expect(clear.request.operation.rawValue == "review-marks-clear")
-        #expect(ControlCommand.usage.contains("berth review mark <path>:<start>[-<end>] [--note <text>] ..."))
+        #expect(ControlCommand.usage.contains("berth review mark <path>:<start>[-<end>] [--note <text>] ... [--base <ref>]"))
+
+        let based = try ControlCommand.parse(["review", "mark", "--base", "v1.2", "a.swift:3", "--note", "why"], environment: environment, currentDirectory: "/work/app")
+        #expect(based.request == ControlRequest(token: "tok", caller: "me", operation: .reviewMark, marks: [ControlReviewMark(path: "a.swift", startLine: 3, endLine: 3, note: "why")], base: "v1.2"))
         #expect(ControlCommand.usage.contains("berth review marks clear"))
     }
 
@@ -402,7 +405,8 @@ struct ControlTests {
             [], ["marks"], ["marks", "clear", "a.swift:1"], ["marks", "clear", "--note", "why"], ["mark"],
             ["mark", "--note", "why", "a.swift:1"], ["mark", "a.swift:1", "--note"], ["mark", "a.swift:1", "--note", "--json"],
             ["mark", "a.swift:1", "--note", "why", "--note", "again"], ["mark", "a.swift:1", "--json", "--note", "why"],
-            ["mark", "a.swift:1", "--base", "main"], ["mark", "a.swift"], ["mark", ":1"], ["mark", "a.swift:"],
+            ["mark", "a.swift:1", "--base"], ["mark", "a.swift:1", "--base", "a", "--base", "b"], ["mark", "a.swift:1", "--base", "--json"], ["marks", "clear", "--base", "main"],
+            ["mark", "a.swift"], ["mark", ":1"], ["mark", "a.swift:"],
             ["mark", "a.swift:0"], ["mark", "a.swift:4-2"], ["mark", "a.swift:1-"], ["mark", "a.swift:1--2"],
             ["mark", "a.swift:1-2-3"], ["mark", "a.swift:99999999999999999999999"],
         ] {

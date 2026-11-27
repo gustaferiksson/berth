@@ -578,7 +578,7 @@ private struct ConversationTaskList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(tasks) { task in
-                let stoppable = task.kind == RemoteTask.agent ? store.backgroundTask(matching: task.id).flatMap { background in store.subagentStop(for: background).map { (background, $0) } } : nil
+                let stoppable = task.kind == RemoteTask.agent || task.kind == RemoteTask.monitor ? store.backgroundTask(matching: task.id).flatMap { background in store.subagentStop(for: background).map { (background, $0) } } : nil
                 HStack(spacing: 0) {
                     ConversationAgentButton(isAgent: task.kind == RemoteTask.agent, agentID: task.id, toolUseID: task.id, title: task.title, beforeOpen: close) {
                         HStack(spacing: 10) {

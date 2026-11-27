@@ -145,9 +145,12 @@ struct ReviewStyle: Equatable {
     static func stored(ghostty: GhosttyTheme) -> Self {
         let scheme = ReviewColorScheme(rawValue: UserDefaults.standard.string(forKey: colorSchemeKey) ?? "") ?? .terminal
         let source = SyntaxColorSource(rawValue: UserDefaults.standard.string(forKey: syntaxColorsKey) ?? "") ?? .terminal
-        let style = Self(scheme: scheme, fontFamily: "", fontSize: 0, lineHeightMultiple: 1, ghostty: ghostty)
-        let matched = style.isDark == ghostty.isDark ? style : Self(scheme: .terminal, fontFamily: "", fontSize: 0, lineHeightMultiple: 1, ghostty: ghostty)
-        return matched.withSyntaxColors(source)
+        return matching(scheme: scheme, fontFamily: "", fontSize: 0, lineHeightMultiple: 1, ghostty: ghostty).withSyntaxColors(source)
+    }
+
+    static func matching(scheme: ReviewColorScheme, fontFamily: String, fontSize: Double, lineHeightMultiple: Double, ghostty: GhosttyTheme) -> Self {
+        let style = Self(scheme: scheme, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeightMultiple, ghostty: ghostty)
+        return style.isDark == ghostty.isDark ? style : Self(scheme: .terminal, fontFamily: fontFamily, fontSize: fontSize, lineHeightMultiple: lineHeightMultiple, ghostty: ghostty)
     }
 
     func withSyntaxColors(_ source: SyntaxColorSource) -> Self {

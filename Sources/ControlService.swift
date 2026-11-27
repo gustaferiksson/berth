@@ -72,7 +72,7 @@ final class ControlService {
         }
         guard let caller = UUID(uuidString: request.caller), store.tabs.contains(where: { $0.id == caller }) else { return .failure("Unknown calling tab") }
 
-        if let reviewMarks { return await store.updateReviewMarks(reviewMarks, in: caller) }
+        if let reviewMarks { return await store.updateReviewMarks(reviewMarks, base: request.base, in: caller) }
 
         if request.operation == .list { return list(for: caller) }
 

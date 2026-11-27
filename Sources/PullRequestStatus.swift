@@ -281,6 +281,12 @@ nonisolated enum PullRequestStatus {
         return PullRequestDetail.parse(output)
     }
 
+    static func ownReview(repository: String, number: Int) -> PullRequestOwnReview? {
+        guard let gh, let arguments = PullRequestOwnReview.arguments(repository: repository, number: number), let output = run(gh, arguments: arguments) else { return nil }
+
+        return PullRequestOwnReview.parse(output)
+    }
+
     static func preview(repository: String, number: Int) -> ItemPreview? {
         guard let gh, let arguments = ItemPreviewQuery.arguments(repository: repository, number: number),
               let output = run(gh, arguments: arguments, requireSuccess: true)

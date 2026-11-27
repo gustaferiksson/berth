@@ -232,6 +232,7 @@ extension Snapshot {
         let wall = milliseconds(display - start)
         let modelWall = milliseconds(model - start)
         let main = mainThreadMilliseconds() - mainStart
+        print("perf conversation \(label) phases: \(ConversationPerfCounters.drain())")
         print("perf conversation \(label): wall \(String(format: "%.1f", wall)) ms, model \(String(format: "%.1f", modelWall)) ms, main thread CPU \(String(format: "%.1f", main)) ms")
     }
 

@@ -35,6 +35,25 @@ struct SubagentStopTests {
         #expect(SubagentStop.keys(stopping: tasks[0], among: tasks) == [.command("/tasks"), .enter, .down, .down, .stop, .escape])
     }
 
+    @Test func aMonitorIsStoppedFromItsRowBehindShells() {
+        let tasks = [
+            task("old-watch", .monitor, at: 5),
+            task("new-watch", .monitor, at: 15),
+            task("build", .shell, at: 40),
+            task("agent", .agent, at: 50),
+        ]
+        #expect(SubagentStop.keys(stopping: tasks[1], among: tasks) == [.command("/tasks"), .enter, .down, .stop, .escape])
+        #expect(SubagentStop.keys(stopping: tasks[0], among: tasks) == [.command("/tasks"), .enter, .down, .down, .stop, .escape])
+
+        let lone = task("watch", .monitor, at: 1)
+        #expect(SubagentStop.keys(stopping: lone, among: [lone]) == [.command("/tasks"), .enter, .stop, .escape])
+    }
+
+    @Test func aFinishedMonitorHasNoKeys() {
+        let done = task("watch", .monitor, at: 1, status: .finished)
+        #expect(SubagentStop.keys(stopping: done, among: [done]) == nil)
+    }
+
     @Test func foregroundFinishedAndNonAgentTasksHaveNoKeys() {
         let inline = task("inline", .agent, at: 1, foreground: true)
         let done = task("done", .agent, at: 2, status: .completed)
