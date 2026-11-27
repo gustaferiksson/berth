@@ -56,7 +56,7 @@ final class ConversationSelection {
     private var order: [String: Int] = [:]
     private var anchor: Position?
     private var focus: Position?
-    private var displayScale: CGFloat?
+    private var folder = ""
     private var theme = GhosttyTheme(values: [:])
     private var monitor: Any?
     private var lastDrag: NSEvent?
@@ -81,8 +81,8 @@ final class ConversationSelection {
         return result
     }
 
-    func register(_ view: ConversationNSTextView, displayScale: CGFloat) {
-        self.displayScale = displayScale
+    func register(_ view: ConversationNSTextView, folder: String) {
+        self.folder = folder
         views.add(view)
         theme = view.theme
         view.showSelection(range(for: view))
@@ -202,14 +202,17 @@ final class ConversationSelection {
     @discardableResult
     private func refresh() -> [Item] {
         let theme = theme
-        let displayScale = displayScale
+        let folder = folder
         let expanded = expansion.keys
         let items = turns().flatMap { turn -> [Item] in
             let prompt = turn.prompt.flatMap { entry -> Item? in
                 guard entry.name != "bash", !entry.text.isEmpty else { return nil }
 
                 let id = "prompt:\(turn.id)"
-                return Item(id: id) { ConversationPrompt.attributed(entry.text, theme: theme, displayScale: displayScale, itemID: id, expanded: expanded) }
+                return Item(id: id) {
+                    let mentions = PromptMentions.resolve(entry.text, folder: folder)
+                    return ConversationPrompt.attributed(mentions, theme: theme, itemID: id, expanded: expanded)
+                }
             }
             let replies = turn.parts.compactMap { part -> Item? in
                 guard case let .reply(entry) = part else { return nil }

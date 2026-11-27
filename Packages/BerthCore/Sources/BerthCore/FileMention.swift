@@ -12,19 +12,24 @@ public struct FileMention: Sendable, Hashable, Identifiable {
 }
 
 public enum FileMentions {
+    public struct Occurrence: Sendable, Equatable {
+        public let token: Substring
+        public let mention: FileMention
+    }
+
     private static let trailingPunctuation = Set(".,;:!?)]}'\"")
     private static let pathPrefixes = ["/", "~/", "./", "../"]
     private static let maxWords = 32
 
-    public static func extract(from text: String, folder: String, exists: (String) -> Bool) -> (text: String, mentions: [FileMention]) {
-        var output = ""
-        var mentions: [FileMention] = []
-        var cursor = text.startIndex
+    public static func extract<Source: StringProtocol>(from source: Source, folder: String, exists: (String) -> Bool) -> (text: String, occurrences: [Occurrence]) where Source.SubSequence == Substring {
+        let text = source[...]
+        let base = text.base
+        var occurrences: [Occurrence] = []
         var index = text.startIndex
 
         while index < text.endIndex {
             defer { index = text.index(after: index) }
-            guard text[index] == "@", index == text.startIndex || text[text.index(before: index)].isWhitespace else { continue }
+            guard text[index] == "@", index == base.startIndex || base[base.index(before: index)].isWhitespace else { continue }
 
             let start = text.index(after: index)
             guard start < text.endIndex, !text[start].isWhitespace else { continue }
@@ -32,15 +37,10 @@ public enum FileMentions {
             let line = text[start...].prefix { !$0.isNewline }
             guard let (mention, end) = resolve(line, folder: folder, exists: exists) else { continue }
 
-            output += text[cursor..<index]
-            let isEdge = output.allSatisfy(\.isWhitespace) || text[end...].allSatisfy(\.isWhitespace)
-            if !isEdge { output += "@" + mention.name }
-            if !mentions.contains(mention) { mentions.append(mention) }
-            cursor = end
+            occurrences.append(Occurrence(token: text[index..<end], mention: mention))
             index = text.index(before: end)
         }
-        output += text[cursor...]
-        return (output.trimmingCharacters(in: .whitespacesAndNewlines), mentions)
+        return (String(text), occurrences)
     }
 
     private static func resolve(_ line: Substring, folder: String, exists: (String) -> Bool) -> (FileMention, String.Index)? {
@@ -53,9 +53,10 @@ public enum FileMentions {
             }
         }
 
-        guard pathPrefixes.contains(where: line.hasPrefix) else { return nil }
+        guard pathPrefixes.contains(where: line.hasPrefix),
+              let token = line.prefixMatch(of: /(?:\\ |[^\s])+/) else { return nil }
 
-        let word = line.prefix { !$0.isWhitespace }.trimmingTrailing(trailingPunctuation)
+        let word = token.output.trimmingTrailing(trailingPunctuation)
         guard word.count > 1 else { return nil }
 
         return (FileMention(path: absolutePath(String(word), folder: folder), exists: false), word.endIndex)

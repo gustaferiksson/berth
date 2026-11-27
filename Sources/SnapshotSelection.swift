@@ -4,7 +4,7 @@ import BerthCore
 
 extension Snapshot {
     static func testConversationSelection(store: Store, tab: Tab, window: NSWindow, save: (String) -> Void) async {
-        DispatchQueue.global().asyncAfter(deadline: .now() + 60) {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 120) {
             print("select: FAIL timed out")
             exit(1)
         }
@@ -14,9 +14,11 @@ extension Snapshot {
         method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
         window.becomeKey()
 
+        let mentions = UserDefaults.standard.string(forKey: "snapshotConversationMentions")
         let results = await heavyConversationTurns > 0
             ? [selectAllLoadedTurns(store: store, tab: tab, window: window), autoscrollUp(store: store, tab: tab, window: window)]
             : [dragAcrossItems(window: window, save: save), dragInCodeBlock(window: window, save: save), dragProseIntoCodeBlock(window: window), dragAcrossTurns(window: window), shiftClick(window: window), selectAllFixture(window: window), clickLink(window: window), reopen(store: store, window: window)]
+            + (mentions == nil ? [] : [dragAcrossMentions(folder: mentions ?? "", window: window)])
         let passed = results.allSatisfy(\.self)
         print(passed ? "select: ALL PASS" : "select: FAILED")
         ProcessAncestry.hangUpDescendants()
@@ -33,6 +35,17 @@ extension Snapshot {
         await click(from: from, to: to, in: window)
         save(".selection.png")
         return check("drag", copied(), inOrder: ["export code and the CI log", "The date formatter has no fixed time zone", "formatter.timeZone = TimeZone", "UTC"], excluding: ["I'll start with the", "Why does the usage export"])
+    }
+
+    private static func dragAcrossMentions(folder: String, window: NSWindow) async -> Bool {
+        await scrollSelectionFixture(window: window, toTop: false)
+        guard let view = await reply(containing: "break down this video", in: window, revealing: true),
+              let from = point(in: view, after: "has the rest."),
+              let to = point(in: view, offset: 0, edge: \.minX)
+        else { return fail("mentions", "fixture prompt is not on screen") }
+
+        await click(from: from, to: to, in: window)
+        return check("mentions", copied(), inOrder: ["@\(folder)/Screen Recording demo.mov break down", "@\(folder)/diagram.png", "@\(folder)/notes.txt", "@\(folder)/gone.pdf", "@\(folder)/Acme\\ STC, this is the email", "@\(folder)/Acme\\ STC/pricelists has the rest."])
     }
 
     private static func dragInCodeBlock(window: NSWindow, save: (String) -> Void) async -> Bool {

@@ -10,7 +10,7 @@ struct ConversationTextView: NSViewRepresentable {
     var selectionID: String?
     var sizing = Sizing.fill
 
-    @Environment(\.displayScale) private var displayScale
+    @Environment(\.conversationFolder) private var folder
     @Environment(\.conversationExpansion) private var expansion
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.openURL) private var openURL
@@ -32,7 +32,7 @@ struct ConversationTextView: NSViewRepresentable {
         view.selectionID = selectionID
         view.selection = selectionID == nil ? nil : selection
         view.show(text)
-        view.selection?.register(view, displayScale: displayScale)
+        view.selection?.register(view, folder: folder)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView view: ConversationNSTextView, context _: Context) -> CGSize? {
@@ -47,7 +47,6 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
         didSet {
             guard theme != oldValue else { return }
 
-            linkTextAttributes = [.cursor: NSCursor.pointingHand]
             needsDisplay = true
         }
     }
@@ -69,6 +68,7 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
         isSelectable = true
         drawsBackground = false
         isRichText = false
+        linkTextAttributes = [.cursor: NSCursor.pointingHand]
         textContainerInset = .zero
         textContainer?.lineFragmentPadding = 0
         isVerticallyResizable = false
@@ -196,14 +196,30 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     func textView(_: NSTextView, clickedOnLink link: Any, at index: Int) -> Bool {
         guard let url = link as? URL ?? (link as? String).flatMap(URL.init(string:)) else { return false }
 
-        if url.scheme == "berth-expand" {
+        switch url.scheme {
+        case "berth-expand":
             if textStorage?.attribute(.conversationCopyText, at: index, effectiveRange: nil) != nil,
                let key = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "key" })?.value {
                 toggleExpansion(key)
             }
-            return true
+
+        case PromptMentions.linkScheme:
+            let path = url.path(percentEncoded: false)
+            var isDirectory = ObjCBool(false)
+            guard textStorage?.attribute(.attachment, at: index, effectiveRange: nil) != nil,
+                  path.hasPrefix("/"),
+                  FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return true }
+
+            let file = URL(filePath: path)
+            if isDirectory.boolValue {
+                NSWorkspace.shared.activateFileViewerSelecting([file])
+            } else {
+                ConversationImagePreview.shared.showFile(file)
+            }
+
+        default:
+            openURL(url)
         }
-        openURL(url)
         return true
     }
 

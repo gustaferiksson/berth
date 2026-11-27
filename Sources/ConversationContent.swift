@@ -68,6 +68,7 @@ struct ConversationPrompt: View {
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.conversationFolder) private var folder
     @Environment(\.conversationExpansion) private var expansion
     @State private var isExpanded = conversationExpandsAll
@@ -81,14 +82,14 @@ struct ConversationPrompt: View {
 
         let hasImages = entry.images?.isEmpty == false
         let numbers = entry.imageNumbers ?? Array(1...max(entry.images?.count ?? 0, 1))
-        let mentioned = PromptMentions.resolve(entry.text, folder: folder)
-        let text = mentioned.text
-        let showsText = !(hasImages ? PromptTextPart.removingImageTags(numbers, from: text) : text).isEmpty
+        let mentions = PromptMentions.resolve(entry.text, folder: folder)
+        let prose = hasImages ? PromptTextPart.removingImageTags(numbers, from: mentions.text) : mentions.text
+        let showsText = prose.contains { !$0.isWhitespace }
 
         return VStack(alignment: .trailing, spacing: 6) {
-            if !mentioned.mentions.isEmpty {
+            if !mentions.thumbnails.isEmpty {
                 VStack(alignment: .trailing, spacing: 6) {
-                    ForEach(mentioned.mentions) { ConversationMentionCard(mention: $0) }
+                    ForEach(mentions.thumbnails) { ConversationMentionCard(thumbnail: $0) }
                 }
             }
             if let images = entry.images {
@@ -100,7 +101,7 @@ struct ConversationPrompt: View {
             }
             if showsText {
                 let itemID = selectionID ?? expansionID
-                ConversationTextView(text: Self.attributed(text, theme: theme, displayScale: displayScale, itemID: itemID, expanded: expansion?.keys ?? []), selectionID: selectionID, sizing: .hug)
+                ConversationTextView(text: Self.attributed(mentions, theme: theme, displayScale: displayScale, colorScheme: colorScheme, itemID: itemID, expanded: expansion?.keys ?? []), selectionID: selectionID, sizing: .hug)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .background(bubble.fill(theme.foreground.opacity(0.07)))
@@ -122,13 +123,15 @@ struct ConversationPrompt: View {
         let isCode: Bool
     }
 
-    static func attributed(_ text: String, theme: GhosttyTheme, displayScale: CGFloat? = nil, itemID: String? = nil, expanded: Set<String> = []) -> NSAttributedString {
+    static func attributed(_ mentions: PromptMentions.Result, theme: GhosttyTheme, displayScale: CGFloat? = nil, colorScheme: ColorScheme = .light, itemID: String? = nil, expanded: Set<String> = []) -> NSAttributedString {
+        let text = mentions.text
         let font = theme.conversationNSFont()
         let style = NSMutableParagraphStyle()
         style.lineSpacing = (font.ascender - font.descender + font.leading) * (theme.lineHeightMultiple - 1)
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor(theme.foreground), .paragraphStyle: style]
+        var occurrences = mentions.occurrences[...]
         let prose = { (raw: Substring) -> Segment in
-            let rendered = attributedProse(String(raw), attributes: attributes, font: font, theme: theme, displayScale: displayScale)
+            let rendered = attributedProse(raw, occurrences: &occurrences, attributes: attributes, font: font, theme: theme, displayScale: displayScale, colorScheme: colorScheme)
             let lines = rendered.string.count(where: \.isNewline) + (rendered.string.last?.isNewline == false ? 1 : 0)
             return Segment(raw: raw, rendered: rendered, lineCount: lines, isCode: false)
         }
@@ -198,13 +201,42 @@ struct ConversationPrompt: View {
         return result
     }
 
-    private static func attributedProse(_ text: String, attributes: [NSAttributedString.Key: Any], font: NSFont, theme: GhosttyTheme, displayScale: CGFloat?) -> NSAttributedString {
+    private static func attributedProse(_ text: Substring, occurrences: inout ArraySlice<FileMentions.Occurrence>, attributes: [NSAttributedString.Key: Any], font: NSFont, theme: GhosttyTheme, displayScale: CGFloat?, colorScheme: ColorScheme) -> NSAttributedString {
         let scale = font.pointSize / NSFont.systemFontSize
         let result = NSMutableAttributedString()
         for part in PromptTextPart.split(text) {
             switch part {
             case let .text(value):
-                result.append(NSAttributedString(string: String(value), attributes: attributes))
+                var start = value.startIndex
+                while let occurrence = occurrences.first, occurrence.token.startIndex < value.endIndex {
+                    let token = occurrence.token
+                    let mention = occurrence.mention
+                    result.append(NSAttributedString(string: String(value[start..<token.startIndex]), attributes: attributes))
+
+                    let attachment = NSTextAttachment()
+                    attachment.attachmentCell = nil
+                    if let displayScale {
+                        let tag = ConversationMentionTag(mention: mention, scale: scale, foreground: theme.foreground)
+                        attachment.image = tag.image(displayScale: displayScale, colorScheme: colorScheme)
+                        attachment.bounds = NSRect(origin: NSPoint(x: 0, y: tag.baselineOffset), size: attachment.image?.size ?? .zero)
+                    }
+                    var tagAttributes = attributes
+                    tagAttributes[.conversationCopyText] = String(token)
+                    tagAttributes[.toolTip] = mention.path + (mention.exists ? "" : " (missing)")
+                    if mention.exists {
+                        var url = URLComponents()
+                        url.scheme = PromptMentions.linkScheme
+                        url.host = "file"
+                        url.path = mention.path
+                        tagAttributes[.link] = url.url
+                    }
+                    let tagText = NSMutableAttributedString(attachment: attachment)
+                    tagText.addAttributes(tagAttributes, range: NSRange(location: 0, length: tagText.length))
+                    result.append(tagText)
+                    start = token.endIndex
+                    occurrences = occurrences.dropFirst()
+                }
+                result.append(NSAttributedString(string: String(value[start...]), attributes: attributes))
 
             case let .image(token, number):
                 let attachment = NSTextAttachment()
