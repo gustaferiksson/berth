@@ -6,10 +6,13 @@ struct AgentBrowserPrompt: View {
 
     var body: some View {
         if let request = access.requests.first {
-            AgentBrowserApproval(request: request) { access.resolve(request, with: $0) }
-                .background(.background, in: .rect(cornerRadius: CardBorder.radius))
-                .overlay { CardBorder() }
-                .shadow(radius: 12, y: 4)
+            ZStack {
+                Color.black.opacity(0.12)
+                    .allowsHitTesting(false)
+                AgentBrowserApproval(request: request) { access.resolve(request, with: $0) }
+                    .glassEffect(.regular, in: .rect(cornerRadius: 26))
+            }
+            .transition(.opacity)
         }
     }
 }
