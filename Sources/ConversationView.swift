@@ -144,7 +144,7 @@ struct ConversationView: View {
                 }
                 ForEach(model.queued.enumerated(), id: \.offset) { _, prompt in
                     if let command = PendingPrompts.queuedShellCommand(prompt, pending: model.pending) {
-                        ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: command, name: "bash", command: command, date: model.pending.first { $0.shellCommand == command }?.sentAt), isShellRunning: true)
+                        ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: command, name: "bash", command: command, date: PendingPrompts.shellStart(of: command, recorded: nil, pending: model.pending, queued: model.queued)), isShellRunning: true)
                     } else {
                         QueuedPrompt(text: prompt)
                     }

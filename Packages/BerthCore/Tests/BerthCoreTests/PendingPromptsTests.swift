@@ -190,6 +190,16 @@ struct PendingPromptsTests {
         #expect(PendingPrompts.shown(kept, queued: afterPop.queue).isEmpty)
     }
 
+    @Test func startsTheShellCounterWhenTheCommandActuallyRuns() {
+        let pending = [PendingPrompt(text: "!sleep 9", sentAt: sent)]
+        let recorded = sent.addingTimeInterval(40)
+
+        #expect(PendingPrompts.shellStart(of: "sleep 9", recorded: recorded, pending: pending, queued: ["!sleep 9"]) == recorded)
+        #expect(PendingPrompts.shellStart(of: "sleep 9", recorded: nil, pending: pending, queued: []) == sent)
+        #expect(PendingPrompts.shellStart(of: "sleep 9", recorded: nil, pending: pending, queued: ["!sleep 9"]) == nil)
+        #expect(PendingPrompts.shellStart(of: "ls", recorded: nil, pending: pending, queued: []) == nil)
+    }
+
     @Test func showsASentShellCommandAsOneRunningRowThenOneCompletedRow() throws {
         let pending = [PendingPrompt(text: "!git status", sentAt: sent)]
         let input = #"{"type":"user","uuid":"shell","timestamp":"1970-01-01T00:16:41.000Z","message":{"role":"user","content":"<bash-input>git status</bash-input>"}}"#
