@@ -1,6 +1,9 @@
 import AppKit
 import BerthCore
+import os
 import SwiftUI
+
+let composerLog = Logger(subsystem: "dev.gustaf.berth", category: "composer")
 
 struct ConversationComposerField: NSViewRepresentable {
     @Binding var text: String
@@ -93,8 +96,12 @@ struct ConversationComposerField: NSViewRepresentable {
         slashPicker?.field = textView
         textView.shellCompleter = shellCompleter
         shellCompleter?.field = textView
-        let draftChanged = !hasMarkedText && (textView.rendersImageTags != rendersImageTags || textView.draftText != text)
+        let imageTagsChanged = textView.rendersImageTags != rendersImageTags
+        let textChanged = !hasMarkedText && textView.draftText != text
+        let draftChanged = !hasMarkedText && (imageTagsChanged || textChanged)
         if draftChanged {
+            let oldSelection = textView.selectedRange()
+            let oldLength = textView.string.utf16.count
             context.coordinator.isUpdatingText = true
             defer { context.coordinator.isUpdatingText = false }
             textView.rendersImageTags = rendersImageTags
@@ -102,6 +109,7 @@ struct ConversationComposerField: NSViewRepresentable {
             textView.textStorage?.setAttributedString(attributed)
             if text.isEmpty { scrollView.contentView.scroll(to: .zero) }
             textView.setSelectedRange(NSRange(location: attributed.length, length: 0))
+            composerLog.info("reset caret \(oldSelection.location, privacy: .public) to \(textView.selectedRange().location, privacy: .public), text length \(oldLength, privacy: .public) to \(attributed.length, privacy: .public), rendersImageTags changed \(imageTagsChanged, privacy: .public), text changed \(textChanged, privacy: .public)")
             textView.needsDisplay = true
         }
         if pickerChanged || draftChanged {

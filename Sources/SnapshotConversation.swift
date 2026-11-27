@@ -459,6 +459,11 @@ extension Snapshot {
         return try? JSONDecoder().decode(LiveSession.self, from: Data(#"{"pid":\#(getpid()),"sessionId":"\#(conversationSession)","cwd":"\#(conversationFolder)","status":"\#(status)"\#(waiting),"statusUpdatedAt":\#(updated),"startedAt":\#(started),"version":"2.1.332"}"#.utf8))
     }
 
+    private static var conversationComposer: ComposerTextView? {
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        return NSApp.windows.lazy.compactMap(\.contentView).flatMap(descendants).compactMap { $0 as? ComposerTextView }.first
+    }
+
     private static func driveConversation(_ script: String, store: Store, tab: Tab, rawLog: String?, save: (String) -> Void) async {
         var shown = store.liveBySession[conversationSession].map { (waitingFor: $0.waitingFor, since: $0.statusUpdatedAt) }
         let state = {
@@ -554,10 +559,23 @@ extension Snapshot {
                 print("probe \(parts[0]) statusRowTop \(ConversationProbe.statusRowTop.map { String(Int($0)) } ?? "none")")
                 print("probe \(parts[0]) bubbleTop \(top.map(String.init) ?? "none")")
 
+            case "caret":
+                guard let textView = conversationComposer, let offset = Int(argument) else { break }
+
+                textView.window?.makeFirstResponder(textView)
+                textView.setSelectedRange(NSRange(location: min(max(0, offset), textView.string.utf16.count), length: 0))
+
+            case "caretprobe":
+                guard let textView = conversationComposer else {
+                    print("caretprobe \(argument) composer unavailable")
+                    break
+                }
+
+                print("caretprobe \(argument) caret \(textView.selectedRange().location) draftLength \(textView.draftText.utf16.count) fieldLength \(textView.string.utf16.count)")
+
             case "keys":
                 let parts = argument.split(separator: ":").map(String.init)
-                func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
-                guard let textView = NSApp.windows.lazy.compactMap(\.contentView).flatMap(descendants).compactMap({ $0 as? ComposerTextView }).first, let clip = textView.enclosingScrollView?.contentView else { break }
+                guard let textView = conversationComposer, let clip = textView.enclosingScrollView?.contentView else { break }
 
                 textView.window?.makeFirstResponder(textView)
                 let origins = NSMutableArray()
@@ -646,8 +664,7 @@ extension Snapshot {
         if showsSlashCommands { store.conversationModels[tab.id]?.setText(slashText.replacing("|", with: "")) }
         if showsShellCompletions { store.conversationModels[tab.id]?.setText("!git ch") }
         try? await Task.sleep(for: .seconds(2))
-        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
-        let composer = NSApp.windows.lazy.compactMap(\.contentView).flatMap(descendants).compactMap { $0 as? ComposerTextView }.first
+        let composer = conversationComposer
         if showsSlashCommands, let composer, let caret = slashText.firstIndex(of: "|") {
             composer.window?.makeFirstResponder(composer)
             composer.setSelectedRange(NSRange(location: slashText.distance(from: slashText.startIndex, to: caret), length: 0))
