@@ -74,6 +74,11 @@ extension Snapshot {
 
     private static func scrollPerformance(window: NSWindow, conversation: Bool = false) async {
         flushDisplay(window)
+        let attachDelay = UserDefaults.standard.double(forKey: "snapshotPerfAttachDelay")
+        if attachDelay > 0 {
+            print("perf waiting \(attachDelay) s for a profiler to attach to pid \(ProcessInfo.processInfo.processIdentifier)")
+            try? await Task.sleep(for: .seconds(attachDelay))
+        }
         guard let scroll = tallestScrollView(in: window) else {
             if conversation { conversationPerfFailure("could not find the transcript scroll view") }
             return
@@ -111,6 +116,7 @@ extension Snapshot {
 
         let label = "\(conversation ? "conversation " : "")scroll bottom to top and back"
         reportPerformance(label, times, cpuMilliseconds() - cpuStart)
+        if let slowest = times.max(), let step = times.firstIndex(of: slowest) { print("perf \(label): slowest step \(step) of \(times.count)") }
         if conversation {
             print("perf conversation scroll sweep: wall \(String(format: "%.1f", milliseconds(ContinuousClock.now - wallStart))) ms, main thread CPU \(String(format: "%.1f", mainThreadMilliseconds() - mainStart)) ms (includes work between steps)")
         }
