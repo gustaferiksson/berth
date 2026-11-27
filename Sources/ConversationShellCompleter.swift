@@ -37,7 +37,7 @@ final class ConversationShellCompleter {
 
     init() {
         let override = UserDefaults.standard.string(forKey: "snapshotTineSocket")
-        client = override.map { TineClient(socketPath: $0, launch: {}) } ?? TineClient()
+        client = Snapshot.output == nil ? TineClient() : TineClient(socketPath: override ?? TineClient.defaultSocketPath, launch: {})
     }
 
     func update(draft: String, caret: Int) {
