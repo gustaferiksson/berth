@@ -60,7 +60,19 @@ final class ControlService {
     }
 
     func handle(_ request: ControlRequest) async -> ControlResponse {
+        let reviewMarks: [ControlReviewMark]?
+        switch request.operation {
+        case .reviewMark, .reviewClearMarks:
+            switch ControlReviewMarks.validate(request) {
+            case let .success(marks): reviewMarks = marks
+            case let .failure(error): return .failure(error.message)
+            }
+
+        default: reviewMarks = nil
+        }
         guard let caller = UUID(uuidString: request.caller), store.tabs.contains(where: { $0.id == caller }) else { return .failure("Unknown calling tab") }
+
+        if let reviewMarks { return store.updateReviewMarks(reviewMarks, base: request.base, in: caller) }
 
         if request.operation == .list { return list(for: caller) }
 

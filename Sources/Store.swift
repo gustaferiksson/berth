@@ -1580,6 +1580,10 @@ final class Store {
         return ([reviewModels[sessionID], reviewModels[Self.reviewKey(sessionID, root: Self.sessionFilesRoot)]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
     }
 
+    func updateReviewMarks(_: [ControlReviewMark], base _: String?, in _: Tab.ID) -> ControlResponse {
+        .failure("Review marks are not available yet")
+    }
+
     func showPullRequestInReview(number: Int, repository: String?, repositoryPath: String? = nil, in tabID: Tab.ID) async -> Result<PullRequestLink, ReviewPullRequestFailure> {
         guard UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return .failure(.init(message: "Enable Review in Settings to show a pull request")) }
         guard let caller = tabs.first(where: { $0.id == tabID }),
