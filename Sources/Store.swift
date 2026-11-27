@@ -227,10 +227,12 @@ final class Store {
     }
 
     var deletingGroup: CustomGroup?
+    var launcherActionsShown = false
     var paletteContext: PaletteContext = .terminal
     @ObservationIgnored weak var paletteResponder: NSResponder?
     var launcherMode: LauncherMode? {
         didSet {
+            if launcherMode != oldValue { launcherActionsShown = false }
             if launcherMode != .pullRequests { launcherRole = nil }
             guard oldValue != nil, launcherMode == nil else { return }
 
@@ -339,6 +341,10 @@ final class Store {
     #if DEBUG
     @ObservationIgnored var probeOpened: [(agent: Agent, cwd: String, start: LaunchStart, prompt: String?)] = []
     @ObservationIgnored var probeOpenedURLs: [URL] = []
+    @ObservationIgnored var probeCopiedStrings: [String] = []
+    @ObservationIgnored var probeLauncherQuery = ""
+    @ObservationIgnored var probeLauncherActionQuery = ""
+    @ObservationIgnored var probeLauncherIssue: String?
     #endif
 
     @ObservationIgnored var watchActivities: [String: (url: URL, activity: TranscriptActivity)] = [:]
@@ -2018,6 +2024,10 @@ final class Store {
         activate(.tab(candidates[(current + offset + candidates.count) % candidates.count].id))
     }
 
+    static func canStartInWorktree(_ agent: Agent, in path: String) -> Bool {
+        agent.harness.supports(.worktrees) && FileManager.default.fileExists(atPath: URL(filePath: RepositoryRoot.resolve(path)).appending(path: ".git").path)
+    }
+
     @discardableResult
     func openSession(_ agent: Agent = Store.defaultAgent, cwd: String, resuming sessionID: String? = nil, checkout: NewSessionCheckout = .preferred, pasting prompt: String? = nil, selectsTab: Bool = true) -> Tab.ID? {
         let harness = agent.harness
@@ -2027,7 +2037,7 @@ final class Store {
             .attach
         } else if sessionID != nil {
             .resume
-        } else if harness.supports(.worktrees), checkout == .worktree || checkout == .preferred && UserDefaults.standard.bool(forKey: GeneralSettings.worktreeKey), FileManager.default.fileExists(atPath: URL(filePath: RepositoryRoot.resolve(cwd)).appending(path: ".git").path) {
+        } else if checkout == .worktree || checkout == .preferred && UserDefaults.standard.bool(forKey: GeneralSettings.worktreeKey), Self.canStartInWorktree(agent, in: cwd) {
             .newInWorktree
         } else {
             .new

@@ -66,9 +66,9 @@ subagents; remove one once its branch is pushed.":
   default). On, picking a folder inside a git repo starts `claude --session-id
   "$BERTH_SESSION_ID" -w`; Claude names the worktree and branch itself, as with `claude -w`
   in a terminal. Off, or outside a git repo, today's plain launch.
-- With the setting on, ⌥↩ in the launcher starts in the main checkout instead (footer hint
-  shown only then). Every other new-session entry (group +, New Session menus, drop,
-  remote) follows the setting.
+- ⌥↩ starts in the main checkout. The launcher's ⌘K Actions panel offers the opposite
+  checkout of the stored preference where available. Other new-session entry points
+  (group +, New Session menus, drop, remote) follow the setting. See [Launcher.swift](../Sources/Launcher.swift).
 - Berth creates worktrees itself only to open a pull request (design/flows-launcher.md, Open Pull Request); every other one goes through Claude and the `wt` hook. A plain `git worktree add` does not run worktrunk's `post-start` `copy-ignored` step.
 - ⌘T from a worktree session opens a terminal in the worktree (today's `currentCwd`).
 

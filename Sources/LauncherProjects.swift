@@ -83,22 +83,24 @@ struct ProjectItemRow: View {
     }
 
     private var secondary: [String] {
-        let reference = item.repository.flatMap { repository in item.number.map { "\(repository) #\($0)" } }
-        return [
-            reference,
+        [
             item.assignees.isEmpty ? nil : item.assignees.prefix(2).map { "@\($0)" }.joined(separator: " "),
             project,
-            item.updatedAt.map { age(since: $0) },
         ].compactMap(\.self)
+    }
+
+    private var metadata: String {
+        let reference = item.repository.flatMap { repository in item.number.map { "\(repository) #\($0)" } }
+        return [reference, item.updatedAt.map { age(since: $0) }].compactMap(\.self).joined(separator: " · ")
     }
 
     var body: some View {
         LauncherRowFrame(symbol: symbol, tint: tint, title: item.title, secondary: secondary, isHighlighted: isHighlighted) {
-            HStack(spacing: 5) {
-                if item.kind == .draft || item.isDraftPullRequest { LauncherBadge("Draft") }
-                if sessions > 0 { LauncherBadge(String(sessions), symbol: "bubble.left") }
+            HStack(spacing: 8) {
+                if !metadata.isEmpty { LauncherRowDetail(metadata) }
+                if item.kind == .draft || item.isDraftPullRequest { LauncherRowDetail("Draft") }
+                if sessions > 0 { LauncherRowDetail(String(sessions), symbol: "bubble.left") }
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
         .opacity(item.kind == .draft ? 0.6 : 1)
     }
@@ -160,13 +162,22 @@ struct ProjectMoveToStatusMenu: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        if allowsEditing, let board = store.projects.boards[item.projectID], board.statusFieldID != nil, !board.statusOptions.isEmpty {
+        let options = store.projects.statusOptions(for: item, allowsEditing: allowsEditing)
+        if !options.isEmpty {
             Menu("Move To Status") {
-                ForEach(board.statusOptions, id: \.id) { option in
+                ForEach(options, id: \.id) { option in
                     Button(option.name) { store.projects.move(item, to: option) }
                         .disabled(option.id == item.statusOptionID)
                 }
             }
         }
+    }
+}
+
+extension ProjectsModel {
+    func statusOptions(for item: ProjectItem, allowsEditing: Bool) -> [ProjectStatusOption] {
+        guard allowsEditing, let board = boards[item.projectID], board.statusFieldID != nil else { return [] }
+
+        return board.statusOptions
     }
 }

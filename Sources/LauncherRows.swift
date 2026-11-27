@@ -1,3 +1,4 @@
+import AppKit
 import BerthCore
 import Foundation
 import GhosttyTerminal
@@ -44,13 +45,11 @@ struct LauncherRowFrame<Trailing: View>: View {
     }
 
     var body: some View {
-        let accent = Color.accentColor
         HStack(spacing: 10) {
             symbol.image()
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(tint)
-                .frame(width: 30, height: 30)
-                .background(tint.opacity(0.16), in: .rect(cornerRadius: 8))
+                .frame(width: 24)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -77,26 +76,11 @@ struct LauncherRowFrame<Trailing: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             trailing
-
-            if isHighlighted {
-                Text("↩")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .frame(width: 22, height: 20)
-                    .background(theme.foreground.opacity(0.12), in: .rect(cornerRadius: 5))
-                    .accessibilityHidden(true)
-            }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, minHeight: 52)
-        .background {
-            if isHighlighted {
-                let shape = RoundedRectangle(cornerRadius: 12)
-                shape.fill(accent.opacity(0.20))
-                    .overlay { shape.strokeBorder(accent.opacity(0.35), lineWidth: 1) }
-            }
-        }
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, minHeight: 40)
+        .background(isHighlighted ? theme.foreground.opacity(0.10) : .clear, in: .rect(cornerRadius: 8))
         .contentShape(.rect)
         .transaction { $0.animation = nil }
         .accessibilityElement(children: .combine)
@@ -116,14 +100,13 @@ struct LauncherSectionHeader: View {
     var body: some View {
         HStack {
             Text(verbatim: title)
-                .tracking(0.35)
             Spacer()
             if let count {
                 Text(verbatim: String(count))
                     .monospacedDigit()
             }
         }
-        .font(.caption.weight(.semibold))
+        .font(.caption.weight(.medium))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
         .padding(.top, 6)
@@ -165,29 +148,30 @@ struct LauncherBadge: View {
     }
 }
 
-struct LauncherLabelCapsule: View {
-    let name: String
-    let hex: String
+struct LauncherRowDetail: View {
+    let text: String
+    let symbol: LauncherGlyph?
+    let tint: Color?
 
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.ghosttyTheme) private var theme
+    init(_ text: String, symbol: LauncherGlyph? = nil, tint: Color? = nil) {
+        self.text = text
+        self.symbol = symbol
+        self.tint = tint
+    }
 
     var body: some View {
-        let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
-        let base = (digits.count == 6 ? UInt32(digits, radix: 16) : nil).map { value in
-            Color(.sRGB, red: Double(value >> 16 & 0xFF) / 255, green: Double(value >> 8 & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
+        HStack(spacing: 4) {
+            if let symbol {
+                symbol.image(octiconSize: 11)
+                    .imageScale(.small)
+                    .accessibilityHidden(true)
+            }
+            Text(verbatim: text)
+                .lineLimit(1)
         }
-        let tint = base?.mix(with: colorScheme == .dark ? .white : .black, by: colorScheme == .dark ? 0.5 : 0.56)
-
-        Text(verbatim: name)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(tint ?? Color.secondary)
-            .lineLimit(1)
-            .padding(.horizontal, 7)
-            .frame(height: 20)
-            .frame(maxWidth: 108)
-            .background(base?.opacity(0.18) ?? theme.foreground.opacity(0.09), in: .capsule)
-            .fixedSize(horizontal: true, vertical: false)
+        .font(.caption)
+        .foregroundStyle(tint ?? Color.secondary)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -243,8 +227,6 @@ struct LauncherKeyHint: View {
     let key: String
     let label: String
 
-    @Environment(\.ghosttyTheme) private var theme
-
     init(_ key: String, _ label: String) {
         self.key = key
         self.label = label
@@ -252,13 +234,7 @@ struct LauncherKeyHint: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(verbatim: key)
-                .font(.caption.monospaced().weight(.medium))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 5)
-                .frame(minWidth: 21, minHeight: 19)
-                .background(theme.foreground.opacity(0.12), in: .rect(cornerRadius: 5))
-                .fixedSize()
+            LauncherKeycap(key: key)
 
             Text(verbatim: label)
                 .font(.caption)
@@ -269,6 +245,109 @@ struct LauncherKeyHint: View {
         }
         .layoutPriority(1)
         .accessibilityElement(children: .combine)
+    }
+}
+
+struct LauncherKeycap: View {
+    let key: String
+
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        Text(verbatim: key)
+            .font(.caption.monospaced().weight(.medium))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 21, minHeight: 19)
+            .background(theme.foreground.opacity(0.12), in: .rect(cornerRadius: 5))
+            .fixedSize()
+    }
+}
+
+struct LauncherAction {
+    let title: String
+    let symbol: String
+    var key: String?
+    var isEnabled = true
+    let perform: () -> Void
+}
+
+struct LauncherActionPanel<SearchField: View>: View {
+    let actions: [LauncherAction]
+    let highlighted: Int?
+    let select: (LauncherAction) -> Void
+    @ViewBuilder let searchField: SearchField
+
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if actions.isEmpty {
+                            Text("No matching actions")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                                .padding(.horizontal, 8)
+                        }
+                        ForEach(Array(actions.enumerated()), id: \.offset) { index, action in
+                            row(action, isHighlighted: index == highlighted)
+                                .id(index)
+                        }
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                }
+                .frame(height: CGFloat(min(max(actions.count, 1), 5) * 28 + 8))
+                .scrollBounceBehavior(.basedOnSize)
+                .onChange(of: highlighted, initial: true) {
+                    if let highlighted { proxy.scrollTo(highlighted) }
+                }
+            }
+            Divider()
+            searchField
+                .padding(.horizontal, 14)
+                .frame(height: 26)
+        }
+        .frame(idealWidth: 265, maxWidth: 265)
+        .background(theme.chrome ?? Color(nsColor: .windowBackgroundColor), in: .rect(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(theme.foreground.opacity(0.16), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Actions")
+    }
+
+    private func row(_ action: LauncherAction, isHighlighted: Bool) -> some View {
+        Button { select(action) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: action.symbol)
+                    .frame(width: 16)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text(verbatim: action.title)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                if let key = action.key ?? (isHighlighted ? "↩" : nil), action.isEnabled {
+                    LauncherKeycap(key: key)
+                }
+            }
+            .font(.callout)
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(isHighlighted ? theme.foreground.opacity(0.10) : .clear, in: .rect(cornerRadius: 6))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .disabled(!action.isEnabled)
+        .opacity(action.isEnabled ? 1 : 0.55)
+        .accessibilityAddTraits(isHighlighted ? .isSelected : [])
     }
 }
 

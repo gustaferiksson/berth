@@ -6,9 +6,9 @@ Moved from CLAUDE.md. See also design/flows-groups.md (Launcher section).
 
 ⌘N (File ▸ New Session…) opens the launcher (`Launcher`, a glass overlay on the terminal area): known session folders, the current folder first, fuzzy matched, plus a typed existing path. `submit` reads `highlighted` at submit time (an `onSubmit` closure once started a stale row). `Store.openClaude` passes the session id (or attach job id) to `claude --session-id|--resume|attach "$BERTH_SESSION_ID"` through the `BERTH_SESSION_ID` env var (`envVars` on the surface), never interpolated, and shows "Folder Not Found" instead of launching in a missing folder.
 
-Settings > General > Agents picks the agent ⌘N starts (`newSessionAgent`, `Store.defaultAgent`, Claude unless chosen otherwise). With both agents enabled the ↩ hint names it and ⌥⇧↩ starts the other (`Store.otherAgent`, hint shows its name); with one enabled the modifier does nothing and no agent name is shown. `Store.openSession` defaults to `defaultAgent`.
+Settings > General > Agents picks the agent ⌘N starts (`newSessionAgent`, `Store.defaultAgent`, Claude unless chosen otherwise). With both agents enabled the primary action names the default and ⌥⇧↩ starts the other (`Store.otherAgent`), also available in Actions.
 
-With Settings > General `startsInWorktree` on, a new session (launcher, group +, drop, remote) in a folder inside a git repo starts as `claude --session-id "$BERTH_SESSION_ID" -w` (`ClaudeLaunch.Start.newInWorktree`; Claude names the worktree and branch); ⌥↩ in the launcher (`NewSessionCheckout.main`, footer hint only while the setting is on) starts in the main checkout. The launcher's promoted current folder is the selected tab's checkout, so worktree paths never appear there.
+With Settings > General `startsInWorktree` on, a new session (launcher, group +, drop, remote) in a folder inside a git repo starts as `claude --session-id "$BERTH_SESSION_ID" -w` (`ClaudeLaunch.Start.newInWorktree`; Claude names the worktree and branch). ⌥↩ starts in the main checkout. Actions offers the opposite checkout of the stored preference where available. The launcher's promoted folder is the selected tab's checkout.
 
 ## Open Pull Request
 
@@ -35,6 +35,8 @@ Lookup errors appear in the issue panel. The launcher stays open when a PR is un
 PR and issue sessions prefer checkouts known from session folders. Berth also scans one level of each known repo's parent folder for sibling checkouts with a `.git` directory and a matching GitHub origin. It scans off the main thread, caches results by parent, and refreshes when the known repo folders change or on the five-minute poll. Berth skips worktree pointers and never clones a repo.
 
 ## Launcher modes
+
+The New Session scopes and Show in Review show the selection and its primary action in the bottom bar. ⌘K opens Actions for the selection, with ↑↓ and ↩. Escape closes Actions, backs out of an issue drill-down, clears the query, then closes the launcher. See [Launcher.swift](../Sources/Launcher.swift) and [BerthApp.swift](../Sources/BerthApp.swift).
 
 The launcher has modes (`LauncherMode`, `Store.launcherMode`, nil = closed): `.newSession` (⌘N) and `.search` (⇧⌘F, File ▸ Search Sessions…) share the glass panel, query field, highlighted row, ↑↓ and footer hints. `Store.launcherQuery` seeds the field when a mode opens. Closing focuses the selected tab's surface, unless Harbor is shown. Search shows one row per matching session (title, project · age, up to 2 snippets with the matched words bold in the foreground colour), newest first, at most 50, active and archived; ↩ runs `Store.activate(.session)` (the sidebar click path, locks respected).
 
