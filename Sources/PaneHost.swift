@@ -93,7 +93,6 @@ struct SessionPanel: View {
 
 struct ModeSwitcher: View {
     let store: Store
-    let itemID: String
     @AppStorage(GeneralSettings.reviewKey) private var isReviewEnabled = false
 
     var body: some View {
@@ -107,8 +106,8 @@ struct ModeSwitcher: View {
         ModeSegments(modes: modes, selected: store.shownPane, choose: store.selectPane)
             .frame(minWidth: CGFloat(modes.count) * 36, minHeight: 24)
             .fixedSize()
-            .onAppear { paneLog.info("mode switcher created \(itemID, privacy: .public)") }
-            .onDisappear { paneLog.info("mode switcher removed \(itemID, privacy: .public)") }
+            .onAppear { paneLog.info("mode switcher created") }
+            .onDisappear { paneLog.info("mode switcher removed") }
     }
 }
 
