@@ -97,6 +97,7 @@ enum ProcessAncestry {
             var current = process.kp_proc.p_pid
             for _ in 0..<16 {
                 guard let parent = parents[current], parent > 1 else { return false }
+
                 if parent == claude { return holds(file, pid: process.kp_proc.p_pid) }
 
                 current = parent

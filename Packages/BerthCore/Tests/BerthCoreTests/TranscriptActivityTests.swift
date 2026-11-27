@@ -155,8 +155,8 @@ struct TranscriptActivityTests {
         let moved = activity(movedShell)
 
         #expect(moved.tasks(of: live, now: now) { _ in false }.map(\.id) == ["bmoved1"])
-        #expect(moved.tasks(of: live, now: now, isProcessGone: { $0.lastPathComponent == "bmoved1.output" }) { _ in false }.isEmpty)
-        #expect(!moved.tasks(of: live, now: now, isProcessGone: { _ in false }) { _ in false }.isEmpty)
+        #expect(moved.tasks(of: live, now: now, isProcessGone: { $0.lastPathComponent == "bmoved1.output" }, isFinished: { _ in false }).isEmpty)
+        #expect(!moved.tasks(of: live, now: now, isProcessGone: { _ in false }, isFinished: { _ in false }).isEmpty)
     }
 
     @Test func aMovedShellIsFinishedInTheHistoryWhenItsProcessIsGone() {
@@ -172,7 +172,7 @@ struct TranscriptActivityTests {
         var started = TranscriptActivity(keepsTaskHistory: true)
         started.apply(Data((launches.joined(separator: "\n") + "\n").utf8))
 
-        #expect(started.tasks(of: live, now: now, isProcessGone: { _ in true }) { _ in false }.map(\.id).contains("bshell1"))
+        #expect(started.tasks(of: live, now: now, isProcessGone: { _ in true }, isFinished: { _ in false }).map(\.id).contains("bshell1"))
     }
 
     @Test func monitorsEndWhenTheyExpire() {
