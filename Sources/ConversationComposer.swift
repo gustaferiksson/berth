@@ -89,7 +89,7 @@ struct ConversationComposer: View {
                                 .accessibilityHidden(true)
                         }
                         ConversationComposerField(
-                            text: Binding { shownText } set: { model.setText(hidesBang ? "!" + $0 : $0) },
+                            text: Binding { shownText } set: { setDraftText(hidesBang ? "!" + $0 : $0) },
                             placeholder: placeholder,
                             font: font,
                             color: NSColor(theme.foreground),
@@ -204,6 +204,19 @@ struct ConversationComposer: View {
                 }
             )
         }
+    }
+
+    private func setDraftText(_ text: String) {
+        #if DEBUG
+        if let delay = UserDefaults.standard.string(forKey: "snapshotComposerEchoDelay").flatMap(Int.init) {
+            Task { [model] in
+                try? await Task.sleep(for: .milliseconds(delay))
+                model.setText(text)
+            }
+            return
+        }
+        #endif
+        model.setText(text)
     }
 
     private func recallQueued() -> Bool {
