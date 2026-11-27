@@ -29,7 +29,7 @@ The fixture loads via `file:` and embeds its favicons as `data:` URLs. By defaul
 
 Add `-snapshotIncomingURL <url>` (with or without `-snapshotBrowser YES`) to feed a URL to `Store.openIncomingURL` and print the session, browser tab counts, pane, launcher and pending URL.
 
-Add `-snapshotBrowserApproval YES` to raise the Allow Browser Access sheet for a long-titled worktree session with a requested URL and save only the sheet to the output path (use `-snapshotGhosttyTheme "Atom One Light"` for light).
+Add `-snapshotBrowserApproval YES` to show the Allow Browser Access prompt for a long-titled worktree session with a requested URL and save the window to the output path (use `-snapshotGhosttyTheme "Atom One Light"` for light).
 
 Add `-snapshotBrowserHistory back|forward|both` to navigate the selected tab through the local pages and capture the requested history controls. The summary prints whether Back and Forward are available. Use `-snapshotWindowWidth 1600 -reviewTerminalBelow YES` to give the browser enough width to show the controls in the header.
 
@@ -319,6 +319,8 @@ env -i PATH=/usr/bin:/bin HOME="$HOME" CFFIXED_USER_HOME="$fixture_home" \
   .build/Build/Products/Debug/Berth.app/Contents/MacOS/Berth \
   -snapshot "$fixture_home/browser.png" -snapshotControlBrowser YES -controlEnabled YES
 ```
+
+`-snapshotBrowserFocus YES -controlEnabled YES -conversationEnabled YES -languageServersEnabled NO` uses the same offscreen launch and temporary fixture home. It calls the browser control handlers against a local data page and prints the first responder identity, app activation and window key status before and after every command. It checks both the terminal and composer while opening the Browser pane and exits nonzero if focus changes.
 
 Add `-snapshotControlSessionClone "$fixture/api" -snapshotControlPullRequestClone "$fixture/billing" -reviewEnabled YES` to exercise `show-pr` via the embedded CLI. The probe sends a number from an owned terminal, opens a URL from another clone using `--repo`, checks the no-clone error, and repeats the URL with different capitalization. It verifies that the session tab stays the target, that each repository’s PR #1445 appears once and is expanded, and that the selected read-only diff comes from the billing clone.
 

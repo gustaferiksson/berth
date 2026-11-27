@@ -751,7 +751,7 @@ private struct BrowserAddressField: View {
         .onHover { isHovering = $0 }
         .onChange(of: tab?.id, initial: true) {
             finishEditing("tab-change")
-            if let tab, tab.url == nil { beginEditing("tab-change") }
+            if let tab, tab.url == nil, tab.focusesBlankAddress { beginEditing("tab-change") }
         }
         .onChange(of: browser.addressFocusRequests) {
             if isEditing { selectAddress() } else { beginEditing("focus-request") }

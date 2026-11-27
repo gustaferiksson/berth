@@ -1027,6 +1027,7 @@ enum Snapshot {
         window.setContentSize(NSSize(width: windowWidth > 0 ? windowWidth : contentSize.width, height: contentSize.height))
         window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
         window.orderFrontRegardless()
+        if probesBrowserFocus { await captureBrowserFocus(store: store, window: window) }
         if UserDefaults.standard.bool(forKey: "snapshotControlBrowser") { await captureControlBrowser(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotControl") { await captureControl(store: store, window: window, output: output) }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserApproval") { await captureBrowserApproval(store: store, window: window, output: output) }

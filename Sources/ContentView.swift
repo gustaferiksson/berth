@@ -235,7 +235,10 @@ struct ContentView: View {
             store.isSettingsRequested = false
             openSettings()
         }
-        .background { AgentBrowserPrompt(access: store.browser.access) }
+        .overlay(alignment: .topTrailing) {
+            AgentBrowserPrompt(access: store.browser.access)
+                .padding(12)
+        }
         .sheet(item: $store.editingGroup) { GroupEditor(group: $0) }
         .confirmationDialog("Delete “\(store.deletingGroup?.name ?? "")”?", isPresented: Binding(get: { store.deletingGroup != nil }, set: { if !$0 { store.deletingGroup = nil } }), presenting: store.deletingGroup) { group in
             Button("Delete Group", role: .destructive) { store.customGroups.removeAll { $0.id == group.id } }
@@ -416,6 +419,7 @@ private struct TerminalSplit: NSViewControllerRepresentable {
         split.splitView.identifier = NSUserInterfaceItemIdentifier("terminalSplit")
         let terminal = NSHostingController(rootView: TerminalArea(store: store))
         let diff = NSHostingController(rootView: PaneHost(store: store))
+        store.sessionPaneView = diff.view
         terminal.sizingOptions = []
         diff.sizingOptions = []
         for card in [terminal.view, diff.view] {
