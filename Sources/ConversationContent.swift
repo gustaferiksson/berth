@@ -853,6 +853,8 @@ struct ConversationImageTag: View {
         Text(verbatim: "#\(number)")
             .font(scale == 1 ? .caption2.weight(.bold) : Font(font))
             .foregroundStyle(.white)
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 6 * scale)
             .padding(.vertical, 2 * scale)
             .background(.black.opacity(0.6), in: .capsule)
