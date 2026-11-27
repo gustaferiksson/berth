@@ -49,6 +49,24 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         }
     }
 
+    var marks: [ControlReviewMark] = [] {
+        didSet {
+            guard marks != oldValue else { return }
+
+            markedLines = Set(marks.flatMap { $0.startLine...$0.endLine }.map { $0 - 1 })
+            markNotes = Dictionary(marks.filter { !$0.note.isEmpty }.map { ($0.startLine - 1, $0.note) }, uniquingKeysWith: { first, _ in first })
+            markAnchors = Set(marks.map { $0.startLine - 1 })
+            if let gutter, marks.isEmpty != oldValue.isEmpty { gutter.thickness += marks.isEmpty ? -markSlot : markSlot }
+            needsDisplay = true
+            gutter?.needsDisplay = true
+        }
+    }
+
+    var markSlot: CGFloat { (style.font.pointSize + 6).rounded(.up) }
+    private(set) var markedLines = Set<Int>()
+    private(set) var markAnchors = Set<Int>()
+    private var markNotes: [Int: String] = [:]
+    private var shownMarkLine: Int?
     var onHover: ((Int) async -> String?)?
     var onDefinition: ((Int) -> Void)?
     var onReferences: ((Int) -> Void)?
@@ -249,6 +267,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     }
 
     func dismissHover() {
+        shownMarkLine = nil
         hoverTask?.cancel()
         hoverTask = nil
         hoverTarget = nil
@@ -468,6 +487,20 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         }
     }
 
+    func showMarkNote(at line: Int) {
+        guard shownMarkLine != line else { return }
+
+        dismissHover()
+        guard let note = markNotes[line], let rows = side?.rows, rows.indices.contains(line) else { return }
+
+        showHover(note, diagnostics: [], below: NSRect(x: visibleRect.minX + 8, y: top(ofRow: rows[line]), width: 1, height: rowHeight), parsesCodeFences: false)
+        shownMarkLine = line
+    }
+
+    func hideMarkNote() {
+        if shownMarkLine != nil { dismissHover() }
+    }
+
     @objc private func runHoverAction(_ sender: NSButton) {
         let actions = hoverActions
         dismissHover()
@@ -648,7 +681,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             scroll(NSPoint(x: visibleRect.minX, y: top - caretTop))
         }
 
-        gutter?.thickness = (CGFloat(String(max(lineStarts.count, unifiedOriginal?.lineStarts.count ?? 0)).count) * digitWidth + 20).rounded(.up)
+        gutter?.thickness = (CGFloat(String(max(lineStarts.count, unifiedOriginal?.lineStarts.count ?? 0)).count) * digitWidth + 20).rounded(.up) + (marks.isEmpty ? 0 : markSlot)
         placeDiagnostics()
     }
 
@@ -910,6 +943,10 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
                     changed.setFill()
                     row.fill(using: .sourceOver)
                 }
+                if markedLines.contains(line) {
+                    (style.isDark ? NSColor.white.withAlphaComponent(0.1) : NSColor.black.withAlphaComponent(0.07)).setFill()
+                    row.fill(using: .sourceOver)
+                }
                 if selectedLines?.contains(line) == true {
                     style.selection.setFill()
                     row.fill(using: .sourceOver)
@@ -1113,6 +1150,10 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
                 NSBezierPath(ovalIn: mark).fill()
                 addToolTip(mark.insetBy(dx: -3, dy: -3), owner: self, userData: nil)
             }
+            if textView.markAnchors.contains(line), let glyph = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: "Agent note")?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: style.font.pointSize, weight: .regular).applying(.init(paletteColors: [style.secondary]))) {
+                let origin = NSPoint(x: 3, y: rect.minY + (textView.rowHeight - glyph.size.height) / 2)
+                glyph.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
+            }
             let color = textView.side?.changedLines.contains(line) == true ? changed : isSelected || line == caret ? style.currentLineNumber : style.gutterForeground
             let label = NSAttributedString(string: "\(line + 1)", attributes: [.font: style.font, .foregroundColor: color])
             let size = label.size()
@@ -1138,8 +1179,35 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
         }
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        showMarkNote(for: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard let textView, !textView.visibleRect.contains(textView.convert(event.locationInWindow, from: nil)) else { return }
+
+        textView.hideMarkNote()
+    }
+
+    @discardableResult
+    private func showMarkNote(for event: NSEvent) -> Bool {
+        guard let textView, convert(event.locationInWindow, from: nil).x < textView.markSlot, let line = textView.line(atY: textView.convert(event.locationInWindow, from: nil).y), textView.markAnchors.contains(line) else {
+            textView?.hideMarkNote()
+            return false
+        }
+
+        textView.showMarkNote(at: line)
+        return true
+    }
+
     override func mouseDown(with event: NSEvent) {
-        guard let textView else { return }
+        guard let textView, !showMarkNote(for: event) else { return }
 
         let y = textView.convert(event.locationInWindow, from: nil).y
         let row = (0..<(textView.side?.rowCount ?? 0)).partitioningIndex { textView.top(ofRow: $0) > y } - 1

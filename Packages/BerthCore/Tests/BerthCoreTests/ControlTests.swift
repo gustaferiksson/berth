@@ -373,6 +373,92 @@ struct ControlTests {
         #expect(try JSONDecoder().decode(ControlRequest.self, from: legacy) == ControlRequest(token: "tok", caller: "me", operation: .list))
     }
 
+    @Test func reviewMarksParseInOrderWithNotesAndRoundTripThroughJSON() throws {
+        let environment = ControlEnvironment.variables(socketPath: "/s.sock", token: "tok", tab: "me")
+        let marked = try ControlCommand.parse(
+            ["review", "mark", "Sources/a.swift:10-20", "--note", "why", "b.swift:5", "c:fixture.swift:8", "--note", "why2", "--json"],
+            environment: environment, currentDirectory: "/work/app/Subfolder"
+        )
+        let marks = [
+            ControlReviewMark(path: "Sources/a.swift", startLine: 10, endLine: 20, note: "why"),
+            ControlReviewMark(path: "b.swift", startLine: 5, endLine: 5),
+            ControlReviewMark(path: "c:fixture.swift", startLine: 8, endLine: 8, note: "why2"),
+        ]
+        #expect(marked.request == ControlRequest(token: "tok", caller: "me", operation: .reviewMark, marks: marks))
+        #expect(marked.request.operation.rawValue == "review-mark")
+        #expect(marked.json)
+        #expect(try JSONDecoder().decode(ControlRequest.self, from: JSONEncoder().encode(marked.request)) == marked.request)
+
+        let clear = try ControlCommand.parse(["review", "marks", "clear"], environment: environment, currentDirectory: "/work/app")
+        #expect(clear.request == ControlRequest(token: "tok", caller: "me", operation: .reviewClearMarks))
+        #expect(clear.request.operation.rawValue == "review-marks-clear")
+        #expect(ControlCommand.usage.contains("berth review mark <path>:<start>[-<end>] [--note <text>] ..."))
+        #expect(ControlCommand.usage.contains("berth review marks clear"))
+    }
+
+    @Test func reviewMarksRejectBadCommandArguments() {
+        let environment = ControlEnvironment.variables(socketPath: "/s.sock", token: "tok", tab: "me")
+        for arguments in [
+            [], ["marks"], ["marks", "clear", "a.swift:1"], ["marks", "clear", "--note", "why"], ["mark"],
+            ["mark", "--note", "why", "a.swift:1"], ["mark", "a.swift:1", "--note"], ["mark", "a.swift:1", "--note", "--json"],
+            ["mark", "a.swift:1", "--note", "why", "--note", "again"], ["mark", "a.swift:1", "--json", "--note", "why"],
+            ["mark", "a.swift:1", "--base", "main"], ["mark", "a.swift"], ["mark", ":1"], ["mark", "a.swift:"],
+            ["mark", "a.swift:0"], ["mark", "a.swift:4-2"], ["mark", "a.swift:1-"], ["mark", "a.swift:1--2"],
+            ["mark", "a.swift:1-2-3"], ["mark", "a.swift:99999999999999999999999"],
+        ] {
+            #expect(throws: ControlCommand.UsageError.self) {
+                try ControlCommand.parse(["review"] + arguments, environment: environment, currentDirectory: "/work/app")
+            }
+        }
+    }
+
+    @Test func reviewMarkValidationRejectsUnnormalizedPaths() {
+        for path in ["", "/a.swift", "../a.swift", "sub/../a.swift", "./a.swift", "sub/./a.swift", "sub//a.swift", "a.swift/", "a\u{0000}.swift", "/\u{0301}a.swift"] {
+            let mark = ControlReviewMark(path: path, startLine: 1, endLine: 3)
+            let request = ControlRequest(token: "tok", caller: "me", operation: .reviewMark, marks: [mark])
+            #expect(throws: ControlReviewMarks.ValidationError.self) { try ControlReviewMarks.validate(request).get() }
+        }
+    }
+
+    @Test func reviewMarkValidationChecksRangesAndCaps() throws {
+        let mark = ControlReviewMark(path: "Sources/a.swift", startLine: 1, endLine: 1_000_000, note: String(repeating: "a", count: 500))
+        var request = ControlRequest(token: "tok", caller: "me", operation: .reviewMark, marks: Array(repeating: mark, count: 50))
+        #expect(try ControlReviewMarks.validate(request).get() == request.marks)
+
+        for marks in [nil, [], Array(repeating: mark, count: 51)] {
+            request.marks = marks
+            #expect(throws: ControlReviewMarks.ValidationError.self) { try ControlReviewMarks.validate(request).get() }
+        }
+        for (start, end) in [(0, 1), (-1, 1), (3, 2), (1, 1_000_001)] {
+            request.marks = [ControlReviewMark(path: mark.path, startLine: start, endLine: end)]
+            #expect(throws: ControlReviewMarks.ValidationError.self) { try ControlReviewMarks.validate(request).get() }
+        }
+        request.marks = [ControlReviewMark(path: mark.path, startLine: 1, endLine: 1, note: mark.note + "a")]
+        #expect(throws: ControlReviewMarks.ValidationError.self) { try ControlReviewMarks.validate(request).get() }
+    }
+
+    @Test func reviewMarkValidationSanitizesNotesAndChecksBases() throws {
+        let mark = ControlReviewMark(path: "a..b.swift", startLine: 1, endLine: 1, note: " \tFirst\u{001B}\r\nSec\u{0000}ond\u{007F}\n ")
+        let sanitized = ControlReviewMark(path: mark.path, startLine: 1, endLine: 1, note: "First\nSecond")
+        var request = ControlRequest(token: "tok", caller: "me", operation: .reviewMark, marks: [mark])
+        for base in [nil, "refs/heads/topic/sub", "origin/main", "HEAD", "d34db33f"] {
+            request.base = base
+            #expect(try ControlReviewMarks.validate(request).get() == [sanitized])
+        }
+        for base in ["", "--all", "-\u{0301}main", "a b", "a\tb", "a\nb", "a\u{0000}b", "a\u{001B}b", "a..b", "a..\u{0301}b", "a//b", "a/.b", "a/b.lock", "@", "a@{b", "HEAD~1", "a:b", "a\\b", String(repeating: "a", count: 256)] {
+            request.base = base
+            #expect(throws: ControlReviewMarks.ValidationError.self) { try ControlReviewMarks.validate(request).get() }
+        }
+
+        request.operation = .reviewClearMarks
+        request.base = nil
+        #expect(throws: ControlReviewMarks.ValidationError.self) { try ControlReviewMarks.validate(request).get() }
+        request.marks = nil
+        #expect(try ControlReviewMarks.validate(request).get().isEmpty)
+        request.base = "main"
+        #expect(throws: ControlReviewMarks.ValidationError.self) { try ControlReviewMarks.validate(request).get() }
+    }
+
     @Test func usageAndSkillDescribeOpeningSessions() {
         #expect(ControlCommand.usage.contains("berth open-session [--cwd <dir>] [--background] [--json] [-- <prompt words>]"))
         let showSyntax = "berth show-pr <number|url> [--repo <path>] [--json]"

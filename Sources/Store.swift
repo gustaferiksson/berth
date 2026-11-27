@@ -209,6 +209,7 @@ final class Store {
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
     private(set) var shownReviewPullRequests: [String: [PullRequestLink: ReviewPullRequest]] = [:]
     var activeReviewRoots: [String: String] = [:]
+    var reviewMarks: [String: [ControlReviewMark]] = [:]
     private var openedWorktrees: [String: [String]] = [:]
     var collapsedReviewRepositories: Set<String> = []
     var expandedReviewTasks: Set<String> = []
