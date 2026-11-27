@@ -1,3 +1,4 @@
+import AppKit
 import BerthCore
 import Foundation
 import GhosttyTerminal
@@ -6,6 +7,13 @@ import UniformTypeIdentifiers
 
 enum LauncherMode {
     case newSession, search, palette, pullRequests, showPullRequestInReview, issues, projects
+
+    var hasItemActions: Bool {
+        switch self {
+        case .newSession, .pullRequests, .showPullRequestInReview, .issues, .projects: true
+        case .search, .palette: false
+        }
+    }
 }
 
 struct Launcher: View {
@@ -33,8 +41,10 @@ struct Launcher: View {
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
     @AppStorage(ItemPreviewSetting.key) private var richPreviews = false
+    @AppStorage(ProjectsModel.allowsEditingKey) private var allowsProjectEditing = false
     @State private var query: String
     @State private var highlighted = 0
+    @State private var highlightedAction: Int?
     @State private var folders: [Folder] = []
     @State private var hits: [SearchHit] = []
     @State private var searchedQuery = ""
@@ -56,6 +66,7 @@ struct Launcher: View {
     }
 
     private static let visibleMatches = 6
+    private static let commandBarHeight: CGFloat = 42
 
     private var scopes: [(mode: LauncherMode, title: String)] {
         let base: [(mode: LauncherMode, title: String)] = [(.newSession, "Folders"), (.pullRequests, "Pull Requests"), (.issues, "Issues")]
@@ -147,6 +158,17 @@ struct Launcher: View {
         return issues.indices.contains(highlighted) ? issues[highlighted] : nil
     }
 
+    private var scopeGlyph: LauncherGlyph {
+        switch mode {
+        case .newSession: "folder"
+        case .pullRequests, .showPullRequestInReview: .octicon(.pullRequest)
+        case .issues: .octicon(.issueOpened)
+        case .projects: "checklist"
+        case .palette: "command"
+        case .search: "magnifyingglass"
+        }
+    }
+
     var body: some View {
         let matches = mode == .newSession ? matches : []
         let rows = mode == .palette ? paletteRows : []
@@ -158,6 +180,9 @@ struct Launcher: View {
         let issues = rankedIssues
         let pullRequest = ranked.pullRequests.indices.contains(highlighted) ? ranked.pullRequests[highlighted] : nil
         let issueRow = issues.issues.indices.contains(highlighted) ? issues.issues[highlighted] : nil
+        let primary = mode.hasItemActions ? primaryAction(folder: target, pullRequest: pullRequest, issue: issueRow, openable: linked.count { $0.opening.isOpenable }) : nil
+        let actions = mode.hasItemActions && store.launcherActionsShown ? itemActions(primary: primary, folder: target, pullRequest: pullRequest, issue: issueRow) : []
+        let actionIndex = selectedActionIndex(in: actions)
         let count = switch mode {
         case .newSession: matches.count
         case .palette: rows.count
@@ -168,11 +193,13 @@ struct Launcher: View {
         }
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                ([LauncherMode.newSession: LauncherGlyph.symbol("folder"), .palette: "command", .pullRequests: .octicon(.pullRequest), .showPullRequestInReview: .octicon(.pullRequest), .issues: .octicon(.issueOpened), .projects: "checklist"][mode] ?? "magnifyingglass").image(octiconSize: 18)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24)
-                    .accessibilityHidden(true)
+                if !mode.hasItemActions {
+                    scopeGlyph.image(octiconSize: 18)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24)
+                        .accessibilityHidden(true)
+                }
                 TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests or paste an issue", .showPullRequestInReview: "Search pull requests or paste a PR URL", .issues: "Search or paste an issue", .projects: "Search project items"][mode] ?? "Search all sessions"))
                     .textFieldStyle(.plain)
                     .font(.system(size: 22))
@@ -213,16 +240,21 @@ struct Launcher: View {
                         start(in: matches[highlighted].path, checkout: .main)
                         return .handled
                     }
-                    .onSubmit(submit)
+                    .onSubmit(submitFromKeyboard)
                     .onChange(of: store.projects.columnSteps) { old, new in
                         let columns = [nil] + projectSections.map { Optional($0.name) }
                         let index = columns.firstIndex(of: store.projects.launcherColumn) ?? 0
                         store.projects.launcherColumn = columns[((index + new - old) % columns.count + columns.count) % columns.count]
                         highlighted = 0
+                        highlightedAction = nil
                     }
                     .onChange(of: query) {
                         highlighted = 0
+                        highlightedAction = nil
                         selectedIssue = nil
+                        #if DEBUG
+                        store.probeLauncherQuery = query
+                        #endif
                         guard mode == .newSession, query.hasPrefix("#") else { return }
 
                         previousScope = mode
@@ -232,6 +264,7 @@ struct Launcher: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
+            if mode.hasItemActions { Divider() }
             if nextScope != nil {
                 HStack(spacing: 8) {
                     LauncherScopePicker(scopes: scopes, selection: mode, previousSelection: previousScope, select: switchScope)
@@ -265,15 +298,17 @@ struct Launcher: View {
                     }
                 }
                 .padding(.horizontal, 20)
+                .padding(.top, 10)
                 .padding(.bottom, 12)
             }
             if mode == .projects, issue == nil {
                 ProjectColumnBar(columns: projectSections.map { ($0.name, $0.total) }, selection: projectColumn) { name in
                     store.projects.launcherColumn = name
                     highlighted = 0
+                    highlightedAction = nil
                 }
             }
-            Divider()
+            if !mode.hasItemActions { Divider() }
             if mode == .newSession {
                 folderList(matches)
             } else {
@@ -285,75 +320,51 @@ struct Launcher: View {
             }
             if mode == .projects { projectNotices }
             Divider()
-            HStack(spacing: 8) {
-                if mode == .newSession {
-                    let other = Store.otherAgent
-                    let agent = other == nil ? "" : " \(Store.defaultAgent.name)"
-                    LauncherKeyHint("↩", target.map { "Start\(agent) in \(URL(filePath: $0.path).lastPathComponent)" } ?? "Start\(agent)")
-                    if startsInWorktree { LauncherKeyHint("⌥↩", "Main Checkout") }
-                    if let other { LauncherKeyHint("⌥⇧↩", other.name) }
-                    LauncherKeyHint("↑↓", "Folder")
-                } else if issue != nil {
-                    let openable = linked.count { $0.opening.isOpenable }
-                    if openable > 0 { LauncherKeyHint("↩", "Open \(openable) Pull Request\(openable == 1 ? "" : "s")") }
-                    LauncherKeyHint("⌥↩", "Open on GitHub")
-                } else if mode == .showPullRequestInReview {
-                    LauncherKeyHint("↩", "Show in Review")
-                } else if mode == .pullRequests {
-                    let opening = pullRequest.map { store.opening(of: PullRequestLink(repository: $0.repository, number: $0.number)) }
-                    let label = if case let .session(session)? = opening {
-                        store.tab(forSession: session.id) == nil ? "Resume Session" : "Switch To Session"
-                    } else if case .tab? = opening {
-                        "Switch To Session"
-                    } else if case let .worktree(folder)? = opening {
-                        "New Worktree in \(URL(filePath: folder).lastPathComponent)"
-                    } else if case .noCheckout? = opening {
-                        "No Local Checkout"
+            if mode.hasItemActions {
+                commandFooter(primary: primary, folder: target, pullRequest: pullRequest, issue: issueRow)
+            } else {
+                HStack(spacing: 8) {
+                    if mode == .palette {
+                        LauncherKeyHint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
+                        LauncherKeyHint("↑↓", "Select")
                     } else {
-                        "Open"
+                        LauncherKeyHint("↩", "Open")
+                        LauncherKeyHint("↑↓", "Session")
                     }
-                    LauncherKeyHint("↩", label)
-                    LauncherKeyHint("⌥↩", AppAction.showPullRequestInReview.isAvailable(in: store) ? "Show in Review" : "Open on GitHub")
-                } else if mode == .issues {
-                    if let issueRow {
-                        LauncherKeyHint("↩", issueRow.openPullRequestCount == 0 ? "Start" : "Open PRs")
-                        LauncherKeyHint("⌥↩", "GitHub")
+                    Spacer(minLength: 0)
+                    if mode == .search, let indexing = store.searchIndexing {
+                        Text("Indexing \(indexing.done)/\(indexing.total)")
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-                    LauncherKeyHint("↑↓", "Issue")
-                } else if mode == .projects {
-                    if let item = highlightedProject {
-                        LauncherKeyHint("↩", item.kind == .draft ? "Draft Item" : item.kind == .issue ? "Open" : "Open Pull Request")
-                        if item.url != nil { LauncherKeyHint("⌥↩", "GitHub") }
-                    }
-                    LauncherKeyHint("↑↓", "Item")
-                    if projectSections.count > 1 { LauncherKeyHint("⌃⇥", "Column") }
-                } else if mode == .palette {
-                    LauncherKeyHint("↩", row.map { if case .action = $0.target { "Run" } else if $0.item.section == .openTab { "Switch To" } else { "Resume" } } ?? "Run")
-                    LauncherKeyHint("↑↓", "Select")
-                } else {
-                    LauncherKeyHint("↩", "Open")
-                    LauncherKeyHint("↑↓", "Session")
+                    LauncherKeyHint("esc", "Close")
                 }
-                if richPreviews, showsPullRequests || mode == .issues { LauncherKeyHint("␣", "Preview") }
-                if let nextScope { LauncherKeyHint("⇥", nextScope.title) }
-                Spacer(minLength: 0)
-                if mode == .search, let indexing = store.searchIndexing {
-                    Text("Indexing \(indexing.done)/\(indexing.total)")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                LauncherKeyHint("esc", mode == .newSession ? "Cancel" : "Close")
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
         }
         .frame(maxWidth: 680)
+        .overlay(alignment: .bottomTrailing) {
+            if mode.hasItemActions, store.launcherActionsShown {
+                LauncherActionPanel(actions: actions, highlighted: actionIndex, shortcuts: actionShortcuts(canPreview: pullRequest != nil || issueRow != nil), select: perform)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, Self.commandBarHeight + 7)
+            }
+        }
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
         .padding(.horizontal, 24)
-        .onExitCommand { store.launcherMode = nil }
+        .onExitCommand(perform: exit)
+        .onChange(of: store.launcherActionsShown) { highlightedAction = nil }
+        .onChange(of: highlighted) { highlightedAction = nil }
+        .onDisappear { store.launcherActionsShown = false }
         .onAppear {
+            store.launcherActionsShown = false
+            #if DEBUG
+            store.probeLauncherQuery = query
+            store.probeLauncherIssue = nil
+            #endif
             store.launcherQuery = ""
             isQueryFocused = true
             if mode == .search { store.updateSearchIndex() }
@@ -394,8 +405,20 @@ struct Launcher: View {
             if selectedIssue != nil, let linked { openIssueResult(linked) }
         }
         .onChange(of: store.searchIndexVersion) { Task { await search() } }
-        .onChange(of: store.launcherRole) { highlighted = 0 }
-        .onChange(of: mineOnly) { highlighted = 0 }
+        .onChange(of: store.launcherRole) {
+            highlighted = 0
+            highlightedAction = nil
+        }
+        .onChange(of: mineOnly) {
+            highlighted = 0
+            highlightedAction = nil
+        }
+        .onChange(of: selectedIssue?.id) {
+            highlightedAction = nil
+            #if DEBUG
+            store.probeLauncherIssue = selectedIssue?.id
+            #endif
+        }
         .fileImporter(isPresented: $isBrowsing, allowedContentTypes: [.folder]) { result in
             guard case let .success(url) = result else { return }
 
@@ -403,23 +426,203 @@ struct Launcher: View {
         }
     }
 
-    private func folderList(_ matches: [Folder]) -> some View {
-        VStack(spacing: 0) {
-            if matches.isEmpty {
-                LauncherMessage(
-                    symbol: "folder",
-                    title: folders.isEmpty ? "No session folders yet" : "No matching folders",
-                    detail: folders.isEmpty ? "Type a path or browse." : nil
-                )
-            } else {
-                LauncherSectionHeader(query.allSatisfy(\.isWhitespace) ? "Recent Folders" : "Folders")
-                ForEach(Array(matches.enumerated()), id: \.element) { index, folder in
-                    folderRow(folder, isHighlighted: index == highlighted)
-                        .onTapGesture { start(in: folder.path) }
+    private func commandFooter(primary: LauncherAction?, folder: Folder?, pullRequest: InboxPullRequest?, issue: InboxIssue?) -> some View {
+        let scopeTitle = scopes.first { $0.mode == mode }?.title ?? "Show in Review"
+        let issueTitle = selectedIssue?.title ?? issueReference.map { "\($0.repository) #\($0.number)" } ?? issue?.title
+        let pullRequestTitle = pullRequest?.title ?? pastedPullRequest.map { "\($0.repository) #\($0.number)" }
+        let title = folder.map { URL(filePath: $0.path).lastPathComponent } ?? issueTitle ?? pullRequestTitle ?? highlightedProject?.title ?? scopeTitle
+        return HStack(spacing: 14) {
+            HStack(spacing: 6) {
+                scopeGlyph.image(octiconSize: 13)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text(verbatim: title)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if let primary {
+                Button(action: primary.perform) {
+                    LauncherKeyHint("↩", primary.title)
+                }
+                .buttonStyle(.plain)
+                .focusable(false)
+                .disabled(!primary.isEnabled || store.launcherActionsShown)
+            }
+            Button { store.launcherActionsShown.toggle() } label: {
+                LauncherKeyHint("⌘K", "Actions")
+            }
+            .buttonStyle(.plain)
+            .focusable(false)
+            .accessibilityValue(store.launcherActionsShown ? "Shown" : "Hidden")
+        }
+        .padding(.horizontal, 20)
+        .frame(height: Self.commandBarHeight)
+    }
+
+    private func primaryAction(folder: Folder?, pullRequest: InboxPullRequest?, issue: InboxIssue?, openable: Int) -> LauncherAction? {
+        if mode == .newSession {
+            let agent = Store.otherAgent == nil ? "" : " \(Store.defaultAgent.name)"
+            let name = folder.map { " in \(URL(filePath: $0.path).lastPathComponent)" } ?? ""
+            return LauncherAction(title: "Start\(agent)\(name)", symbol: "plus", isEnabled: folder != nil, perform: submit)
+        }
+        if issueReference != nil {
+            guard openable > 0 else { return nil }
+
+            return LauncherAction(title: "Open \(openable) Pull Request\(openable == 1 ? "" : "s")", symbol: "arrow.up.forward", perform: submit)
+        }
+        if mode == .showPullRequestInReview {
+            let canShow = (pullRequest != nil || pastedPullRequest != nil) && AppAction.showPullRequestInReview.isAvailable(in: store)
+            return LauncherAction(title: "Show in Review", symbol: AppAction.showPullRequestInReview.symbol, isEnabled: canShow, perform: submit)
+        }
+        if mode == .pullRequests {
+            let opening = pullRequest.map { store.opening(of: PullRequestLink(repository: $0.repository, number: $0.number)) }
+            let title = switch opening {
+            case let .session(session)?: store.tab(forSession: session.id) == nil ? "Resume Session" : "Switch To Session"
+            case .some(.tab): "Switch To Session"
+            case let .worktree(folder)?: "New Worktree in \(URL(filePath: folder).lastPathComponent)"
+            case .some(.noCheckout): "No Local Checkout"
+            case nil: "Open"
+            }
+            return LauncherAction(title: title, symbol: "arrow.up.forward", isEnabled: pullRequest != nil, perform: submit)
+        }
+        if let issue {
+            let title = issue.openPullRequestCount == 0 ? "Start" : "Open Pull Requests"
+            return LauncherAction(title: title, symbol: "arrow.up.forward", perform: submit)
+        }
+        if let item = highlightedProject {
+            let title = item.kind == .draft ? "Draft Item" : item.kind == .issue ? "Open" : "Open Pull Request"
+            let canOpen = item.kind != .draft && item.repository != nil && item.number != nil && item.url != nil
+            return LauncherAction(title: title, symbol: "arrow.up.forward", isEnabled: canOpen, perform: submit)
+        }
+        return nil
+    }
+
+    private func actionShortcuts(canPreview: Bool) -> [(key: String, title: String)] {
+        var shortcuts: [(key: String, title: String)] = []
+        if richPreviews, query.isEmpty, canPreview { shortcuts.append(("␣", "Preview")) }
+        if mode == .projects, projectSections.count > 1 { shortcuts.append(("⌃⇥", "Column")) }
+        if let nextScope { shortcuts.append(("⇥", nextScope.title)) }
+        return shortcuts
+    }
+
+    private var currentActions: [LauncherAction] {
+        let matches = mode == .newSession ? matches : []
+        let pullRequests = rankedPullRequests.pullRequests
+        let folder = matches.indices.contains(highlighted) ? matches[highlighted] : nil
+        let pullRequest = pullRequests.indices.contains(highlighted) ? pullRequests[highlighted] : nil
+        let linked = (try? issueResult?.get()) ?? []
+        let openable = linked.count { store.opening(of: $0.link).isOpenable }
+        let primary = primaryAction(folder: folder, pullRequest: pullRequest, issue: highlightedIssue, openable: openable)
+        return itemActions(primary: primary, folder: folder, pullRequest: pullRequest, issue: highlightedIssue)
+    }
+
+    private func itemActions(primary: LauncherAction?, folder: Folder?, pullRequest: InboxPullRequest?, issue: InboxIssue?) -> [LauncherAction] {
+        if mode == .newSession { return folderActions(folder) }
+
+        if let reference = issueReference {
+            return [primary].compactMap(\.self) + linkActions(selectedIssue?.url ?? reference.url, openKey: "⌥↩")
+        }
+        if let issue {
+            return [primary].compactMap(\.self) + linkActions(issue.url, openKey: "⌥↩")
+        }
+        if let item = highlightedProject {
+            let open = LauncherAction(title: "Open", symbol: "arrow.up.forward", isEnabled: primary?.isEnabled == true, perform: submit)
+            let statusActions = store.projects.statusOptions(for: item, allowsEditing: allowsProjectEditing).map { option in
+                LauncherAction(title: "Move to \(option.name)", symbol: "arrow.right.circle", isEnabled: option.id != item.statusOptionID) {
+                    store.projects.move(item, to: option)
                 }
             }
+            return [open] + linkActions(item.url, openKey: "⌥↩") + statusActions
         }
-        .padding(8)
+        if let pullRequest {
+            let link = PullRequestLink(repository: pullRequest.repository, number: pullRequest.number)
+            return pullRequestActions(link, url: pullRequest.url, primary: primary)
+        }
+        if let pastedPullRequest, let url = URL(string: query.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return pullRequestActions(pastedPullRequest, url: url, primary: primary)
+        }
+        return []
+    }
+
+    private func folderActions(_ folder: Folder?) -> [LauncherAction] {
+        let browse = LauncherAction(title: "Browse for Folder", symbol: "folder", key: "⌘O") { isBrowsing = true }
+        guard let folder else { return [browse] }
+
+        var actions = [
+            LauncherAction(title: "Start Session", symbol: "plus") { start(in: folder.path) },
+            LauncherAction(
+                title: startsInWorktree ? "Start in Main Checkout" : "Start in Worktree",
+                symbol: startsInWorktree ? "folder" : "arrow.triangle.branch",
+                key: startsInWorktree ? "⌥↩" : nil,
+                isEnabled: startsInWorktree || Store.canStartInWorktree(Store.defaultAgent, in: folder.path)
+            ) {
+                start(in: folder.path, checkout: startsInWorktree ? .main : .worktree)
+            },
+        ]
+        if let other = Store.otherAgent {
+            actions.append(LauncherAction(title: "Start with \(other.name)", symbol: "person", key: "⌥⇧↩") { start(other, in: folder.path) })
+        }
+        actions.append(LauncherAction(title: "Copy Path", symbol: "document.on.document") { copy(folder.path) })
+        actions.append(browse)
+        return actions
+    }
+
+    private func pullRequestActions(_ link: PullRequestLink, url: URL, primary: LauncherAction?) -> [LauncherAction] {
+        var actions = [primary].compactMap(\.self)
+        let canShowInReview = AppAction.showPullRequestInReview.isAvailable(in: store)
+        if mode == .pullRequests {
+            actions.append(LauncherAction(title: "Show in Review", symbol: AppAction.showPullRequestInReview.symbol, key: "⌥↩", isEnabled: canShowInReview) {
+                showInReview(link)
+            })
+        }
+        return actions + linkActions(url, openKey: mode == .pullRequests && !canShowInReview ? "⌥↩" : nil)
+    }
+
+    private func linkActions(_ url: URL?, openKey: String?) -> [LauncherAction] {
+        [
+            LauncherAction(title: "Open on GitHub", symbol: "arrow.up.right.square", key: openKey, isEnabled: url != nil) {
+                if let url { openOnGitHub(url) }
+            },
+            LauncherAction(title: "Copy Link", symbol: "link", isEnabled: url != nil) {
+                if let url { copy(url.absoluteString) }
+            },
+        ]
+    }
+
+    private func copy(_ string: String) {
+        #if DEBUG
+        if Snapshot.launcherKeys != nil || Snapshot.output != nil {
+            store.probeCopiedStrings.append(string)
+            return
+        }
+        #endif
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+    }
+
+    private func folderList(_ matches: [Folder]) -> some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                if matches.isEmpty {
+                    LauncherMessage(
+                        symbol: "folder",
+                        title: folders.isEmpty ? "No session folders yet" : "No matching folders",
+                        detail: folders.isEmpty ? "Type a path or browse." : nil
+                    )
+                } else {
+                    LauncherSectionHeader(query.allSatisfy(\.isWhitespace) ? "Recent Folders" : "Folders")
+                    ForEach(Array(matches.enumerated()), id: \.element) { index, folder in
+                        folderRow(folder, isHighlighted: index == highlighted)
+                            .onTapGesture { start(in: folder.path) }
+                    }
+                }
+            }
+            .padding(8)
+            .onGeometryChange(for: Double.self) { $0.size.height } action: { resultsHeight = $0 }
+        }
+        .frame(height: min(max(resultsHeight, 64), 380))
+        .scrollBounceBehavior(.basedOnSize)
     }
 
     private func results(_ rows: [PaletteRow], pullRequests ranked: (pullRequests: [InboxPullRequest], older: Int), issues rankedIssues: (issues: [InboxIssue], older: Int), issue: IssueReference?, linked: [(pullRequest: LinkedPullRequest, opening: PullRequestOpening)]) -> some View {
@@ -541,7 +744,7 @@ struct Launcher: View {
                 .padding(8)
                 .onGeometryChange(for: Double.self) { $0.size.height } action: { resultsHeight = $0 }
             }
-            .frame(height: min(max(resultsHeight, 64), 420))
+            .frame(height: min(max(resultsHeight, 64), mode.hasItemActions ? 380 : 420))
             .scrollBounceBehavior(.basedOnSize)
             .onChange(of: highlighted) { proxy.scrollTo(highlighted) }
         }
@@ -592,9 +795,9 @@ struct Launcher: View {
             monospacedSecondary: true
         ) {
             if let activity = folder.lastActivity {
-                LauncherBadge("\(folder.sessions) \(folder.sessions == 1 ? "session" : "sessions") · \(age(since: activity))")
+                LauncherRowDetail("\(folder.sessions) \(folder.sessions == 1 ? "session" : "sessions") · \(age(since: activity))")
             } else {
-                LauncherBadge("New folder")
+                LauncherRowDetail("New folder")
             }
         }
     }
@@ -604,68 +807,54 @@ struct Launcher: View {
         let state: PullRequestState = pullRequest.isDraft ? .draft : .open
         let tint = !pullRequest.isDraft && pullRequest.reviewDecision == .changesRequested ? theme.closed : state.color(in: theme)
         let author = pullRequest.role == .mine ? nil : pullRequest.author.map { "@\($0)" }
-        let secondary = [
-            pullRequest.repository,
-            "#\(pullRequest.number)",
-            author,
-            "Updated \(age(since: pullRequest.updatedAt))",
-        ].compactMap(\.self)
+        let secondary = [pullRequest.branch.isEmpty ? nil : pullRequest.branch, author].compactMap(\.self)
 
         return LauncherRowFrame(symbol: .octicon(Octicon(state)), tint: tint, title: pullRequest.title, secondary: secondary, isHighlighted: isHighlighted) {
-            HStack(spacing: 5) {
+            HStack(spacing: 8) {
+                LauncherRowDetail("\(pullRequest.repository) #\(pullRequest.number) · \(age(since: pullRequest.updatedAt))")
                 switch pullRequest.checks {
                 case .passed:
-                    LauncherBadge("Passed", symbol: "checkmark", tint: theme.working)
+                    LauncherRowDetail("Passed", symbol: "checkmark", tint: theme.working)
                         .accessibilityLabel("Checks passed")
 
                 case .failed:
-                    LauncherBadge("Failed", symbol: "xmark", tint: theme.closed)
+                    LauncherRowDetail("Failed", symbol: "xmark", tint: theme.closed)
                         .accessibilityLabel("Checks failed")
 
                 case .running:
-                    LauncherBadge("Running", symbol: "circle.fill", tint: theme.needsYou)
+                    LauncherRowDetail("Running", symbol: "circle.dotted")
                         .accessibilityLabel("Checks running")
 
                 case nil: EmptyView()
                 }
                 if pullRequest.reviewDecision == .approved {
-                    LauncherBadge("Approved", tint: theme.working)
+                    LauncherRowDetail("Approved")
                 } else if pullRequest.reviewDecision == .changesRequested {
-                    LauncherBadge("Changes requested", tint: theme.closed)
+                    LauncherRowDetail("Changes requested")
                 }
                 if pullRequest.isDraft {
-                    LauncherBadge("Draft")
+                    LauncherRowDetail("Draft")
                 }
                 if !sessions.isEmpty {
-                    LauncherBadge("\(sessions.count) \(sessions.count == 1 ? "session" : "sessions")")
+                    LauncherRowDetail(String(sessions.count), symbol: "bubble.left")
+                        .accessibilityLabel(Text(verbatim: "\(sessions.count) \(sessions.count == 1 ? "session" : "sessions")"))
                 }
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
     private func issueRow(_ issue: InboxIssue, isHighlighted: Bool) -> some View {
-        let secondary = [
-            issue.repository,
-            "#\(issue.number)",
-            issue.author.map { "@\($0)" },
-            age(since: issue.updatedAt),
-        ].compactMap(\.self)
+        let labels = issue.labels.prefix(2).map(\.name) + (issue.labels.count > 2 ? ["+\(issue.labels.count - 2)"] : [])
+        let secondary = [issue.author.map { "@\($0)" }].compactMap(\.self) + labels
 
         return LauncherRowFrame(symbol: .octicon(.issueOpened), tint: theme.working, title: issue.title, secondary: secondary, isHighlighted: isHighlighted) {
-            HStack(spacing: 5) {
-                ForEach(Array(issue.labels.prefix(2).enumerated()), id: \.offset) { _, label in
-                    LauncherLabelCapsule(name: label.name, hex: label.color)
-                }
-                if issue.labels.count > 2 {
-                    LauncherBadge("+\(issue.labels.count - 2)")
-                }
+            HStack(spacing: 8) {
+                LauncherRowDetail("\(issue.repository) #\(issue.number) · \(age(since: issue.updatedAt))")
                 if issue.openPullRequestCount > 0 {
-                    LauncherBadge(String(issue.openPullRequestCount), symbol: .octicon(.pullRequest))
+                    LauncherRowDetail(String(issue.openPullRequestCount), symbol: .octicon(.pullRequest))
                         .accessibilityLabel(Text(verbatim: "\(issue.openPullRequestCount) linked pull request\(issue.openPullRequestCount == 1 ? "" : "s")"))
                 }
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -699,7 +888,7 @@ struct Launcher: View {
         let secondary = [link.repository, "#\(link.number)"] + (pullRequest.isDraft ? ["Draft"] : [])
 
         return LauncherRowFrame(symbol: .octicon(Octicon(state)), tint: state.color(in: theme), title: pullRequest.title, secondary: secondary) {
-            LauncherBadge(status, tint: failed ? theme.closed : nil)
+            LauncherRowDetail(status, tint: failed ? theme.closed : nil)
         }
         .opacity(opening.isOpenable ? 1 : 0.6)
     }
@@ -784,10 +973,55 @@ struct Launcher: View {
     }
 
     private func move(by offset: Int, in count: Int) -> KeyPress.Result {
+        if store.launcherActionsShown {
+            let actions = currentActions
+            let enabled = actions.indices.filter { actions[$0].isEnabled }
+            if let index = selectedActionIndex(in: actions), let position = enabled.firstIndex(of: index) {
+                highlightedAction = enabled[min(max(position + offset, 0), enabled.count - 1)]
+            }
+            return .handled
+        }
         guard count > 0 else { return .ignored }
 
         highlighted = min(max(highlighted + offset, 0), count - 1)
         return .handled
+    }
+
+    private func selectedActionIndex(in actions: [LauncherAction]) -> Int? {
+        if let highlightedAction, actions.indices.contains(highlightedAction), actions[highlightedAction].isEnabled {
+            return highlightedAction
+        }
+        return actions.firstIndex(where: \.isEnabled)
+    }
+
+    private func perform(_ action: LauncherAction) {
+        guard action.isEnabled else { return }
+
+        store.launcherActionsShown = false
+        action.perform()
+    }
+
+    private func submitFromKeyboard() {
+        if store.launcherActionsShown {
+            let actions = currentActions
+            if let index = selectedActionIndex(in: actions) { perform(actions[index]) }
+        } else {
+            submit()
+        }
+    }
+
+    private func exit() {
+        if !mode.hasItemActions {
+            store.launcherMode = nil
+        } else if store.launcherActionsShown {
+            store.launcherActionsShown = false
+        } else if selectedIssue != nil {
+            selectedIssue = nil
+        } else if !query.isEmpty {
+            query = ""
+        } else {
+            store.launcherMode = nil
+        }
     }
 
     private func submit() {
@@ -950,7 +1184,7 @@ struct Launcher: View {
     }
 
     private func showInReview(_ link: PullRequestLink) {
-        guard let tab = store.selectedTabID else { return }
+        guard AppAction.showPullRequestInReview.isAvailable(in: store), let tab = store.selectedTabID else { return }
 
         store.launcherMode = nil
         Task {

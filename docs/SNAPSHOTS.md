@@ -160,7 +160,20 @@ The run restores the pasteboard's string afterwards. Consecutive edits in one ru
 
 ## Launcher keys, waiting and menus
 
-`-snapshotLauncherKeys "hub down enter …"` opens the ⌘N launcher over two fixture folders (`x-hub-ui`, a git repo, then `x-hub`, not one), types each token (letters h u b x i -, `down`, `up`, `enter`, `alt-enter`) and prints the launcher mode and the `openClaude` calls it would make with their start kind (nothing launches); add `-startsInWorktree YES` for the worktree launch. `-snapshotFakeWaiting YES` steps the top project's first session through busy, waiting, waiting, busy, waiting (in a Berth tab from the third step) and prints the Dock badge and each notification it would post (snapshot mode never posts or requests notification authorization).
+`-snapshotLauncherKeys "hub down enter"` starts in the requested scope or Folders by default. The two folder fixtures are `x-hub-ui` (a git repo) and `x-hub`. Tokens include `down`, `up`, `enter`, `alt-enter`, `alt-shift-enter`, `tab`, `ctrl-tab`, `ctrl-shift-tab`, `cmd-k`, `esc`, and text made of `hubxi-rond#`. After each token it prints the launcher mode, whether Actions is open, the query, and any issue drill-down or project column. It records session opens, URLs, and copied strings. Add `-startsInWorktree YES` for a worktree launch.
+
+Add `-snapshotLauncherActions YES` to open Actions in the requested scope. Use these recipes with `-snapshot /abs/out.png`.
+
+- **Empty folder query** `-snapshotLauncher ""`
+- **Matching folders** `-snapshotLauncher "hub"`
+- **Folder actions** `-snapshotLauncher "hub" -snapshotLauncherActions YES`
+- **Pull request actions** `-snapshotPullRequests "" -snapshotLauncherActions YES`
+- **Issue actions** `-snapshotIssues "" -snapshotLauncherActions YES`
+- **Project actions and status moves** `-snapshotProjects YES -snapshotProjectsLauncher YES -projectsAllowsEditing YES -snapshotLauncherActions YES`
+- **Show in Review actions** Add `-snapshotLauncherActions YES` to the `-snapshotReviewShowPullRequestLauncher YES` recipe above.
+- **Shortcut precedence and Escape** `-snapshotLauncher "hub" -snapshotLauncherKeys "cmd-k esc esc esc cmd-k cmd-k"` opens Actions, closes Actions, clears the query, closes Folders, opens the Command Palette, and then closes it. With `-snapshotIssues "bucket" -snapshotLauncherKeys "enter cmd-k esc esc esc esc"`, the second Escape backs out of the issue drill-down.
+
+`-snapshotFakeWaiting YES` steps the top project's first session through busy, waiting, waiting, busy, waiting (in a Berth tab from the third step) and prints the Dock badge and each notification it would post (snapshot mode never posts or requests notification authorization).
 
 It prints the window title, toolbar items, the File and View menus (Group By with ⌃⌘ shortcuts and checkmarks) and open tabs (with OSC 7 pwd and title), and hangs up its child processes on exit. -
 

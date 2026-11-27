@@ -248,6 +248,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.closeDiff()
                 return nil
             }
+            if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "k", store.launcherMode?.hasItemActions == true {
+                store.launcherActionsShown.toggle()
+                return nil
+            }
             let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
             if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showPullRequestInReview, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showTasksPane, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)

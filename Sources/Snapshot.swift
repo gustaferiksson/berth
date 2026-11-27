@@ -149,6 +149,7 @@ enum Snapshot {
     private static let pullRequestFixtures = UserDefaults.standard.bool(forKey: "snapshotLongNames") ? longNames : reviewPullRequest
 
     static let launcherKeys = UserDefaults.standard.string(forKey: "snapshotLauncherKeys")
+    private static let showsLauncherActions = UserDefaults.standard.bool(forKey: "snapshotLauncherActions")
     static let issueQuery = UserDefaults.standard.string(forKey: "snapshotIssue")
     static let issueInboxQuery = UserDefaults.standard.string(forKey: "snapshotIssues")
     static let launcherLoading = output != nil && UserDefaults.standard.bool(forKey: "snapshotLauncherLoading")
@@ -468,6 +469,7 @@ enum Snapshot {
         if !pullRequestFixtures.isEmpty { return pullRequestFixtures.map(\.session) }
         if launcherKeys != nil { return hubFolders }
         if showsWatching, !UserDefaults.standard.bool(forKey: "snapshotConversation") { return longNames.map(\.session) }
+        if UserDefaults.standard.string(forKey: "snapshotLauncher") != nil || showsLauncherActions { return hubFolders }
 
         return nil
     }()
@@ -955,16 +957,16 @@ enum Snapshot {
                 print("  \(pullRequest.role.title) | \(pullRequest.title) | \(pullRequest.repository) #\(pullRequest.number) | \(pullRequest.isDraft ? "draft" : "open") | checks \(pullRequest.checks?.rawValue ?? "none") | \(pullRequest.reviewDecision?.rawValue ?? "no decision") | @\(pullRequest.author ?? "-") | updated \(age(since: pullRequest.updatedAt)) | sessions \(store.sessions(for: link).map(\.id)) | enter: \(action)")
             }
             if UserDefaults.standard.string(forKey: "snapshotLauncherRole") == "reviewRequested" { store.launcherRole = .reviewRequested }
-            if launcherKeys == nil { store.launcherMode = .pullRequests }
+            store.launcherMode = .pullRequests
         }
-        if UserDefaults.standard.bool(forKey: "snapshotProjectsLauncher"), launcherKeys == nil { store.launcherMode = .projects }
+        if UserDefaults.standard.bool(forKey: "snapshotProjectsLauncher") { store.launcherMode = .projects }
         if let issueInboxQuery {
             let ranked = IssueInbox.rank(issueInboxQuery, in: store.issueInbox ?? [], now: .now)
             print("issues for \"\(issueInboxQuery)\": \(ranked.issues.count) shown, \(ranked.older) older hidden")
             for issue in ranked.issues {
                 print("  \(issue.id) | \(issue.title) | \(issue.openPullRequestCount) PRs")
             }
-            if launcherKeys == nil { store.launcherMode = .issues }
+            store.launcherMode = .issues
         }
         if let issueQuery {
             print("linked pull requests for \(issueQuery)")
@@ -980,7 +982,7 @@ enum Snapshot {
             case let .failure(error):
                 print("  \(error.message)")
             }
-            if launcherKeys == nil { store.launcherMode = issueInboxQuery == nil ? .pullRequests : .issues }
+            store.launcherMode = issueInboxQuery == nil ? .pullRequests : .issues
         }
         return (reviewFolder, shownPullRequestClone)
     }
@@ -2233,17 +2235,25 @@ enum Snapshot {
         }
     }
 
-    private static func finishCapture(to output: URL, store: Store, window: NSWindow, showsStats: Bool) async {
-        if let keys = launcherKeys {
+    private static func captureLauncher(store: Store, window: NSWindow) async {
+        guard showsLauncherActions || launcherKeys != nil else { return }
+
+        if launcherKeys != nil {
             let keyWindow: @convention(block) (NSApplication) -> NSWindow? = { _ in window }
             let isKey: @convention(block) (NSWindow) -> Bool = { $0 === window }
             method_setImplementation(class_getInstanceMethod(NSApplication.self, #selector(getter: NSApplication.keyWindow))!, imp_implementationWithBlock(keyWindow))
             method_setImplementation(class_getInstanceMethod(NSWindow.self, #selector(getter: NSWindow.isKeyWindow))!, imp_implementationWithBlock(isKey))
             window.identifier = NSUserInterfaceItemIdentifier("main-snapshot")
-            store.launcherMode = issueInboxQuery != nil ? .issues : issueQuery != nil ? .pullRequests : UserDefaults.standard.bool(forKey: "snapshotProjectsLauncher") ? .projects : .newSession
-            try? await Task.sleep(for: .seconds(1))
+        }
+        if store.launcherMode == nil { store.launcherMode = .newSession }
+        try? await Task.sleep(for: .seconds(1))
+        if showsLauncherActions, store.launcherMode?.hasItemActions == true {
+            store.launcherActionsShown = true
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if let keys = launcherKeys {
             print("launcher first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
-            let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "alt-shift-enter": (36, "\r"), "tab": (48, "\t"), "ctrl-tab": (48, "\t"), "ctrl-shift-tab": (48, "\t")]
+            let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "alt-shift-enter": (36, "\r"), "tab": (48, "\t"), "ctrl-tab": (48, "\t"), "ctrl-shift-tab": (48, "\t"), "cmd-k": (40, "k"), "esc": (53, "\u{1B}")]
             let letters: [Character: UInt16] = ["h": 4, "u": 32, "b": 11, "x": 7, "i": 34, "-": 27, "r": 15, "o": 31, "n": 45, "d": 2, "#": 20]
             for spec in keys.split(separator: " ").map(String.init) {
                 let strokes = special[spec].map { [$0] } ?? spec.compactMap { character in letters[character].map { (keyCode: $0, characters: String(character)) } }
@@ -2252,16 +2262,18 @@ enum Snapshot {
                 case "alt-shift-enter": [.option, .shift]
                 case "ctrl-tab": .control
                 case "ctrl-shift-tab": [.control, .shift]
+                case "cmd-k": .command
                 case "down", "up": [.function, .numericPad]
                 default: []
                 }
                 for stroke in strokes {
                     guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: stroke.characters, charactersIgnoringModifiers: stroke.characters, isARepeat: false, keyCode: stroke.keyCode) else { continue }
 
-                    if spec.hasPrefix("ctrl-") { NSApp.sendEvent(event) } else { window.sendEvent(event) }
+                    if spec.hasPrefix("ctrl-") || spec == "cmd-k" { NSApp.sendEvent(event) } else { window.sendEvent(event) }
                     try? await Task.sleep(for: .milliseconds(300))
                 }
-                print("\(spec): launcher \(String(describing: store.launcherMode))\(store.launcherMode == .projects ? ", column \(store.projects.launcherColumn ?? "All")" : "")")
+                let isOpen = store.launcherMode != nil
+                print("\(spec): launcher \(String(describing: store.launcherMode)), actions \(store.launcherActionsShown), query \(String(reflecting: isOpen ? store.probeLauncherQuery : "")), issue \(isOpen ? store.probeLauncherIssue ?? "-" : "-")\(store.launcherMode == .projects ? ", column \(store.projects.launcherColumn ?? "All")" : "")")
             }
             for harness in Harness.all {
                 let calls = store.probeOpened.filter { $0.agent == harness.agent }
@@ -2269,7 +2281,12 @@ enum Snapshot {
             }
             for prompt in store.probeOpened.compactMap(\.prompt) { print("session prompt \(prompt)") }
             print("opened URLs: \(store.probeOpenedURLs.map(\.absoluteString))")
+            print("copied strings: \(store.probeCopiedStrings)")
         }
+    }
+
+    private static func finishCapture(to output: URL, store: Store, window: NSWindow, showsStats: Bool) async {
+        await captureLauncher(store: store, window: window)
         let tab = store.tabs.first { $0.id == store.selectedTabID }
         window.title = showsStats ? "Stats" : store.isHarborShown ? "Harbor" : tab.map { $0.title(terminalTitle: $0.terminal.title, sessionTitle: store.sessionTitle(of: $0)) } ?? "Berth"
         try? await Task.sleep(for: .milliseconds(500))
