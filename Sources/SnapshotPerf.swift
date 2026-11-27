@@ -172,12 +172,15 @@ extension Snapshot {
             flushDisplay(window)
             try? await Task.sleep(for: .milliseconds(300))
             let ticks = rounds * 10
-            let mainStart = mainThreadMilliseconds()
+            var costs: [Double] = []
             for _ in 0..<ticks {
+                let mainStart = mainThreadMilliseconds()
                 if step == "refresh" { store.refresh(); await store.waitForScan() } else { store.refreshLive() }
                 try? await Task.sleep(for: .milliseconds(100))
+                costs.append(mainThreadMilliseconds() - mainStart)
             }
-            print("perf store \(step): \(ticks) ticks, main thread CPU per tick \(String(format: "%.2f", (mainThreadMilliseconds() - mainStart) / Double(ticks))) ms")
+            costs.sort()
+            print("perf store \(step): \(ticks) ticks, main thread CPU per tick median \(String(format: "%.2f", costs[ticks / 2])) ms, min \(String(format: "%.2f", costs[0])) ms")
         }
         if steps.contains("layout") {
             let calls = rounds * 10
