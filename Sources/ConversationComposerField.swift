@@ -97,7 +97,10 @@ struct ConversationComposerField: NSViewRepresentable {
         textView.shellCompleter = shellCompleter
         shellCompleter?.field = textView
         let imageTagsChanged = textView.rendersImageTags != rendersImageTags
-        let textChanged = !hasMarkedText && textView.draftText != text
+        let current = textView.draftText
+        if text == current { context.coordinator.emitted.removeAll() }
+        let target = context.coordinator.emitted.contains(text) ? current : text
+        let textChanged = !hasMarkedText && current != target
         let draftChanged = !hasMarkedText && (imageTagsChanged || textChanged)
         if draftChanged {
             let oldSelection = textView.selectedRange()
@@ -105,10 +108,13 @@ struct ConversationComposerField: NSViewRepresentable {
             context.coordinator.isUpdatingText = true
             defer { context.coordinator.isUpdatingText = false }
             textView.rendersImageTags = rendersImageTags
-            let attributed = textView.attributed(text)
+            context.coordinator.emitted.removeAll()
+            let attributed = textView.attributed(target)
+            let suffix = (textView.string as NSString).substring(from: NSMaxRange(oldSelection))
+            let keepsCaret = oldSelection.length == 0 && !suffix.isEmpty && attributed.string.hasSuffix(suffix)
             textView.textStorage?.setAttributedString(attributed)
-            if text.isEmpty { scrollView.contentView.scroll(to: .zero) }
-            textView.setSelectedRange(NSRange(location: attributed.length, length: 0))
+            if target.isEmpty { scrollView.contentView.scroll(to: .zero) }
+            textView.setSelectedRange(NSRange(location: keepsCaret ? attributed.length - suffix.utf16.count : attributed.length, length: 0))
             composerLog.info("reset caret \(oldSelection.location, privacy: .public) to \(textView.selectedRange().location, privacy: .public), text length \(oldLength, privacy: .public) to \(attributed.length, privacy: .public), rendersImageTags changed \(imageTagsChanged, privacy: .public), text changed \(textChanged, privacy: .public)")
             textView.needsDisplay = true
         }
@@ -147,6 +153,7 @@ struct ConversationComposerField: NSViewRepresentable {
         var focusRequest = 0
         var height: CGFloat = 0
         var isUpdatingText = false
+        var emitted: [String] = []
 
         init(_ parent: ConversationComposerField) {
             self.parent = parent
@@ -155,6 +162,7 @@ struct ConversationComposerField: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard !isUpdatingText, let textView = notification.object as? ComposerTextView, !textView.hasMarkedText() else { return }
 
+            emitted.append(textView.draftText)
             parent.text = textView.draftText
             textView.refreshCompletions()
         }
