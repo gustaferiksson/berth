@@ -54,6 +54,12 @@ public struct ReviewBase: Sendable, Hashable {
     public let distance: Int
 }
 
+public struct ReviewSince: Sendable, Hashable {
+    public let ref: String
+    public let sha: String
+    public let shortSHA: String
+}
+
 public struct ReviewChanges: Sendable {
     public let root: String
     public let branch: String
@@ -64,6 +70,7 @@ public struct ReviewChanges: Sendable {
     public let bases: [ReviewBase]
     public let head: String
     public let mergeBase: String
+    public let since: ReviewSince?
     public let uncommitted: [ReviewFile]
     public let committed: [ReviewFile]
     public let total: (additions: Int, deletions: Int)?
@@ -128,7 +135,7 @@ public enum ReviewGit {
     private static let binaryProbeBytes = 8000
 
     @preconcurrency
-    public static func changes(in folder: String, preferredBase: @Sendable (_ root: String, _ branch: String) -> (picked: String?, pullRequest: String?) = { _, _ in (nil, nil) }) async throws -> ReviewChanges {
+    public static func changes(in folder: String, since: String? = nil, preferredBase: @Sendable (_ root: String, _ branch: String) -> (picked: String?, pullRequest: String?) = { _, _ in (nil, nil) }) async throws -> ReviewChanges {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else { throw ReviewGitError.folderNotFound }
 
@@ -167,13 +174,28 @@ public enum ReviewGit {
         let base = chosen?.ref ?? bases.first?.ref ?? defaultBase
         let baseReason = chosen?.reason ?? (base == nil ? nil : base == defaultBase ? .defaultBranch : .nearest)
 
+        let resolvedSince = if let since { await resolveSince(since, head: head, in: root) } else { ReviewSince?.none }
         let comparedBase = isDefaultBranch ? nil : base
-        let mergeBase = if let comparedBase { try await line(["merge-base", comparedBase, head], in: root) } else { head }
+        let mergeBase = if let resolvedSince { resolvedSince.sha } else if let comparedBase { try await line(["merge-base", comparedBase, head], in: root) } else { head }
 
         let committed = try await changedFiles(from: mergeBase, to: head, in: root)
         let uncommitted = try await workingTreeChanges(from: head, in: root)
-        let total = try await comparedBase == nil ? nil : workingTreeChanges(from: mergeBase, in: root).reduce((additions: 0, deletions: 0)) { ($0.additions + ($1.additions ?? 0), $0.deletions + ($1.deletions ?? 0)) }
-        return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, defaultBase: defaultBase, base: base, baseReason: baseReason, bases: bases, head: head, mergeBase: mergeBase, uncommitted: uncommitted, committed: committed, total: total, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
+        let total = try await comparedBase == nil && resolvedSince == nil ? nil : workingTreeChanges(from: mergeBase, in: root).reduce((additions: 0, deletions: 0)) { ($0.additions + ($1.additions ?? 0), $0.deletions + ($1.deletions ?? 0)) }
+        return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, defaultBase: defaultBase, base: base, baseReason: baseReason, bases: bases, head: head, mergeBase: mergeBase, since: resolvedSince, uncommitted: uncommitted, committed: committed, total: total, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
+    }
+
+    public static func recentCommits(of changes: ReviewChanges, limit: Int = 15) async throws -> [ReviewCommit] {
+        try await commits(["-n", "\(limit)", changes.head], isPushed: { _ in false }, in: changes.root)
+    }
+
+    private static func resolveSince(_ ref: String, head: String, in root: String) async -> ReviewSince? {
+        guard !ref.hasPrefix("-"),
+              let sha = try? await line(["rev-parse", "--verify", "--quiet", "\(ref)^{commit}"], in: root),
+              let mergeBase = try? await line(["merge-base", sha, head], in: root),
+              let shortSHA = try? await line(["rev-parse", "--short", mergeBase], in: root)
+        else { return nil }
+
+        return ReviewSince(ref: ref, sha: mergeBase, shortSHA: shortSHA)
     }
 
     public static func graph(in root: String, skip: Int, limit: Int) async throws -> [GraphCommit] {
@@ -234,7 +256,7 @@ public enum ReviewGit {
         let upstreamSides = if let ownUpstream { try await line(["rev-list", "--left-right", "\(ownUpstream)...\(head)"], in: root).split(separator: "\n") } else { [Substring]() }
         let unpushed = Set(upstreamSides.filter { $0.hasPrefix(">") }.map { $0.dropFirst() })
 
-        let range = changes.isDefaultBranch || changes.base == nil ? ["-n", "2", head] : ["-n", "50", "\(changes.mergeBase)..\(head)"]
+        let range = changes.since == nil && (changes.isDefaultBranch || changes.base == nil) ? ["-n", "2", head] : ["-n", "50", "\(changes.mergeBase)..\(head)"]
 
         return ReviewBranchStatus(
             ahead: baseCounts.last ?? 0,
