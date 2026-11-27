@@ -949,8 +949,6 @@ private struct BrowserWebView: NSViewRepresentable {
     @AppStorage(BrowserModel.appearanceKey) private var appearance = BrowserAppearance.auto
 
     func makeNSView(context _: Context) -> NSView {
-        guard #available(macOS 27.0, *) else { return NSView() }
-
         let container = Container()
         container.scrollerStyle = scrollerStyle
         return container
@@ -975,11 +973,15 @@ private struct BrowserWebView: NSViewRepresentable {
         }
     }
 
-    @available(macOS 27.0, *)
     private final class Container: NSView {
         var scrollerStyle: SystemScrollerStyle?
 
-        override var cornerConfiguration: NSViewCornerConfiguration? {
+        override func layout() {
+            super.layout()
+            subviews.first?.frame = CGRect(x: 0, y: 0, width: bounds.width.rounded(.up), height: bounds.height.rounded(.up))
+        }
+
+        @available(macOS 27.0, *) override var cornerConfiguration: NSViewCornerConfiguration? {
             guard scrollerStyle?.isLegacy == false else { return nil }
 
             return .uniformCorners(radius: .fixed(CardBorder.radius - 1))
