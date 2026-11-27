@@ -85,6 +85,26 @@ enum ProcessAncestry {
         }.sorted { $0.started < $1.started }
     }
 
+    nonisolated static func isOutputGone(_ output: URL, under claude: Int32) -> Bool {
+        var file = stat()
+        let processes = userProcesses()
+        guard !processes.isEmpty, stat(output.path, &file) == 0 else { return false }
+
+        let parents = Dictionary(processes.map { ($0.kp_proc.p_pid, $0.kp_eproc.e_ppid) }, uniquingKeysWith: { first, _ in first })
+        return !processes.contains { process in
+            guard Int32(process.kp_proc.p_stat) != SZOMB else { return false }
+
+            var current = process.kp_proc.p_pid
+            for _ in 0..<16 {
+                guard let parent = parents[current], parent > 1 else { return false }
+                if parent == claude { return holds(file, pid: process.kp_proc.p_pid) }
+
+                current = parent
+            }
+            return false
+        }
+    }
+
     nonisolated static func stopShell(writing output: URL, under claude: Int32) async -> Bool {
         var file = stat()
         guard stat(output.path, &file) == 0 else { return false }
