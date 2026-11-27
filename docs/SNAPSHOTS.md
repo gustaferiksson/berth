@@ -87,8 +87,6 @@ Review pull request fixtures use these flags.
 
 Review snapshots use fixtures for GitHub data.
 
-`-snapshotInlineHosts YES` (with the Review threads fixture and `-snapshotReviewFile README.md`) prints the thread card count per thread id after resizes, thread refreshes, file switches and an injected stray card (each id must stay at 1).
-
 `-snapshotReview /abs/repo -snapshotReviewThreads YES` (add `-snapshotCollapseComments YES` to collapse every inline comment card) uses the current branch for the fake PR, opens `README.md` and expands Review Threads. Use a repo with at least six lines in `README.md` to see the open thread at line 3 and the resolved thread at line 6. The panel also shows an outdated thread and an original-side thread on `docs/usage.md`. The `review threads` line prints total and resolved counts by file. Checks default to four passed, zero failed, and one running. With `-snapshotReviewChecks`, its counts override the defaults and its open threads are added to the four fixture threads.
 
 `-snapshotReviewCreatePullRequest YES` fakes a live, idle Claude session and invokes the empty summary's Create Pull Request… action. With `-snapshotRemoteLog /abs/file` the terminal runs `tee -a` into that file. The hook clears focus, runs the action, logs the focus, notice and terminal output, saves `<out>.pr.png`, then presses Enter and reads the log again. The pasted prompt reaches the log after Enter.

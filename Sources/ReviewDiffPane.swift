@@ -1,4 +1,5 @@
 import BerthCore
+import os
 import SwiftUI
 
 struct ReviewDiffPane: View {
@@ -152,6 +153,8 @@ nonisolated struct ReviewDiffAnalysis: Sendable {
     }
 }
 
+private let reviewCardLog = Logger(subsystem: "dev.gustaf.berth", category: "review-cards")
+
 private struct ReviewDiffViews: NSViewRepresentable {
     let path: String
     let compare: ReviewCompare?
@@ -224,7 +227,10 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
     static func dismantleNSView(_: NSStackView, coordinator: Coordinator) {
         coordinator.cards.values.forEach { $0.removeFromSuperview() }
-        coordinator.threadCards.values.forEach { $0.removeFromSuperview() }
+        for (id, card) in coordinator.threadCards {
+            reviewCardLog.debug("remove on dismantle thread \(id) card \(card.hash) x \(card.frame.minX) width \(card.frame.width)")
+            card.removeFromSuperview()
+        }
         [coordinator.draft?.view, coordinator.peek?.view].compactMap(\.self).forEach { $0.removeFromSuperview() }
         guard coordinator.right.delegate === coordinator else { return }
 
@@ -558,6 +564,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             }
             let threadIDs = Set(parent.threads.map(\.id))
             for (id, card) in threadCards where !threadIDs.contains(id) {
+                reviewCardLog.debug("remove gone thread \(id) card \(card.hash) x \(card.frame.minX) width \(card.frame.width)")
                 card.removeFromSuperview()
                 threadCards[id] = nil
             }
@@ -566,6 +573,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 let owner = isUnified ? right : numbered
                 let previous = threadCards[thread.id]
                 guard let line = thread.line, line > 0, !numbered.isAbsent, let rows = numbered.side?.rows, rows.indices.contains(line - 1) else {
+                    if let previous { reviewCardLog.debug("remove unplaceable thread \(thread.id) card \(previous.hash) x \(previous.frame.minX) width \(previous.frame.width)") }
                     previous?.removeFromSuperview()
                     continue
                 }
@@ -576,11 +584,13 @@ private struct ReviewDiffViews: NSViewRepresentable {
                     card = previous
                     card.isExpanded = isExpanded
                 } else {
+                    if let previous { reviewCardLog.debug("remove replaced thread \(thread.id) card \(previous.hash) x \(previous.frame.minX) width \(previous.frame.width)") }
                     previous?.removeFromSuperview()
                     card = ReviewThreadCard(thread: thread, style: owner.style, isExpanded: isExpanded, onReply: { [weak self] in
                         self?.reply(to: thread)
                     }, onSend: { [weak self] in self?.parent?.onSendThread(thread) }, onToggle: { [weak self] isExpanded in self?.setCollapsed(!isExpanded, for: thread.id) })
                     threadCards[thread.id] = card
+                    reviewCardLog.debug("create thread \(thread.id) card \(card.hash)")
                 }
                 card.replyButton.isEnabled = !parent.isWritingPullRequest
                 if card.superview !== owner { owner.addSubview(card) }
@@ -601,13 +611,6 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 let owner = isUnified ? right : peek.numbered
                 if peek.view.superview !== owner { owner.addSubview(peek.view) }
                 placed.append((peek.view, owner, rows[peek.line]))
-            }
-
-            let hosts = Array(cards.values) + Array(threadCards.values) + [draft?.view, peek?.view].compactMap(\.self)
-            for textView in [left, right] {
-                for stray in textView.subviews where (stray is ReviewThreadCard || stray is ReviewInlineComment || stray is ReviewReferencesPeek) && !hosts.contains(where: { $0 === stray }) {
-                    stray.removeFromSuperview()
-                }
             }
 
             let inset: CGFloat = 6
@@ -631,7 +634,11 @@ private struct ReviewDiffViews: NSViewRepresentable {
             for ((item, height), width) in zip(zip(placed, heights), widths) {
                 let top = item.owner.top(ofRow: item.row + 1) - reserved[item.row, default: 0] + stacked[item.row, default: 0] + inset
                 stacked[item.row, default: 0] += height + inset * 2
-                item.view.frame = NSRect(x: item.owner.visibleRect.minX + indent, y: top, width: width, height: height)
+                let frame = NSRect(x: item.owner.visibleRect.minX + indent, y: top, width: width, height: height)
+                if let card = item.view as? ReviewThreadCard, card.frame != frame {
+                    reviewCardLog.debug("move thread \(card.thread.id) card \(card.hash) x \(card.frame.minX) -> \(frame.minX) width \(card.frame.width) -> \(frame.width)")
+                }
+                item.view.frame = frame
             }
         }
 
