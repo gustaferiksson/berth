@@ -483,6 +483,8 @@ extension Snapshot {
             switch name {
             case "type": store.conversationModels[tab.id]?.draft.text = argument
 
+            case "paste": store.conversationModels[tab.id]?.setText(argument)
+
             case "attach": store.conversationModels[tab.id]?.append([URL(fileURLWithPath: argument)])
 
             case "remove": store.conversationModels[tab.id]?.remove(URL(fileURLWithPath: argument))
