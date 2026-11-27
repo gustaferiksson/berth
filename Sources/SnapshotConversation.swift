@@ -634,9 +634,9 @@ extension Snapshot {
                 guard let textView = conversationComposer, let window = textView.window else { break }
 
                 window.makeFirstResponder(textView)
-                let keyCode: UInt16 = argument == "tab" ? 48 : 36
-                let characters = argument == "tab" ? "\t" : "\r"
-                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { break }
+                let keyCode: UInt16 = argument == "tab" ? 48 : argument == "ctrlc" ? 8 : 36
+                let characters = argument == "tab" ? "\t" : argument == "ctrlc" ? "\u{3}" : "\r"
+                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: argument == "ctrlc" ? .control : [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { break }
 
                 window.sendEvent(event)
 
