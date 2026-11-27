@@ -1151,8 +1151,8 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
                 addToolTip(mark.insetBy(dx: -3, dy: -3), owner: self, userData: nil)
             }
             if textView.markAnchors.contains(line), let glyph = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: "Agent note")?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: style.font.pointSize, weight: .regular).applying(.init(paletteColors: [style.secondary]))) {
-                let origin = NSPoint(x: 3, y: rect.minY + (textView.rowHeight - glyph.size.height) / 2)
-                glyph.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
+                let frame = NSRect(x: (textView.markSlot - glyph.size.width) / 2, y: rect.minY + (textView.rowHeight - glyph.size.height) / 2, width: glyph.size.width, height: glyph.size.height)
+                glyph.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             }
             let color = textView.side?.changedLines.contains(line) == true ? changed : isSelected || line == caret ? style.currentLineNumber : style.gutterForeground
             let label = NSAttributedString(string: "\(line + 1)", attributes: [.font: style.font, .foregroundColor: color])
