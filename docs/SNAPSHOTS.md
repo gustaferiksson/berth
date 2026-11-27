@@ -179,6 +179,8 @@ The run restores the pasteboard's string afterwards. Consecutive edits in one ru
 
 `-snapshotLauncherKeys "hub down enter"` starts in the requested scope or Folders by default. The two folder fixtures are `x-hub-ui` (a git repo) and `x-hub`. Tokens include `down`, `up`, `enter`, `alt-enter`, `alt-shift-enter`, `tab`, `ctrl-tab`, `ctrl-shift-tab`, `cmd-k`, `esc`, and text made of `hubxi-rond#pat`. Text goes to the focused field. After each token it prints the launcher mode, whether Actions is open, the launcher query, the action query while Actions is open, and any issue drill-down or project column. It records session opens, URLs, and copied strings. Add `-startsInWorktree YES` for a worktree launch.
 
+Append `*N` to a token (`down*5`) to send one press followed by N-1 key repeats (`isARepeat`) and print the highlighted row (and the Actions row) after each.
+
 The `scroll offset: <y>` line after each token reports the results list’s vertical offset in points. `0` is the top and `-` means the launcher is closed. To check the return from a scrolled position, send enough `down` tokens to get a positive offset, then send the same number of `up` tokens.
 
 Add `-snapshotLauncherActions YES` to open Actions in the requested scope. Use these recipes with `-snapshot /abs/out.png`.

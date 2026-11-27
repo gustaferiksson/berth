@@ -61,8 +61,8 @@ struct CommandPaletteView: View {
         LauncherPanel(searchGlyph: scopeGlyph) {
             TextField("Type a command", text: $query)
                 .focused($isQueryFocused)
-                .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in move(by: 1, from: selection, count: rows.count) }
-                .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in move(by: -1, from: selection, count: rows.count) }
+                .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in move(by: 1, count: rows.count) }
+                .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in move(by: -1, count: rows.count) }
                 .onSubmit {
                     if let selectedRow, let action = byTitle[selectedRow.id] { run(action) }
                 }
@@ -96,7 +96,12 @@ struct CommandPaletteView: View {
                         }
                     }
                 }
-                .onChange(of: selection) { proxy.scrollToLauncherRow(selection, startsSection: !rows.isEmpty && startsSection(selection)) }
+                .onChange(of: selection) {
+                    proxy.scrollToLauncherRow(selection, startsSection: !rows.isEmpty && startsSection(selection))
+                    #if DEBUG
+                    Snapshot.launcherSelection = selection
+                    #endif
+                }
                 .onChange(of: query) {
                     highlighted = 0
                     if isBlank { proxy.scrollTo("launcherResultsTop", anchor: .top) } else if !rows.isEmpty { proxy.scrollTo(0, anchor: .top) }
@@ -112,10 +117,10 @@ struct CommandPaletteView: View {
         }
     }
 
-    private func move(by offset: Int, from selection: Int, count: Int) -> KeyPress.Result {
+    private func move(by offset: Int, count: Int) -> KeyPress.Result {
         guard count > 0 else { return .ignored }
 
-        highlighted = min(max(selection + offset, 0), count - 1)
+        highlighted = min(max(min(highlighted, count - 1) + offset, 0), count - 1)
         return .handled
     }
 

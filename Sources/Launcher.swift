@@ -182,8 +182,8 @@ struct Launcher: View {
             TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .pullRequests: "Search pull requests or paste an issue", .showPullRequestInReview: "Search pull requests or paste a PR URL", .issues: "Search or paste an issue", .projects: "Search project items"][mode] ?? "Search all sessions"))
                 .focused($focusedField, equals: .query)
                 .disabled(store.launcherActionsShown)
-                .onKeyPress(.downArrow) { move(by: 1, in: count) }
-                .onKeyPress(.upArrow) { move(by: -1, in: count) }
+                .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in move(by: 1, in: count) }
+                .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in move(by: -1, in: count) }
                 .modifier(LauncherItemPreview(url: pullRequest?.url ?? issueRow?.url, highlighted: highlighted, query: query, store: store))
                 .onKeyPress(.tab, action: cycleScope)
                 .onKeyPress(.return, phases: .down) { submitShortcut($0, pullRequest: pullRequest) }
@@ -306,7 +306,15 @@ struct Launcher: View {
                 focusedField = .query
             }
         }
-        .onChange(of: highlighted) { highlightedAction = nil }
+        .onChange(of: highlighted) {
+            highlightedAction = nil
+            #if DEBUG
+            Snapshot.launcherSelection = highlighted
+            #endif
+        }
+        #if DEBUG
+        .onChange(of: highlightedAction) { Snapshot.launcherActionSelection = highlightedAction }
+        #endif
         .onDisappear { store.launcherActionsShown = false }
         .onAppear {
             store.launcherActionsShown = false
@@ -434,8 +442,8 @@ struct Launcher: View {
             .font(.caption)
             .focused($focusedField, equals: .actionSearch)
             .onAppear { focusedField = .actionSearch }
-            .onKeyPress(.downArrow) { moveAction(by: 1) }
-            .onKeyPress(.upArrow) { moveAction(by: -1) }
+            .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in moveAction(by: 1) }
+            .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in moveAction(by: -1) }
             .onKeyPress(.tab, action: cycleScope)
             .onKeyPress(.return, phases: .down) { submitShortcut($0, pullRequest: pullRequest) }
             .onSubmit(submitFromKeyboard)
