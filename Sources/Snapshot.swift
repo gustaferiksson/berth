@@ -149,6 +149,24 @@ enum Snapshot {
     private static let pullRequestFixtures = UserDefaults.standard.bool(forKey: "snapshotLongNames") ? longNames : reviewPullRequest
 
     static let launcherKeys = UserDefaults.standard.string(forKey: "snapshotLauncherKeys")
+    static var launcherScrollOffset = 0.0
+    static let launcherSearchRoot: URL? = {
+        guard output != nil, launcherKeys != nil, UserDefaults.standard.string(forKey: "snapshotSearch") != nil else { return nil }
+
+        let root = URL(filePath: NSTemporaryDirectory()).appending(path: "berth-launcher-search")
+        let folder = root.appending(path: "-tmp")
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for index in 1...17 {
+                let prompt = #"{"type":"user","cwd":"/tmp","message":{"role":"user","content":"Search fixture \#(index)"}}"#
+                try Data((prompt + "\n").utf8).write(to: folder.appending(path: "launcher-search-\(index).jsonl"), options: .atomic)
+            }
+        } catch {
+            fail("could not write launcher search fixture: \(error)")
+        }
+        return root
+    }()
+
     private static let showsLauncherActions = UserDefaults.standard.bool(forKey: "snapshotLauncherActions")
     static let issueQuery = UserDefaults.standard.string(forKey: "snapshotIssue")
     static let issueInboxQuery = UserDefaults.standard.string(forKey: "snapshotIssues")
@@ -462,6 +480,7 @@ enum Snapshot {
     }()
 
     static let fixtureSessions: [SessionSummary]? = {
+        if launcherSearchRoot != nil { return nil }
         if let busySidebar { return busySidebar.sessions }
         if let issueFixtures { return issueFixtures.sessions }
 
@@ -491,6 +510,7 @@ enum Snapshot {
     static let fixtureSessions: [SessionSummary]? = nil
     static let fixtureTasks: TaskState? = nil
     static let launcherKeys: String? = nil
+    static let launcherSearchRoot: URL? = nil
     static let fixtureRepositories: [String: String?] = [:]
     static let fixturePullRequests: [PullRequestBranch: PullRequest?] = [:]
     static let fixtureInbox: [InboxPullRequest]? = nil
@@ -2275,6 +2295,7 @@ enum Snapshot {
                 let isOpen = store.launcherMode != nil
                 let actionQuery = store.launcherActionsShown ? ", action query \(String(reflecting: store.probeLauncherActionQuery))" : ""
                 print("\(spec): launcher \(String(describing: store.launcherMode)), actions \(store.launcherActionsShown), query \(String(reflecting: isOpen ? store.probeLauncherQuery : ""))\(actionQuery), issue \(isOpen ? store.probeLauncherIssue ?? "-" : "-")\(store.launcherMode == .projects ? ", column \(store.projects.launcherColumn ?? "All")" : "")")
+                print("  scroll offset: \(isOpen ? String(format: "%g", launcherScrollOffset) : "-")")
             }
             for harness in Harness.all {
                 let calls = store.probeOpened.filter { $0.agent == harness.agent }
