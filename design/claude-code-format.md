@@ -43,11 +43,12 @@ Completion can arrive in a `<task-notification>` on an enqueue operation, a queu
 An agent transcript lives at `<sessionId>/subagents/agent-<agentId>.jsonl`. Its sibling `.meta.json` can identify the launch via `toolUseId` or record completion via `finished` and `stoppedByUser`. Log writes more than five seconds after completion metadata suggest the agent resumed. The Tasks pane uses the current live process start time to mark unfinished history from an earlier process as Finished.
 
 
-### Stopping a background subagent
+### Stopping a background subagent or monitor
 
 Subagents run inside the claude process, so Berth can't signal them; it drives Claude Code's own `/tasks` dialog through the session's pty (`Store.stopSubagentThroughTasksDialog`, key plan in `SubagentStop`). Read from the 2.1.332 bundle (strings of `~/.local/share/claude/versions/2.1.332`); `SubagentStop.verifiedVersion` records it and `isSupported` gates on the 2.1 series, read from `version` in `~/.claude/sessions/<pid>.json`.
 
 - `/tasks` (alias `/bashes`) is an `immediate` local-jsx command titled "Background" (dialog id `background-tasks-dialog`). Section order: Shells, Monitors, MCP tasks, Cloud agents, Background agents, Completed, Dynamic workflows, Scheduled, Goal, Forks. Within a section running rows come first, newest first (`startTime` descending). Rows are labelled with the task description, which for an agent is the Agent call's `description`.
+- A monitor sits in the Monitors section, after the running shells and before the agents, so its plan is the same with its own row index (`SubagentStop.keys` takes agents and monitors). A monitor has no foreground form and no Stop Turn fallback.
 - Only tasks with `isBackgrounded !== false` are listed, so an Agent call running in the foreground of the turn never appears. Berth marks those `SessionBackgroundTask.runsInForeground` (a pending Agent call without `run_in_background`) and offers Stop Turn (Esc) instead.
 - When exactly one task is listed (running or lingering, and the user not viewing an agent) the dialog opens straight in that task's detail view. Otherwise it opens the list, focused on the first row. The first row and the detail view both take `x`, so the plan is the same.
 - Keys: Down moves the focus, `x` stops the focused row (list) or the open agent (detail) with no confirmation, Esc closes. Detail view: left goes back, Enter, Space and Esc close. A stopped agent can stay listed for a grace period, so Berth always ends with Esc. `Ctrl+X Ctrl+K` (`chat:killAgents`) stops all background agents; Berth doesn't use it.

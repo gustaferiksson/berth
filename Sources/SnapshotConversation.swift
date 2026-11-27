@@ -290,6 +290,15 @@ extension Snapshot {
         ]
     }
 
+    private static func monitorRecords(assistant: (TimeInterval, [[String: Any]]) -> [String: Any], use: (String, String, [String: Any]) -> [String: Any], result: (String, String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        guard UserDefaults.standard.bool(forKey: "snapshotConversationMonitor") else { return [] }
+
+        return [
+            assistant(2, [use("tmon", "Monitor", ["description": "Watch the export CI run", "command": "gh run watch 4821", "timeout_ms": 3_600_000, "persistent": false])]),
+            result("tmon", "Monitor started (task bmon7q2, expires in 60m).", 1, ["toolUseResult": ["taskId": "bmon7q2", "timeoutMs": 3_600_000, "persistent": false]]),
+        ]
+    }
+
     private static func apiErrorRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
         guard showsApiError else { return [] }
 
@@ -400,7 +409,7 @@ extension Snapshot {
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + narrowImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base) + movedShellRecords(base: base)
+        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + narrowImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base) + movedShellRecords(base: base) + monitorRecords(assistant: assistant, use: use, result: result)
         let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
         guard repetitions > 1 else { return records }
 

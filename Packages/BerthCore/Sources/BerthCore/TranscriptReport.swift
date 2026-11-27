@@ -3,7 +3,7 @@ import Foundation
 private let resumeGrace: TimeInterval = 5
 
 public extension TranscriptActivity {
-    static func report(_ url: URL, previous: Self, logs previousLogs: [String: AgentLog], live: LiveSession?, catalogDirectory: URL) -> (activity: Self, logs: [String: AgentLog], report: RemoteActivity) {
+    static func report(_ url: URL, previous: Self, logs previousLogs: [String: AgentLog], live: LiveSession?, catalogDirectory: URL, isProcessGone: (URL) -> Bool = { _ in false }) -> (activity: Self, logs: [String: AgentLog], report: RemoteActivity) {
         var activity = previous
         activity.read(url)
         var logs = previousLogs.filter { activity.runningAgentIDs.contains($0.key) }
@@ -12,7 +12,7 @@ public extension TranscriptActivity {
         let finished = Set(activity.runningAgentIDs.filter { Self.subagentOutcome(agent: $0, in: subagents) != nil })
         let catalogs = ((try? FileManager.default.contentsOfDirectory(at: catalogDirectory, includingPropertiesForKeys: nil)) ?? []).compactMap { try? Data(contentsOf: $0) }
         let window = activity.model.flatMap { catalogModel($0, catalogs: catalogs).window }
-        return (activity, logs, RemoteActivity(tasks: activity.tasks(of: live, now: .now, progress: logs) { finished.contains($0) }, context: activity.context(window: window)))
+        return (activity, logs, RemoteActivity(tasks: activity.tasks(of: live, now: .now, progress: logs, isProcessGone: isProcessGone) { finished.contains($0) }, context: activity.context(window: window)))
     }
 
     internal static func subagentOutcome(agent: String, in subagents: URL) -> SessionBackgroundTask.Status? {

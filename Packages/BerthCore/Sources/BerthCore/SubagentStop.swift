@@ -17,7 +17,7 @@ public enum SubagentStop {
 
     // /tasks lists shells, then monitors, then background agents, each newest first. The list opens on its first row, and when it is the only row the dialog opens that task's detail view instead; x stops either, and Esc closes whichever is open.
     public static func keys(stopping target: SessionBackgroundTask, among tasks: [SessionBackgroundTask]) -> [SubagentStopKey]? {
-        guard target.kind == .agent, !target.runsInForeground, target.status == .running else { return nil }
+        guard target.kind == .agent || target.kind == .monitor, !target.runsInForeground, target.status == .running else { return nil }
 
         let listed = tasks.filter { $0.status == .running && !$0.runsInForeground && $0.kind != .terminal }
         let order: [SessionBackgroundTask.Kind] = [.shell, .monitor, .agent]

@@ -450,11 +450,12 @@ final class ConversationModel {
         let previous = isSameFile ? activity : TranscriptActivity()
         let previousLogs = isSameFile ? agentLogs : [:]
         let root = index.root
+        let claudePID = live?.pid
         let catalogDirectory = Store.claudeDirectory.appending(path: "cache/model-catalog")
         Task {
             let (chunk, result, tasks, approval) = await Task.detached {
                 let chunk = readTranscript(url, after, queue)
-                let result = harness.usesTranscriptActivity ? TranscriptActivity.report(url, previous: previous, logs: previousLogs, live: live, catalogDirectory: catalogDirectory) : nil
+                let result = harness.usesTranscriptActivity ? TranscriptActivity.report(url, previous: previous, logs: previousLogs, live: live, catalogDirectory: catalogDirectory, isProcessGone: { output in claudePID.map { ProcessAncestry.isOutputGone(output, under: $0) } ?? false }) : nil
                 let tasks = harness.supports(.backgroundTasks) ? harness.readTasks?(root, url) : nil
                 let approval = live?.status == "waiting" ? harness.readApproval?(url) : nil
                 return (chunk, result, tasks, approval)
