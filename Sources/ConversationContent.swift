@@ -282,6 +282,10 @@ struct ConversationPrompt: View {
                         .accessibilityLabel("Running")
                 }
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(theme.shellAttached.opacity(theme.isDark ? 0.14 : 0.1)))
             if !lines.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(verbatim: "⎿")
@@ -304,7 +308,7 @@ struct ConversationPrompt: View {
                         }
                     }
                 }
-                .padding(.leading, markerWidth)
+                .padding(.leading, markerWidth + 10)
             }
         }
         .font(Font(theme.conversationCodeNSFont()))
