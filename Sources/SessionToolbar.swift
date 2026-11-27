@@ -26,10 +26,9 @@ struct ChangesToolbar: ToolbarContent {
     let store: Store
     let host: String
     let flips: Int
-    let isRebuilding: Bool
 
     var body: some ToolbarContent {
-        if store.showsSessionToolbar, !isRebuilding {
+        if store.showsSessionToolbar {
             ToolbarSpacer(.flexible, placement: .primaryAction)
             ToolbarItem(id: "session-mode-switcher-\(host)-\(flips)", placement: .primaryAction) { ModeSwitcher(store: store, itemID: "\(host)-\(flips)") }
         }
