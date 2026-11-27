@@ -264,8 +264,11 @@ struct ConversationPrompt: View {
     private var shell: some View {
         let output = entry.shellOutput.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
         let errors = entry.shellError.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
-        let lines = output.map { (text: $0, isError: false) } + errors.map { (text: $0, isError: true) }
-        let moreLines = lines.count - 4
+        let fullLines = output.map { (text: $0, isError: false) } + errors.map { (text: $0, isError: true) }
+        let movedID = entry.shellOutput?.firstMatch(of: /^Command did not complete within its \d+s timeout and was moved to the background \(ID: ([A-Za-z0-9_-]+)\)/)?.1
+        let collapsesNotice = movedID != nil && !isExpanded
+        let lines = movedID.flatMap { collapsesNotice ? [(text: Substring("Moved to the background · \($0)"), isError: false)] : nil } ?? fullLines
+        let moreLines = movedID == nil ? lines.count - 4 : 1
 
         return VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -276,11 +279,30 @@ struct ConversationPrompt: View {
                     .accessibilityHidden(true)
                 Text(verbatim: entry.text)
                     .textSelection(.enabled)
-                if isShellRunning, entry.shellOutput == nil, entry.shellError == nil {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("Running")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(theme.shellAttached.opacity(theme.isDark ? 0.14 : 0.1)))
+            if isShellRunning, entry.shellOutput == nil, entry.shellError == nil {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: "⎿")
+                        .foregroundStyle(theme.secondary)
+                        .fixedSize()
+                        .frame(width: markerWidth - 8, alignment: .leading)
+                        .accessibilityHidden(true)
+                    HStack(spacing: 0) {
+                        Text(verbatim: "Running… ")
+                        if let started = entry.date {
+                            Text(verbatim: "(")
+                            ConversationElapsed(since: started)
+                            Text(verbatim: ")")
+                        }
+                    }
+                    .foregroundStyle(theme.secondary)
+                    .accessibilityElement(children: .combine)
                 }
+                .padding(.leading, markerWidth + 10)
             }
             if !lines.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -296,7 +318,7 @@ struct ConversationPrompt: View {
                                 .textSelection(.enabled)
                         }
                         if moreLines > 0 {
-                            Button(isExpanded ? "Show less" : "Show \(moreLines) more lines") { isExpanded.toggle() }
+                            Button(isExpanded ? "Show less" : movedID == nil ? "Show \(moreLines) more lines" : "Show full notice") { isExpanded.toggle() }
                                 .buttonStyle(.borderless)
                                 .pointerStyle(.link)
                                 .font(.caption)
@@ -304,7 +326,7 @@ struct ConversationPrompt: View {
                         }
                     }
                 }
-                .padding(.leading, markerWidth)
+                .padding(.leading, markerWidth + 10)
             }
         }
         .font(Font(theme.conversationCodeNSFont()))

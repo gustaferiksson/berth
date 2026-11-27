@@ -226,6 +226,13 @@ struct PendingPromptsTests {
         #expect(PendingPrompts.queuedShellCommand("git log", pending: kept) == nil)
     }
 
+    @Test func keepsASentShellCommandUntilItsRecordLands() {
+        let pending = [PendingPrompt(text: "!sleep 200", sentAt: sent)]
+        let kept = PendingPrompts.reconcile(pending, entries: [], queued: [], now: sent.addingTimeInterval(300))
+
+        #expect(kept.map(\.shellCommand) == ["sleep 200"])
+    }
+
     @Test func keepsAShellCommandApartFromHumanPrompts() {
         let pending = [PendingPrompt(text: "!ls", sentAt: sent)]
         let human = RemoteEntry(id: "u1", kind: .prompt, text: "ls", date: sent.addingTimeInterval(1))

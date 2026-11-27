@@ -25,6 +25,8 @@ public struct TranscriptActivity: Sendable {
     static let toolNames = tools.map { Array(#""name":"\#($0)""#.utf8) }
     static let resultKey = Array(#""tool_use_id":""#.utf8)
     static let virtualLaunchKeys = [#""agentId":""#, #""resumedAgentId":""#, #""backgroundTaskId":""#, #""taskId":""#].map { Array($0.utf8) }
+    static let movedToBackground = Array("was moved to the background (ID: ".utf8)
+    static let bashInput = Array("<bash-input>".utf8)
     static let chunkBytes = 4 << 20
     static let requestPrefix = Array(#"{"type":"api-request","#.utf8)
     static let mainThreadSources = [#""querySource":"repl_main_thread"#, #""querySource":"main_thread"#].map { Array($0.utf8) }
@@ -36,6 +38,7 @@ public struct TranscriptActivity: Sendable {
     var pending: [String: Launch] = [:]
     var running: [String: Launch] = [:]
     var ended: [String: Date] = [:]
+    var lastBashInput: String?
     var agentTitles: [String: String] = [:]
     var agentTypes: [String: String] = [:]
     var reply: Reply?
@@ -166,6 +169,7 @@ public struct TranscriptActivity: Sendable {
                 let resolvesLaunch = resultID.map { pending[$0] != nil } ?? false
                 guard watches || isReply && find(Array(#""type":"tool_use""#.utf8)) != nil && Self.toolNames.contains(where: { find($0) != nil })
                     || find(Array(#""compact_boundary""#.utf8)) != nil
+                    || !watchOnly && (find(Self.movedToBackground) != nil || find(Self.bashInput) != nil)
                     || resolvesLaunch
                     || resultID?.hasPrefix("repl_") == true && Self.virtualLaunchKeys.contains(where: { find($0) != nil }),
                     let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
@@ -184,6 +188,7 @@ public struct TranscriptActivity: Sendable {
                 if !watchOnly {
                     launch(object, at: date)
                     resolve(object, at: date)
+                    adoptMovedShell(object, at: date)
                 }
                 endNotified(object, at: date)
             }
@@ -278,6 +283,19 @@ public struct TranscriptActivity: Sendable {
                 start(task, Launch(tool: launch.tool, title: launch.title, started: launch.started, deadline: timeout.map { launch.started + $0 / 1000 }, command: launch.command))
             }
         }
+    }
+
+    mutating func adoptMovedShell(_ object: [String: Any], at date: Date) {
+        guard object["type"] as? String == "user", let text = (object["message"] as? [String: Any])?["content"] as? String else { return }
+
+        if let input = text.wholeMatch(of: /(?s)\s*<bash-input>(.*)<\/bash-input>\s*/) {
+            lastBashInput = input.1.trimmingCharacters(in: .whitespacesAndNewlines)
+            return
+        }
+        guard let moved = text.firstMatch(of: /<bash-stdout>Command did not complete within its \d+s timeout and was moved to the background \(ID: ([A-Za-z0-9_-]+)\)\. Output is being written to:? (\/[^\s<]+?)\.?(?:\s|<|$)/) else { return }
+
+        let command = lastBashInput
+        start(String(moved.1), Launch(tool: "Bash", title: command ?? "Background shell", started: date, command: command, output: String(moved.2)))
     }
 
     static func replLaunch(id: String, result: [String: Any], at date: Date) -> Launch? {

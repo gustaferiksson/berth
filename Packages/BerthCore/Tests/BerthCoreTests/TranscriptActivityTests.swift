@@ -31,6 +31,20 @@ struct TranscriptActivityTests {
         #expect(tasks.map(\.title) == ["Start the dev server", "Review the parser", "Watch CI"])
     }
 
+    @Test func countsAShellRunByTheUserThatClaudeCodeMovedToTheBackground() {
+        let output = "/private/tmp/claude-501/-tmp-demo/s/tasks/bmoved1.output"
+        let lines = [
+            #"{"type":"user","timestamp":"2026-11-01T10:00:00.000Z","message":{"role":"user","content":"<bash-input>sleep 300</bash-input>"}}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:02:00.000Z","message":{"role":"user","content":"<bash-stdout>Command did not complete within its 120s timeout and was moved to the background (ID: bmoved1). Output is being written to: \#(output). You will be notified when it completes.</bash-stdout><bash-stderr></bash-stderr>"}}"#,
+        ]
+        var history = TranscriptActivity(keepsTaskHistory: true)
+        history.apply(Data((lines.joined(separator: "\n") + "\n").utf8))
+
+        let tasks = activity(lines).tasks(of: live, now: now) { _ in false }
+        #expect(tasks.map(\.id) == ["bmoved1"] && tasks.map(\.kind) == [RemoteTask.shell] && tasks.map(\.title) == ["sleep 300"])
+        #expect(history.taskHistory["bmoved1"]?.outputFile?.path == output)
+    }
+
     @Test func stoppedAgentCountsAgainOnceItsLogGrowsPastTheMeta() throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let subagents = folder.appending(path: "s/subagents")
@@ -118,6 +132,17 @@ struct TranscriptActivityTests {
             #"{"type":"user","timestamp":"2026-11-01T10:02:41.000Z","message":{"content":[{"tool_use_id":"tu-stop2","type":"tool_result","content":"No task found","is_error":true}]},"toolUseResult":"Error: No task found"}"#,
         ])
         #expect(stopped.tasks(of: live, now: now) { _ in false }.map(\.id) == ["agent1", "bmon1"])
+    }
+
+    @Test func countsAMonitorLikeClaudeCodeCountsItAsOneShell() {
+        let lines = [
+            #"{"type":"assistant","timestamp":"2026-11-01T10:00:00.000Z","message":{"content":[{"type":"tool_use","id":"tu-watch","name":"Monitor","input":{"description":"Watch downloads until the upload line appears","command":"tail -f downloads.log","timeout_ms":900000,"persistent":false}}]}}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:00:01.000Z","message":{"content":[{"tool_use_id":"tu-watch","type":"tool_result","content":"Monitor started (task bwatch1, expires in 15m)."}]},"toolUseResult":{"taskId":"bwatch1","timeoutMs":900000,"persistent":false}}"#,
+        ]
+        let tasks = activity(lines).tasks(of: live, now: now) { _ in false }
+
+        #expect(tasks.map(\.title) == ["Watch downloads until the upload line appears"])
+        #expect(RemoteTask.summary(of: tasks) == "1 shell")
     }
 
     @Test func monitorsEndWhenTheyExpire() {

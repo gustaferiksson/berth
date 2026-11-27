@@ -281,9 +281,9 @@ public extension RemoteTask {
     }
 
     static func summary(of tasks: [Self]) -> String {
-        let counts = [(agent, "agent", "agents"), (shell, "shell", "shells"), (monitor, "monitor", "monitors")]
-            .compactMap { kind, one, many -> String? in
-                let count = tasks.count { $0.kind == kind }
+        let counts = [([agent], "agent", "agents"), ([shell, monitor], "shell", "shells")]
+            .compactMap { kinds, one, many -> String? in
+                let count = tasks.count { kinds.contains($0.kind) }
                 return count == 0 ? nil : "\(count) \(count == 1 ? one : many)"
             }
         return counts.isEmpty ? "\(tasks.count) running" : counts.joined(separator: " · ")

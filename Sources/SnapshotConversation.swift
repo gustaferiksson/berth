@@ -279,6 +279,16 @@ extension Snapshot {
         try? (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private static func movedShellRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        guard UserDefaults.standard.bool(forKey: "snapshotConversationMovedShell") else { return [] }
+
+        let notice = "Command did not complete within its 120s timeout and was moved to the background (ID: bfx7k2m9q). Output is being written to: /private/tmp/claude-501/-private-tmp-berth-conversation-fixture/\(conversationSession)/tasks/bfx7k2m9q.output. You will be notified when it completes. It is running now: do not start a second copy while it runs."
+        return [
+            base("user", 5, ["role": "user", "content": "<bash-input>npm run build:slow</bash-input>"]),
+            base("user", 1, ["role": "user", "content": "<bash-stdout>\(notice)</bash-stdout><bash-stderr></bash-stderr>"]),
+        ]
+    }
+
     private static func apiErrorRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
         guard showsApiError else { return [] }
 
@@ -375,7 +385,7 @@ extension Snapshot {
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + narrowImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base)
+        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + narrowImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base) + movedShellRecords(base: base)
         let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
         guard repetitions > 1 else { return records }
 
