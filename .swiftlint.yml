@@ -169,6 +169,11 @@ custom_rules:
     name: Grouped Identifier Number
     regex: '(?:(?:Text|Label|Button|Toggle|Section|LabeledContent|Link|\.help|\.navigationTitle|\.accessibilityLabel|\.accessibilityValue|\.accessibilityHint)\(|String\(localized: )"[^"\n]*(?:[#:]\\\((?!String\()|\\\((?![^)]*String\()(?:[\w.]*\.number|(?:[\w.]*\.)?(?:port|pid|line))\))'
     message: 'A localized string literal groups an Int ("#1,742", "localhost:7,878"). Use Text(verbatim:), or interpolate String(number) in Label, Button, .help and .accessibilityLabel.'
+  leading_accent_bar:
+    name: Leading Accent Bar
+    regex: '\.(overlay|background)\(alignment: \.(leading|trailing)\)\s*\{\s*(Rectangle|Capsule)\(\)\s*(\.fill\([^\n]*\)\s*)?\.frame\(width: [2-4](\.\d+)?\)|NSRect\(x: 0, y: 0, width: [2-4](\.\d+)?, height: bounds\.height\)'
+    message: 'Never a coloured left edge or accent bar on a card. Tint the card background instead.'
+    excluded: 'Sources/ReviewMarkdownView\.swift|BerthRemote/TranscriptViews\.swift'
   negative_padding:
     name: Negative Padding
     regex: '\.padding\((?:[^)\n]*,\s*)?-\s*[\w.]'

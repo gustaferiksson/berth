@@ -49,7 +49,6 @@ final class ReviewThreadCard: NSView {
     let replyButton = NSButton(title: "Reply", target: nil, action: nil)
     private let sendButton = NSButton(title: "Send to Claude", target: nil, action: nil)
     private let disclosure = NSButton()
-    private let accent = NSView()
     private let status: NSTextField
     private let summary: NSTextField
     private let replies: NSTextField
@@ -78,7 +77,6 @@ final class ReviewThreadCard: NSView {
         layer?.cornerRadius = 8
         layer?.masksToBounds = true
         layer?.borderWidth = 1
-        accent.wantsLayer = true
         status.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
         summary.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         summary.lineBreakMode = .byTruncatingTail
@@ -97,7 +95,7 @@ final class ReviewThreadCard: NSView {
         disclosure.action = #selector(toggle)
         disclosure.isBordered = false
         disclosure.imagePosition = .imageOnly
-        for view in [accent, status, summary, replies, disclosure] { addSubview(view) }
+        for view in [status, summary, replies, disclosure] { addSubview(view) }
         for message in messages {
             for view in [message.avatar, message.author, message.time, message.body] { addSubview(view) }
         }
@@ -118,7 +116,6 @@ final class ReviewThreadCard: NSView {
         let background = style.background.blended(withFraction: thread.isResolved ? 0.03 : 0.09, of: tint) ?? style.background
         layer?.backgroundColor = background.withAlphaComponent(1).cgColor
         layer?.borderColor = style.commentBorder.cgColor
-        accent.layer?.backgroundColor = tint.cgColor
         status.textColor = tint
         summary.textColor = style.secondary
         replies.textColor = style.secondary
@@ -142,13 +139,12 @@ final class ReviewThreadCard: NSView {
 
     override func layout() {
         super.layout()
-        accent.frame = NSRect(x: 0, y: 0, width: 3, height: bounds.height)
         _ = arrange(width: bounds.width, placesSubviews: true)
     }
 
     private func arrange(width: CGFloat, placesSubviews: Bool) -> CGFloat {
-        let inner = max(width - 2 * padding - 3, 1)
-        let leading = padding + 3
+        let inner = max(width - 2 * padding, 1)
+        let leading = padding
         let trailing = leading + inner
         let disclosureWidth: CGFloat = 18
         let statusWidth = status.stringValue.isEmpty ? 0 : status.intrinsicContentSize.width + 6
