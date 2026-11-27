@@ -7,7 +7,7 @@ enum SettingsSnapshot {
 
     static func capture(to output: URL) async {
         NSApp.setActivationPolicy(.accessory)
-        if UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark" { NSApp.appearance = NSAppearance(named: .darkAqua) }
+        Snapshot.applyAppearance()
         keepWindowsOffScreen()
         guard let menu = NSApp.mainMenu?.items.first?.submenu,
               let index = menu.items.firstIndex(where: { $0.keyEquivalent == "," })

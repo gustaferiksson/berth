@@ -101,7 +101,7 @@ enum GhosttyConfig {
 
     static func load(overrides: String = overrideText) -> (contents: String, values: [String: String]) {
         #if DEBUG
-        let themeOverride = UserDefaults.standard.string(forKey: "snapshotGhosttyTheme").map { "theme = \($0)" }
+        let themeOverride = (UserDefaults.standard.string(forKey: "snapshotGhosttyTheme") ?? SnapshotThemes.requested).map { "theme = \($0)" }
         #else
         let themeOverride: String? = nil
         #endif
@@ -155,6 +155,9 @@ enum GhosttyConfig {
         let isDark = prefersDark
         let variants = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         let name = variants.first { $0.hasPrefix(isDark ? "dark:" : "light:") }.map { String($0.drop { $0 != ":" }.dropFirst()) } ?? value
+        #if DEBUG
+        if let fixture = SnapshotThemes.fixtures[name] { return fixture }
+        #endif
         return ["\(home)/.config/ghostty/themes/\(name)", "/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(name)"]
             .lazy
             .compactMap { try? String(contentsOfFile: $0, encoding: .utf8) }
