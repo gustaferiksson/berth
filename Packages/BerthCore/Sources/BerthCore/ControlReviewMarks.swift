@@ -15,6 +15,8 @@ public struct ControlReviewMark: Codable, Equatable, Sendable {
 }
 
 public enum ControlReviewMarks {
+    public static let lastReview = "last-review"
+
     public struct ValidationError: Error, Equatable {
         public let message: String
     }

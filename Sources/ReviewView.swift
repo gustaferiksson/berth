@@ -71,6 +71,7 @@ final class ReviewModel {
     let isSessionFiles: Bool
     private(set) var changes: ReviewChanges?
     private(set) var status: ReviewBranchStatus?
+    var since: String?
     private(set) var tree: [ReviewFileTree] = []
     private(set) var pullRequestDetails: [Int: PullRequestDetail] = [:]
     private(set) var pullRequestStacks: [ReviewPullRequestStackKey: ReviewPullRequestStack] = [:]
@@ -189,7 +190,7 @@ final class ReviewModel {
         do {
             let picks = UserDefaults.standard.dictionary(forKey: Self.baseBranchesKey) as? [String: [String: String]] ?? [:]
             let pullRequestBase = pullRequestBase
-            let changes = try await ReviewGit.changes(in: folder) { root, branch in (picks[root]?[branch], pullRequestBase?.branch == branch ? pullRequestBase?.base : nil) }
+            let changes = try await ReviewGit.changes(in: folder, since: since) { root, branch in (picks[root]?[branch], pullRequestBase?.branch == branch ? pullRequestBase?.base : nil) }
             if Store.shared.persistsTabs, picks[changes.root]?[changes.branch] != nil, changes.baseReason != .picked, changes.defaultBase != nil, !changes.isDefaultBranch {
                 var kept = picks
                 kept[changes.root]?[changes.branch] = nil
@@ -197,6 +198,7 @@ final class ReviewModel {
             }
             let files = try await ReviewGit.files(in: changes.root)
             status = try? await ReviewGit.branchStatus(of: changes)
+            if changes.since == nil { since = nil }
             self.changes = changes
             tree = ReviewFileTree.nodes(files)
             error = nil
@@ -1677,7 +1679,7 @@ struct ReviewFileList: View {
     private func header(_ changes: ReviewChanges) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 4) {
-                Text(changes.isDefaultBranch || changes.base == nil ? "\(changes.branch), uncommitted only" : changes.branch)
+                Text((changes.isDefaultBranch || changes.base == nil) && changes.since == nil ? "\(changes.branch), uncommitted only" : changes.branch)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(minWidth: 48, alignment: .leading)
@@ -1685,6 +1687,7 @@ struct ReviewFileList: View {
                     baseMenu(base, candidates: changes.bases)
                         .layoutPriority(1)
                 }
+                ReviewSinceMenu(model: model, changes: changes, pullRequest: pullRequest.flatMap { shown in shown.pullRequest.map { (shown.repository, $0.number) } }).layoutPriority(1)
             }
             .font(.caption.monospaced())
             .foregroundStyle(theme.branch)
@@ -1783,7 +1786,7 @@ extension Store {
         guard !sent.isEmpty else { return }
 
         let prompt = owners.filter { !$0.model.comments.isEmpty }.map { owner in
-            ReviewComment.prompt(for: owner.model.comments, branch: owner.model.changes?.branch ?? "HEAD", base: owner.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base } ?? "HEAD", repository: owner.repository.map { ($0.name, $0.root) })
+            ReviewComment.prompt(for: owner.model.comments, branch: owner.model.changes?.branch ?? "HEAD", base: owner.model.changes.flatMap { $0.since?.ref ?? ($0.isDefaultBranch ? nil : $0.base) } ?? "HEAD", repository: owner.repository.map { ($0.name, $0.root) })
         }.joined(separator: "\n\n")
         guard await sendReviewPrompt(prompt, sessionID: sessionID, noticeIn: model) else { return }
 

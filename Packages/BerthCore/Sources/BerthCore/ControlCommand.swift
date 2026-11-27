@@ -29,7 +29,7 @@ public enum ControlCommand {
            berth browser forward [--tab <id>] [--json]
            berth browser eval <js> [--tab <id>] [--json]
            berth show-pr <number|url> [--repo <path>] [--json]
-           berth review mark <path>:<start>[-<end>] [--note <text>] ... [--json]
+           berth review mark <path>:<start>[-<end>] [--note <text>] ... [--base <ref>] [--json]
            berth review marks clear [--json]
            berth send <tab> <text> [--no-enter]
            berth capture <tab>
@@ -206,9 +206,16 @@ public enum ControlCommand {
 
         var json = false
         var marks: [ControlReviewMark] = []
+        var base: String?
         while let argument = rest.popFirst() {
             if argument == "--json" {
                 json = true
+                continue
+            }
+            if argument == "--base" {
+                guard operation == .reviewMark, base == nil, let ref = rest.popFirst() else { throw UsageError(message: "--base needs a Git ref or commit ID, once") }
+
+                base = ref
                 continue
             }
             guard operation == .reviewMark, let separator = argument.lastIndex(of: ":"), separator != argument.startIndex,
@@ -226,7 +233,7 @@ public enum ControlCommand {
             marks.append(ControlReviewMark(path: String(argument[..<separator]), startLine: start, endLine: end, note: note))
         }
 
-        let request = ControlRequest(token: token, caller: caller, operation: operation, marks: operation == .reviewMark ? marks : nil)
+        let request = ControlRequest(token: token, caller: caller, operation: operation, marks: operation == .reviewMark ? marks : nil, base: base)
         if case let .failure(error) = ControlReviewMarks.validate(request) {
             throw UsageError(message: error.message)
         }
