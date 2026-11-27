@@ -111,6 +111,7 @@ extension Snapshot {
 
         let label = "\(conversation ? "conversation " : "")scroll bottom to top and back"
         reportPerformance(label, times, cpuMilliseconds() - cpuStart)
+        if let slowest = times.enumerated().max(by: { $0.element < $1.element }) { print("perf \(label): slowest step \(slowest.offset) of \(times.count)") }
         if conversation {
             print("perf conversation scroll sweep: wall \(String(format: "%.1f", milliseconds(ContinuousClock.now - wallStart))) ms, main thread CPU \(String(format: "%.1f", mainThreadMilliseconds() - mainStart)) ms (includes work between steps)")
         }
