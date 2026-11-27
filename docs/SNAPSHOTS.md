@@ -14,6 +14,8 @@ Use `-windowBackground theme|glass|darker` to select the detail background throu
 
 `-snapshotBusySidebar YES` seeds 28 sessions in eight projects and two terminals. It includes all pull request and check states, live activity, unread and flagged sessions, pins, two tasks with members, Snoozed and Done. Use `-sidebarTwoLineRows YES` to show the repository and branch under session titles. The fixture shows triage and expands Snoozed and Done by default. Use `-snapshotSidebarWidth <pt>` to change the leading sidebar’s ideal width from 300 pt.
 
+`-snapshotTerminalCloseClicks YES` (with `-snapshotShell YES` and an empty temporary `CFFIXED_USER_HOME`) forces hover on the unselected terminal row and saves the window to the `-snapshot` path before clicking. It reads the close glyph centre from SwiftUI geometry, sends window mouse events at the centre and 4 and 6 pt in each cardinal direction, and prints `closed`, `selected`, or `nothing` for each click. It recreates the fixture between clicks.
+
 
 `-snapshotPaneTerminal YES` (with `-snapshotSessionTerminals YES -snapshotSelectNestedTerminal YES -reviewEnabled NO`) types `stty size` into the pane terminal at window widths 1500, 1000 and 1400 and prints the surface size and focus per width, saving `<out>.pane-<width>.png`. It then selects the session tab, leaves focus in the pane terminal, opens find, types a needle and saves `<out>.pane-find.png`.
 

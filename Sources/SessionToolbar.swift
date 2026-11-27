@@ -21,16 +21,14 @@ struct SessionToolbar: ToolbarContent {
     }
 }
 
-// Declared in the detail or the pane sidebar by mode; a shared id moved one live item between hosts and stranded it (#441).
-struct ChangesToolbar: ToolbarContent {
+// Always declared in the detail toolbar: moving the item between column toolbars stranded it with dead clicks (#441, #516).
+struct ModeSwitcherToolbar: ToolbarContent {
     let store: Store
-    let host: String
-    let flips: Int
 
     var body: some ToolbarContent {
         if store.showsSessionToolbar {
             ToolbarSpacer(.flexible, placement: .primaryAction)
-            ToolbarItem(id: "session-mode-switcher-\(host)-\(flips)", placement: .primaryAction) { ModeSwitcher(store: store, itemID: "\(host)-\(flips)") }
+            ToolbarItem(id: "session-mode-switcher", placement: .primaryAction) { ModeSwitcher(store: store) }
         }
     }
 }

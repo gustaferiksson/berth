@@ -1095,14 +1095,19 @@ private struct RowChrome: ViewModifier {
             .padding(.horizontal, -SidebarRowLayout.horizontalInset)
             .overlay(alignment: .trailing) {
                 if let close, isHighlighted || isSelected {
-                    Button("Close Terminal", systemImage: "xmark", action: close)
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color.secondary)
-                        .frame(width: 16, height: 16)
-                        .contentShape(.rect)
-                        .help("Close terminal")
+                    Button(action: close) {
+                        Label("Close Terminal", systemImage: "xmark")
+                            .labelStyle(.iconOnly)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.secondary)
+                            .frame(width: 24, height: 24)
+                            #if DEBUG
+                            .modifier(SnapshotTerminalCloseGeometry(hoverID: hoverID))
+                            #endif
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Close terminal")
                 }
             }
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
