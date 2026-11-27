@@ -102,6 +102,7 @@ struct ConversationComposer: View {
                             submit: send,
                             attach: { canAttach ? model.attach($0) : "" },
                             recall: recallQueued,
+                            stop: stopOrClear,
                             leaveShell: { model.setText(shownText) }
                         )
                         Button {
@@ -224,6 +225,12 @@ struct ConversationComposer: View {
 
         Task { await model.recallQueued() }
         return true
+    }
+
+    private func stopOrClear() {
+        guard isWorking else { return model.draft = ConversationDraft() }
+
+        model.interrupt()
     }
 
     private func send() {
