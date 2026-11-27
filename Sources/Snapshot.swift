@@ -150,6 +150,8 @@ enum Snapshot {
 
     static let launcherKeys = UserDefaults.standard.string(forKey: "snapshotLauncherKeys")
     static var launcherScrollOffset = 0.0
+    static var launcherSelection = 0
+    static var launcherActionSelection: Int?
     static let launcherSearchRoot: URL? = {
         guard output != nil, launcherKeys != nil, UserDefaults.standard.string(forKey: "snapshotSearch") != nil else { return nil }
 
@@ -2329,7 +2331,7 @@ enum Snapshot {
 
                         if spec.hasPrefix("ctrl-") || spec == "cmd-k" { NSApp.sendEvent(event) } else { window.sendEvent(event) }
                         try? await Task.sleep(for: .milliseconds(presses > 1 ? 100 : 300))
-                        if presses > 1 { print("  \(press > 0 ? "repeat" : "press") \(press + 1): selection \(store.probeLauncherSelection), action selection \(store.probeLauncherActionSelection.map(String.init) ?? "-")") }
+                        if presses > 1 { print("  \(press > 0 ? "repeat" : "press") \(press + 1): selection \(launcherSelection), action selection \(launcherActionSelection.map(String.init) ?? "-")") }
                     }
                 }
                 let isOpen = store.launcherMode != nil
