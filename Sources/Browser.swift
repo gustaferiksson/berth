@@ -81,9 +81,14 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     var progress = 0.0
     var canGoBack = false
     var canGoForward = false
-    var isDrivenByAgent = false
+    var isDrivenByAgent = false {
+        didSet { loadedWebView?.setAgentDriven(isDrivenByAgent) }
+    }
+
+    @ObservationIgnored var focusesBlankAddress = true
     @ObservationIgnored var needsPageFocus = false
-    @ObservationIgnored private(set) var loadedWebView: WKWebView?
+    @ObservationIgnored private var agentInteractions: [ObjectIdentifier: Int] = [:]
+    @ObservationIgnored private(set) var loadedWebView: BrowserPageWebView?
     @ObservationIgnored var isTakingScreenshot = false
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var pendingNavigation: WKNavigation?
@@ -92,6 +97,25 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     @ObservationIgnored private var consoleEntries: [ControlConsoleEntry] = []
     @ObservationIgnored private var consoleSequence = 0
     @ObservationIgnored private unowned let browser: BrowserModel
+
+    var isHandlingAgentInteraction: Bool {
+        guard isDrivenByAgent, let view = loadedWebView else { return false }
+
+        return agentInteractions[ObjectIdentifier(view)] != nil || !view.hasWindowFocus
+    }
+
+    func beginAgentInteraction(in view: WKWebView) {
+        agentInteractions[ObjectIdentifier(view), default: 0] += 1
+    }
+
+    func endAgentInteraction(in view: WKWebView) {
+        let id = ObjectIdentifier(view)
+        if agentInteractions[id] == 1 {
+            agentInteractions[id] = nil
+        } else {
+            agentInteractions[id, default: 0] -= 1
+        }
+    }
 
     init(url: URL?, title: String = "", lockedURL: URL? = nil, browser: BrowserModel) {
         self.url = url
@@ -107,13 +131,14 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         return url?.host(percentEncoded: false) ?? url?.lastPathComponent ?? "New Tab"
     }
 
-    var webView: WKWebView {
+    var webView: BrowserPageWebView {
         if let loadedWebView { return loadedWebView }
 
         let configuration = browser.configuration()
         installUserScripts(in: configuration.userContentController)
         configuration.userContentController.add(self, name: Self.consoleBridge)
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = BrowserPageWebView(frame: .zero, configuration: configuration)
+        view.setAgentDriven(isDrivenByAgent)
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
@@ -279,7 +304,7 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
         }
         if isPage || ["about", "data", "blob", "javascript"].contains(scheme) { return (.allow, preferences) }
 
-        if action.navigationType == .linkActivated { browser.openOutside(url) }
+        if action.navigationType == .linkActivated, !isHandlingAgentInteraction { browser.openOutside(url) }
         return (.cancel, preferences)
     }
 
@@ -467,6 +492,32 @@ final class BrowserTab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelega
     """#
 }
 
+final class BrowserPageWebView: WKWebView {
+    private var isAgentDriven = false
+
+    var hasWindowFocus: Bool {
+        guard let responder = window?.firstResponder as? NSView else { return false }
+
+        return responder.isDescendant(of: self)
+    }
+
+    func setAgentDriven(_ isDriven: Bool) {
+        guard isAgentDriven != isDriven else { return }
+
+        isAgentDriven = isDriven
+        let selector = NSSelectorFromString("_setShouldSuppressFirstResponderChanges:")
+        guard responds(to: selector), let method = method(for: selector) else { return }
+
+        typealias Setter = @convention(c) (WKWebView, Selector, Bool) -> Void
+        unsafeBitCast(method, to: Setter.self)(self, selector, isDriven)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if isAgentDriven, !hasWindowFocus { window?.makeFirstResponder(self) }
+        super.mouseDown(with: event)
+    }
+}
+
 @Observable
 final class BrowserDownload: Identifiable {
     let id = UUID()
@@ -596,11 +647,14 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
     }
 
     @discardableResult
-    func open(_ url: URL?, in key: String, title: String = "", selects: Bool = true) -> BrowserTab {
+    func open(_ url: URL?, in key: String, title: String = "", selects: Bool = true, fromAgent: Bool = false) -> BrowserTab {
         let tab = BrowserTab(url: url, title: title, browser: self)
+        tab.isDrivenByAgent = fromAgent
+        tab.focusesBlankAddress = !fromAgent
+        if !selects, fromAgent, selectedIDs[key] == nil { selectedIDs[key] = selectedTab(in: key)?.id }
         sessionTabs[key, default: []].append(tab)
         if selects { selectedIDs[key] = tab.id }
-        if selects, url == nil { addressFocusRequests += 1 }
+        if selects, url == nil, !fromAgent { addressFocusRequests += 1 }
         save()
         return tab
     }
@@ -616,10 +670,13 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         let key = sessionTabs.first { $0.value.contains { $0 === opener } }?.key ?? sessionKey
         guard let key else { return }
 
-        open(url, in: key, selects: selects)
+        let isAgentInteraction = opener.isHandlingAgentInteraction
+        let canSelect = !isAgentInteraction || sessionKey != key || store.canShowAgentBrowser(in: key)
+        open(url, in: key, selects: selects && canSelect, fromAgent: isAgentInteraction)
     }
 
     func select(_ tab: BrowserTab, in key: String) {
+        tab.focusesBlankAddress = true
         selectedIDs[key] = tab.id
     }
 

@@ -44,8 +44,11 @@ extension Snapshot {
         session.checkout = "/Users/dev/acme-billing"
         let pending = Task { await access.authorize(key: session.id, title: session.title, session: session, folder: session.cwd, url: "https://staging.acme.example/billing/invoices?status=open") }
         try? await Task.sleep(for: .seconds(2))
-        guard let sheet = window.attachedSheet, let image = image(of: sheet), let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]), let request = access.requests.first else {
-            fail("the approval prompt should be attached to the window")
+        guard window.attachedSheet == nil, let image = image(of: window),
+              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]),
+              let request = access.requests.first
+        else {
+            fail("could not capture the nonmodal approval prompt")
         }
 
         try? png.write(to: output)

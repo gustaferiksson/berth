@@ -5,13 +5,12 @@ struct AgentBrowserPrompt: View {
     let access: BrowserAccess
 
     var body: some View {
-        let request = access.requests.first
-        Color.clear
-            .id(request?.id)
-            .sheet(item: Binding(get: { request }, set: { _ in })) { request in
-                AgentBrowserApproval(request: request) { access.resolve(request, with: $0) }
-                    .interactiveDismissDisabled()
-            }
+        if let request = access.requests.first {
+            AgentBrowserApproval(request: request) { access.resolve(request, with: $0) }
+                .background(.background, in: .rect(cornerRadius: CardBorder.radius))
+                .overlay { CardBorder() }
+                .shadow(radius: 12, y: 4)
+        }
     }
 }
 
@@ -34,9 +33,7 @@ struct AgentBrowserApproval: View {
             HStack {
                 Spacer()
                 Button("Deny", role: .cancel) { decide(.denied) }
-                    .keyboardShortcut(.cancelAction)
                 Button("Allow for This Session") { decide(.allowed) }
-                    .keyboardShortcut(.defaultAction)
             }
             .controlSize(.large)
         }

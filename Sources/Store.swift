@@ -121,6 +121,7 @@ final class Store {
 
     var lockedSessionID: String?
     var sessionPanes: [Tab.ID: SessionPane] = [:]
+    @ObservationIgnored weak var sessionPaneView: NSView?
     @ObservationIgnored var filesModels: [Tab.ID: FilesModel] = [:]
     var paneTerminalIDs: [Tab.ID: Tab.ID] = [:]
     let backgroundTaskModel = BackgroundTaskModel()
@@ -1511,16 +1512,6 @@ final class Store {
         if let session = sessionTab { sessionPanes[session.id] = .files }
     }
 
-    func showBrowserPane() {
-        guard let session = sessionTab else { return }
-
-        launcherMode = nil
-        isHarborShown = false
-        leaveTerminalPane(of: session)
-        sessionPanes[session.id] = .browser
-        if browser.shownTab == nil { browser.open(nil, in: BrowserModel.key(of: session)) }
-    }
-
     func openIncomingURL(_ url: URL) {
         guard WebAddress.allows(url) || url.isFileURL && ["html", "htm", "xhtml"].contains(url.pathExtension.lowercased()) else { return }
 
@@ -2439,5 +2430,38 @@ final class Store {
         }
         activate((selected ?? tabs.first { $0.kind == .claude }?.id ?? tabs.first?.id).map(SidebarItem.tab))
         for id in restoredTabIDs { tabTouches[id] = nil }
+    }
+}
+
+extension Store {
+    func showBrowserPane() {
+        guard let session = sessionTab else { return }
+
+        launcherMode = nil
+        isHarborShown = false
+        leaveTerminalPane(of: session)
+        sessionPanes[session.id] = .browser
+        if let tab = browser.shownTab {
+            tab.focusesBlankAddress = true
+        } else {
+            browser.open(nil, in: BrowserModel.key(of: session))
+        }
+    }
+
+    func canShowAgentBrowser(in key: String) -> Bool {
+        guard browser.sessionKey == key, !isHarborShown, launcherMode == nil else { return false }
+        guard let pane = sessionPaneView, let responder = pane.window?.firstResponder as? NSView else { return true }
+
+        if responder.isDescendant(of: pane) || (responder as? NSTextView)?.isFieldEditor == true { return false }
+
+        return !tabs.contains { $0.parentTabID != nil && $0.terminal.attachedPlatformView === responder }
+    }
+
+    func showAgentBrowser(in session: Tab) {
+        if sessionTab?.id == session.id,
+           tabs.first(where: { $0.id == selectedTabID })?.parentTabID == session.id {
+            selectedTabID = session.id
+        }
+        sessionPanes[session.id] = .browser
     }
 }

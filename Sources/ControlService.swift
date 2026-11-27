@@ -18,6 +18,7 @@ final class ControlService {
     @ObservationIgnored private var server: ControlServer?
     @ObservationIgnored private var token = ""
     @ObservationIgnored private var openedBy: [UUID: UUID] = [:]
+    @ObservationIgnored private var deferredBrowserSelections: [String: (tab: BrowserTab.ID, visible: BrowserTab.ID?)] = [:]
 
     init(store: Store) {
         self.store = store
@@ -55,9 +56,10 @@ final class ControlService {
         try? FileManager.default.removeItem(atPath: Self.directory + "/token")
         failure = nil
         openedBy = [:]
+        deferredBrowserSelections = [:]
     }
 
-    private func handle(_ request: ControlRequest) async -> ControlResponse {
+    func handle(_ request: ControlRequest) async -> ControlResponse {
         guard let caller = UUID(uuidString: request.caller), store.tabs.contains(where: { $0.id == caller }) else { return .failure("Unknown calling tab") }
 
         if request.operation == .list { return list(for: caller) }
@@ -179,13 +181,21 @@ final class ControlService {
 
     private func openURL(_ request: ControlRequest, for caller: UUID) -> ControlResponse {
         let url = request.url.flatMap(URL.init(string:))
-        guard url.map(WebAddress.allows) == true || (request.operation == .browserOpen && request.url == nil) else { return .failure("Pass one http or https URL") }
+        var allowsURL = url.map(WebAddress.allows) == true
+        #if DEBUG
+        if Snapshot.output != nil, Snapshot.probesBrowserFocus, url == Snapshot.browserFocusPage { allowsURL = true }
+        #endif
+        guard allowsURL || (request.operation == .browserOpen && request.url == nil) else { return .failure("Pass one http or https URL") }
         guard let session = browserSession(for: caller) else { return .failure(Self.noBrowserSession) }
 
-        store.browser.open(url, in: BrowserModel.key(of: session), selects: request.background != true).isDrivenByAgent = true
-        if request.background != true {
-            store.activate(.tab(session.id))
-            store.showBrowserPane()
+        let browser = store.browser
+        let key = BrowserModel.key(of: session)
+        let foreground = request.background != true
+        let selects = foreground && (browser.sessionKey != key || store.canShowAgentBrowser(in: key))
+        let tab = browser.open(url, in: key, selects: selects, fromAgent: true)
+        if foreground {
+            deferredBrowserSelections[key] = selects ? nil : (tab.id, browser.selectedIDs[key])
+            if selects { store.showAgentBrowser(in: session) }
         }
         return ControlResponse(text: "Opened \(url?.absoluteString ?? "a blank tab") in the session’s browser")
     }
@@ -203,7 +213,13 @@ final class ControlService {
 
         let key = BrowserModel.key(of: session)
         let tabs = store.browser.tabs(in: key)
-        let active = tabs.first { $0.id == store.browser.selectedIDs[key] } ?? tabs.last
+        let selected = store.browser.selectedIDs[key]
+        if let deferred = deferredBrowserSelections[key],
+           deferred.visible != selected || !tabs.contains(where: { $0.id == deferred.tab }) {
+            deferredBrowserSelections[key] = nil
+        }
+        let activeID = deferredBrowserSelections[key]?.tab ?? selected
+        let active = tabs.first { $0.id == activeID } ?? tabs.last
         if request.operation == .browserTabs {
             return ControlResponse(browserTabs: tabs.map { tab in
                 ControlBrowserTab(id: Self.shortID(tab.id), title: tab.displayTitle, url: tab.url?.absoluteString, loading: tab.isLoading, active: tab === active)
@@ -291,6 +307,21 @@ final class ControlService {
 
         await tab.waitForNavigation(in: view)
         guard canUseView() else { return .failure(Self.browserTabLeftSession) }
+
+        let window = view.window
+        let responder = window?.firstResponder
+        tab.beginAgentInteraction(in: view)
+        defer {
+            tab.endAgentInteraction(in: view)
+            if let window, view.window === window, let current = window.firstResponder as? NSView,
+               current.isDescendant(of: view), current !== responder {
+                if let responder = responder as? NSView, responder.window === window {
+                    window.makeFirstResponder(responder)
+                } else if responder === window {
+                    window.makeFirstResponder(nil)
+                }
+            }
+        }
 
         let url = view.url
         let historyItem = view.backForwardList.currentItem

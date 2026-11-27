@@ -312,8 +312,10 @@ extension Snapshot {
         let request = await prompt()
         try? await Task.sleep(for: .milliseconds(600))
         guard access.decisions[approved.key] == nil, access.requests.count == 1, request.key == approved.key else { fail("the command should wait for an answer") }
-        guard let sheet = window.attachedSheet, let image = image(of: sheet), let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
-            fail("the approval prompt should be attached to the window")
+        guard window.attachedSheet == nil, let image = image(of: window),
+              let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])
+        else {
+            fail("could not capture the nonmodal approval prompt")
         }
 
         try png.write(to: promptOutput)
