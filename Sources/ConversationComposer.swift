@@ -97,6 +97,7 @@ struct ConversationComposer: View {
                             rendersImageTags: !isShell,
                             focusRequest: focusRequest,
                             layoutWidth: fieldWidth,
+                            externalWrites: model.externalWrites,
                             slashPicker: isShell ? nil : slashPicker,
                             shellCompleter: isShell && completesShell ? shellCompleter : nil,
                             submit: send,
@@ -210,8 +211,11 @@ struct ConversationComposer: View {
     private func setDraftText(_ text: String) {
         #if DEBUG
         if let delay = UserDefaults.standard.string(forKey: "snapshotComposerEchoDelay").flatMap(Int.init) {
+            let writes = model.externalWrites
             Task { [model] in
                 try? await Task.sleep(for: .milliseconds(delay))
+                guard model.externalWrites == writes else { return }
+
                 model.setText(text)
             }
             return
@@ -228,7 +232,7 @@ struct ConversationComposer: View {
     }
 
     private func stopOrClear() {
-        guard isWorking else { return model.draft = ConversationDraft() }
+        guard isWorking else { return model.clearDraft() }
 
         model.interrupt()
     }
