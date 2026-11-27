@@ -65,12 +65,7 @@ public enum PendingPrompts {
         for index in sendOrder {
             guard var prompt = remaining[index] else { continue }
 
-            if prompt.shellCommand != nil {
-                if isQueued(prompt, queued: queued) { continue }
-
-                if now.timeIntervalSince(prompt.sentAt) > grace { remaining[index] = nil }
-                continue
-            }
+            if prompt.shellCommand != nil { continue }
 
             if isQueued(prompt, queued: queued) {
                 prompt.wasQueued = true

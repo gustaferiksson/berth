@@ -276,16 +276,31 @@ struct ConversationPrompt: View {
                     .accessibilityHidden(true)
                 Text(verbatim: entry.text)
                     .textSelection(.enabled)
-                if isShellRunning, entry.shellOutput == nil, entry.shellError == nil {
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("Running")
-                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(RoundedRectangle(cornerRadius: 3, style: .continuous).fill(theme.shellAttached.opacity(theme.isDark ? 0.14 : 0.1)))
+            if isShellRunning, entry.shellOutput == nil, entry.shellError == nil {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: "⎿")
+                        .foregroundStyle(theme.secondary)
+                        .fixedSize()
+                        .frame(width: markerWidth - 8, alignment: .leading)
+                        .accessibilityHidden(true)
+                    HStack(spacing: 0) {
+                        Text(verbatim: "Running… ")
+                        if let started = entry.date {
+                            Text(verbatim: "(")
+                            ConversationElapsed(since: started)
+                            Text(verbatim: ")")
+                        }
+                    }
+                    .foregroundStyle(theme.secondary)
+                    .accessibilityElement(children: .combine)
+                }
+                .padding(.leading, markerWidth + 10)
+            }
             if !lines.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(verbatim: "⎿")
