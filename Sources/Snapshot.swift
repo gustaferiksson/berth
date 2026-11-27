@@ -582,6 +582,7 @@ enum Snapshot {
 
     #if DEBUG
     static let forcedHover = Set((UserDefaults.standard.string(forKey: "snapshotHover") ?? "").split(separator: "|").map(String.init))
+        .union(terminalCloseClickTarget.map { [$0.uuidString] } ?? [])
     static let expandedGroups = Set((UserDefaults.standard.string(forKey: "snapshotExpandedGroups") ?? "").split(separator: "|").map(String.init))
     #else
     static let forcedHover: Set<String> = []
@@ -624,11 +625,13 @@ enum Snapshot {
 
     static func capture(to output: URL, store: Store) async {
         #if DEBUG
+        validateTerminalCloseClicks()
         let reviewOptions = await prepareCapture(store: store)
         let topSessions = await prepareSidebar(to: output, store: store)
         await prepareSessionProbes(store: store)
         let (reviewFolder, shownPullRequestClone) = await prepareReviewAndLauncher(store: store)
         let (window, hosting, showsStats) = await prepareWindow(to: output, store: store, reviewFolder: reviewFolder)
+        if let target = terminalCloseClickTarget { await captureTerminalCloseClicks(target: target, store: store, window: window, output: output) }
         await captureReview(to: output, store: store, window: window, reviewFolder: reviewFolder, shownPullRequestClone: shownPullRequestClone, options: reviewOptions)
         await captureWindowProbes(to: output, store: store, window: window, topSessions: topSessions, showsStats: showsStats)
         await captureTerminalProbes(to: output, store: store, window: window, hosting: hosting)
@@ -710,8 +713,7 @@ enum Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotShell") {
             try? FileManager.default.removeItem(atPath: NSTemporaryDirectory() + "berth-shell-starts")
-            store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path)
-            store.openShell(cwd: store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path, command: "/bin/zsh -c 'printf \"\\033]2;npm run dev\\007\"; echo VITE ready; echo started >> \(NSTemporaryDirectory())berth-shell-starts; sleep 600'")
+            prepareShellFixture(store: store)
         }
         if UserDefaults.standard.bool(forKey: "snapshotSessionTerminals"), let session = Self.fixtureSessions?.first {
             let parent = UUID()
