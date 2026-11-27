@@ -161,7 +161,7 @@ final class ConversationModel {
 
     func setText(_ text: String) {
         var draft = draft
-        draft.text = text
+        draft.text = text.hasPrefix("!") && store.tabs.first(where: { $0.id == tabID })?.agent.harness.supports(.bashMode) == true ? "!" + text.dropFirst().drop(while: \.isWhitespace) : text
         draft.prune()
         self.draft = draft
     }
