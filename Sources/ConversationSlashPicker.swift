@@ -1,6 +1,7 @@
 import AppKit
 import BerthCore
 import Observation
+import os
 
 @Observable
 final class ConversationSlashPicker {
@@ -55,7 +56,9 @@ final class ConversationSlashPicker {
               let field, let completion = field.slashCompletion, completion.query == query else { return false }
 
         field.window?.makeFirstResponder(field)
+        let before = field.selectedRange().location
         field.insertText(command.name + " ", replacementRange: completion.replacementRange)
+        composerLog.info("slash accept insertText caret \(before, privacy: .public) to \(field.selectedRange().location, privacy: .public)")
         return true
     }
 }

@@ -52,11 +52,11 @@ extension AppAction {
         case .nextTab, .previousTab: store.sidebarOrderedTabs.count > 1
 
         case .stopConversation:
-            store.selectedStatusBarIsReachable && store.selectedTabID.flatMap { store.conversationModels[$0] }.map { model in
+            store.selectedStatusBarIsReachable && store.mainTabID.flatMap { store.conversationModels[$0] }.map { model in
                 model.draft.isEmpty && model.isWorking(with: store.selectedSessionID.flatMap { store.liveBySession[$0] })
             } == true
 
-        case .closeSubagentConversation: store.selectedConversationIsVisible && store.selectedTabID.flatMap { store.conversationModels[$0]?.openSubagent } != nil
+        case .closeSubagentConversation: store.selectedConversationIsVisible && store.mainTabID.flatMap { store.conversationModels[$0]?.openSubagent } != nil
 
         case .stopBrowserLoading: store.shownPane == .browser && store.browser.shownTab?.isLoading == true && store.browser.shownTab?.loadedWebView != nil
 
@@ -167,9 +167,9 @@ extension AppAction {
                 if self == .acceptTaskSuggestion { store.accept(suggestion) } else { store.dismiss(suggestion) }
             }
 
-        case .stopConversation: if let id = store.selectedTabID { store.conversationModels[id]?.interrupt() }
+        case .stopConversation: if let id = store.mainTabID { store.conversationModels[id]?.interrupt() }
 
-        case .closeSubagentConversation: if let id = store.selectedTabID { store.conversationModels[id]?.openSubagent = nil }
+        case .closeSubagentConversation: if let id = store.mainTabID { store.conversationModels[id]?.openSubagent = nil }
 
         case .findInReview, .refreshReview, .toggleReviewTree, .toggleReviewComments, .sendReviewComments, .closeReviewTab, .closeOtherReviewTabs,
              .closeReviewPreview, .revealReviewFile, .copyReviewPath, .copyReviewRelativePath, .openReviewFile,

@@ -9,6 +9,7 @@ enum PaletteContext: String {
         let responder = NSApp.keyWindow?.firstResponder
         let item = store.sidebarCursor ?? store.selection
         let view = (responder as? NSTextView).flatMap { $0.isFieldEditor ? $0.delegate as? NSView : nil } ?? responder as? NSView
+        let selectedTabShowsConversation = store.selectedTabID == store.mainTabID && store.selectedShowsConversation
         if store.isReviewTextFocused || responder is ReviewTextView || store.isReviewPanelFocused {
             self = store.shownPane == .files ? .files : .review
         } else if store.isFilesPanelFocused {
@@ -23,13 +24,13 @@ enum PaletteContext: String {
         } else if responder is ComposerTextView || responder is ConversationNSTextView || store.isConversationTranscriptFocused {
             self = .conversation
         } else if let responder, store.focusedTerminal?.attachedPlatformView === responder {
-            self = store.selectedShowsConversation ? .conversation : .terminal
+            self = selectedTabShowsConversation ? .conversation : .terminal
         } else {
             self = switch store.shownPane {
             case .changes: .review
             case .files: .files
             case .browser: .browser
-            case .terminal, .tasks, nil: store.selectedShowsConversation ? .conversation : store.focusedTerminal == nil && store.selection != nil ? .session : .terminal
+            case .terminal, .tasks, nil: selectedTabShowsConversation ? .conversation : store.focusedTerminal == nil && store.selection != nil ? .session : .terminal
             }
         }
     }
