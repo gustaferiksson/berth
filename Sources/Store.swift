@@ -894,8 +894,10 @@ final class Store {
     private func resolvePullRequests() {
         let unresolved = Set(summaries.compactMap { repositoryRoots[$0.checkout] } + reviewRepositories.values.flatMap { $0.map(\.root) }).filter { repositories[$0] == nil }
         Task {
-            if !unresolved.isEmpty { await repositories.merge(Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 } }
-            formTasks()
+            if !unresolved.isEmpty {
+                await repositories.merge(Task.detached { await RepositoryRoot.gitHubRepositories(of: unresolved) }.value) { $1 }
+                formTasks()
+            }
             let sessions = pinnedSessions + groups.flatMap(\.sessions) + archivedSessions
             if sessions.flatMap(pullRequestBranches).contains(where: { pullRequests[$0] == nil }) || sessions.flatMap(\.pullRequests).contains(where: { linkedPullRequests[$0] == nil }) { refreshPullRequests() }
         }
