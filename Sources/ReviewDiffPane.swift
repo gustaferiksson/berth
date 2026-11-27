@@ -13,6 +13,7 @@ struct ReviewDiffPane: View {
     let isWritingPullRequest: Bool
     let style: ReviewStyle
     let blameHead: String?
+    let marks: [ControlReviewMark]
     let loadBlame: () async -> ReviewBlameSnapshot?
     let language: ReviewLanguage?
     let reveal: LanguageServerRange?
@@ -65,6 +66,7 @@ struct ReviewDiffPane: View {
                 analysis: analysis,
                 style: style,
                 blame: showsBlame && blame?.path == path && blame?.source == loaded ? blame?.snapshot : nil,
+                marks: marks,
                 showsMinimap: showsMinimap,
                 wrapsLines: wrapsLines,
                 comments: $comments,
@@ -161,6 +163,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let analysis: ReviewDiffAnalysis?
     let style: ReviewStyle
     let blame: ReviewBlameSnapshot?
+    let marks: [ControlReviewMark]
     let showsMinimap: Bool
     let wrapsLines: Bool
     @Binding var comments: [ReviewComment]
@@ -233,6 +236,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
         coordinator.right.resetWrap()
         coordinator.right.fitWrapWidth()
         coordinator.right.blame = nil
+        coordinator.right.marks = []
         coordinator.right.dismissHover()
         coordinator.right.onHover = nil
         coordinator.right.onDefinition = nil
@@ -382,6 +386,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
 
             right.diagnostics = view.diagnostics
             right.blame = view.blame
+            right.marks = view.marks
             if view.takesFocus { right.focusesInWindow = true }
             for textView in [left, right] {
                 textView.onHover = view.language == nil ? nil : { [weak self, weak textView] offset in

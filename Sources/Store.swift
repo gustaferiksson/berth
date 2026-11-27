@@ -209,6 +209,7 @@ final class Store {
     private(set) var reviewRepositories: [String: [ReviewRepository]] = [:]
     private(set) var shownReviewPullRequests: [String: [PullRequestLink: ReviewPullRequest]] = [:]
     var activeReviewRoots: [String: String] = [:]
+    var reviewMarks: [String: [ControlReviewMark]] = [:]
     private var openedWorktrees: [String: [String]] = [:]
     var collapsedReviewRepositories: Set<String> = []
     var expandedReviewTasks: Set<String> = []
@@ -1578,10 +1579,6 @@ final class Store {
         guard let sessionID = selectedSessionID else { return [] }
 
         return ([reviewModels[sessionID], reviewModels[Self.reviewKey(sessionID, root: Self.sessionFilesRoot)]] + (reviewRepositories[sessionID] ?? []).map { reviewModels[Self.reviewKey(sessionID, root: $0.root)] }).compactMap(\.self)
-    }
-
-    func updateReviewMarks(_: [ControlReviewMark], base _: String?, in _: Tab.ID) -> ControlResponse {
-        .failure("Review marks are not available yet")
     }
 
     func showPullRequestInReview(number: Int, repository: String?, repositoryPath: String? = nil, in tabID: Tab.ID) async -> Result<PullRequestLink, ReviewPullRequestFailure> {

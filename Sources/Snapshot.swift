@@ -1240,6 +1240,16 @@ enum Snapshot {
             }
             try? await Task.sleep(for: .milliseconds(100))
         }
+        if let specs = UserDefaults.standard.string(forKey: "snapshotReviewMarks"), let tab = store.selectedTabID {
+            let marks = specs.split(separator: ";").compactMap { entry -> ControlReviewMark? in
+                let parts = entry.split(separator: "|", maxSplits: 1)
+                guard let range = parts.first?.wholeMatch(of: /(.+):([0-9]+)(?:-([0-9]+))?/), let start = Int(range.2) else { return nil }
+
+                return ControlReviewMark(path: String(range.1), startLine: start, endLine: range.3.flatMap { Int($0) } ?? start, note: parts.dropFirst().first.map(String.init) ?? "")
+            }
+            let response = await store.updateReviewMarks(marks, in: tab)
+            print("review marks \(response.succeeded ? response.text ?? "-" : response.error ?? "failed"), tabs \(model.tabs.map(\.document.path))")
+        }
         if let ref = UserDefaults.standard.string(forKey: "snapshotReviewBase"), let changes = model.changes {
             var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
             arguments[ReviewModel.baseBranchesKey] = [changes.root: [changes.branch: ref]]
@@ -1588,6 +1598,11 @@ enum Snapshot {
     }
 
     private static func captureReviewInteractions(store: Store, window: NSWindow, model: ReviewModel, sides: [ReviewTextView], clips: () -> String, save: (String) -> Void, report: @escaping (String) -> Void) async {
+        if let line = UserDefaults.standard.string(forKey: "snapshotReviewMarkHover").flatMap(Int.init), let right = sides.last {
+            right.showMarkNote(at: line - 1)
+            try? await Task.sleep(for: .milliseconds(500))
+            report("mark-hover")
+        }
         if let edit = UserDefaults.standard.string(forKey: "snapshotReviewEdit"), let right = sides.last, model.selectedDocument?.compare?.isHistorical != true {
             window.makeFirstResponder(right)
             right.setSelectedRange(NSRange(location: 0, length: 0))
