@@ -134,7 +134,7 @@ struct TranscriptActivityTests {
         #expect(stopped.tasks(of: live, now: now) { _ in false }.map(\.id) == ["agent1", "bmon1"])
     }
 
-    @Test func countsAMonitorLikeClaudeCodeCountsItAsOneShell() {
+    @Test func labelsAMonitorAsAMonitor() {
         let lines = [
             #"{"type":"assistant","timestamp":"2026-11-01T10:00:00.000Z","message":{"content":[{"type":"tool_use","id":"tu-watch","name":"Monitor","input":{"description":"Watch downloads until the upload line appears","command":"tail -f downloads.log","timeout_ms":900000,"persistent":false}}]}}"#,
             #"{"type":"user","timestamp":"2026-11-01T10:00:01.000Z","message":{"content":[{"tool_use_id":"tu-watch","type":"tool_result","content":"Monitor started (task bwatch1, expires in 15m)."}]},"toolUseResult":{"taskId":"bwatch1","timeoutMs":900000,"persistent":false}}"#,
@@ -142,7 +142,8 @@ struct TranscriptActivityTests {
         let tasks = activity(lines).tasks(of: live, now: now) { _ in false }
 
         #expect(tasks.map(\.title) == ["Watch downloads until the upload line appears"])
-        #expect(RemoteTask.summary(of: tasks) == "1 shell")
+        #expect(RemoteTask.summary(of: tasks) == "1 monitor")
+        #expect(RemoteTask.summary(of: activity(launches).tasks(of: live, now: now) { _ in false }) == "1 agent · 1 shell · 1 monitor")
     }
 
     private let movedShell = [
