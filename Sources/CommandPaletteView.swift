@@ -53,75 +53,54 @@ struct CommandPaletteView: View {
             PaletteItem(id: action.title, section: action.contexts.contains(store.paletteContext) ? .context : .general, title: action.title(in: store), detail: action.keywords)
         })
         let selection = min(highlighted, max(rows.count - 1, 0))
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: AppAction.commandPalette.symbol)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24)
-                    .accessibilityHidden(true)
-                TextField("Type a command", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 22))
-                    .focused($isQueryFocused)
-                    .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in move(by: 1, from: selection, count: rows.count) }
-                    .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in move(by: -1, from: selection, count: rows.count) }
-                    .onSubmit {
-                        if rows.indices.contains(selection), let action = byTitle[rows[selection].id] { run(action) }
-                    }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-
-            Divider()
-
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        if rows.isEmpty {
-                            LauncherMessage(symbol: "magnifyingglass", title: "No matching commands")
-                        }
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                            if query.allSatisfy(\.isWhitespace), index == 0 || rows[index - 1].section != row.section {
-                                LauncherSectionHeader(row.section == .context ? store.paletteContext.rawValue.capitalized : "General")
-                                    .padding(.top, index == 0 ? 0 : 6)
-                            }
-                            if let action = byTitle[row.id] {
-                                Button { run(action) } label: {
-                                    CommandPaletteRow(symbol: action.symbol, title: row.title, shortcut: action.shortcutLabel, isHighlighted: index == selection)
-                                }
-                                .buttonStyle(.plain)
-                                .focusable(false)
-                                .id(index)
-                            }
-                        }
-                    }
-                    .padding(8)
-                    .onGeometryChange(for: Double.self) { $0.size.height } action: { resultsHeight = $0 }
+        let selectedRow = rows.indices.contains(selection) ? rows[selection] : nil
+        let scopeGlyph = LauncherGlyph.symbol(AppAction.commandPalette.symbol)
+        LauncherPanel(searchGlyph: scopeGlyph) {
+            TextField("Type a command", text: $query)
+                .focused($isQueryFocused)
+                .onKeyPress(.downArrow, phases: [.down, .repeat]) { _ in move(by: 1, from: selection, count: rows.count) }
+                .onKeyPress(.upArrow, phases: [.down, .repeat]) { _ in move(by: -1, from: selection, count: rows.count) }
+                .onSubmit {
+                    if let selectedRow, let action = byTitle[selectedRow.id] { run(action) }
                 }
-                .frame(height: min(max(resultsHeight, 64), 440))
-                .scrollBounceBehavior(.basedOnSize)
+        } results: {
+            Divider()
+            ScrollViewReader { proxy in
+                LauncherResultList(contentHeight: $resultsHeight, maxHeight: 440) {
+                    if rows.isEmpty {
+                        LauncherMessage(symbol: "magnifyingglass", title: "No matching commands")
+                    }
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        if query.allSatisfy(\.isWhitespace), index == 0 || rows[index - 1].section != row.section {
+                            LauncherSectionHeader(row.section == .context ? store.paletteContext.rawValue.capitalized : "General")
+                                .padding(.top, index == 0 ? 0 : 6)
+                        }
+                        if let action = byTitle[row.id] {
+                            Button { run(action) } label: {
+                                LauncherRowFrame(symbol: .symbol(action.symbol), tint: .secondary, title: row.title, isHighlighted: index == selection, minHeight: 36) {
+                                    if let shortcut = action.shortcutLabel {
+                                        Text(verbatim: shortcut)
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: true, vertical: false)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .focusable(false)
+                            .id(index)
+                        }
+                    }
+                }
                 .onChange(of: selection) { proxy.scrollTo(selection) }
                 .onChange(of: query) {
                     highlighted = 0
                     if !rows.isEmpty { proxy.scrollTo(0, anchor: .top) }
                 }
             }
-
-            Divider()
-
-            HStack(spacing: 8) {
-                LauncherKeyHint("↩", "Run")
-                LauncherKeyHint("↑↓", "Select")
-                Spacer(minLength: 0)
-                LauncherKeyHint("esc", "Close")
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
+        } footer: {
+            LauncherCommandFooter(scopeGlyph: scopeGlyph, title: selectedRow?.title, primaryTitle: "Run")
         }
-        .frame(maxWidth: 680)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24))
-        .padding(.horizontal, 24)
         .onExitCommand { store.launcherMode = nil }
         .onAppear {
             store.launcherQuery = ""
@@ -141,51 +120,5 @@ struct CommandPaletteView: View {
 
         action.perform(on: store)
         if store.launcherMode == .palette { store.launcherMode = nil }
-    }
-}
-
-private struct CommandPaletteRow: View {
-    let symbol: String
-    let title: String
-    let shortcut: String?
-    let isHighlighted: Bool
-
-    var body: some View {
-        let accent = Color.accentColor
-        HStack(spacing: 10) {
-            Image(systemName: symbol)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(accent)
-                .frame(width: 22, height: 22)
-                .background(accent.opacity(0.16), in: .rect(cornerRadius: 6))
-                .accessibilityHidden(true)
-
-            Text(verbatim: title)
-                .font(.callout.weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let shortcut {
-                Text(verbatim: shortcut)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity, minHeight: 36)
-        .background {
-            if isHighlighted {
-                let shape = RoundedRectangle(cornerRadius: 12)
-                shape.fill(accent.opacity(0.20))
-                    .overlay { shape.strokeBorder(accent.opacity(0.35), lineWidth: 1) }
-            }
-        }
-        .contentShape(.rect)
-        .transaction { $0.animation = nil }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isHighlighted ? .isSelected : [])
     }
 }

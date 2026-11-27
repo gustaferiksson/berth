@@ -21,6 +21,56 @@ enum LauncherGlyph: ExpressibleByStringLiteral {
     }
 }
 
+struct LauncherPanel<SearchField: View, Results: View, Footer: View>: View {
+    let searchGlyph: LauncherGlyph?
+    @ViewBuilder let searchField: SearchField
+    @ViewBuilder let results: Results
+    @ViewBuilder let footer: Footer
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                if let searchGlyph {
+                    searchGlyph.image(octiconSize: 18)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24)
+                        .accessibilityHidden(true)
+                }
+                searchField
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 22))
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            results
+            Divider()
+            footer
+        }
+        .frame(maxWidth: 680)
+        .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        .padding(.horizontal, 24)
+    }
+}
+
+struct LauncherResultList<Rows: View>: View {
+    @Binding var contentHeight: Double
+    let maxHeight: Double
+    @ViewBuilder let rows: Rows
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                rows
+            }
+            .padding(8)
+            .onGeometryChange(for: Double.self) { $0.size.height } action: { contentHeight = $0 }
+        }
+        .frame(height: min(max(contentHeight, 64), maxHeight))
+        .scrollBounceBehavior(.basedOnSize)
+    }
+}
+
 struct LauncherRowFrame<Trailing: View>: View {
     let symbol: LauncherGlyph
     let tint: Color
@@ -29,11 +79,12 @@ struct LauncherRowFrame<Trailing: View>: View {
     let isHighlighted: Bool
     let monospacedSecondary: Bool
     let snippets: [AttributedString]
+    let minHeight: CGFloat
     let trailing: Trailing
 
     @Environment(\.ghosttyTheme) private var theme
 
-    init(symbol: LauncherGlyph, tint: Color, title: String, secondary: [String] = [], isHighlighted: Bool = false, monospacedSecondary: Bool = false, snippets: [AttributedString] = [], @ViewBuilder trailing: () -> Trailing) {
+    init(symbol: LauncherGlyph, tint: Color, title: String, secondary: [String] = [], isHighlighted: Bool = false, monospacedSecondary: Bool = false, snippets: [AttributedString] = [], minHeight: CGFloat = 40, @ViewBuilder trailing: () -> Trailing) {
         self.symbol = symbol
         self.tint = tint
         self.title = title
@@ -41,6 +92,7 @@ struct LauncherRowFrame<Trailing: View>: View {
         self.isHighlighted = isHighlighted
         self.monospacedSecondary = monospacedSecondary
         self.snippets = snippets
+        self.minHeight = minHeight
         self.trailing = trailing()
     }
 
@@ -79,7 +131,7 @@ struct LauncherRowFrame<Trailing: View>: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, minHeight: 40)
+        .frame(maxWidth: .infinity, minHeight: minHeight)
         .background(isHighlighted ? theme.foreground.opacity(0.10) : .clear, in: .rect(cornerRadius: 8))
         .contentShape(.rect)
         .transaction { $0.animation = nil }
@@ -220,6 +272,61 @@ struct LauncherScopePicker<Scope: Hashable>: View {
                 displayedSelection = selection
             }
         }
+    }
+}
+
+struct LauncherCommandFooter: View {
+    static let horizontalInset: CGFloat = 20
+
+    let scopeGlyph: LauncherGlyph
+    let title: String?
+    let primaryTitle: String?
+    let primaryAction: (isEnabled: Bool, perform: () -> Void)?
+    let itemActions: (isShown: Bool, toggle: () -> Void)?
+
+    init(scopeGlyph: LauncherGlyph, title: String?, primaryTitle: String?, primaryAction: (isEnabled: Bool, perform: () -> Void)? = nil, itemActions: (isShown: Bool, toggle: () -> Void)? = nil) {
+        self.scopeGlyph = scopeGlyph
+        self.title = title
+        self.primaryTitle = primaryTitle
+        self.primaryAction = primaryAction
+        self.itemActions = itemActions
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            HStack(spacing: 6) {
+                scopeGlyph.image(octiconSize: 13)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                if let title {
+                    Text(verbatim: title)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            if let primaryTitle {
+                let hint = LauncherKeyHint("↩", primaryTitle)
+                if let primaryAction {
+                    Button(action: primaryAction.perform) { hint }
+                        .buttonStyle(.plain)
+                        .focusable(false)
+                        .disabled(!primaryAction.isEnabled || itemActions?.isShown == true)
+                } else {
+                    hint
+                }
+            }
+            if let itemActions {
+                Button(action: itemActions.toggle) {
+                    LauncherKeyHint("⌘K", "Actions")
+                }
+                .buttonStyle(.plain)
+                .focusable(false)
+                .accessibilityValue(itemActions.isShown ? "Shown" : "Hidden")
+            }
+        }
+        .padding(.horizontal, Self.horizontalInset)
+        .frame(height: 42)
     }
 }
 
