@@ -16,7 +16,7 @@ extension Store {
         reviewMarks[sessionID] = kept.isEmpty ? nil : kept
     }
 
-    func updateReviewMarks(_ marks: [ControlReviewMark], in tabID: Tab.ID) async -> ControlResponse {
+    func updateReviewMarks(_ marks: [ControlReviewMark], base: String?, in tabID: Tab.ID) async -> ControlResponse {
         guard UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return .failure("Enable Review in Settings to mark changes") }
         guard let caller = tabs.first(where: { $0.id == tabID }),
               let target = caller.kind == .claude ? caller : tabs.first(where: { $0.id == caller.parentTabID && $0.kind == .claude }),
@@ -34,7 +34,11 @@ extension Store {
         prepareReviewModel()
         guard let model = reviewModels[sessionID] else { return .failure("Review couldn’t open for this session tab") }
 
-        await model.load()
+        if let base {
+            guard await model.setSince(base) else { return .failure("Couldn’t find \(base) in the session repository") }
+        } else {
+            await model.load()
+        }
         let root = URL(filePath: model.changes?.root ?? model.folder).resolvingSymlinksInPath().path
         let paths = marks.reduce(into: [String]()) { if !$0.contains($1.path) { $0.append($1.path) } }
         let missing = paths.filter { path in
@@ -53,6 +57,7 @@ extension Store {
         }
         model.open(documents[0])
         model.revealLine = (documents[0], marks[0].startLine, .modified)
-        return ControlResponse(text: "Marked \(marks.count) \(marks.count == 1 ? "range" : "ranges") in \(paths.count) \(paths.count == 1 ? "file" : "files")")
+        let since = model.changes?.since.map { " since \($0.shortSHA)" } ?? ""
+        return ControlResponse(text: "Marked \(marks.count) \(marks.count == 1 ? "range" : "ranges") in \(paths.count) \(paths.count == 1 ? "file" : "files")\(since)")
     }
 }

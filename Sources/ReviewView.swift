@@ -71,6 +71,8 @@ final class ReviewModel {
     let isSessionFiles: Bool
     private(set) var changes: ReviewChanges?
     private(set) var status: ReviewBranchStatus?
+    private(set) var since: String?
+    private(set) var recentCommits: [ReviewCommit] = []
     private(set) var tree: [ReviewFileTree] = []
     private(set) var pullRequestDetails: [Int: PullRequestDetail] = [:]
     private(set) var pullRequestStacks: [ReviewPullRequestStackKey: ReviewPullRequestStack] = [:]
@@ -189,7 +191,7 @@ final class ReviewModel {
         do {
             let picks = UserDefaults.standard.dictionary(forKey: Self.baseBranchesKey) as? [String: [String: String]] ?? [:]
             let pullRequestBase = pullRequestBase
-            let changes = try await ReviewGit.changes(in: folder) { root, branch in (picks[root]?[branch], pullRequestBase?.branch == branch ? pullRequestBase?.base : nil) }
+            let changes = try await ReviewGit.changes(in: folder, since: since) { root, branch in (picks[root]?[branch], pullRequestBase?.branch == branch ? pullRequestBase?.base : nil) }
             if Store.shared.persistsTabs, picks[changes.root]?[changes.branch] != nil, changes.baseReason != .picked, changes.defaultBase != nil, !changes.isDefaultBranch {
                 var kept = picks
                 kept[changes.root]?[changes.branch] = nil
@@ -197,6 +199,8 @@ final class ReviewModel {
             }
             let files = try await ReviewGit.files(in: changes.root)
             status = try? await ReviewGit.branchStatus(of: changes)
+            recentCommits = (try? await ReviewGit.recentCommits(of: changes)) ?? []
+            if changes.since == nil { since = nil }
             self.changes = changes
             tree = ReviewFileTree.nodes(files)
             error = nil
@@ -397,6 +401,13 @@ final class ReviewModel {
         }
 
         return try await ReviewGit.contents(of: file, base: base, head: head, in: root)
+    }
+
+    @discardableResult
+    func setSince(_ ref: String?) async -> Bool {
+        since = ref
+        await load()
+        return ref == nil || since != nil
     }
 
     func pickBase(_ ref: String) {
@@ -757,6 +768,8 @@ struct ReviewFileList: View {
     @FocusState private var focusedList: String?
     @State private var threadSectionScroll: String?
     @State private var keyboardNavigation: (row: ReviewDocument, selection: ReviewDocument?)?
+    @State private var asksSince = false
+    @State private var sinceRef = ""
 
     var body: some View {
         let shown = model.changes.flatMap { shownPullRequest(root: nil, branch: $0.branch) }
@@ -1677,7 +1690,7 @@ struct ReviewFileList: View {
     private func header(_ changes: ReviewChanges) -> some View {
         HStack(spacing: 8) {
             HStack(spacing: 4) {
-                Text(changes.isDefaultBranch || changes.base == nil ? "\(changes.branch), uncommitted only" : changes.branch)
+                Text((changes.isDefaultBranch || changes.base == nil) && changes.since == nil ? "\(changes.branch), uncommitted only" : changes.branch)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(minWidth: 48, alignment: .leading)
@@ -1685,6 +1698,8 @@ struct ReviewFileList: View {
                     baseMenu(base, candidates: changes.bases)
                         .layoutPriority(1)
                 }
+                sinceMenu(changes)
+                    .layoutPriority(1)
             }
             .font(.caption.monospaced())
             .foregroundStyle(theme.branch)
@@ -1699,6 +1714,54 @@ struct ReviewFileList: View {
         .padding(.leading, ReviewInset.content)
         .padding(.trailing, ReviewInset.fill)
         .padding(.vertical, 6)
+    }
+
+    private func sinceMenu(_ changes: ReviewChanges) -> some View {
+        HStack(spacing: 3) {
+            Menu {
+                ForEach(model.recentCommits, id: \.sha) { commit in
+                    Button("\(commit.sha) \(commit.subject)") { Task { await model.setSince(commit.sha) } }
+                }
+                Divider()
+                Button("Compare with…") {
+                    sinceRef = ""
+                    asksSince = true
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    if let since = changes.since {
+                        Text("since \(since.shortSHA)")
+                    } else {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .accessibilityLabel("Compare since")
+                    }
+                    Image(systemName: "chevron.down")
+                        .imageScale(.small)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(.rect)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .help("Show only what changed since a commit")
+            if changes.since != nil {
+                Button("Clear Since", systemImage: "xmark.circle.fill") { Task { await model.setSince(nil) } }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.plain)
+                    .help("Compare against the base again")
+            }
+        }
+        .alert("Compare With", isPresented: $asksSince) {
+            TextField("Commit, tag or branch", text: $sinceRef)
+            Button("Compare") {
+                let ref = sinceRef.trimmingCharacters(in: .whitespacesAndNewlines)
+                Task { if await !model.setSince(ref) { model.notice = "Couldn’t find “\(ref)” in this repository" } }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Show only what changed since this commit, tag or branch.")
+        }
     }
 
     private func baseMenu(_ base: String, candidates: [ReviewBase]) -> some View {
@@ -1783,7 +1846,7 @@ extension Store {
         guard !sent.isEmpty else { return }
 
         let prompt = owners.filter { !$0.model.comments.isEmpty }.map { owner in
-            ReviewComment.prompt(for: owner.model.comments, branch: owner.model.changes?.branch ?? "HEAD", base: owner.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base } ?? "HEAD", repository: owner.repository.map { ($0.name, $0.root) })
+            ReviewComment.prompt(for: owner.model.comments, branch: owner.model.changes?.branch ?? "HEAD", base: owner.model.changes.flatMap { $0.since?.ref ?? ($0.isDefaultBranch ? nil : $0.base) } ?? "HEAD", repository: owner.repository.map { ($0.name, $0.root) })
         }.joined(separator: "\n\n")
         guard await sendReviewPrompt(prompt, sessionID: sessionID, noticeIn: model) else { return }
 
