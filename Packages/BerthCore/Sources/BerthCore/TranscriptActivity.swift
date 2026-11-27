@@ -12,6 +12,7 @@ public struct TranscriptActivity: Sendable {
         var toolUseID: String?
         var prompt: String?
         var requestsBackground = false
+        var endsWithProcess = false
     }
 
     struct Reply: Sendable {
@@ -77,13 +78,14 @@ public struct TranscriptActivity: Sendable {
         }
     }
 
-    public func tasks(of live: LiveSession?, now: Date, progress: [String: AgentLog] = [:], isFinished: (String) -> Bool) -> [RemoteTask] {
+    public func tasks(of live: LiveSession?, now: Date, progress: [String: AgentLog] = [:], isProcessGone: (URL) -> Bool = { _ in false }, isFinished: (String) -> Bool) -> [RemoteTask] {
         guard let live, let status = live.status, let startedAt = live.startedAt.map({ Date(timeIntervalSince1970: $0 / 1000) }) else { return [] }
 
         let background = running.filter { id, launch in
             launch.started >= startedAt
                 && launch.deadline.map { now < $0 } ?? true
                 && !(launch.tool == "Bash" && status == "idle")
+                && !(launch.endsWithProcess && launch.output.flatMap { Self.taskOutputFile($0, id: id) }.map(isProcessGone) == true)
                 && !(Self.agentTools.contains(launch.tool) && isFinished(id))
         }
         let foreground = ["busy", "waiting"].contains(status) ? pending.filter { Self.agentTools.contains($0.value.tool) && $0.value.started >= startedAt } : [:]
@@ -295,7 +297,7 @@ public struct TranscriptActivity: Sendable {
         guard let moved = text.firstMatch(of: /<bash-stdout>Command did not complete within its \d+s timeout and was moved to the background \(ID: ([A-Za-z0-9_-]+)\)\. Output is being written to:? (\/[^\s<]+?)\.?(?:\s|<|$)/) else { return }
 
         let command = lastBashInput
-        start(String(moved.1), Launch(tool: "Bash", title: command ?? "Background shell", started: date, command: command, output: String(moved.2)))
+        start(String(moved.1), Launch(tool: "Bash", title: command ?? "Background shell", started: date, command: command, output: String(moved.2), endsWithProcess: true))
     }
 
     static func replLaunch(id: String, result: [String: Any], at date: Date) -> Launch? {

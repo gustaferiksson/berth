@@ -1,7 +1,7 @@
 import Foundation
 
 extension TranscriptActivity {
-    public func backgroundTasks(of live: LiveSession?, in transcript: URL, tasksRoot: URL = URL(filePath: "/private/tmp/claude-\(getuid())")) -> [SessionBackgroundTask] {
+    public func backgroundTasks(of live: LiveSession?, in transcript: URL, tasksRoot: URL = URL(filePath: "/private/tmp/claude-\(getuid())"), isProcessGone: (URL) -> Bool = { _ in false }) -> [SessionBackgroundTask] {
         let started = live?.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) } ?? .distantPast
         let subagents = transcript.deletingPathExtension().appending(path: "subagents")
         let foreground = pending.compactMap { id, launch -> SessionBackgroundTask? in
@@ -19,6 +19,8 @@ extension TranscriptActivity {
             if let id = task.agentID, let outcome = Self.subagentOutcome(agent: id, in: subagents) {
                 task.status = outcome
             } else if live == nil || task.started < started {
+                task.status = .finished
+            } else if running[task.id]?.endsWithProcess == true, let output = task.outputFile, isProcessGone(output) {
                 task.status = .finished
             }
             if task.kind == .shell, task.status == .running, task.outputFile == nil {
