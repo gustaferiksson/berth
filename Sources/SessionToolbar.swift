@@ -33,6 +33,18 @@ struct ModeSwitcherToolbar: ToolbarContent {
     }
 }
 
+// Never interactive, so recreating it when the panel opens cannot strand a click; it only gives the panel column a toolbar and with it the tracking separator.
+struct PanelSeparatorToolbar: ToolbarContent {
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityHidden(true)
+        }
+        .sharedBackgroundVisibility(.hidden)
+    }
+}
+
 private struct ConversationButton: View {
     @Environment(Store.self) private var store
 

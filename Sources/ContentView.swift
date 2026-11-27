@@ -165,6 +165,9 @@ struct ContentView: View {
                     .glassSidebarTint(fill: sidebarFill)
                     .background(ScrollPocketSeparatorRemover())
                     .inspectorColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
+                    .toolbar {
+                        if showsPanelSidebar, store.showsSessionToolbar { PanelSeparatorToolbar() }
+                    }
             }
         }
         .containerBackground(for: .window) { WindowBackdrop(chrome: windowChrome, transparency: windowTransparency) }
