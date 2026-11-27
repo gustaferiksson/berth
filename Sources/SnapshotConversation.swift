@@ -512,8 +512,27 @@ extension Snapshot {
 
             case "reviewComments":
                 let comments = argument.split(separator: ";").enumerated().map { ReviewComment(id: "drive-\($0.offset)", path: "README.md", line: $0.offset + 1, endLine: $0.offset + 1, text: String($0.element), snippet: "") }
+                let started = ContinuousClock.now
                 let sent = await store.sendReviewPrompt(ReviewComment.prompt(for: comments, branch: "feature", base: "main"), sessionID: conversationSession, noticeIn: ReviewModel(folder: tab.folder))
-                print("review comments sent \(sent), conversation shown \(store.selectedShowsConversation)")
+                print("review comments sent \(sent) in \(ContinuousClock.now - started), conversation shown \(store.selectedShowsConversation)")
+
+            case "startPrompt":
+                let started = ContinuousClock.now
+                guard let id = store.openSession(.claude, cwd: conversationFolder, pasting: argument), let session = store.tabs.first(where: { $0.id == id })?.sessionID else { break }
+
+                store.fakeLiveSessions = []
+                var landed: Duration?
+                for tick in 0..<400 {
+                    if tick == 15 {
+                        store.fakeLiveSessions = [LiveSession(pid: getpid(), sessionId: session, cwd: conversationFolder, status: "idle", statusUpdatedAt: Date.now.timeIntervalSince1970 * 1000, startedAt: Date.now.timeIntervalSince1970 * 1000, version: "2.1.332")]
+                    }
+                    if store.conversationDrafts[id]?.text == argument {
+                        landed = ContinuousClock.now - started
+                        break
+                    }
+                    try? await Task.sleep(for: .milliseconds(25))
+                }
+                print("start prompt in composer after \(landed.map(String.init(describing:)) ?? "never"), tab open \(store.tabs.contains { $0.id == id })")
 
             case "decline": if let model = store.conversationModels[tab.id] { Task { await model.decline(waitingFor: shown?.waitingFor, since: shown?.since) } }
 
