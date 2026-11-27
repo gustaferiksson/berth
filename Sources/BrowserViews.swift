@@ -816,8 +816,9 @@ private struct BrowserAddressField: View {
     }
 
     private var displayAddress: String {
-        guard let url = tab?.url else { return Self.placeholder }
+        guard let tab, let url = tab.url else { return Self.placeholder }
 
+        if isMerged { return tab.displayTitle }
         if url.isFileURL { return url.lastPathComponent }
         if let scheme = url.scheme, ["https", "http"].contains(scheme) {
             return String(url.absoluteString.dropFirst(scheme.count + 3))
