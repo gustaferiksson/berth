@@ -290,6 +290,13 @@ extension Snapshot {
         ]
     }
 
+    private static func runningShellRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        guard UserDefaults.standard.bool(forKey: "snapshotConversationRunningShell") else { return [] }
+
+        let started = Date.now.addingTimeInterval(-68).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+        return [base("user", 1, ["role": "user", "content": "<bash-input>npm run build:slow</bash-input>"]).merging(["timestamp": started]) { $1 }]
+    }
+
     private static func monitorRecords(assistant: (TimeInterval, [[String: Any]]) -> [String: Any], use: (String, String, [String: Any]) -> [String: Any], result: (String, String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
         guard UserDefaults.standard.bool(forKey: "snapshotConversationMonitor") else { return [] }
 
@@ -409,7 +416,7 @@ extension Snapshot {
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + narrowImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base) + movedShellRecords(base: base) + monitorRecords(assistant: assistant, use: use, result: result)
+        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + narrowImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base) + movedShellRecords(base: base) + runningShellRecords(base: base) + monitorRecords(assistant: assistant, use: use, result: result)
         let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
         guard repetitions > 1 else { return records }
 
