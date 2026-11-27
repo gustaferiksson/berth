@@ -29,6 +29,8 @@ public enum ControlCommand {
            berth browser forward [--tab <id>] [--json]
            berth browser eval <js> [--tab <id>] [--json]
            berth show-pr <number|url> [--repo <path>] [--json]
+           berth review mark <path>:<start>[-<end>] [--note <text>] ... [--json]
+           berth review marks clear [--json]
            berth send <tab> <text> [--no-enter]
            berth capture <tab>
            berth close <tab>
@@ -49,6 +51,10 @@ public enum ControlCommand {
     public static func parse(_ arguments: [String], environment: [String: String], currentDirectory: String) throws -> Invocation {
         guard let socketPath = environment[ControlEnvironment.socket], let token = environment[ControlEnvironment.token], let caller = environment[ControlEnvironment.tab] else {
             throw UsageError(message: "Not inside a Berth tab, or Agent Control is off in Berth's Settings > General")
+        }
+
+        if arguments.first == "review" {
+            return try parseReview(arguments.dropFirst(), token: token, caller: caller, socketPath: socketPath)
         }
 
         let operation: ControlOp
@@ -184,8 +190,54 @@ public enum ControlCommand {
         return Invocation(request: request, socketPath: socketPath, json: json, follow: follow)
     }
 
+    private static func parseReview(_ arguments: ArraySlice<String>, token: String, caller: String, socketPath: String) throws -> Invocation {
+        var rest = arguments
+        let operation: ControlOp
+        switch rest.popFirst() {
+        case "mark": operation = .reviewMark
+
+        case "marks":
+            guard rest.popFirst() == "clear" else { throw UsageError(message: usage) }
+
+            operation = .reviewClearMarks
+
+        default: throw UsageError(message: usage)
+        }
+
+        var json = false
+        var marks: [ControlReviewMark] = []
+        while let argument = rest.popFirst() {
+            if argument == "--json" {
+                json = true
+                continue
+            }
+            guard operation == .reviewMark, let separator = argument.lastIndex(of: ":"), separator != argument.startIndex,
+                  let range = argument[argument.index(after: separator)...].wholeMatch(of: /([0-9]+)(?:-([0-9]+))?/),
+                  let start = Int(range.1), let end = Int(range.2 ?? range.1)
+            else { throw UsageError(message: usage) }
+
+            var note = ""
+            if rest.first == "--note" {
+                rest.removeFirst()
+                guard let text = rest.popFirst(), !text.hasPrefix("--") else { throw UsageError(message: "--note needs text after the mark") }
+
+                note = text
+            }
+            marks.append(ControlReviewMark(path: String(argument[..<separator]), startLine: start, endLine: end, note: note))
+        }
+
+        let request = ControlRequest(token: token, caller: caller, operation: operation, marks: operation == .reviewMark ? marks : nil)
+        if case let .failure(error) = ControlReviewMarks.validate(request) {
+            throw UsageError(message: error.message)
+        }
+        return Invocation(request: request, socketPath: socketPath, json: json, follow: false)
+    }
+
     private static func applyPositionals(_ positional: [String], to request: inout ControlRequest, currentDirectory: String) throws {
         switch request.operation {
+        case .reviewMark, .reviewClearMarks:
+            throw UsageError(message: usage)
+
         case .list, .openSession, .browserTabs, .browserConsole, .browserURL, .browserReload, .browserText, .browserHTML, .browserSnapshot, .browserBack, .browserForward:
             guard positional.isEmpty else { throw UsageError(message: usage) }
 

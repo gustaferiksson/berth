@@ -2188,6 +2188,7 @@ struct ReviewDiffColumn: View {
                             isWritingPullRequest: model.isWritingPullRequest,
                             style: style,
                             blameHead: model.blameHead,
+                            marks: sessionID.flatMap { store.reviewMarks[$0] }?.filter { $0.path == path && document.compare?.isHistorical != true } ?? [],
                             loadBlame: { [weak store] in
                                 var blame = await model.loadBlame(for: document)
                                 blame?.openLink = { store?.openLink($0) }
