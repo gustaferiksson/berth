@@ -574,6 +574,9 @@ struct Launcher: View {
         let issues = rankedIssues.issues
         let pullRequestGroups = Dictionary(grouping: pullRequests, by: \.role)
         let issueGroups = Dictionary(grouping: issues, by: \.role)
+        let entries = mode == .projects ? projectEntries : []
+        let startsPullRequestSection = { (index: Int) in index == 0 || pullRequests[index - 1].role != pullRequests[index].role }
+        let startsIssueSection = { (index: Int) in index == 0 || (isBlank && issues[index - 1].role != issues[index].role) }
 
         return ScrollViewReader { proxy in
             ScrollView {
@@ -589,9 +592,10 @@ struct Launcher: View {
                         .buttonStyle(.plain)
                     } else if showsPullRequests {
                         ForEach(Array(pullRequests.enumerated()), id: \.element.id) { index, pullRequest in
-                            if index == 0 || pullRequests[index - 1].role != pullRequest.role {
+                            if startsPullRequestSection(index) {
                                 LauncherSectionHeader(pullRequest.role.title, count: pullRequestGroups[pullRequest.role]?.count)
                                     .padding(.top, index == 0 ? 0 : 6)
+                                    .id("header\(index)")
                             }
                             let link = PullRequestLink(repository: pullRequest.repository, number: pullRequest.number)
                             pullRequestRow(pullRequest, isHighlighted: index == highlighted)
@@ -618,11 +622,13 @@ struct Launcher: View {
                     } else if mode == .issues {
                         if !isBlank, !issues.isEmpty {
                             LauncherSectionHeader("Matches", count: issues.count)
+                                .id("header0")
                         }
                         ForEach(Array(issues.enumerated()), id: \.element.id) { index, issue in
-                            if isBlank, index == 0 || issues[index - 1].role != issue.role {
+                            if isBlank, startsIssueSection(index) {
                                 LauncherSectionHeader(issue.role.title, count: issueGroups[issue.role]?.count)
                                     .padding(.top, index == 0 ? 0 : 6)
+                                    .id("header\(index)")
                             }
                             Button { selectedIssue = issue } label: {
                                 issueRow(issue, isHighlighted: index == highlighted)
@@ -643,10 +649,11 @@ struct Launcher: View {
                             }
                         }
                     } else if mode == .projects {
-                        projectRows
+                        projectRows(entries)
                     } else {
                         if !hits.isEmpty {
                             LauncherSectionHeader("Sessions", count: hits.count)
+                                .id("header0")
                         }
                         ForEach(Array(hits.enumerated()), id: \.element.id) { index, hit in
                             hitRow(hit, isHighlighted: index == highlighted)
@@ -675,11 +682,23 @@ struct Launcher: View {
                     }
                 }
                 .padding(8)
+                .id("launcherResultsTop")
                 .onGeometryChange(for: Double.self) { $0.size.height } action: { resultsHeight = $0 }
             }
             .frame(height: min(max(resultsHeight, 64), mode.hasItemActions ? 380 : 420))
             .scrollBounceBehavior(.basedOnSize)
-            .onChange(of: highlighted) { proxy.scrollTo(highlighted) }
+            .probeLauncherScrollOffset()
+            .onChange(of: highlighted) {
+                guard issue == nil, pastedPullRequest == nil else { return }
+
+                let startsSection = switch mode {
+                case .pullRequests, .showPullRequestInReview: pullRequests.indices.contains(highlighted) && startsPullRequestSection(highlighted)
+                case .issues: issues.indices.contains(highlighted) && startsIssueSection(highlighted)
+                case .projects: entries.indices.contains(highlighted) && entries[highlighted].header != nil
+                default: highlighted == 0 && !hits.isEmpty
+                }
+                proxy.scrollToLauncherRow(highlighted, startsSection: startsSection)
+            }
         }
     }
 
@@ -1013,12 +1032,13 @@ struct Launcher: View {
         }
     }
 
-    @ViewBuilder private var projectRows: some View {
-        let entries = projectEntries
+    @ViewBuilder
+    private func projectRows(_ entries: [ProjectEntry]) -> some View {
         ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
             if let header = entry.header {
                 LauncherSectionHeader(header, count: entry.count)
                     .padding(.top, index == 0 ? 0 : 6)
+                    .id("header\(index)")
             }
             Button { open(entry.item) } label: {
                 ProjectItemRow(

@@ -352,7 +352,7 @@ final class Store {
     @ObservationIgnored var watchScanRequested = false
     @ObservationIgnored var watchExpiry: Task<Void, Never>?
     var transcriptWatches: [String: PullRequestWatch] = [:]
-    @ObservationIgnored private(set) var index = TranscriptIndex(root: claudeDirectory.appending(path: "projects"))
+    @ObservationIgnored private(set) var index = TranscriptIndex(root: Snapshot.launcherSearchRoot ?? claudeDirectory.appending(path: "projects"))
     @ObservationIgnored private(set) var codexIndex = CodexIndex(root: codexDirectory)
 
     @ObservationIgnored private var codexWatcher: FileWatcher?
