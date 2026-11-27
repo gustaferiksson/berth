@@ -145,6 +145,35 @@ struct TranscriptActivityTests {
         #expect(RemoteTask.summary(of: tasks) == "1 shell")
     }
 
+    private let movedShell = [
+        #"{"type":"user","timestamp":"2026-11-01T10:00:00.000Z","message":{"role":"user","content":"<bash-input>npm run dev</bash-input>"}}"#,
+        #"{"type":"user","timestamp":"2026-11-01T10:02:00.000Z","message":{"role":"user","content":"<bash-stdout>Command did not complete within its 120s timeout and was moved to the background (ID: bmoved1). Output is being written to: /tmp/example/tasks/bmoved1.output.</bash-stdout><bash-stderr></bash-stderr>"}}"#,
+    ]
+
+    @Test func aMovedShellEndsWhenItsProcessIsGone() {
+        let moved = activity(movedShell)
+
+        #expect(moved.tasks(of: live, now: now) { _ in false }.map(\.id) == ["bmoved1"])
+        #expect(moved.tasks(of: live, now: now, isProcessGone: { $0.lastPathComponent == "bmoved1.output" }) { _ in false }.isEmpty)
+        #expect(!moved.tasks(of: live, now: now, isProcessGone: { _ in false }) { _ in false }.isEmpty)
+    }
+
+    @Test func aMovedShellIsFinishedInTheHistoryWhenItsProcessIsGone() {
+        var moved = TranscriptActivity(keepsTaskHistory: true)
+        moved.apply(Data((movedShell.joined(separator: "\n") + "\n").utf8))
+        let transcript = URL(filePath: "/tmp/example/s.jsonl")
+
+        #expect(moved.backgroundTasks(of: live, in: transcript).map(\.status) == [.running])
+        #expect(moved.backgroundTasks(of: live, in: transcript, isProcessGone: { _ in true }).map(\.status) == [.finished])
+    }
+
+    @Test func aShellStartedInTheBackgroundIgnoresProcessLiveness() {
+        var started = TranscriptActivity(keepsTaskHistory: true)
+        started.apply(Data((launches.joined(separator: "\n") + "\n").utf8))
+
+        #expect(started.tasks(of: live, now: now, isProcessGone: { _ in true }) { _ in false }.map(\.id).contains("bshell1"))
+    }
+
     @Test func monitorsEndWhenTheyExpire() {
         let events = activity(launches + [
             #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-01T10:02:20.000Z","content":"<task-notification>\n<task-id>bmon1</task-id>\n<summary>Monitor event</summary>\n<event>new comment</event>\n</task-notification>"}"#,
