@@ -573,6 +573,19 @@ extension Snapshot {
 
                 print("caretprobe \(argument) caret \(textView.selectedRange().location) draftLength \(textView.draftText.utf16.count) fieldLength \(textView.string.utf16.count)")
 
+            case "key":
+                guard let textView = conversationComposer, let window = textView.window else { break }
+
+                window.makeFirstResponder(textView)
+                let keyCode: UInt16 = argument == "tab" ? 48 : 36
+                let characters = argument == "tab" ? "\t" : "\r"
+                guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { break }
+
+                window.sendEvent(event)
+
+            case "composerprobe":
+                print("composerprobe \(argument) field \(conversationComposer?.string.debugDescription ?? "unavailable") draft \(store.conversationModels[tab.id]?.draft.text.debugDescription ?? "-")")
+
             case "keys":
                 let parts = argument.split(separator: ":").map(String.init)
                 guard let textView = conversationComposer, let clip = textView.enclosingScrollView?.contentView else { break }

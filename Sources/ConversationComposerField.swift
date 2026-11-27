@@ -336,6 +336,7 @@ final class ComposerTextView: NSTextView {
             if event.keyCode == 126, shellCompleter.move(by: -1) { return }
             if event.keyCode == 125, shellCompleter.move(by: 1) { return }
             if event.keyCode == 53, shellCompleter.dismiss() { return }
+            if submits, shellCompleter.accept() { return }
             if event.keyCode == 48 {
                 _ = shellCompleter.accept()
                 return
