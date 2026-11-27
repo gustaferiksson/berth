@@ -364,6 +364,7 @@ final class Store {
     @ObservationIgnored private var themeWatcher: FileWatcher?
     @ObservationIgnored private var summaries: [SessionSummary] = []
     @ObservationIgnored private var shownTasks: [StoredTask] = []
+    @ObservationIgnored private var formation = TaskFormationMemo()
     @ObservationIgnored private var unreadableTasks = TaskState.stored(UserDefaults.standard.string(forKey: "tasks")).unreadable
     @ObservationIgnored private var groupOrder: [String] = []
     @ObservationIgnored private var repositoryRoots: [String: String] = [:]
@@ -554,7 +555,7 @@ final class Store {
     func formTasks() {
         guard hasScanned else { return }
 
-        let result = TaskFormation.form(tasks, sessions: summaries.map(taskSession))
+        let result = formation.form(tasks, sessions: summaries.map(taskSession))
         if result.state != tasks { tasks = result.state }
         shownTasks = result.shown
         let suggestions = Dictionary(result.suggestions.flatMap { suggestion in suggestion.sessionIDs.map { ($0, suggestion) } }) { first, _ in first }
@@ -1110,7 +1111,8 @@ final class Store {
         let processes = Dictionary(processSessions.compactMap { session in ProcessAncestry.facts(of: session.pid).map { (session.pid, $0) } }) { first, _ in first }
         let orphans = OrphanedSessions.ids(live: processSessions, processes: processes)
         if orphans != orphanedSessionIDs { orphanedSessionIDs = orphans }
-        turnStarts.update(live: liveBySession, sessions: sessionsByID)
+        let starts = turnStarts.updated(live: liveBySession, sessions: sessionsByID)
+        if starts != turnStarts { turnStarts = starts }
         let claimed = Set(tabs.compactMap(\.sessionID))
         for session in live where session.pid > 0 && !claimed.contains(session.sessionId) {
             guard let position = tabs.firstIndex(where: { tab in
@@ -1981,9 +1983,9 @@ final class Store {
 
     var sidebarOrderedTabs: [Tab] {
         let liveIDs = activeLiveIDs
-        let attentionIDs = attentionSessions.map(\.id)
-        let triage = triageSections
-        let triageIDs = triage.working.map(\.id) + triage.unread.map(\.id)
+        let sources = sidebarSources
+        let attentionIDs = sources.attention.map(\.id)
+        let triageIDs = sources.working.map(\.id) + sources.unread.map(\.id)
         let attention = Set(attentionIDs + triageIDs)
         let tabs = { (entries: [GroupEntry]) -> [Tab] in
             entries.flatMap { entry in
@@ -1993,11 +1995,11 @@ final class Store {
                 }
             }.filter { !attention.contains($0) }.compactMap { self.tab(forSession: $0) }
         }
-        let active = sidebarActive
+        let active = sources.active
         let ordered = terminals + attentionIDs.compactMap { tab(forSession: $0) } + (active?.tabs ?? []) + tabs(active?.entries ?? [])
             + triageIDs.compactMap { tab(forSession: $0) }
             + pinnedSessions.filter { !liveIDs.contains($0.id) && !attention.contains($0.id) }.compactMap { tab(forSession: $0.id) }
-            + sidebarGroups.flatMap { $0.tabs + tabs($0.entries) }
+            + sources.groups.flatMap { $0.tabs + tabs($0.entries) }
         return ordered.flatMap { owner in [owner] + self.tabs.filter { $0.parentTabID == owner.id } }
     }
 
