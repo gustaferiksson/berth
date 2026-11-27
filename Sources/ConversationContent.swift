@@ -853,6 +853,8 @@ struct ConversationImageTag: View {
         Text(verbatim: "#\(number)")
             .font(scale == 1 ? .caption2.weight(.bold) : Font(font))
             .foregroundStyle(.white)
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 6 * scale)
             .padding(.vertical, 2 * scale)
             .background(.black.opacity(0.6), in: .capsule)
@@ -905,6 +907,8 @@ private struct ConversationPromptImage: View {
                         .resizable()
                         .frame(width: image.size.width * scale, height: image.size.height * scale)
                         .clipShape(.rect(cornerRadius: 8, style: .continuous))
+                        .frame(minWidth: 72)
+                        .background(.quaternary, in: .rect(cornerRadius: 8, style: .continuous))
                 } else {
                     Color.clear
                         .frame(width: 160, height: 120)

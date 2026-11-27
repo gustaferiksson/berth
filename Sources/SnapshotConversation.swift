@@ -375,7 +375,7 @@ extension Snapshot {
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base)
+        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + narrowImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base)
         let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
         guard repetitions > 1 else { return records }
 
@@ -404,8 +404,8 @@ extension Snapshot {
         }
     }
 
-    private static func fixtureImage(format: NSBitmapImageRep.FileType = .png) -> Data {
-        let image = NSImage(size: NSSize(width: 240, height: 160), flipped: false) { rect in
+    private static func fixtureImage(format: NSBitmapImageRep.FileType = .png, size: NSSize = NSSize(width: 240, height: 160)) -> Data {
+        let image = NSImage(size: size, flipped: false) { rect in
             NSGradient(colors: [.systemTeal, .systemIndigo])?.draw(in: rect, angle: 35)
             return true
         }
@@ -424,6 +424,15 @@ extension Snapshot {
         let text = "[Image #247] unselected\n\n[Image #248]\n\n<pasted_content id=\"4cbd\">\n selected\n\nwhy is the second row not right\n\nalso is this how the composer should look like? \n</pasted_content id=\"4cbd\">\n\n[Image #250] I thought it was supposed to be like this? [Image #251]"
         let image: [String: Any] = ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage().base64EncodedString()]]
         return [base("user", 1, ["role": "user", "content": [["type": "text", "text": text], image, image, image, image]]).merging(["imagePasteIds": [247, 248, 250, 251]]) { $1 }]
+    }
+
+    private static func narrowImageRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        guard UserDefaults.standard.bool(forKey: "snapshotConversationNarrowImages") else { return [] }
+
+        let sizes = [NSSize(width: 40, height: 130), NSSize(width: 78, height: 256), NSSize(width: 78, height: 256)]
+        let images: [[String: Any]] = sizes.map { ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": fixtureImage(size: $0).base64EncodedString()]] }
+        let content: [[String: Any]] = [["type": "text", "text": "[Image #7] [Image #42] [Image #291]"]] + images
+        return [base("user", 1, ["role": "user", "content": content]).merging(["imagePasteIds": [7, 42, 291]]) { $1 }]
     }
 
     private static func mentionRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
