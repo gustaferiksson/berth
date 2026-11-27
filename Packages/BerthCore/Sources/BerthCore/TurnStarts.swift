@@ -9,6 +9,12 @@ public struct TurnStarts: Sendable, Equatable {
         starts[sessionID]
     }
 
+    public func updated(live: [String: LiveSession], sessions: [String: SessionSummary]) -> Self {
+        var copy = self
+        copy.update(live: live, sessions: sessions)
+        return copy
+    }
+
     public mutating func update(live: [String: LiveSession], sessions: [String: SessionSummary]) {
         let previous = starts
         starts = live.reduce(into: [:]) { starts, entry in
