@@ -393,7 +393,7 @@ enum AppAction: Hashable {
 
         case .newTerminalForSession: store.launcherMode == .palette && store.paletteContext == .session ? !sessionTabs(in: store).isEmpty && store.multiSelection.isEmpty : store.sessionTab != nil
 
-        case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown && !store.selectedShowsConversation
+        case .findInTerminal: store.focusedTerminal != nil && !store.isHarborShown && (store.selectedTabID != store.mainTabID || !store.selectedShowsConversation)
 
         case .clearTerminal: store.focusedTerminal != nil && (store.launcherMode != .palette || terminalView(in: store) != nil)
 
@@ -667,13 +667,13 @@ enum AppAction: Hashable {
 
     func terminalTabs(in store: Store) -> [Tab] {
         if !store.multiSelection.isEmpty { return store.multiSelectedTabs.filter { $0.kind == .shell } }
-        guard !store.isHarborShown, !store.selectedShowsConversation, let terminal = store.focusedTerminal else { return [] }
+        guard !store.isHarborShown, store.selectedTabID != store.mainTabID || !store.selectedShowsConversation, let terminal = store.focusedTerminal else { return [] }
 
         return store.tabs.filter { $0.kind == .shell && $0.terminal === terminal }
     }
 
     func terminalView(in store: Store) -> TerminalView? {
-        guard !store.isHarborShown, !store.selectedShowsConversation else { return nil }
+        guard !store.isHarborShown, store.selectedTabID != store.mainTabID || !store.selectedShowsConversation else { return nil }
 
         return store.focusedTerminal?.attachedPlatformView
     }
