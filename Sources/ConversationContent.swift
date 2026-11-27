@@ -508,11 +508,11 @@ private enum ConversationMarkdownCache {
             self.itemID = itemID
             self.expanded = expanded
             codeBlocks = MarkdownAttributedString.codeBlocks(in: blocks)
-            rendered = MarkdownAttributedString.render(blocks, theme: theme, itemID: itemID, expanded: expanded)
+            rendered = ConversationPerfCounters.time("render") { MarkdownAttributedString.render(blocks, theme: theme, itemID: itemID, expanded: expanded) }
         }
 
         func rerender(theme: GhosttyTheme) {
-            rendered = MarkdownAttributedString.render(blocks, theme: theme, highlighted: highlighted, itemID: itemID, expanded: expanded)
+            rendered = ConversationPerfCounters.time("rerender") { MarkdownAttributedString.render(blocks, theme: theme, highlighted: highlighted, itemID: itemID, expanded: expanded) }
         }
     }
 
@@ -543,7 +543,7 @@ private enum ConversationMarkdownCache {
             return entry.run
         }
 
-        let run = Run(blocks: MarkdownBlock.blocks(in: text), theme: theme, itemID: itemID, expanded: relevant)
+        let run = Run(blocks: ConversationPerfCounters.time("parse") { MarkdownBlock.blocks(in: text) }, theme: theme, itemID: itemID, expanded: relevant)
         if cached.count >= capacity {
             let cutoff = cached.values.map(\.used).sorted()[capacity / 8]
             cached = cached.filter { $0.value.used > cutoff }

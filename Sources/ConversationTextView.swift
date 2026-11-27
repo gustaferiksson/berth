@@ -178,6 +178,10 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     }
 
     func height(fitting width: CGFloat) -> CGFloat {
+        ConversationPerfCounters.time("layout") { measuredHeight(fitting: width) }
+    }
+
+    private func measuredHeight(fitting width: CGFloat) -> CGFloat {
         if let fitted, fitted.width == width { return fitted.height }
         guard let textContainer, let manager = textLayoutManager else { return 0 }
 
