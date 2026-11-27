@@ -934,6 +934,7 @@ enum Snapshot {
             if UserDefaults.standard.bool(forKey: "snapshotReviewConversation"), let id = store.selectedTabID { store.conversationTabIDs.insert(id) }
             if !UserDefaults.standard.bool(forKey: "snapshotReviewNoComment") { store.reviewModels["snapshot-review"]?.comments = [ReviewComment(id: "fixture", path: "README.md", line: 3, endLine: 5, text: "Fixture comment: tighten this paragraph.", snippet: "")] }
         }
+        if UserDefaults.standard.bool(forKey: "snapshotCollapseComments") { store.reviewModels["snapshot-review"]?.commentCollapse.set(all: true) }
         if UserDefaults.standard.bool(forKey: "snapshotTasksReview") { prepareTasksReview(store: store) }
         if let files = UserDefaults.standard.string(forKey: "snapshotSessionFiles") {
             store.editedFiles["snapshot-review"] = files.split(separator: ":").map { URL(filePath: String($0)).resolvingSymlinksInPath().path }
@@ -1403,7 +1404,7 @@ enum Snapshot {
 
                 let name = spec.replacing(":", with: "-")
                 let menu = NSEvent.mouseEvent(with: .rightMouseDown, location: clicked.convert(target, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1).flatMap(clicked.menu(for:))
-                print("references \(spec): writing tools off in diff views \(views().map { $0.writingToolsBehavior == .none }), comment field \(ReviewInlineComment(title: "", text: "", kind: .card(onEdit: {}, onDelete: {}), style: clicked.style).field.writingToolsBehavior == .none), context menu \(menu?.items.map(\.title) ?? [])")
+                print("references \(spec): writing tools off in diff views \(views().map { $0.writingToolsBehavior == .none }), comment field \(ReviewInlineComment(title: "", text: "", kind: .card(onEdit: {}, onDelete: {}, onToggle: { _ in }), style: clicked.style).field.writingToolsBehavior == .none), context menu \(menu?.items.map(\.title) ?? [])")
                 mouse(clicked, .leftMouseDown, target, .command)
                 await waitForPeek(true)
                 guard let shown = peek() else {

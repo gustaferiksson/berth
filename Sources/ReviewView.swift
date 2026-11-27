@@ -107,6 +107,7 @@ final class ReviewModel {
     var drafts: [String: String] = [:]
     var comments: [ReviewComment] = []
     var replyDrafts: [String: String] = [:]
+    var commentCollapse = ReviewCommentCollapse()
     private(set) var isWritingPullRequest = false
     let preview = ReviewPreviewModel()
     var editingComment: String?
@@ -2183,6 +2184,7 @@ struct ReviewDiffColumn: View {
                             comments: Bindable(model).comments,
                             threads: detail?.threads.filter { $0.path == path && $0.line != nil && document.compare?.isHistorical != true } ?? [],
                             replyDrafts: Bindable(model).replyDrafts,
+                            collapse: Bindable(model).commentCollapse,
                             isWritingPullRequest: model.isWritingPullRequest,
                             style: style,
                             blameHead: model.blameHead,

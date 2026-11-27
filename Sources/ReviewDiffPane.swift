@@ -10,6 +10,7 @@ struct ReviewDiffPane: View {
     @Binding var comments: [ReviewComment]
     let threads: [ReviewThread]
     @Binding var replyDrafts: [String: String]
+    @Binding var collapse: ReviewCommentCollapse
     let isWritingPullRequest: Bool
     let style: ReviewStyle
     let blameHead: String?
@@ -70,6 +71,7 @@ struct ReviewDiffPane: View {
                 comments: $comments,
                 threads: threads,
                 replyDrafts: $replyDrafts,
+                collapse: $collapse,
                 isWritingPullRequest: isWritingPullRequest,
                 language: language,
                 diagnostics: editor == nil && compare == .committed ? [] : language?.diagnostics(for: path) ?? [],
@@ -166,6 +168,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
     @Binding var comments: [ReviewComment]
     let threads: [ReviewThread]
     @Binding var replyDrafts: [String: String]
+    @Binding var collapse: ReviewCommentCollapse
     let isWritingPullRequest: Bool
     let language: ReviewLanguage?
     let diagnostics: [LanguageServerDiagnostic]
@@ -514,6 +517,11 @@ private struct ReviewDiffViews: NSViewRepresentable {
             ruler.needsDisplay = true
         }
 
+        private func setCollapsed(_ isCollapsed: Bool, for id: String) {
+            parent?.collapse.overrides[id] = isCollapsed
+            layoutInline()
+        }
+
         private func layoutInline() {
             guard let parent else { return }
 
@@ -534,9 +542,11 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 let numbers = comment.endLine > comment.line ? "Lines \(comment.line)–\(comment.endLine)" : "Line \(comment.line)"
                 let card = cards[comment.id] ?? ReviewInlineComment(title: comment.side == .original ? "Removed \(numbers)" : numbers, text: comment.text, kind: .card(
                     onEdit: { [weak self] in self?.edit(comment.id) },
-                    onDelete: { [weak self] in self?.parent?.comments.removeAll { $0.id == comment.id } }
+                    onDelete: { [weak self] in self?.parent?.comments.removeAll { $0.id == comment.id } },
+                    onToggle: { [weak self] isCollapsed in self?.setCollapsed(isCollapsed, for: comment.id) }
                 ), style: owner.style)
                 cards[comment.id] = card
+                card.isCollapsed = parent.collapse.isCollapsed(comment.id, default: false)
                 if card.field.string != comment.text { card.field.string = comment.text }
                 card.onSendToPullRequest = parent.isWritingPullRequest ? nil : parent.onSendComment.map { send in { send(comment) } }
                 let view = draft.flatMap { $0.editing == comment.id ? $0.view : nil } ?? card
@@ -560,14 +570,16 @@ private struct ReviewDiffViews: NSViewRepresentable {
                     continue
                 }
 
+                let isExpanded = !parent.collapse.isCollapsed(thread.id, default: thread.isResolved)
                 let card: ReviewThreadCard
                 if let previous, previous.thread == thread {
                     card = previous
+                    card.isExpanded = isExpanded
                 } else {
                     previous?.removeFromSuperview()
-                    card = ReviewThreadCard(thread: thread, style: owner.style, isExpanded: previous.flatMap { $0.thread.isResolved == thread.isResolved ? $0.isExpanded : nil }, onReply: { [weak self] in
+                    card = ReviewThreadCard(thread: thread, style: owner.style, isExpanded: isExpanded, onReply: { [weak self] in
                         self?.reply(to: thread)
-                    }, onSend: { [weak self] in self?.parent?.onSendThread(thread) }, onResize: { [weak self] in self?.layoutInline() })
+                    }, onSend: { [weak self] in self?.parent?.onSendThread(thread) }, onToggle: { [weak self] isExpanded in self?.setCollapsed(!isExpanded, for: thread.id) })
                     threadCards[thread.id] = card
                 }
                 card.replyButton.isEnabled = !parent.isWritingPullRequest
