@@ -31,6 +31,20 @@ struct TranscriptActivityTests {
         #expect(tasks.map(\.title) == ["Start the dev server", "Review the parser", "Watch CI"])
     }
 
+    @Test func countsAShellRunByTheUserThatClaudeCodeMovedToTheBackground() {
+        let output = "/private/tmp/claude-501/-tmp-demo/s/tasks/bmoved1.output"
+        let lines = [
+            #"{"type":"user","timestamp":"2026-11-01T10:00:00.000Z","message":{"role":"user","content":"<bash-input>sleep 300</bash-input>"}}"#,
+            #"{"type":"user","timestamp":"2026-11-01T10:02:00.000Z","message":{"role":"user","content":"<bash-stdout>Command did not complete within its 120s timeout and was moved to the background (ID: bmoved1). Output is being written to: \#(output). You will be notified when it completes.</bash-stdout><bash-stderr></bash-stderr>"}}"#,
+        ]
+        var history = TranscriptActivity(keepsTaskHistory: true)
+        history.apply(Data((lines.joined(separator: "\n") + "\n").utf8))
+
+        let tasks = activity(lines).tasks(of: live, now: now) { _ in false }
+        #expect(tasks.map(\.id) == ["bmoved1"] && tasks.map(\.kind) == [RemoteTask.shell] && tasks.map(\.title) == ["sleep 300"])
+        #expect(history.taskHistory["bmoved1"]?.outputFile?.path == output)
+    }
+
     @Test func stoppedAgentCountsAgainOnceItsLogGrowsPastTheMeta() throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let subagents = folder.appending(path: "s/subagents")
