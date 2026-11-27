@@ -22,6 +22,7 @@ extension Snapshot {
     private static var showsCodexApproval: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexApproval") }
     private static var showsCodexTasks: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationCodexTasks") }
     private static var showsSlashCommands: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationSlashCommands") }
+    private static var showsSlashRows: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationSlashRows") }
     private static var showsShellCompletions: Bool { UserDefaults.standard.bool(forKey: "snapshotConversationShellCompletions") }
 
     private nonisolated(unsafe) static var tineStub: TineStubServer?
@@ -310,6 +311,20 @@ extension Snapshot {
         let usage: [String: Any] = ["input_tokens": 3, "cache_read_input_tokens": 61_000, "cache_creation_input_tokens": 700, "output_tokens": 240]
         let assistant = { (advance: TimeInterval, blocks: [[String: Any]]) in base("assistant", advance, ["role": "assistant", "id": "msg-\(count)", "model": "claude-sonnet-4-5", "content": blocks, "usage": usage]) }
         let text = { (value: String) -> [String: Any] in ["type": "text", "text": value] }
+        if showsSlashRows {
+            let slash = { (name: String, args: String) in
+                prompt("<command-name>/\(name)</command-name>\n<command-message>\(name)</command-message>\n<command-args>\(args)</command-args>", 1)
+                    .merging(["rowSource": "local"]) { $1 }
+            }
+            let setup = prompt("Set up the ledger export workspace.", 0)
+            let reload = slash("reload-skills", "")
+            var output = base("system", 1, [:])
+            output.removeValue(forKey: "message")
+            output["subtype"] = "local_command"
+            output["content"] = "<local-command-stdout>Reloaded skills: 12 skills available (1 added, 0 removed).</local-command-stdout>"
+            output["commandRun"] = ["command": "reload-skills", "args": ""]
+            return [setup, reload, output, slash("update-config", "enable export previews"), assistant(2, [text("Export previews are now enabled for this workspace.")])]
+        }
         if showsLongCode {
             let input = (1...60).map { "export TZ_REGION_\($0)=Europe/Stockholm" }.joined(separator: "\n")
             let output = (1...40).map { "assert(exportedRows[\($0 - 1)].region == expectedRegion)" }.joined(separator: "\n")
@@ -674,7 +689,7 @@ extension Snapshot {
 
             try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output.path + suffix))
         }
-        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? (showsEmptyConversation || showsLongCode || showsWatching || showsSlashCommands || showsShellCompletions ? "idle" : "busy")
+        let status = UserDefaults.standard.string(forKey: "snapshotConversationStatus") ?? (showsEmptyConversation || showsLongCode || showsWatching || showsSlashCommands || showsSlashRows || showsShellCompletions ? "idle" : "busy")
         let rawLog = UserDefaults.standard.string(forKey: "snapshotConversationRawLog")
         let title = UserDefaults.standard.string(forKey: "snapshotTerminalTitle") ?? (showsCodexApproval ? "[ ! ] Action Required" : showsCodexTasks ? "Ready" : "")
         let command = rawLog.map { "/bin/zsh -c 'stty raw -echo; printf \"\\033[?2004h\"; exec cat >> \"\($0)\"'" } ?? "/bin/zsh -c 'printf \"\\033]0;\(title)\\007\"; echo the terminal is still running; sleep 600'"

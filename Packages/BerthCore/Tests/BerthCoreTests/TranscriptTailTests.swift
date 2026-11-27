@@ -94,6 +94,46 @@ struct TranscriptTailTests {
         #expect(Turn.turns(from: [output]).isEmpty)
     }
 
+    @Test func showsSlashCommandsAndFoldsLateLocalOutput() throws {
+        let reload = #"{"type":"user","uuid":"reload","rowSource":"local","message":{"role":"user","content":"<command-name>/reload-skills</command-name>\n            <command-message>reload-skills</command-message>\n            <command-args></command-args>"}}"#
+        let config = #"{"type":"user","uuid":"config","rowSource":"local","message":{"role":"user","content":[{"type":"text","text":"<command-name>/update-config</command-name>"},{"type":"text","text":"<command-message>update-config</command-message>\n<command-args>enable lantern previews</command-args>"}]}}"#
+        let later = [
+            #"{"type":"user","uuid":"caveat","message":{"role":"user","content":"<local-command-caveat>Local output follows.</local-command-caveat>"}}"#,
+            #"{"type":"user","uuid":"expansion","isMeta":true,"message":{"role":"user","content":"Enable previews for the island lantern."}}"#,
+            #"{"type":"system","subtype":"local_command","uuid":"out","content":"<local-command-stdout>Loaded 12 skills.\nAdded lantern-preview.</local-command-stdout>","commandRun":{"command":"reload-skills","args":""}}"#,
+            #"{"type":"assistant","uuid":"reply","message":{"content":[{"type":"text","text":"Lantern previews are enabled."}]}}"#,
+            #"{"type":"user","uuid":"quiet","message":{"role":"user","content":"<command-name>/reload-skills</command-name>\n<command-args>--quiet</command-args>"}}"#,
+            #"{"type":"system","subtype":"local_command","uuid":"empty","content":"<local-command-stdout></local-command-stdout>","commandRun":{"command":"reload-skills","args":"--quiet"}}"#,
+        ]
+        let url = FileManager.default.temporaryDirectory.appending(path: "tail-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try ([reload, config].joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+        let first = try #require(TranscriptTail.read(url, after: nil))
+        #expect(first.entries.map(\.text) == ["/reload-skills", "/update-config enable lantern previews"])
+        #expect(first.entries.map(\.command) == ["/reload-skills", "/update-config"])
+        #expect(try [reload, config].allSatisfy { try JSONDecoder().decode(Record.self, from: Data($0.utf8)).typedPrompt == nil })
+        #expect(Turn.turns(from: first.entries).first?.prompt?.shellOutput == nil)
+
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((later.joined(separator: "\n") + "\n").utf8))
+        try handle.close()
+        let next = try #require(TranscriptTail.read(url, after: first.end))
+        #expect(next.isContinuation)
+        #expect(next.entries.map(\.id) == ["out", "reply-0", "quiet", "empty"])
+        #expect(Turn.continuing(Turn.turns(from: first.entries), with: next.entries) == nil)
+
+        let full = try #require(TranscriptTail.read(url, after: nil))
+        #expect(full.entries == first.entries + next.entries)
+        let turns = Turn.turns(from: full.entries)
+        #expect(turns.map(\.id) == ["reload", "config", "quiet"])
+        #expect(turns.first?.prompt?.shellOutput == "Loaded 12 skills.\nAdded lantern-preview.")
+        let configTurn = try #require(turns.dropFirst().first)
+        #expect(configTurn.prompt?.shellOutput == nil)
+        #expect(configTurn.parts.map(\.id) == ["reply-0"])
+        #expect(turns.last?.prompt?.shellOutput?.isEmpty == true)
+    }
+
     @Test func showsMidTurnUpdatesAsReplies() {
         let updates = [
             #"{"type":"assistant","uuid":"n1","message":{"content":[{"type":"thinking","thinking":"Checking the widget now.","signature":"eHh4eG5hcnJhdGlvbnh4eHg="},{"type":"thinking","thinking":"Private reasoning.","signature":"eHh4eHRoaW5raW5neHh4eA=="},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}},{"type":"thinking","thinking":"","signature":"eHh4eG5hcnJhdGlvbnh4eHg="}]}}"#,

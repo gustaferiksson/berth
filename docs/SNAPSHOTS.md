@@ -254,6 +254,8 @@ Add `-snapshotConversationEmpty YES` to open a session with zero turns, and use 
 
 Add `-snapshotConversationSlashCommands YES` to capture the Claude composer with `/co` and the picker open. The flag seeds a command in the fixture home. `-snapshotConversationSlashText "<text>"` sets the draft (`|` marks the caret, for a slash typed mid-text), and `-snapshotConversationSlashAccept YES` accepts the first match and saves `<out>.slash-accepted.png` (the open picker is `<out>.slash-open.png`).
 
+Add `-snapshotConversationSlashRows YES` to show an invented `/reload-skills` command with local output, an `/update-config` command with arguments, and an assistant reply in the Conversation transcript.
+
 Add `-snapshotConversationShellCompletions YES` to capture shell mode with `!git ch` and the tine completion popover open. A fake tine socket in a temp path answers with invented items, so the real tine is never contacted. Add `-snapshotTineReal YES` to query the installed tine instead.
 
 The Claude fixture includes shell-mode stdout and stderr, and `-snapshotConversationExpanded YES` expands the shell output.
