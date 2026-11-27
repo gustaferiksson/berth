@@ -53,7 +53,7 @@ public enum ControlInstall {
 
     When the user asks to review or check out a PR in Berth, use `berth show-pr` to show it in their current tab. If the user asks for a separate working session, open it with `berth open-session --cwd <worktree> --background -- "<prompt>"` so each session shows in the sidebar.
 
-    When the user asks where something changed (for example "where were the lib changes?"), mark it instead of only listing paths, then say briefly what you marked. Give each mark a note that says why the lines matter. Clear stale marks first with `berth review marks clear`. When the user asks what changed since a commit or since their last review, mark with `--base <that ref>`.
+    When the user asks where something changed (for example "where were the lib changes?"), mark it instead of only listing paths, then say briefly what you marked. Give each mark a note that says why the lines matter. Clear stale marks first with `berth review marks clear`. When the user asks what changed since a commit, mark with `--base <that ref>`. For "since my last review" use `--base last-review`, which resolves to the user's latest submitted review on the session's pull request.
 
     ```sh
     berth review mark src/auth.ts:42-60 --note "Token refresh now retries once" src/api.ts:12 --note "New 401 handler"
