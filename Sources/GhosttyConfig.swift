@@ -200,7 +200,9 @@ struct GhosttyTheme: Equatable {
         self.background = background?.color
         chrome = background?.color.mix(with: .black, by: isDark ? 0.4 : 0.05).mix(with: .white, by: 0.03)
         foreground = readable("foreground", .primary, 4.5)
-        secondary = foreground.opacity(0.6)
+        let foregroundRGB = values["foreground"].flatMap(RGB.init(hex:)) ?? RGB(red: 0, green: 0, blue: 0)
+        let secondaryOpacity = isDark ? 0.6 : stride(from: 0.6, through: 1, by: 0.05).first { foregroundRGB.blended(over: surface, opacity: $0).contrast(with: surface) >= 4.5 } ?? 1
+        secondary = foreground.opacity(secondaryOpacity)
         needsYou = readable("palette-3", .orange, 4.5)
         warning = readable("palette-3", isDark ? Color(red: 229 / 255, green: 192 / 255, blue: 123 / 255) : Color(red: 150 / 255, green: 108 / 255, blue: 30 / 255), 4.5)
         working = readable("palette-2", .green, 4.5)
@@ -251,6 +253,10 @@ struct RGB {
     var luminance: Double {
         let linear = [red, green, blue].map { $0 <= 0.04045 ? $0 / 12.92 : pow(($0 + 0.055) / 1.055, 2.4) }
         return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    }
+
+    func blended(over other: Self, opacity: Double) -> Self {
+        Self(red: red * opacity + other.red * (1 - opacity), green: green * opacity + other.green * (1 - opacity), blue: blue * opacity + other.blue * (1 - opacity))
     }
 
     func contrast(with other: Self) -> Double {
