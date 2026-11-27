@@ -26,7 +26,8 @@ public enum PromptTextPart: Sendable {
         text.replacing(pastedBlock) { String($0.output.1) }
     }
 
-    public static func split(_ text: String) -> [Self] {
+    public static func split<Source: StringProtocol>(_ source: Source) -> [Self] where Source.SubSequence == Substring {
+        let text = source[...]
         var parts: [Self] = []
         var start = text.startIndex
         for match in text.matches(of: pastedBlock) {

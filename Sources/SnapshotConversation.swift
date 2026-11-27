@@ -429,7 +429,7 @@ extension Snapshot {
     private static func mentionRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
         guard let folder = UserDefaults.standard.string(forKey: "snapshotConversationMentions") else { return [] }
 
-        let text = "@\(folder)/Screen Recording demo.mov break down this video, then compare @\(folder)/diagram.png with @\(folder)/notes.txt and @\(folder)/gone.pdf"
+        let text = "@\(folder)/Screen Recording demo.mov break down this video, then compare @\(folder)/diagram.png with @\(folder)/notes.txt and @\(folder)/gone.pdf. The pricelists are placed here @\(folder)/Acme\\ STC, this is the email, and @\(folder)/Acme\\ STC/pricelists has the rest."
         return [base("user", 1, ["role": "user", "content": text])]
     }
 
