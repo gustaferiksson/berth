@@ -19,6 +19,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let submit: () -> Void
     let attach: ([URL]) -> String
     let recall: () -> Bool
+    let stop: () -> Void
     let leaveShell: () -> Void
 
     private static let maxLines = 8.0
@@ -89,6 +90,7 @@ struct ConversationComposerField: NSViewRepresentable {
         textView.onSubmit = submit
         textView.onAttach = attach
         textView.onRecall = recall
+        textView.onStop = stop
         textView.onLeaveShell = leaveShell
         textView.hiddenPrefix = hidesBang ? "!" : ""
         let pickerChanged = textView.slashPicker !== slashPicker || textView.shellCompleter !== shellCompleter
@@ -201,6 +203,7 @@ final class ComposerTextView: NSTextView {
     var onSubmit: () -> Void = {}
     var onAttach: ([URL]) -> String = { _ in "" }
     var onRecall: () -> Bool = { false }
+    var onStop: () -> Void = {}
     var onLeaveShell: () -> Void = {}
     var hiddenPrefix = ""
     var rendersImageTags = true
@@ -327,6 +330,8 @@ final class ComposerTextView: NSTextView {
 
     override func keyDown(with event: NSEvent) {
         guard !hasMarkedText() else { return super.keyDown(with: event) }
+
+        if event.keyCode == 8, event.modifierFlags.intersection([.shift, .option, .command, .control]) == .control { return onStop() }
 
         let isUnmodified = event.modifierFlags.isDisjoint(with: [.shift, .option, .command, .control])
         let isReturn = event.keyCode == 36 || event.keyCode == 76
