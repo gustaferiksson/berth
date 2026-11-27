@@ -628,6 +628,8 @@ extension Snapshot {
 
                 print("caretprobe \(argument) caret \(textView.selectedRange().location) draftLength \(textView.draftText.utf16.count) fieldLength \(textView.string.utf16.count)")
 
+            case "strike": await strikeKeys(argument)
+
             case "key":
                 guard let textView = conversationComposer, let window = textView.window else { break }
 
@@ -678,6 +680,23 @@ extension Snapshot {
             state()
         }
         log()
+    }
+
+    private static func strikeKeys(_ argument: String) async {
+        let parts = argument.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3, let textView = conversationComposer, let window = textView.window, let gap = Int(parts[1]), let expected = Int(parts[2]) else { return }
+
+        window.makeFirstResponder(textView)
+        for character in parts[0] {
+            let characters = String(character)
+            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 0) else { return }
+
+            window.sendEvent(event)
+            try? await Task.sleep(for: .milliseconds(gap))
+        }
+        try? await Task.sleep(for: .milliseconds(600))
+        let caret = textView.selectedRange().location
+        print("strike caret \(caret) expected \(expected) text \(textView.string.debugDescription) probe \(caret == expected ? "PASS" : "FAIL")")
     }
 
     static func captureConversation(store: Store, window: NSWindow, output: URL) async {
