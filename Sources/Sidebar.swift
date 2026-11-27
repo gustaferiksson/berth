@@ -830,7 +830,9 @@ private struct SessionItem: View {
                     menu(session, tab: tab)
                 }
             }
-            OwnedTerminalItems(parent: tab?.id, indent: place == .task ? taskIndent * 2 : taskIndent, showsGuide: place == .task, select: select)
+            if let tab {
+                OwnedTerminalItems(parent: tab.id, indent: place == .task ? taskIndent * 2 : taskIndent, showsGuide: place == .task, select: select)
+            }
         }
     }
 
