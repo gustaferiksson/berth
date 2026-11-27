@@ -4,7 +4,7 @@ Offscreen snapshot and verification flags for Debug builds (`Sources/Snapshot.sw
 
 ## Basics, shell and Claude tabs
 
-Use `-snapshotGhosttyTheme "Atom One Light"` for light snapshots because the app derives its colours from the Ghostty theme.
+The app derives its colours from the Ghostty theme, so a snapshot needs both the window appearance and a theme of the same kind. `-AppleInterfaceStyle Light|Dark` sets the window appearance, and unless you pass a theme it also picks the built-in light or dark fixture theme (Berth Snapshot Light or Dark, defined inline in `Sources/SnapshotThemes.swift`, so no Ghostty install is needed). `-snapshotTheme light|dark` picks the fixture theme on its own, and `-snapshotGhosttyTheme "Atom One Light"` (or a pair such as `"light:Atom One Light,dark:Atom One Dark"`, resolved by `-AppleInterfaceStyle`) replaces the Ghostty config with a named theme. Without any of these flags the snapshot uses whatever the fixture home's Ghostty config says.
 
 Snapshot without touching the screen (Debug build only): `.build/Build/Products/Debug/Berth.app/Contents/MacOS/Berth -snapshot /abs/out.png` plus `-AppleInterfaceStyle Dark`, `-snapshotShell YES` (two terminals in the Terminals group, the second showing a fake `npm run dev` title and working dots; add `-snapshotShellCd "<args>"` to type `cd <args>` into the first one), `-snapshotClaudeTab YES` (a shell-backed claude tab with no transcript yet), or `-snapshotClaude /abs/dir` (launches real `claude` without `-w` whatever the setting, shows its trust prompt), or `-snapshotResume <sessionId>` (the sidebar click path, `claude --resume`).
 
