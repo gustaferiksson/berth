@@ -467,7 +467,20 @@ enum Snapshot {
             let context = row.id == "rounding" ? SessionContext(model: "fixture", tokens: 162_000, window: 200_000) : nil
             return SessionSummary(id: "busy-\(row.id)", cwd: folder, title: row.title, lastActivity: now - Double(2 + index * index * index) * 60, branch: branch, issueRefs: issueRefs, context: context)
         }
-        return BusySidebarFixture(sessions: sessions, repositories: repositories, pullRequests: pullRequests)
+        let scaled = (0..<UserDefaults.standard.integer(forKey: "snapshotBusySessions")).map { index in
+            let project = "scale/repo-\(index % 30)"
+            let folder = "\(root)/\(project)"
+            try? FileManager.default.createDirectory(atPath: folder + "/.git", withIntermediateDirectories: true)
+            repositories[RepositoryRoot.resolve(folder)] = project
+            let branch = "work/scale-\(index)"
+            if index.isMultiple(of: 4) {
+                let url = URL(string: "https://github.com/\(project)/pull/\(9000 + index)")!
+                pullRequests[PullRequestBranch(repository: project, branch: branch)] =
+                    PullRequest(number: 9000 + index, url: url, title: "Scale fixture \(index)", state: .open, headRefName: branch, checks: .passed, viewerDidAuthor: true)
+            }
+            return SessionSummary(id: "scale-\(index)", cwd: folder, title: "Scale fixture session \(index)", lastActivity: now - Double(60 * (index + 30)), branch: branch)
+        }
+        return BusySidebarFixture(sessions: sessions + scaled, repositories: repositories, pullRequests: pullRequests)
     }()
 
     static let fixtureTasks = busySidebar?.tasks ?? taskFixtures?.tasks

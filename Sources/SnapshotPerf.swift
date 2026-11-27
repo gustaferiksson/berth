@@ -179,6 +179,16 @@ extension Snapshot {
             }
             print("perf store \(step): \(ticks) ticks, main thread CPU per tick \(String(format: "%.2f", (mainThreadMilliseconds() - mainStart) / Double(ticks))) ms")
         }
+        if steps.contains("layout") {
+            let calls = rounds * 10
+            var start = mainThreadMilliseconds()
+            for _ in 0..<calls { _ = store.sidebarLayout }
+            let layout = (mainThreadMilliseconds() - start) / Double(calls)
+            start = mainThreadMilliseconds()
+            for _ in 0..<calls { _ = store.sidebarOrderedTabs }
+            let ordered = (mainThreadMilliseconds() - start) / Double(calls)
+            print("perf store layout: \(calls) calls, sidebarLayout \(String(format: "%.2f", layout)) ms, sidebarOrderedTabs \(String(format: "%.2f", ordered)) ms")
+        }
         if steps.contains("sidebar") {
             await toggle("toggle session sidebar (\(rounds * 2) toggles)") { sidebarSplit?.toggleSidebar(nil) }
         }
