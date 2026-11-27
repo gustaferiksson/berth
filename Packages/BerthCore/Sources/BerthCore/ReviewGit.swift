@@ -184,6 +184,16 @@ public enum ReviewGit {
         return ReviewChanges(root: root, branch: branch, isDefaultBranch: isDefaultBranch, defaultBase: defaultBase, base: base, baseReason: baseReason, bases: bases, head: head, mergeBase: mergeBase, since: resolvedSince, uncommitted: uncommitted, committed: committed, total: total, fetchedAt: fetch?.fetchedAt, fetchError: fetch?.error)
     }
 
+    public static func ensureCommit(_ sha: String, pullRequest number: Int, in root: String) async -> Bool {
+        guard (try? validateCommitSHA(sha)) != nil else { return false }
+
+        let isLocal = { await (try? line(["rev-parse", "--verify", "--quiet", "\(sha)^{commit}"], in: root)) != nil }
+        if await isLocal() { return true }
+
+        _ = try? await FetchThrottle.shared.pullRequestHead(number, in: root)
+        return await isLocal()
+    }
+
     public static func recentCommits(of changes: ReviewChanges, limit: Int = 15) async throws -> [ReviewCommit] {
         try await commits(["-n", "\(limit)", changes.head], isPushed: { _ in false }, in: changes.root)
     }

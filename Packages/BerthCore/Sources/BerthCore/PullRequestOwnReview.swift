@@ -13,37 +13,37 @@ public struct PullRequestOwnReview: Sendable, Equatable {
 
     private struct Response: Decodable {
         struct Payload: Decodable {
-            struct Account: Decodable {
-                let login: String
-            }
-
-            struct Review: Decodable {
-                struct Commit: Decodable {
-                    let oid: String
-                }
-
-                let submittedAt: String?
-                let author: Account?
-                let commit: Commit?
-            }
-
-            struct Reviews: Decodable {
-                let nodes: [Review?]?
-            }
-
-            struct PullRequest: Decodable {
-                let reviews: Reviews?
-            }
-
-            struct Repository: Decodable {
-                let pullRequest: PullRequest?
-            }
-
             let viewer: Account?
             let repository: Repository?
         }
 
+        struct Repository: Decodable {
+            let pullRequest: PullRequest?
+        }
+
+        struct PullRequest: Decodable {
+            let reviews: Reviews?
+        }
+
+        struct Reviews: Decodable {
+            let nodes: [Review?]?
+        }
+
         let data: Payload?
+    }
+
+    private struct Account: Decodable {
+        let login: String
+    }
+
+    private struct Review: Decodable {
+        struct Commit: Decodable {
+            let oid: String
+        }
+
+        let submittedAt: String?
+        let author: Account?
+        let commit: Commit?
     }
 
     public static func arguments(repository: String, number: Int) -> [String]? {
