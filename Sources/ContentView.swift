@@ -242,10 +242,7 @@ struct ContentView: View {
             store.isSettingsRequested = false
             openSettings()
         }
-        .overlay(alignment: .topTrailing) {
-            AgentBrowserPrompt(access: store.browser.access)
-                .padding(12)
-        }
+        .overlay { AgentBrowserPrompt(access: store.browser.access) }
         .sheet(item: $store.editingGroup) { GroupEditor(group: $0) }
         .confirmationDialog("Delete “\(store.deletingGroup?.name ?? "")”?", isPresented: Binding(get: { store.deletingGroup != nil }, set: { if !$0 { store.deletingGroup = nil } }), presenting: store.deletingGroup) { group in
             Button("Delete Group", role: .destructive) { store.customGroups.removeAll { $0.id == group.id } }
