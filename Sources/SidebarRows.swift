@@ -118,9 +118,10 @@ struct SessionRow: View {
                 .allowsHitTesting(!showsActions)
                 .accessibilityHidden(showsActions)
 
-                if showsActions {
-                    HStack(spacing: 6) { actions }
-                }
+                HStack(spacing: 6) { actions }
+                    .opacity(showsActions ? 1 : 0)
+                    .allowsHitTesting(showsActions)
+                    .accessibilityHidden(!showsActions)
             }
             .frame(minWidth: 14, alignment: .trailing)
             .fixedSize()
