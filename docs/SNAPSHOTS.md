@@ -51,7 +51,18 @@ Add `-snapshotItemPreview "pr|issue|pr-checks"` with one of the three values to 
 
 ## Launcher, palette, search, stats and dialogs
 
-`-snapshotLauncher "<query>"` (opens the ⌘N launcher with that query), `-snapshotPalette "<query>"` (opens the ⌘K palette with that query; add `-snapshotClaude /abs/dir` for an open tab in its Sessions section), `-snapshotSearch "<query>"` (opens search mode with that query and prints index build time, text size, memory footprint and the hits once the whole index, subagents included, is built: add `-snapshotHold 6` or it exits first), `-snapshotStats YES` (captures the Stats view in its own 960×800 window after the index is built and prints build time, footprint, the 30-day token totals and the tile values), `-snapshotEditGroup "<name>"` (captures the group editor for that group, or a new one for an unknown name, in its own window: a real `.sheet` moved the offscreen window onto the screen), `-snapshotRestartBanner "<version>"` (the update restart banner, 18 s deadline), and `-snapshotHold <s>` to keep the window up longer (for CPU checks).
+`-snapshotLauncher "<query>"` (opens the ⌘N launcher with that query), `-snapshotSearch "<query>"` (opens search mode with that query and prints index build time, text size, memory footprint and the hits once the whole index, subagents included, is built: add `-snapshotHold 6` or it exits first), `-snapshotStats YES` (captures the Stats view in its own 960×800 window after the index is built and prints build time, footprint, the 30-day token totals and the tile values), `-snapshotEditGroup "<name>"` (captures the group editor for that group, or a new one for an unknown name, in its own window: a real `.sheet` moved the offscreen window onto the screen), `-snapshotRestartBanner "<version>"` (the update restart banner, 18 s deadline), and `-snapshotHold <s>` to keep the window up longer (for CPU checks).
+
+Use `-snapshotPaletteContext <terminal|conversation|review|browser|session|files>` to open the ⌘K command palette with the specified context. Add `-snapshotPalette "<query>"` to filter its actions. The query flag on its own opens the Terminal context.
+
+| Palette context | Fixture flags |
+| --- | --- |
+| Terminal | `-snapshotShell YES` |
+| Conversation | `-snapshotConversation YES -conversationEnabled YES -reviewEnabled NO` with an empty `CFFIXED_USER_HOME` |
+| Review | `-snapshotReview /abs/repo -reviewEnabled YES -languageServersEnabled NO` |
+| Browser | `-snapshotBrowser YES` |
+| Session | `-snapshotFakeStatus YES -snapshotSelectRow 1` |
+| Files | `-snapshotReview /abs/repo -snapshotFiles YES -snapshotReviewNoFile YES -reviewEnabled YES -languageServersEnabled NO`. Add `-snapshotFilesOpen <path>` for commands that need a selected file. |
 
 ## Review: open, panel and review card
 

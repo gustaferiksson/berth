@@ -2,7 +2,7 @@ import Foundation
 
 public struct PaletteItem: Hashable, Sendable {
     public enum Section: Int, Comparable, Sendable {
-        case openTab, action, recentSession
+        case context, general
 
         public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
     }
@@ -24,7 +24,7 @@ public enum CommandPalette {
     public static func rank(_ query: String, items: [PaletteItem], limit: Int = 50) -> [PaletteItem] {
         let query = query.trimmingCharacters(in: .whitespaces)
         let scored = items.enumerated().compactMap { index, item -> (index: Int, score: Int, item: PaletteItem)? in
-            if query.isEmpty { return item.section == .recentSession ? nil : (index, 0, item) }
+            if query.isEmpty { return (index, 0, item) }
             return FuzzyMatch.score(query, name: item.title, path: item.detail).map { (index, $0, item) }
         }
         return scored

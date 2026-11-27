@@ -71,9 +71,15 @@ struct ContentView: View {
                             Color.clear
                                 .contentShape(.rect)
                                 .onTapGesture { store.launcherMode = nil }
-                            Launcher(mode: mode, query: store.launcherQuery, previousScope: $previousLauncherScope)
-                                .id(mode)
-                                .padding(.top, 120)
+                            Group {
+                                if mode == .palette {
+                                    CommandPaletteView(query: store.launcherQuery)
+                                } else {
+                                    Launcher(mode: mode, query: store.launcherQuery, previousScope: $previousLauncherScope)
+                                }
+                            }
+                            .id(mode)
+                            .padding(.top, 120)
                         }
                     }
                 }

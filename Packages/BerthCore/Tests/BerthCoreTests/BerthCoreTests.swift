@@ -768,41 +768,38 @@ struct NeedsYouTests {
 
 struct CommandPaletteTests {
     private let items = [
-        PaletteItem(id: "recent", section: .recentSession, title: "Settings migration", detail: "/r/alpha"),
-        PaletteItem(id: "settings", section: .action, title: "Settings…", detail: "preferences"),
-        PaletteItem(id: "tab", section: .openTab, title: "Fix login", detail: "/r/beta"),
-        PaletteItem(id: "switch", section: .action, title: "Switch Terminal / Claude", detail: "shell toggle jump"),
-        PaletteItem(id: "tab2", section: .openTab, title: "Set up CI", detail: "/r/gamma"),
+        PaletteItem(id: "settings", section: .general, title: "Settings…", detail: "preferences"),
+        PaletteItem(id: "reset", section: .context, title: "Reset Terminal", detail: "shell"),
+        PaletteItem(id: "switch", section: .context, title: "Switch Terminal", detail: "toggle jump"),
+        PaletteItem(id: "setup", section: .context, title: "Set Up Terminal", detail: "configure"),
     ]
 
     private func ranked(_ query: String) -> [String] {
         CommandPalette.rank(query, items: items).map(\.id)
     }
 
-    @Test func emptyQueryListsOpenTabsThenActionsWithoutRecents() {
-        #expect(ranked("") == ["tab", "tab2", "settings", "switch"])
+    @Test func emptyQueryListsContextThenGeneralActions() {
+        #expect(ranked("") == ["reset", "switch", "setup", "settings"])
         #expect(ranked("  ") == ranked(""))
     }
 
-    @Test func typingMixesSectionsByScore() {
-        #expect(ranked("set") == ["tab2", "settings", "recent", "switch"])
+    @Test func typingRanksByScoreThenContext() {
+        #expect(ranked("set") == ["setup", "settings", "reset"])
         #expect(ranked("tog") == ["switch"])
         #expect(ranked("swi") == ["switch"])
     }
 
     @Test func detailMatchesRankBelowTitleMatches() {
-        #expect(ranked("shell") == ["switch"])
-        #expect(ranked("beta") == ["tab"])
+        #expect(ranked("shell") == ["reset"])
         #expect(ranked("prefe") == ["settings"])
         #expect(ranked("zzz").isEmpty)
     }
 
     @Test func resultsAreCapped() {
-        let many = (0..<80).map { PaletteItem(id: "\($0)", section: .recentSession, title: "session \($0)", detail: "") }
-        #expect(CommandPalette.rank("session", items: many).count == 50)
-        #expect(CommandPalette.rank("session", items: many, limit: 3).map(\.id) == ["0", "1", "2"])
-        let actions = (0..<13).map { PaletteItem(id: "\($0)", section: .action, title: "action \($0)", detail: "") }
-        #expect(CommandPalette.rank("", items: actions, limit: 12).count == 13)
+        let actions = (0..<80).map { PaletteItem(id: "\($0)", section: .general, title: "action \($0)", detail: "") }
+        #expect(CommandPalette.rank("action", items: actions).count == 50)
+        #expect(CommandPalette.rank("action", items: actions, limit: 3).map(\.id) == ["0", "1", "2"])
+        #expect(CommandPalette.rank("", items: actions, limit: 12).count == 80)
     }
 }
 

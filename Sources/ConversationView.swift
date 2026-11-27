@@ -30,7 +30,7 @@ struct ConversationView: View {
     var body: some View {
         let harness = tab.agent.harness
         let live = tab.sessionID.flatMap { store.liveBySession[$0] }
-        let isWorking = live?.activity == .working || model.isTurnOpen && !(live?.reportsWaiting ?? false)
+        let isWorking = model.isWorking(with: live)
         let isBusy = isWorking || !model.queued.isEmpty
         let waitingFor: String?? = if case let .needsInput(reason)? = live?.activity { .some(reason) } else { nil }
         let since = tab.sessionID.flatMap { store.turnStarts[$0] } ?? model.turns.last?.prompt?.date
@@ -209,6 +209,8 @@ struct ConversationView: View {
             .focusable()
             .focused($isFocused)
             .focusEffectDisabled()
+            .onChange(of: isFocused) { store.isConversationTranscriptFocused = isFocused }
+            .onDisappear { store.isConversationTranscriptFocused = false }
             .onKeyPress(.end) { scrollToLatest() }
             .onKeyPress(.home) {
                 withAnimation(.smooth) { position.scrollTo(edge: .top) }
