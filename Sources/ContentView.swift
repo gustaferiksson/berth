@@ -26,7 +26,6 @@ struct ContentView: View {
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
     @State private var paneSidebarWidth = SessionPanel.idealWidth
-    @State private var paneHostFlips = 0
     @State private var previousLauncherScope: LauncherMode?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -47,9 +46,6 @@ struct ContentView: View {
                 measuredSessionPanel
                     .glassSidebarTint(fill: sidebarFill)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
-                    .toolbar {
-                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: paneHostFlips) }
-                    }
                     .navigationSplitViewColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
             } else {
                 Sidebar()
@@ -142,7 +138,7 @@ struct ContentView: View {
                     if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
                         ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
-                    if !showsPanelSidebar { ChangesToolbar(store: store, host: "detail", flips: paneHostFlips) }
+                    ModeSwitcherToolbar(store: store)
                     if isTrailing, !showsSessions {
                         if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
                         ToolbarItem(placement: .primaryAction) { sessionsToggle }
@@ -169,9 +165,6 @@ struct ContentView: View {
                     .glassSidebarTint(fill: sidebarFill)
                     .background(ScrollPocketSeparatorRemover())
                     .inspectorColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
-                    .toolbar {
-                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: paneHostFlips) }
-                    }
             }
         }
         .containerBackground(for: .window) { WindowBackdrop(chrome: windowChrome, transparency: windowTransparency) }
@@ -204,7 +197,6 @@ struct ContentView: View {
                 await store.backgroundTaskModel.observe(taskSource, store: store)
             }
         }
-        .onChange(of: showsPanelSidebar) { paneHostFlips += 1 }
         .onChange(of: showsColumn) {
             guard !showsColumn else { return }
 
