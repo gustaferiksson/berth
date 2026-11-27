@@ -2,6 +2,20 @@ import BerthCore
 import Foundation
 
 extension Store {
+    func dismissReviewMark(_ mark: ControlReviewMark) {
+        guard let sessionID = selectedSessionID, let marks = reviewMarks[sessionID] else { return }
+
+        let kept = marks.filter { $0 != mark }
+        reviewMarks[sessionID] = kept.isEmpty ? nil : kept
+    }
+
+    func clearReviewMarks(path: String? = nil) {
+        guard let sessionID = selectedSessionID else { return }
+
+        let kept = path.map { path in (reviewMarks[sessionID] ?? []).filter { $0.path != path } } ?? []
+        reviewMarks[sessionID] = kept.isEmpty ? nil : kept
+    }
+
     func updateReviewMarks(_ marks: [ControlReviewMark], in tabID: Tab.ID) async -> ControlResponse {
         guard UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return .failure("Enable Review in Settings to mark changes") }
         guard let caller = tabs.first(where: { $0.id == tabID }),

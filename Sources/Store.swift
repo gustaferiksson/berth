@@ -1904,6 +1904,7 @@ final class Store {
         guard let id = id ?? model.selectedTabID else { return }
 
         let isSelected = id == model.selectedTabID
+        model.tabs.first { $0.id == id }.map { clearReviewMarks(path: $0.document.path) }
         model.close(id)
         if model.tabs.isEmpty, let sessionID = selectedSessionID { activeReviewRoots[sessionID] = nil }
         if model.tabs.isEmpty { focusSelected() } else if isSelected { model.focusesEditor = true }

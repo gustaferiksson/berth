@@ -2203,6 +2203,8 @@ struct ReviewDiffColumn: View {
                             style: style,
                             blameHead: model.blameHead,
                             marks: sessionID.flatMap { store.reviewMarks[$0] }?.filter { $0.path == path && document.compare?.isHistorical != true } ?? [],
+                            dismissMark: { store.dismissReviewMark($0) },
+                            clearMarks: { store.clearReviewMarks() },
                             loadBlame: { [weak store] in
                                 var blame = await model.loadBlame(for: document)
                                 blame?.openLink = { store?.openLink($0) }

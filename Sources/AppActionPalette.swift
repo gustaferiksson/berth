@@ -8,7 +8,7 @@ extension AppAction {
         .closeTerminal, .copyTerminal, .pasteTerminal, .selectAllInTerminal, .nextTab, .previousTab,
         .pinSession, .unpinSession, .snoozeHour, .snoozeTomorrow, .snoozeUntilNeeded, .unsnoozeSession, .unloadSession, .reopenSession, .copySessionID, .markSessionRead, .markSessionUnread, .dismissSessionAttention, .stopWatchingSession, .newTaskFromSessions, .removeSessionFromTask, .reopenSessionTask, .acceptTaskSuggestion, .dismissTaskSuggestion,
         .stopConversation, .closeSubagentConversation,
-        .findInReview, .refreshReview, .toggleReviewTree, .toggleReviewComments, .collapseAllComments, .expandAllComments, .sendReviewComments, .closeReviewTab, .closeOtherReviewTabs, .closeReviewPreview, .revealReviewFile, .copyReviewPath, .copyReviewRelativePath, .openReviewFile,
+        .findInReview, .refreshReview, .toggleReviewTree, .toggleReviewComments, .collapseAllComments, .expandAllComments, .clearReviewMarks, .sendReviewComments, .closeReviewTab, .closeOtherReviewTabs, .closeReviewPreview, .revealReviewFile, .copyReviewPath, .copyReviewRelativePath, .openReviewFile,
         .stopBrowserLoading, .copyBrowserURL, .openInDefaultBrowser,
         .toggleIgnoredFiles, .clearFilesFilter, .openSelectedFile, .revealSelectedFile, .openFileInDefaultApp, .copyFilePath, .copyRelativeFilePath,
     ]
@@ -69,6 +69,8 @@ extension AppAction {
         case .toggleReviewTree: store.shownPane == .changes && hasReviewTreeChanges(in: store)
 
         case .collapseAllComments, .expandAllComments: store.shownPane == .changes && store.reviewModel?.selectedDocument?.compare != nil
+
+        case .clearReviewMarks: store.shownPane == .changes && store.selectedSessionID.flatMap { store.reviewMarks[$0] }?.isEmpty == false
 
         case .toggleReviewComments, .sendReviewComments:
             store.showsReviewPanel && (store.shownPane == .changes || store.shownPane == .browser) && store.sessionReviewModels.contains { !$0.isSessionFiles && !$0.comments.isEmpty }
@@ -173,7 +175,7 @@ extension AppAction {
 
         case .closeSubagentConversation: if let id = store.mainTabID { store.conversationModels[id]?.openSubagent = nil }
 
-        case .findInReview, .refreshReview, .toggleReviewTree, .toggleReviewComments, .collapseAllComments, .expandAllComments, .sendReviewComments, .closeReviewTab, .closeOtherReviewTabs,
+        case .findInReview, .refreshReview, .toggleReviewTree, .toggleReviewComments, .collapseAllComments, .expandAllComments, .clearReviewMarks, .sendReviewComments, .closeReviewTab, .closeOtherReviewTabs,
              .closeReviewPreview, .revealReviewFile, .copyReviewPath, .copyReviewRelativePath, .openReviewFile,
              .stopBrowserLoading, .copyBrowserURL, .openInDefaultBrowser,
              .toggleIgnoredFiles, .clearFilesFilter, .openSelectedFile, .revealSelectedFile, .openFileInDefaultApp, .copyFilePath, .copyRelativeFilePath:
@@ -212,6 +214,8 @@ extension AppAction {
 
         case .collapseAllComments, .expandAllComments: store.reviewModel?.commentCollapse.set(all: self == .collapseAllComments)
 
+        case .clearReviewMarks: store.clearReviewMarks()
+
         case .sendReviewComments:
             if let id = store.selectedSessionID, let model = store.primaryReviewModel {
                 Task { await store.sendReviewComments(sessionID: id, model: model) }
@@ -221,7 +225,10 @@ extension AppAction {
 
         case .closeOtherReviewTabs:
             if let model = store.reviewModel, let selected = model.selectedTabID {
-                for tab in model.tabs where tab.id != selected { model.close(tab.id) }
+                for tab in model.tabs where tab.id != selected {
+                    store.clearReviewMarks(path: tab.document.path)
+                    model.close(tab.id)
+                }
             }
 
         case .closeReviewPreview: store.reviewModel?.closePreview()

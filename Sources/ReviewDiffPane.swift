@@ -16,6 +16,8 @@ struct ReviewDiffPane: View {
     let style: ReviewStyle
     let blameHead: String?
     let marks: [ControlReviewMark]
+    let dismissMark: (ControlReviewMark) -> Void
+    let clearMarks: () -> Void
     let loadBlame: () async -> ReviewBlameSnapshot?
     let language: ReviewLanguage?
     let reveal: LanguageServerRange?
@@ -69,6 +71,8 @@ struct ReviewDiffPane: View {
                 style: style,
                 blame: showsBlame && blame?.path == path && blame?.source == loaded ? blame?.snapshot : nil,
                 marks: marks,
+                dismissMark: dismissMark,
+                clearMarks: clearMarks,
                 showsMinimap: showsMinimap,
                 wrapsLines: wrapsLines,
                 comments: $comments,
@@ -169,6 +173,8 @@ private struct ReviewDiffViews: NSViewRepresentable {
     let style: ReviewStyle
     let blame: ReviewBlameSnapshot?
     let marks: [ControlReviewMark]
+    let dismissMark: (ControlReviewMark) -> Void
+    let clearMarks: () -> Void
     let showsMinimap: Bool
     let wrapsLines: Bool
     @Binding var comments: [ReviewComment]
@@ -396,6 +402,8 @@ private struct ReviewDiffViews: NSViewRepresentable {
             right.diagnostics = view.diagnostics
             right.blame = view.blame
             right.marks = view.marks
+            right.onDismissMark = view.dismissMark
+            right.onClearMarks = view.clearMarks
             ruler.needsDisplay = true
             if view.takesFocus { right.focusesInWindow = true }
             for textView in [left, right] {
