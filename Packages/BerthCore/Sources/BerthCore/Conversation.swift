@@ -303,6 +303,15 @@ public struct Turn: Identifiable, Sendable {
 
     private static func append(_ entries: [RemoteEntry], to turns: inout [Self], hiddenScripts: Set<String>, results: [String: RemoteEntry]) {
         for entry in entries {
+            if entry.kind == .toolResult, entry.name == "slash-output" {
+                let index = if let invocation = entry.command {
+                    turns.lastIndex { $0.prompt?.name == "slash" && $0.prompt?.text == invocation }
+                } else {
+                    turns.indices.last
+                }
+                if let index, turns[index].prompt?.name == "slash" { turns[index].prompt?.shellOutput = entry.text }
+                continue
+            }
             if entry.kind == .toolResult, entry.name == "bash-output" {
                 guard let last = turns.indices.last, var prompt = turns[last].prompt, prompt.name == "bash" else { continue }
 
