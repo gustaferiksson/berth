@@ -582,7 +582,7 @@ struct Launcher: View {
                         issueRows(linked)
                     } else if let pastedPullRequest {
                         Button { showInReview(pastedPullRequest) } label: {
-                            LauncherRowFrame(symbol: .octicon(.pullRequest), tint: .accentColor, title: "\(pastedPullRequest.repository) #\(pastedPullRequest.number)", isHighlighted: true) {
+                            LauncherRowFrame(symbol: .octicon(.pullRequest), tint: .secondary, title: "\(pastedPullRequest.repository) #\(pastedPullRequest.number)", isHighlighted: true) {
                                 EmptyView()
                             }
                         }
@@ -721,7 +721,7 @@ struct Launcher: View {
     private func folderRow(_ folder: Folder, isHighlighted: Bool) -> some View {
         LauncherRowFrame(
             symbol: "folder.fill",
-            tint: .accentColor,
+            tint: .secondary,
             title: URL(filePath: folder.path).lastPathComponent,
             secondary: [(folder.path as NSString).abbreviatingWithTildeInPath],
             isHighlighted: isHighlighted,
@@ -836,7 +836,7 @@ struct Launcher: View {
             }
         }
 
-        return LauncherRowFrame(symbol: "text.bubble", tint: .accentColor, title: hit.session.title, isHighlighted: isHighlighted, snippets: snippets) {
+        return LauncherRowFrame(symbol: "text.bubble", tint: .secondary, title: hit.session.title, isHighlighted: isHighlighted, snippets: snippets) {
             Text(verbatim: "\(URL(filePath: hit.session.checkout).lastPathComponent) · \(age(since: hit.session.lastActivity))")
                 .font(.caption)
                 .monospacedDigit()
