@@ -3,11 +3,14 @@ import Foundation
 import Observation
 
 enum SubagentStopMode: Equatable {
-    case subagent, turn
+    case subagent, monitor, turn
 }
 
 extension SubagentStopMode {
-    var title: String { self == .subagent ? "Stop Subagent" : "Stop Turn" }
+    var title: String {
+        if self == .subagent { return "Stop Subagent" }
+        return self == .monitor ? "Stop Monitor" : "Stop Turn"
+    }
 }
 
 struct BackgroundTaskSource: Hashable, Sendable {
@@ -106,17 +109,19 @@ extension Store {
     }
 
     func subagentStop(for task: SessionBackgroundTask) -> SubagentStopMode? {
-        guard task.kind == .agent, task.status == .running, let sessionID = sessionTab?.sessionID, tab(forSession: sessionID) != nil,
+        guard task.kind == .agent || task.kind == .monitor, task.status == .running, let sessionID = sessionTab?.sessionID, tab(forSession: sessionID) != nil,
               let live = liveBySession[sessionID], live.status != "waiting" else { return nil }
 
         let canDrive = SubagentStop.isSupported(version: live.version) && SubagentStop.keys(stopping: task, among: backgroundTasks) != nil
-        if canDrive, live.status == "idle" { return .subagent }
+        if canDrive, live.status == "idle" { return task.kind == .monitor ? .monitor : .subagent }
+        guard task.kind == .agent else { return nil }
+
         return live.status == "busy" && (task.runsInForeground || !canDrive) ? .turn : nil
     }
 
     func stopSubagent(_ task: SessionBackgroundTask) {
         switch subagentStop(for: task) {
-        case .subagent:
+        case .subagent, .monitor:
             Task {
                 if case let .refused(message) = await stopSubagentThroughTasksDialog(task) { subagentStopFailure = message }
             }

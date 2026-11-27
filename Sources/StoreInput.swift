@@ -246,20 +246,21 @@ extension Store {
     }
 
     func stopSubagentThroughTasksDialog(_ task: SessionBackgroundTask) async -> InputOutcome {
+        let noun = task.kind == .monitor ? "monitor" : "subagent"
         guard let sessionID = sessionTab?.sessionID, let stop = TerminalKeyPress(typing: "x") else { return .refused("Claude isn’t running in a Berth tab for this session") }
-        guard !submittingSessions.contains(sessionID) else { return .refused("The previous message is still being sent, so the subagent wasn’t stopped") }
+        guard !submittingSessions.contains(sessionID) else { return .refused("The previous message is still being sent, so the \(noun) wasn’t stopped") }
 
         submittingSessions.insert(sessionID)
         defer { submittingSessions.remove(sessionID) }
 
         refreshLive()
         guard let terminal = tab(forSession: sessionID)?.terminal, let live = liveBySession[sessionID] else { return .refused("Claude isn’t running in a Berth tab for this session") }
-        guard live.status == "idle" else { return .refused("Claude is busy or waiting, so the subagent wasn’t stopped") }
-        guard SubagentStop.isSupported(version: live.version), let keys = SubagentStop.keys(stopping: task, among: backgroundTasks) else { return .refused("This version of Claude isn’t known to show the subagent list the same way, so the subagent wasn’t stopped") }
+        guard live.status == "idle" else { return .refused("Claude is busy or waiting, so the \(noun) wasn’t stopped") }
+        guard SubagentStop.isSupported(version: live.version), let keys = SubagentStop.keys(stopping: task, among: backgroundTasks) else { return .refused("This version of Claude isn’t known to show the task list the same way, so the \(noun) wasn’t stopped") }
 
         for key in keys {
             refreshLive()
-            guard liveBySession[sessionID]?.status != "waiting" else { return .refused("Claude started waiting for an answer, so the subagent may not have been stopped and the Tasks dialog may still be open in the terminal") }
+            guard liveBySession[sessionID]?.status != "waiting" else { return .refused("Claude started waiting for an answer, so the \(noun) may not have been stopped and the Tasks dialog may still be open in the terminal") }
 
             lastKeyInput = .now
             switch key {
@@ -291,7 +292,7 @@ extension Store {
 
             try? await Task.sleep(for: .milliseconds(200))
         }
-        return .refused("The keys were sent, but Claude hasn’t reported the subagent stopped. Check the Tasks pane.")
+        return .refused("The keys were sent, but Claude hasn’t reported the \(noun) stopped. Check the Tasks pane.")
     }
 
     func recallQueued(_ text: String, in sessionID: String) async -> InputOutcome {
