@@ -362,6 +362,7 @@ final class Store {
     @ObservationIgnored private(set) var searchIndexTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FileWatcher?
     @ObservationIgnored private var themeWatcher: FileWatcher?
+    @ObservationIgnored private var appearanceObservation: NSKeyValueObservation?
     @ObservationIgnored private var summaries: [SessionSummary] = []
     @ObservationIgnored private var shownTasks: [StoredTask] = []
     @ObservationIgnored private var formation = TaskFormationMemo()
@@ -434,6 +435,9 @@ final class Store {
             } else {
                 refresh()
             }
+        }
+        appearanceObservation = NSApplication.shared.observe(\.effectiveAppearance) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.reloadTheme() }
         }
         themeWatcher = FileWatcher(paths: GhosttyConfig.watchedPaths, latency: 0.5) { [weak self] changed in
             guard changed.contains(where: { $0.contains("/ghostty") || $0.contains("/berth/ghostty") }) else { return }

@@ -17,6 +17,7 @@ struct BerthApp: App {
 
     init() {
         GhosttyConfig.registerBundledFonts()
+        NSApplication.shared.appearance = AppearanceMode.stored.appearance
         // The AutoFill heuristic controller loops in SwiftUI's key-view search and hangs the main thread; macOS 26 reads the first key, macOS 27 the second.
         UserDefaults.standard.register(defaults: ["NSAutoFillHeuristicControllerEnabled": false, "NSAutoFillHeuristicsEnabled": false])
         UserDefaults.standard.register(defaults: [BrowserModel.developerToolsKey: true])

@@ -20,6 +20,14 @@ enum GhosttyConfig {
         CTFontManagerRegisterFontURLs(urls as CFArray, .process, true, nil)
     }
 
+    static var prefersDark: Bool {
+        switch AppearanceMode.stored {
+        case .dark: true
+        case .light: false
+        case .system: UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+        }
+    }
+
     static let watchedPaths = directories + ["\(home)/.config"]
     static let overrideFile = "\(home)/.config/berth/ghostty"
     static let overrideExample = """
@@ -144,7 +152,7 @@ enum GhosttyConfig {
     }
 
     private static func themeFile(named value: String) -> String? {
-        let isDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
+        let isDark = prefersDark
         let variants = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         let name = variants.first { $0.hasPrefix(isDark ? "dark:" : "light:") }.map { String($0.drop { $0 != ":" }.dropFirst()) } ?? value
         return ["\(home)/.config/ghostty/themes/\(name)", "/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(name)"]
