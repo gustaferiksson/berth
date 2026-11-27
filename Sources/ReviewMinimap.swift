@@ -150,8 +150,21 @@ final class ReviewOverviewRuler: NSView {
                 NSRect(x: 1.5 + CGFloat(lane) * 4, y: top, width: 3.5, height: max(bottom - top, 2)).fill()
             }
         }
+        drawNotes(factor: factor)
         modified.style.foreground.withAlphaComponent(0.12).setFill()
         NSRect(x: 0, y: clip.minY * factor, width: bounds.width, height: max(clip.height * factor, 4)).fill(using: .sourceOver)
+    }
+
+    private func drawNotes(factor: CGFloat) {
+        guard let modified else { return }
+
+        modified.style.secondary.setFill()
+        let rows = modified.side?.rows ?? []
+        let marked = modified.markAnchors.compactMap { rows.indices.contains($0) ? modified.top(ofRow: rows[$0]) : nil }
+        let commented = [original, modified].compactMap(\.self).flatMap { textView in textView.reserved.map { textView.top(ofRow: $0.key + 1) - $0.value } }
+        for top in marked + commented {
+            NSBezierPath(roundedRect: NSRect(x: 2, y: top * factor - 1.5, width: bounds.width - 4, height: 3), xRadius: 1.5, yRadius: 1.5).fill()
+        }
     }
 
     private func drawOccurrences(factor: CGFloat) {

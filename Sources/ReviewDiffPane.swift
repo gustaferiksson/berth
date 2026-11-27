@@ -396,6 +396,7 @@ private struct ReviewDiffViews: NSViewRepresentable {
             right.diagnostics = view.diagnostics
             right.blame = view.blame
             right.marks = view.marks
+            ruler.needsDisplay = true
             if view.takesFocus { right.focusesInWindow = true }
             for textView in [left, right] {
                 textView.onHover = view.language == nil ? nil : { [weak self, weak textView] offset in
