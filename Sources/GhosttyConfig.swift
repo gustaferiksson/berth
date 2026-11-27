@@ -161,6 +161,7 @@ struct GhosttyTheme: Equatable {
     var foreground: Color
     let secondary: Color
     let needsYou: Color
+    let warning: Color
     let working: Color
     let branch: Color
     let merged: Color
@@ -190,6 +191,7 @@ struct GhosttyTheme: Equatable {
         foreground = readable("foreground", .primary, 4.5)
         secondary = foreground.opacity(0.6)
         needsYou = readable("palette-3", .orange, 4.5)
+        warning = readable("palette-3", isDark ? Color(red: 229 / 255, green: 192 / 255, blue: 123 / 255) : Color(red: 150 / 255, green: 108 / 255, blue: 30 / 255), 4.5)
         working = readable("palette-2", .green, 4.5)
         branch = readable("palette-6", .teal, 4.5)
         merged = readable("palette-5", .purple, 4.5)

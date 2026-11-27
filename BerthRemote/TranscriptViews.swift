@@ -189,8 +189,12 @@ private struct TurnPartView: View {
         switch part {
         case let .reply(entry):
             if entry.isError {
-                Label(entry.text, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(verbatim: "●")
+                        .accessibilityHidden(true)
+                    Text(entry.text)
+                }
+                .foregroundStyle(Color.yellow)
             } else {
                 MarkdownText(text: entry.text)
             }

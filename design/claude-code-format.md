@@ -84,3 +84,11 @@ Other processes' environment is unreadable on this macOS (`KERN_PROCARGS2`, `ps 
 ## Environment inherited from Claude Code
 
 Launched from inside Claude Code, Berth inherits `CLAUDECODE`/`CLAUDE_CODE_*`, which turns transcript saving off in child sessions; they are unset at launch.
+
+## Errors, retries and failure notices
+
+Searched 8.8 GB of real transcripts on CLI 2.1.322 and later. No `system` record has subtype `api_error`; the system subtypes present are `stop_hook_summary`, `turn_duration`, `away_summary`, `informational`, `compact_boundary`, `local_command`, `scheduled_task_fire`, `agents_killed` and `bridge_status`. Nothing records `retryInMs`, `retryAttempt`, `maxRetries` or an auto-update failure.
+
+- An API error is an assistant record with `message.model` `<synthetic>`, one text block starting `API Error: `, and top-level `isApiErrorMessage: true`, `apiErrorStatus` (a number, for example 403), `error` (`server_error`, `authentication_failed`, `timeout`) and `failedResponseHadNoToolCall`. The TUI shows it as a yellow warning with a filled dot, and Berth does the same.
+- The retry line ("Can't reach the API server… · retrying in 34s · attempt 7/10") and the auto-update failure notice live only in the TUI. Berth skips them.
+- `system` records with subtype `informational` carry `content` and `level` (`notice` or `warning`, never `error`), for example a Remote Control disconnect. Berth does not show them.
