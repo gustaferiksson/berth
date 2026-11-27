@@ -8,6 +8,13 @@ enum InputOutcome: Equatable {
 }
 
 extension Store {
+    func draftPrompt(_ prompt: String, in id: Tab.ID) {
+        var draft = conversationDrafts[id] ?? ConversationDraft()
+        draft.text = draft.text.isEmpty ? prompt : draft.text + "\n" + prompt
+        conversationDrafts[id] = draft
+        if selectedTabID == id, launcherMode == nil { conversationFocusRequests += 1 }
+    }
+
     func submit(_ text: String, files: [URL], to sessionID: String) async -> InputOutcome {
         guard !submittingSessions.contains(sessionID) else { return .refused("The previous message is still being sent or the session is starting, so this one wasn’t sent") }
 
