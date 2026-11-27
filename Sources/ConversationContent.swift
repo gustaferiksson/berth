@@ -907,6 +907,8 @@ private struct ConversationPromptImage: View {
                         .resizable()
                         .frame(width: image.size.width * scale, height: image.size.height * scale)
                         .clipShape(.rect(cornerRadius: 8, style: .continuous))
+                        .frame(minWidth: 72)
+                        .background(.quaternary, in: .rect(cornerRadius: 8, style: .continuous))
                 } else {
                     Color.clear
                         .frame(width: 160, height: 120)
