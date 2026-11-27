@@ -96,7 +96,12 @@ struct CommandPaletteView: View {
                         }
                     }
                 }
-                .onChange(of: selection) { proxy.scrollToLauncherRow(selection, startsSection: !rows.isEmpty && startsSection(selection)) }
+                .onChange(of: selection) {
+                    proxy.scrollToLauncherRow(selection, startsSection: !rows.isEmpty && startsSection(selection))
+                    #if DEBUG
+                    store.probeLauncherSelection = selection
+                    #endif
+                }
                 .onChange(of: query) {
                     highlighted = 0
                     if isBlank { proxy.scrollTo("launcherResultsTop", anchor: .top) } else if !rows.isEmpty { proxy.scrollTo(0, anchor: .top) }

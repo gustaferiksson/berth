@@ -306,7 +306,15 @@ struct Launcher: View {
                 focusedField = .query
             }
         }
-        .onChange(of: highlighted) { highlightedAction = nil }
+        .onChange(of: highlighted) {
+            highlightedAction = nil
+            #if DEBUG
+            store.probeLauncherSelection = highlighted
+            #endif
+        }
+        #if DEBUG
+        .onChange(of: highlightedAction) { store.probeLauncherActionSelection = highlightedAction }
+        #endif
         .onDisappear { store.launcherActionsShown = false }
         .onAppear {
             store.launcherActionsShown = false

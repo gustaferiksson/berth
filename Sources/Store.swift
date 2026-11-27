@@ -347,6 +347,8 @@ final class Store {
     @ObservationIgnored var probeLauncherQuery = ""
     @ObservationIgnored var probeLauncherActionQuery = ""
     @ObservationIgnored var probeLauncherIssue: String?
+    @ObservationIgnored var probeLauncherSelection = 0
+    @ObservationIgnored var probeLauncherActionSelection: Int?
     #endif
 
     @ObservationIgnored var watchActivities: [String: (url: URL, activity: TranscriptActivity)] = [:]

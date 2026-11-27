@@ -2309,7 +2309,10 @@ enum Snapshot {
             print("launcher first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "alt-shift-enter": (36, "\r"), "tab": (48, "\t"), "ctrl-tab": (48, "\t"), "ctrl-shift-tab": (48, "\t"), "cmd-k": (40, "k"), "esc": (53, "\u{1B}")]
             let letters: [Character: UInt16] = ["h": 4, "u": 32, "b": 11, "x": 7, "i": 34, "-": 27, "r": 15, "o": 31, "n": 45, "d": 2, "#": 20, "p": 35, "a": 0, "t": 17]
-            for spec in keys.split(separator: " ").map(String.init) {
+            for token in keys.split(separator: " ").map(String.init) {
+                let held = token.split(separator: "*", maxSplits: 1).map(String.init)
+                let spec = held[0]
+                let presses = held.count > 1 ? Int(held[1]) ?? 1 : 1
                 let strokes = special[spec].map { [$0] } ?? spec.compactMap { character in letters[character].map { (keyCode: $0, characters: String(character)) } }
                 let flags: NSEvent.ModifierFlags = switch spec {
                 case "alt-enter": .option
@@ -2321,14 +2324,17 @@ enum Snapshot {
                 default: []
                 }
                 for stroke in strokes {
-                    guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: stroke.characters, charactersIgnoringModifiers: stroke.characters, isARepeat: false, keyCode: stroke.keyCode) else { continue }
+                    for press in 0..<presses {
+                        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: stroke.characters, charactersIgnoringModifiers: stroke.characters, isARepeat: press > 0, keyCode: stroke.keyCode) else { continue }
 
-                    if spec.hasPrefix("ctrl-") || spec == "cmd-k" { NSApp.sendEvent(event) } else { window.sendEvent(event) }
-                    try? await Task.sleep(for: .milliseconds(300))
+                        if spec.hasPrefix("ctrl-") || spec == "cmd-k" { NSApp.sendEvent(event) } else { window.sendEvent(event) }
+                        try? await Task.sleep(for: .milliseconds(presses > 1 ? 100 : 300))
+                        if presses > 1 { print("  \(press > 0 ? "repeat" : "press") \(press + 1): selection \(store.probeLauncherSelection), action selection \(store.probeLauncherActionSelection.map(String.init) ?? "-")") }
+                    }
                 }
                 let isOpen = store.launcherMode != nil
                 let actionQuery = store.launcherActionsShown ? ", action query \(String(reflecting: store.probeLauncherActionQuery))" : ""
-                print("\(spec): launcher \(String(describing: store.launcherMode)), actions \(store.launcherActionsShown), query \(String(reflecting: isOpen ? store.probeLauncherQuery : ""))\(actionQuery), issue \(isOpen ? store.probeLauncherIssue ?? "-" : "-")\(store.launcherMode == .projects ? ", column \(store.projects.launcherColumn ?? "All")" : "")")
+                print("\(token): launcher \(String(describing: store.launcherMode)), actions \(store.launcherActionsShown), query \(String(reflecting: isOpen ? store.probeLauncherQuery : ""))\(actionQuery), issue \(isOpen ? store.probeLauncherIssue ?? "-" : "-")\(store.launcherMode == .projects ? ", column \(store.projects.launcherColumn ?? "All")" : "")")
                 print("  scroll offset: \(isOpen ? String(format: "%g", launcherScrollOffset) : "-")")
             }
             for harness in Harness.all {
