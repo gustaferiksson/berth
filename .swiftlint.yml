@@ -190,6 +190,11 @@ custom_rules:
     name: Line Fragment Padding
     regex: 'lineFragmentPadding\s*=\s*(?!0\b|\s)'
     message: 'TextKit 2 puts the container origin at -lineFragmentPadding, so a live resize re-anchors the scroll by the padding. Keep it 0 (docs/adr/0003).'
+  tine_default_launch:
+    name: Tine Default Launch
+    regex: 'TineClient\(\)|TineClient\.launchApp'
+    message: 'The default TineClient launches /Applications/Tine.app, which pops its window during snapshots. Only ConversationShellCompleter builds one, gated on Snapshot.output.'
+    excluded: 'Sources/ConversationShellCompleter\.swift'
   snapshot_defaults_write:
     name: Snapshot Defaults Write
     regex: 'UserDefaults\.standard\.(?:set|removeObject)\('
