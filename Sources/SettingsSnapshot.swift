@@ -7,7 +7,7 @@ enum SettingsSnapshot {
 
     static func capture(to output: URL) async {
         NSApp.setActivationPolicy(.accessory)
-        Snapshot.applyAppearance()
+        SnapshotThemes.applyAppearance()
         keepWindowsOffScreen()
         guard let menu = NSApp.mainMenu?.items.first?.submenu,
               let index = menu.items.firstIndex(where: { $0.keyEquivalent == "," })

@@ -175,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = Store.shared
 
     private var keyMonitor: Any?
+    private var appearanceObservation: NSKeyValueObservation?
 
     func applicationWillFinishLaunching(_: Notification) {
         guard Snapshot.output != nil || settingsSnapshot != nil else { return }
@@ -183,6 +184,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_: Notification) {
+        appearanceObservation = NSApplication.shared.observe(\.effectiveAppearance) { [store] _, _ in
+            MainActor.assumeIsolated { store.reloadTheme() }
+        }
         // Rows draw their own grey selection and hover; AppKit's blue context-menu ring has no public switch.
         if let method = class_getInstanceMethod(NSTableView.self, NSSelectorFromString("drawContextMenuHighlightForRow:")) {
             let noHighlight: @convention(block) (NSTableView, Int) -> Void = { _, _ in }

@@ -1,5 +1,5 @@
 #if DEBUG
-import Foundation
+import AppKit
 
 enum SnapshotThemes {
     static let light = "Berth Snapshot Light"
@@ -53,6 +53,13 @@ enum SnapshotThemes {
         palette = 15=#e6e6e6
         """,
     ]
+
+    @MainActor
+    static func applyAppearance() {
+        guard let style = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") else { return }
+
+        NSApp.appearance = NSAppearance(named: style == "Dark" ? .darkAqua : .aqua)
+    }
 
     static var requested: String? {
         let defaults = UserDefaults.standard
