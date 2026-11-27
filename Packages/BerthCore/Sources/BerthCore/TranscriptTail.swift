@@ -77,7 +77,8 @@ public enum TranscriptTail {
         let entriesOf = { (rawLine: Data) -> [RemoteEntry] in
             let line = TranscriptImages.redactingImageData(rawLine)
             guard !line.starts(with: Data(#"{"type":"api-request"#.utf8)),
-                  line.range(of: Data(#""type":"user""#.utf8)) != nil || line.range(of: Data(#""type":"assistant""#.utf8)) != nil || line.range(of: Data(#""type":"queued_command""#.utf8)) != nil,
+                  line.range(of: Data(#""type":"user""#.utf8)) != nil || line.range(of: Data(#""type":"assistant""#.utf8)) != nil || line.range(of: Data(#""type":"queued_command""#.utf8)) != nil
+                  || line.range(of: Data("<local-command-stdout>".utf8)) != nil,
                   let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                   let type = object["type"] as? String,
                   includeSidechain || object["isSidechain"] as? Bool != true, object["isMeta"] as? Bool != true,
@@ -85,6 +86,14 @@ public enum TranscriptTail {
             else { return [] }
 
             let date = (object["timestamp"] as? String).flatMap { try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse($0) }
+
+            if type == "system", object["subtype"] as? String == "local_command", let content = object["content"] as? String,
+               let stdout = content.wholeMatch(of: /(?s)\s*<local-command-stdout>(.*)<\/local-command-stdout>\s*/) {
+                let run = object["commandRun"] as? [String: Any]
+                let invocation = (run?["command"] as? String).map { slashInvocation($0.hasPrefix("/") ? $0 : "/" + $0, args: run?["args"] as? String) }
+                let text = stdout.1.trimmingCharacters(in: .whitespacesAndNewlines)
+                return [RemoteEntry(id: uuid, kind: .toolResult, text: String(text.prefix(maxText)), name: "slash-output", command: invocation, date: date)]
+            }
 
             if type == "attachment" {
                 guard (try? decoder.decode(Record.self, from: Data(line)))?.isQueuedPrompt == true, let attachment = object["attachment"] as? [String: Any] else { return [] }
@@ -110,6 +119,8 @@ public enum TranscriptTail {
                     let stderr = output.stderr?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     return [RemoteEntry(id: uuid, kind: .toolResult, text: String(stdout.prefix(maxText)), name: "bash-output", date: date, detail: stderr.isEmpty ? nil : String(stderr.prefix(maxDetail)))]
                 }
+                if line.range(of: Data("<command-name>".utf8)) != nil, let slash = slashPrompt(record, id: uuid, date: date) { return [slash] }
+
                 if let text = record.typedPrompt(includingSidechain: includeSidechain) {
                     return [prompt(id: uuid, text: text, date: date, blocks: blocks)]
                 }
@@ -185,6 +196,21 @@ public enum TranscriptTail {
         let promptLines = resolved.flatMap { entry in (entry.images ?? []).indices.compactMap { index in rangeByEntry[entry.id].map { (TranscriptImages.promptImageID(entryID: entry.id, index: index), $0) } } }
         let imageLines = Dictionary(resultLines + promptLines) { $1 }
         return (resolved, consumed, queue, imageLines)
+    }
+
+    private static func slashPrompt(_ record: Record, id: String, date: Date?) -> RemoteEntry? {
+        guard record.isCompactSummary != true, record.origin == nil || record.origin?.kind == "human" else { return nil }
+
+        let text = record.message?.content.filter { $0.type == "text" }.compactMap(\.text).joined(separator: "\n") ?? ""
+        guard let match = text.wholeMatch(of: /(?s)\s*<command-name>\s*(\/[^\s<>]+)\s*<\/command-name>\s*(?:<command-message>[^<]*<\/command-message>\s*)?(?:<command-args>(.*)<\/command-args>\s*)?/) else { return nil }
+
+        let name = String(match.1.prefix(maxText))
+        return RemoteEntry(id: id, kind: .prompt, text: slashInvocation(name, args: match.2.map(String.init)), name: "slash", command: name, date: date)
+    }
+
+    private static func slashInvocation(_ name: String, args: String?) -> String {
+        let args = args?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return String((args.isEmpty ? name : name + " " + args).prefix(maxText))
     }
 
     // Code Mode's virtual tool_result records carry an empty content; the inner tool's output is in toolUseResult
