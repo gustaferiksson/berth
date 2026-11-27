@@ -54,7 +54,7 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
             guard marks != oldValue else { return }
 
             markedLines = Set(marks.flatMap { $0.startLine...$0.endLine }.map { $0 - 1 })
-            markNotes = Dictionary(marks.filter { !$0.note.isEmpty }.map { ($0.startLine - 1, $0.note) }, uniquingKeysWith: { first, _ in first })
+            markByLine = Dictionary(marks.map { ($0.startLine - 1, $0) }, uniquingKeysWith: { first, _ in first })
             markAnchors = Set(marks.map { $0.startLine - 1 })
             if let gutter, marks.isEmpty != oldValue.isEmpty { gutter.thickness += marks.isEmpty ? -markSlot : markSlot }
             needsDisplay = true
@@ -65,7 +65,9 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
     var markSlot: CGFloat { (style.font.pointSize + 6).rounded(.up) }
     private(set) var markedLines = Set<Int>()
     private(set) var markAnchors = Set<Int>()
-    private var markNotes: [Int: String] = [:]
+    private var markByLine: [Int: ControlReviewMark] = [:]
+    var onDismissMark: ((ControlReviewMark) -> Void)?
+    var onClearMarks: (() -> Void)?
     private var shownMarkLine: Int?
     var onHover: ((Int) async -> String?)?
     var onDefinition: ((Int) -> Void)?
@@ -206,6 +208,12 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event)
+        if !marks.isEmpty, onClearMarks != nil {
+            let clear = NSMenuItem(title: AppAction.clearReviewMarks.title, action: #selector(clearMarks), keyEquivalent: "")
+            clear.target = self
+            menu?.addItem(.separator())
+            menu?.addItem(clear)
+        }
         guard onReferences != nil, let target = pointerTarget(at: convert(event.locationInWindow, from: nil)), let onReferences = target.textView.onReferences else { return menu }
 
         let item = NSMenuItem(title: "Find References", action: #selector(findReferences), keyEquivalent: "\u{F70F}")
@@ -215,6 +223,10 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         menu?.insertItem(item, at: 0)
         menu?.insertItem(.separator(), at: 1)
         return menu
+    }
+
+    @objc private func clearMarks() {
+        onClearMarks?()
     }
 
     @objc func findReferences(_ sender: Any?) {
@@ -491,9 +503,10 @@ final class ReviewTextView: NSTextView, NSTextContentStorageDelegate {
         guard shownMarkLine != line else { return }
 
         dismissHover()
-        guard let note = markNotes[line], let rows = side?.rows, rows.indices.contains(line) else { return }
+        guard let mark = markByLine[line], let rows = side?.rows, rows.indices.contains(line) else { return }
 
-        showHover(note, diagnostics: [], below: NSRect(x: visibleRect.minX + 8, y: top(ofRow: rows[line]), width: 1, height: rowHeight), parsesCodeFences: false)
+        let actions: [(title: String, run: () -> Void)] = [("Dismiss", { [weak self] in self?.onDismissMark?(mark) })]
+        showHover(mark.note.isEmpty ? "Marked by an agent" : mark.note, diagnostics: [], below: NSRect(x: visibleRect.minX + 8, y: top(ofRow: rows[line]), width: 1, height: rowHeight), parsesCodeFences: false, actions: actions)
         shownMarkLine = line
     }
 
@@ -1151,8 +1164,8 @@ final class ReviewGutter: NSView, NSViewToolTipOwner {
                 addToolTip(mark.insetBy(dx: -3, dy: -3), owner: self, userData: nil)
             }
             if textView.markAnchors.contains(line), let glyph = NSImage(systemSymbolName: "text.bubble", accessibilityDescription: "Agent note")?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: style.font.pointSize, weight: .regular).applying(.init(paletteColors: [style.secondary]))) {
-                let origin = NSPoint(x: 3, y: rect.minY + (textView.rowHeight - glyph.size.height) / 2)
-                glyph.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
+                let frame = NSRect(x: (textView.markSlot - glyph.size.width) / 2, y: rect.minY + (textView.rowHeight - glyph.size.height) / 2, width: glyph.size.width, height: glyph.size.height)
+                glyph.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             }
             let color = textView.side?.changedLines.contains(line) == true ? changed : isSelected || line == caret ? style.currentLineNumber : style.gutterForeground
             let label = NSAttributedString(string: "\(line + 1)", attributes: [.font: style.font, .foregroundColor: color])

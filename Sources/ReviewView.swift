@@ -1928,6 +1928,14 @@ private struct ReviewChangeRow: View {
     let model: ReviewModel
     @State private var isHovering = false
     @Environment(\.ghosttyTheme) private var theme
+    @Environment(Store.self) private var store
+
+    private var noteCount: Int {
+        let marks = store.selectedSessionID.flatMap { store.reviewMarks[$0] }?.count { $0.path == file.path } ?? 0
+        let drafts = model.comments.count { $0.path == file.path }
+        let threads = model.pullRequestDetails.values.flatMap(\.threads).count { $0.path == file.path }
+        return marks + drafts + threads
+    }
 
     private var showsOpenFile: Bool {
         guard file.status != .deleted else { return false }
@@ -1969,6 +1977,12 @@ private struct ReviewChangeRow: View {
                 .truncationMode(.middle)
                 .fontWeight(.regular)
             Spacer(minLength: 4)
+            if noteCount > 0 {
+                Label("\(noteCount)", systemImage: "text.bubble")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(theme.secondary)
+                    .accessibilityLabel("\(noteCount) notes")
+            }
             ReviewFileStats(file: file)
                 .opacity(showsOpenFile ? 0 : 1)
                 .overlay(alignment: .trailing) { openFileSlot }
@@ -2189,6 +2203,8 @@ struct ReviewDiffColumn: View {
                             style: style,
                             blameHead: model.blameHead,
                             marks: sessionID.flatMap { store.reviewMarks[$0] }?.filter { $0.path == path && document.compare?.isHistorical != true } ?? [],
+                            dismissMark: { store.dismissReviewMark($0) },
+                            clearMarks: { store.clearReviewMarks() },
                             loadBlame: { [weak store] in
                                 var blame = await model.loadBlame(for: document)
                                 blame?.openLink = { store?.openLink($0) }
