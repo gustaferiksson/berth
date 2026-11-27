@@ -613,6 +613,7 @@ enum Snapshot {
         await captureWindowProbes(to: output, store: store, window: window, topSessions: topSessions, showsStats: showsStats)
         await captureTerminalProbes(to: output, store: store, window: window, hosting: hosting)
         await captureKeyboardProbes(to: output, store: store, window: window)
+        preparePalette(store: store)
         await finishCapture(to: output, store: store, window: window, showsStats: showsStats)
         #endif
     }
@@ -940,7 +941,6 @@ enum Snapshot {
         }
         if UserDefaults.standard.string(forKey: "snapshotLauncher") != nil { store.launcherMode = .newSession }
         if UserDefaults.standard.string(forKey: "snapshotSearch") != nil { store.launcherMode = .search }
-        if UserDefaults.standard.string(forKey: "snapshotPalette") != nil { store.launcherMode = .palette }
         if let query = UserDefaults.standard.string(forKey: "snapshotPullRequests") {
             let ranked = PullRequestInbox.rank(query, in: store.inbox ?? [], now: .now)
             print("pull requests for \"\(query)\": \(ranked.pullRequests.count) shown, \(ranked.older) older hidden, toolbar count \(store.inbox?.count { $0.role == .reviewRequested } ?? 0)")

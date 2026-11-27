@@ -65,6 +65,8 @@ enum ReviewDiffLayout: String {
 
 @Observable
 final class ReviewModel {
+    static let changesAsTreeKey = "reviewChangesAsTree"
+
     let folder: String
     let isSessionFiles: Bool
     private(set) var changes: ReviewChanges?
@@ -750,7 +752,7 @@ struct ReviewFileList: View {
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage("collapsedReviewSections") private var collapsedSections = ""
-    @AppStorage("reviewChangesAsTree") private var changesAsTree = false
+    @AppStorage(ReviewModel.changesAsTreeKey) private var changesAsTree = false
     @FocusState private var focusedList: String?
     @State private var threadSectionScroll: String?
     @State private var keyboardNavigation: (row: ReviewDocument, selection: ReviewDocument?)?
@@ -793,6 +795,8 @@ struct ReviewFileList: View {
             } message: { notice in
                 Text(notice)
             }
+            .onChange(of: focusedList) { store.isReviewPanelFocused = focusedList != nil }
+            .onDisappear { store.isReviewPanelFocused = false }
     }
 
     @ViewBuilder private var content: some View {
@@ -1573,7 +1577,7 @@ struct ReviewFileList: View {
                     .foregroundStyle(theme.secondary)
                     .help(model.showsCommentList ? "Hide the comment list" : "Show the comment list")
                     Spacer(minLength: 4)
-                    Button { Task { await sendComments() } } label: {
+                    Button { Task { await store.sendReviewComments(sessionID: sessionID, model: model) } } label: {
                         Text("Send \(commentCount) \(commentCount == 1 ? "Comment" : "Comments")")
                             .lineLimit(1)
                     }
@@ -1767,19 +1771,24 @@ struct ReviewFileList: View {
         if case let ReviewGitError.gitNotFound(message) = error { return ("Git Not Found", "exclamationmark.triangle", "Review needs git. Install the Command Line Tools by running xcode-select --install in Terminal.", message) }
         return ("Can’t Read Changes", "exclamationmark.triangle", "Git couldn’t read the changes in \(folder).", ReviewModel.describe(error))
     }
-
-    private func sendComments() async {
-        let sent = Set(owners.flatMap { $0.model.comments.map(\.id) })
-        let prompt = owners.filter { !$0.model.comments.isEmpty }.map { owner in
-            ReviewComment.prompt(for: owner.model.comments, branch: owner.model.changes?.branch ?? "HEAD", base: owner.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base } ?? "HEAD", repository: owner.repository.map { ($0.name, $0.root) })
-        }.joined(separator: "\n\n")
-        guard await store.sendReviewPrompt(prompt, sessionID: sessionID, noticeIn: model) else { return }
-
-        for owner in owners { owner.model.comments.removeAll { sent.contains($0.id) } }
-    }
 }
 
 extension Store {
+    func sendReviewComments(sessionID: String, model: ReviewModel) async {
+        let owners: [(model: ReviewModel, repository: ReviewRepository?)] = [(model, nil)] + (reviewRepositories[sessionID] ?? []).compactMap { repository in
+            reviewModels[Self.reviewKey(sessionID, root: repository.root)].map { ($0, repository) }
+        }
+        let sent = Set(owners.flatMap { $0.model.comments.map(\.id) })
+        guard !sent.isEmpty else { return }
+
+        let prompt = owners.filter { !$0.model.comments.isEmpty }.map { owner in
+            ReviewComment.prompt(for: owner.model.comments, branch: owner.model.changes?.branch ?? "HEAD", base: owner.model.changes.flatMap { $0.isDefaultBranch ? nil : $0.base } ?? "HEAD", repository: owner.repository.map { ($0.name, $0.root) })
+        }.joined(separator: "\n\n")
+        guard await sendReviewPrompt(prompt, sessionID: sessionID, noticeIn: model) else { return }
+
+        for owner in owners { owner.model.comments.removeAll { sent.contains($0.id) } }
+    }
+
     @discardableResult
     func sendReviewPrompt(_ prompt: String, sessionID: String, noticeIn model: ReviewModel) async -> Bool {
         if let tab = tab(forSession: sessionID), showsConversation(tab), let conversation = conversationModels[tab.id] {

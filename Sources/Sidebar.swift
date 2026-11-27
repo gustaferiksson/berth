@@ -155,6 +155,8 @@ private struct SidebarFilterField: View {
         .padding(.horizontal, 10)
         .frame(height: 28)
         .glassEffect(.regular, in: .capsule)
+        .onChange(of: isFocused) { store.isSidebarFilterFocused = isFocused }
+        .onDisappear { store.isSidebarFilterFocused = false }
         .onChange(of: store.sidebarFilterFocusRequests) { isFocused = true }
     }
 }
@@ -312,6 +314,8 @@ private struct SidebarList: View, Equatable {
         .focusable()
         .focused($isFocused)
         .focusEffectDisabled()
+        .onChange(of: isFocused) { store.isSidebarListFocused = isFocused }
+        .onDisappear { store.isSidebarListFocused = false }
         .onKeyPress(.downArrow, phases: [.down, .repeat]) { $0.modifiers.contains(.shift) ? extend(by: 1, in: items) : move(by: 1, in: items) }
         .onKeyPress(.upArrow, phases: [.down, .repeat]) { $0.modifiers.contains(.shift) ? extend(by: -1, in: items) : move(by: -1, in: items) }
         .onKeyPress(.return) {
