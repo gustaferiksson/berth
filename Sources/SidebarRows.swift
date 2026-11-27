@@ -113,14 +113,15 @@ struct SessionRow: View {
                 .foregroundStyle(Color.secondary)
                 .lineLimit(1)
                 .opacity(showsActions ? 0 : 1)
+                .animation(.easeOut(duration: 0.12), value: showsActions)
                 .allowsHitTesting(!showsActions)
                 .accessibilityHidden(showsActions)
 
-                if showsActions {
-                    HStack(spacing: 6) { actions }
-                }
+                HStack(spacing: 6) { actions }
+                    .opacity(showsActions ? 1 : 0)
+                    .allowsHitTesting(showsActions)
+                    .accessibilityHidden(!showsActions)
             }
-            .animation(.easeOut(duration: 0.12), value: showsActions)
             .frame(minWidth: 14, alignment: .trailing)
             .fixedSize()
         }
