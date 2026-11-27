@@ -1888,6 +1888,7 @@ enum Snapshot {
     }
 
     private static func captureWindowProbes(to output: URL, store: Store, window: NSWindow, topSessions: [SessionSummary], showsStats: Bool) async {
+        if UserDefaults.standard.bool(forKey: "snapshotPerf") { await measurePerformance(window: window, store: store) }
         if let spec = UserDefaults.standard.string(forKey: "snapshotMultiSelect") {
             let order = topSessions.map { SidebarItem.session($0.id) }
             let rows = spec.split(separator: "|").map(String.init)
