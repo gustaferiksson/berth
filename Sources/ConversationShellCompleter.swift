@@ -1,6 +1,7 @@
 import AppKit
 import BerthCore
 import Observation
+import os
 
 @Observable
 final class TineStatus {
@@ -84,8 +85,11 @@ final class ConversationShellCompleter {
         let item = row.item
         field.window?.makeFirstResponder(field)
         let shift = field.hiddenPrefix.utf16.count
+        let before = field.selectedRange().location
         field.insertText(item.text, replacementRange: NSRange(location: item.replacement.location - shift, length: item.replacement.length))
+        let afterInsert = field.selectedRange().location
         field.setSelectedRange(NSRange(location: item.caret - shift, length: 0))
+        composerLog.info("shell accept insertText caret \(before, privacy: .public) to \(afterInsert, privacy: .public), setSelectedRange caret \(afterInsert, privacy: .public) to \(field.selectedRange().location, privacy: .public)")
         return true
     }
 
