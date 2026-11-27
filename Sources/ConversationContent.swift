@@ -508,11 +508,11 @@ private enum ConversationMarkdownCache {
             self.itemID = itemID
             self.expanded = expanded
             codeBlocks = MarkdownAttributedString.codeBlocks(in: blocks)
-            rendered = MarkdownAttributedString.render(blocks, theme: theme, itemID: itemID, expanded: expanded)
+            rendered = ConversationPerfCounters.time("render") { MarkdownAttributedString.render(blocks, theme: theme, itemID: itemID, expanded: expanded) }
         }
 
         func rerender(theme: GhosttyTheme) {
-            rendered = MarkdownAttributedString.render(blocks, theme: theme, highlighted: highlighted, itemID: itemID, expanded: expanded)
+            rendered = ConversationPerfCounters.time("rerender") { MarkdownAttributedString.render(blocks, theme: theme, highlighted: highlighted, itemID: itemID, expanded: expanded) }
         }
     }
 
@@ -530,16 +530,25 @@ private enum ConversationMarkdownCache {
         let expanded: Set<String>
     }
 
-    private static var cached: [Key: Run] = [:]
+    private static let capacity = 2048
+    private static var cached: [Key: (run: Run, used: Int)] = [:]
+    private static var tick = 0
 
     static func run(text: String, theme: GhosttyTheme, itemID: String?, expanded: Set<String>, palette: [String] = [ReviewStyle.colorSchemeKey, ReviewStyle.syntaxColorsKey, ReviewStyle.fontFamilyKey, ReviewStyle.fontSizeKey, ReviewStyle.lineHeightKey].map { UserDefaults.standard.object(forKey: $0).map { "\($0)" } ?? "" }) -> Run {
         let relevant: Set<String> = itemID.map { id in Set(expanded.filter { $0.hasPrefix(id + "#code") }) } ?? []
         let key = Key(text: text, foreground: theme.foreground, secondary: theme.secondary, unread: theme.unread, inlineCode: theme.inlineCode, font: theme.font, codeFont: theme.codeFont, lineHeightMultiple: theme.lineHeightMultiple, palette: palette, itemID: itemID, expanded: relevant)
-        if let run = cached[key] { return run }
+        tick += 1
+        if let entry = cached[key] {
+            cached[key] = (entry.run, tick)
+            return entry.run
+        }
 
-        let run = Run(blocks: MarkdownBlock.blocks(in: text), theme: theme, itemID: itemID, expanded: relevant)
-        if cached.count >= 256 { cached.removeAll(keepingCapacity: true) }
-        cached[key] = run
+        let run = Run(blocks: ConversationPerfCounters.time("parse") { MarkdownBlock.blocks(in: text) }, theme: theme, itemID: itemID, expanded: relevant)
+        if cached.count >= capacity {
+            let cutoff = cached.values.map(\.used).sorted()[capacity / 8]
+            cached = cached.filter { $0.value.used > cutoff }
+        }
+        cached[key] = (run, tick)
         return run
     }
 }

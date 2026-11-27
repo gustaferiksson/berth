@@ -59,6 +59,8 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     private var source: NSAttributedString?
     private var hoveredBlock: Int?
     private var copiedBlock: Int?
+    private static let fits = NSMapTable<NSAttributedString, NSMutableDictionary>.weakToStrongObjects()
+
     private var fitted: (width: CGFloat, height: CGFloat, used: CGFloat)?
     private var cachedBlocks: [Block]?
     private var highlight: NSRange?
@@ -176,8 +178,19 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     }
 
     func height(fitting width: CGFloat) -> CGFloat {
+        ConversationPerfCounters.time("layout") { measuredHeight(fitting: width) }
+    }
+
+    private func measuredHeight(fitting width: CGFloat) -> CGFloat {
         if let fitted, fitted.width == width { return fitted.height }
         guard let textContainer, let manager = textLayoutManager else { return 0 }
+
+        if let source, let known = Self.fits.object(forKey: source)?[width] as? [CGFloat] {
+            textContainer.size = NSSize(width: width, height: .greatestFiniteMagnitude)
+            cachedBlocks = nil
+            fitted = (width, known[0], known[1])
+            return known[0]
+        }
 
         textContainer.size = NSSize(width: width, height: .greatestFiniteMagnitude)
         manager.ensureLayout(for: manager.documentRange)
@@ -189,7 +202,13 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
             used = fragment.textLineFragments.reduce(used) { max($0, fragment.layoutFragmentFrame.minX + $1.typographicBounds.maxX) }
             return true
         }
-        fitted = (width, height, blocks.contains { $0.language != nil } ? width : min(width, ceil(used)))
+        let fit: (width: CGFloat, height: CGFloat, used: CGFloat) = (width, height, blocks.contains { $0.language != nil } ? width : min(width, ceil(used)))
+        fitted = fit
+        if let source {
+            let widths = Self.fits.object(forKey: source) ?? NSMutableDictionary()
+            widths[width] = [fit.height, fit.used]
+            Self.fits.setObject(widths, forKey: source)
+        }
         return height
     }
 
