@@ -168,6 +168,17 @@ extension Snapshot {
             window.setContentSize(NSSize(width: startWidth, height: height))
         }
         if steps.contains("scroll") { await scrollPerformance(window: window) }
+        for step in ["refresh", "live"] where steps.contains(Substring(step)) {
+            flushDisplay(window)
+            try? await Task.sleep(for: .milliseconds(300))
+            let ticks = rounds * 10
+            let mainStart = mainThreadMilliseconds()
+            for _ in 0..<ticks {
+                if step == "refresh" { store.refresh(); await store.waitForScan() } else { store.refreshLive() }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            print("perf store \(step): \(ticks) ticks, main thread CPU per tick \(String(format: "%.2f", (mainThreadMilliseconds() - mainStart) / Double(ticks))) ms")
+        }
         if steps.contains("sidebar") {
             await toggle("toggle session sidebar (\(rounds * 2) toggles)") { sidebarSplit?.toggleSidebar(nil) }
         }
