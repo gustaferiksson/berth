@@ -603,6 +603,13 @@ private struct ReviewDiffViews: NSViewRepresentable {
                 placed.append((peek.view, owner, rows[peek.line]))
             }
 
+            let hosts = Array(cards.values) + Array(threadCards.values) + [draft?.view, peek?.view].compactMap(\.self)
+            for textView in [left, right] {
+                for stray in textView.subviews where (stray is ReviewThreadCard || stray is ReviewInlineComment || stray is ReviewReferencesPeek) && !hosts.contains(where: { $0 === stray }) {
+                    stray.removeFromSuperview()
+                }
+            }
+
             let inset: CGFloat = 6
             let indent = right.textContainerInset.width
             let widths = placed.map { max(($0.owner.enclosingScrollView?.contentView.bounds.width ?? 0) - indent - 2 * inset, 120) }

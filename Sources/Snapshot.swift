@@ -1094,6 +1094,43 @@ enum Snapshot {
                 print("after refresh: \(branch) \(lookup())")
                 save(".refreshed.png")
             }
+            if UserDefaults.standard.bool(forKey: "snapshotInlineHosts"), let number = model.pullRequestDetails.keys.first {
+                let report = { (label: String) in
+                    let cards = descendants(window.contentView ?? NSView()).compactMap { $0 as? ReviewThreadCard }
+                    let perThread = Dictionary(grouping: cards, by: \.thread.id).map { "\($0.key) \($0.value.count) at \($0.value.map { Int($0.frame.minX) })" }.sorted()
+                    print("inline hosts \(label): \(cards.count) thread cards, \(perThread)")
+                }
+                report("initial")
+                for width in [window.contentLayoutRect.width - 160, window.contentLayoutRect.width] {
+                    window.setContentSize(NSSize(width: width, height: window.contentLayoutRect.height))
+                    try? await Task.sleep(for: .milliseconds(500))
+                    report("after resize to \(Int(width))")
+                    for round in 1...2 {
+                        await model.loadPullRequestDetail(repository: fixtureRepository, number: number)
+                        try? await Task.sleep(for: .milliseconds(500))
+                        report("after refresh \(round)")
+                    }
+                }
+                if let card = descendants(window.contentView ?? NSView()).compactMap({ $0 as? ReviewThreadCard }).first, let owner = card.superview as? ReviewTextView {
+                    owner.addSubview(ReviewThreadCard(thread: card.thread, style: owner.style, isExpanded: true, onReply: {}, onSend: {}, onToggle: { _ in }))
+                    report("after injecting a second host for \(card.thread.id)")
+                    window.setContentSize(NSSize(width: window.contentLayoutRect.width - 100, height: window.contentLayoutRect.height))
+                    try? await Task.sleep(for: .milliseconds(500))
+                    report("after resize")
+                    save(".injected.png")
+                }
+                if let first = model.selectedDocument {
+                    for _ in 1...2 {
+                        model.open(model.workingDocument("docs/usage.md"))
+                        try? await Task.sleep(for: .seconds(1))
+                        report("after opening usage.md")
+                        model.open(first)
+                        try? await Task.sleep(for: .seconds(1))
+                        report("after reopening \(first.path)")
+                    }
+                }
+                save(".hosts.png")
+            }
             if createsReviewPullRequest {
                 let log = { (try? String(contentsOfFile: UserDefaults.standard.string(forKey: "snapshotRemoteLog") ?? "", encoding: .utf8)).debugDescription }
                 window.makeFirstResponder(nil)
