@@ -1984,9 +1984,9 @@ final class Store {
 
     var sidebarOrderedTabs: [Tab] {
         let liveIDs = activeLiveIDs
-        let attentionIDs = attentionSessions.map(\.id)
-        let triage = triageSections
-        let triageIDs = triage.working.map(\.id) + triage.unread.map(\.id)
+        let sources = sidebarSources
+        let attentionIDs = sources.attention.map(\.id)
+        let triageIDs = sources.working.map(\.id) + sources.unread.map(\.id)
         let attention = Set(attentionIDs + triageIDs)
         let tabs = { (entries: [GroupEntry]) -> [Tab] in
             entries.flatMap { entry in
@@ -1996,11 +1996,11 @@ final class Store {
                 }
             }.filter { !attention.contains($0) }.compactMap { self.tab(forSession: $0) }
         }
-        let active = sidebarActive
+        let active = sources.active
         let ordered = terminals + attentionIDs.compactMap { tab(forSession: $0) } + (active?.tabs ?? []) + tabs(active?.entries ?? [])
             + triageIDs.compactMap { tab(forSession: $0) }
             + pinnedSessions.filter { !liveIDs.contains($0.id) && !attention.contains($0.id) }.compactMap { tab(forSession: $0.id) }
-            + sidebarGroups.flatMap { $0.tabs + tabs($0.entries) }
+            + sources.groups.flatMap { $0.tabs + tabs($0.entries) }
         return ordered.flatMap { owner in [owner] + self.tabs.filter { $0.parentTabID == owner.id } }
     }
 
