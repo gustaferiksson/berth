@@ -69,8 +69,7 @@ struct SessionRow: View {
         return HStack(spacing: Self.columnSpacing) {
             HStack(spacing: Self.columnSpacing) {
                 StatusSlot(state: state, isUnread: isUnread, isOpen: isOpen, hasBackgroundShell: hasBackgroundShell)
-                RowTitle(title: session.title, isUnread: isUnread, isSecondary: isArchived || isSnoozed)
-                    .help(issue.map { "Issue \($0.repository)#\($0.number)" } ?? "")
+                RowTitle(title: session.title, isUnread: isUnread, isSecondary: isArchived || isSnoozed, help: issue.map { "Issue \($0.repository)#\($0.number)" })
                     .layoutPriority(1)
                 if let suggestion {
                     RowGlyph(symbol: "sparkle", title: suggestion)
@@ -226,14 +225,20 @@ private struct RowTitle: View {
     let title: String
     var isUnread = false
     var isSecondary = false
+    var help: String?
 
     var body: some View {
-        Text(title)
+        let text = Text(title)
             .font(.body.weight(isUnread ? .semibold : .regular))
             .foregroundStyle(isSecondary ? Color.secondary : Color.primary)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
+        if let help {
+            text.help(help)
+        } else {
+            text
+        }
     }
 }
 
