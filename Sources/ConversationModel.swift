@@ -318,6 +318,10 @@ final class ConversationModel {
         }
     }
 
+    func isWorking(with live: LiveSession?) -> Bool {
+        live?.activity == .working || isTurnOpen && !(live?.reportsWaiting ?? false)
+    }
+
     func interrupt() {
         guard let sessionID, case let .refused(message) = store.interrupt(sessionID) else { return }
 

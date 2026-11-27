@@ -148,6 +148,7 @@ final class Store {
     private(set) var conversationModels: [Tab.ID: ConversationModel] = [:]
     @ObservationIgnored private var recentConversationModels: [Tab.ID: (model: ConversationModel, sessionID: String?, agent: Agent, shownAt: ContinuousClock.Instant)] = [:]
     var conversationFocusRequests = 0
+    var isConversationTranscriptFocused = false
     private(set) var orphanedSessionIDs: Set<String> = []
     @ObservationIgnored private var resumingOrphans: Set<String> = []
     var sidebarCursor: SidebarItem?
@@ -226,6 +227,8 @@ final class Store {
     }
 
     var deletingGroup: CustomGroup?
+    var paletteContext: PaletteContext = .terminal
+    @ObservationIgnored weak var paletteResponder: NSResponder?
     var launcherMode: LauncherMode? {
         didSet {
             if launcherMode != .pullRequests { launcherRole = nil }
@@ -242,6 +245,10 @@ final class Store {
     var sidebarFilter = ""
     var sidebarStatus = SidebarStatus.all
     var sidebarFilterFocusRequests = 0
+    var isSidebarListFocused = false
+    var isSidebarFilterFocused = false
+    var isReviewPanelFocused = false
+    var isFilesPanelFocused = false
     @ObservationIgnored var launcherQuery = Snapshot.launcherQuery
     var launcherRole: InboxPullRequest.Role?
     var groupingMode = GroupingMode(rawValue: UserDefaults.standard.string(forKey: "groupingMode") ?? "") ?? .project {
@@ -1377,8 +1384,13 @@ final class Store {
     }
 
     var focusedTerminal: TerminalViewState? {
-        let responder = NSApp.keyWindow?.firstResponder
-        return (tabs.first { $0.terminal.attachedPlatformView === responder } ?? tabs.first { $0.id == selectedTabID })?.terminal
+        let responder = launcherMode == .palette ? paletteResponder : NSApp.keyWindow?.firstResponder
+        let focusedTab = if launcherMode == .palette {
+            responder.flatMap { responder in tabs.first { $0.terminal.attachedPlatformView === responder } }
+        } else {
+            tabs.first { $0.terminal.attachedPlatformView === responder }
+        }
+        return (focusedTab ?? tabs.first { $0.id == selectedTabID })?.terminal
     }
 
     func selectFocusedSurface() {

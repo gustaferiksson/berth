@@ -36,11 +36,11 @@ PR and issue sessions prefer checkouts known from session folders. Berth also sc
 
 ## Launcher modes
 
-The launcher has modes (`LauncherMode`, `Store.launcherMode`, nil = closed): `.newSession` (⌘N), `.search` (⇧⌘F, File ▸ Search Sessions…) and `.palette` (⌘K, View ▸ Command Palette…) share the glass panel, query field, highlighted row, ↑↓ and footer hints. `Store.launcherQuery` seeds the field when a mode opens (the palette's Search Sessions… carries its typed text). Closing focuses the selected tab's surface, unless Harbor is shown. Search shows one row per matching session (title, project · age, up to 2 snippets with the matched words bold in the foreground colour), newest first, at most 50, active and archived; ↩ runs `Store.activate(.session)` (the sidebar click path, locks respected).
+The launcher has modes (`LauncherMode`, `Store.launcherMode`, nil = closed): `.newSession` (⌘N) and `.search` (⇧⌘F, File ▸ Search Sessions…) share the glass panel, query field, highlighted row, ↑↓ and footer hints. `Store.launcherQuery` seeds the field when a mode opens. Closing focuses the selected tab's surface, unless Harbor is shown. Search shows one row per matching session (title, project · age, up to 2 snippets with the matched words bold in the foreground colour), newest first, at most 50, active and archived; ↩ runs `Store.activate(.session)` (the sidebar click path, locks respected).
 
 ## Command palette
 
-Palette (`CommandPalette.rank`, FuzzyMatch on title then keywords/folder): empty query shows open tabs in sidebar order, terminals included ("Sessions"), then actions ("Actions"); typing mixes open tabs, actions and unopened active sessions by score (ties: tabs, actions, sessions, then recency), at most 12 (the empty query is uncapped), plus a "Search Sessions for “…”" row. Actions are `AppAction`, the one source of titles, shortcuts and behaviour for the menus, the Group By picker, the palette's shortcut column and the key monitor.
+⌘K (View ▸ Command Palette…) opens [CommandPaletteView](../Sources/CommandPaletteView.swift). It lists available actions, grouped by the context captured before the query field receives focus and by General when the query is empty. [AppAction](../Sources/AppAction.swift) defines the commands and their context relevance. [CommandPalette.rank](../Packages/BerthCore/Sources/BerthCore/CommandPalette.swift) fuzzy-ranks a typed query and puts context actions first on ties.
 
 Unavailable ones are hidden (Clear Terminal without a terminal, Mark Current Session as Done without a listed selected session, the current Group By). Collapse/Expand All Groups writes `collapsedGroups` (skipped when `persistsTabs` is off, so not visible in snapshots).
 

@@ -660,6 +660,10 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         save()
     }
 
+    var canReopenClosedTab: Bool {
+        sessionKey.map { closedTabs[$0]?.isEmpty == false } ?? false
+    }
+
     func reopenClosedTab(in key: String) {
         guard let closed = closedTabs[key]?.popLast() else { return }
 

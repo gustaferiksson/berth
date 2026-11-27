@@ -47,6 +47,8 @@ private struct FilesList: View {
             .listStyle(.sidebar)
             .focusable()
             .focused($isFocused)
+            .onChange(of: isFocused) { store.isFilesPanelFocused = isFocused }
+            .onDisappear { store.isFilesPanelFocused = false }
             .onKeyPress(.upArrow) { step(-1, rows: rows) }
             .onKeyPress(.downArrow) { step(1, rows: rows) }
             .onKeyPress(.rightArrow) { fold(expanding: true, rows: rows) }
