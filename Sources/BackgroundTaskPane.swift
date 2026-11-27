@@ -52,6 +52,7 @@ private struct BackgroundTaskRow: View {
         let isShell = task.kind == .shell && task.status == .running
         let canStop = store.canStop(task)
         let stop = store.subagentStop(for: task)
+        let showsStop = isShell && (isHovering || isSelected)
         HStack(spacing: 9) {
             Image(systemName: task.symbol)
                 .font(.callout.weight(.medium))
@@ -67,14 +68,21 @@ private struct BackgroundTaskRow: View {
                 TaskStatusLine(task: task)
             }
             Spacer(minLength: 4)
-            if isShell, isHovering || isSelected {
-                Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .disabled(!canStop)
-                    .help(canStop ? "Stop Shell" : "Berth can't identify this shell's process, so it can't be stopped here")
-            } else if task.status == .running {
-                TaskWorkingIndicator()
+            if isShell || task.status == .running {
+                ZStack {
+                    if isShell {
+                        Button("Stop Shell", systemImage: "stop.fill") { store.stopBackgroundTask(task.id) }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .disabled(!canStop)
+                            .help(canStop ? "Stop Shell" : "Berth can't identify this shell's process, so it can't be stopped here")
+                            .opacity(showsStop ? 1 : 0)
+                            .allowsHitTesting(showsStop)
+                            .accessibilityHidden(!showsStop)
+                    }
+                    TaskWorkingIndicator()
+                        .opacity(showsStop ? 0 : 1)
+                }
             }
             if let stop {
                 Button(stop.title, systemImage: "stop.fill") { store.stopSubagent(task) }

@@ -1073,6 +1073,7 @@ private struct RowChrome: ViewModifier {
     let select: () -> Void
     @State private var isHovering = false
     @Environment(Store.self) private var store
+    private static let closeClearance = 4.0
 
     private var isSelected: Bool {
         if !store.multiSelection.isEmpty { return store.multiSelection.contains(item) }
@@ -1091,11 +1092,10 @@ private struct RowChrome: ViewModifier {
             .padding(.horizontal, SidebarRowLayout.horizontalInset)
             .contentShape(.rect)
             .onTapGesture(perform: select)
-            .onHover { isHovering = $0 }
             // swiftlint:disable:next negative_padding - widens the row's hit area back to the list edges, the close button is an overlay added after
             .padding(.horizontal, -SidebarRowLayout.horizontalInset)
             .overlay(alignment: .trailing) {
-                if let close, showsClose {
+                if let close {
                     Button(action: close) {
                         Label("Close Terminal", systemImage: "xmark")
                             .labelStyle(.iconOnly)
@@ -1109,8 +1109,13 @@ private struct RowChrome: ViewModifier {
                     }
                     .buttonStyle(.borderless)
                     .help("Close terminal")
+                    .padding(.trailing, Self.closeClearance)
+                    .opacity(showsClose ? 1 : 0)
+                    .allowsHitTesting(showsClose)
+                    .accessibilityHidden(!showsClose)
                 }
             }
+            .onHover { isHovering = $0 }
             #if DEBUG
             .modifier(SnapshotRowHoverProbe(hoverID: hoverID, isHighlighted: isHighlighted, showsClose: showsClose))
             #endif
