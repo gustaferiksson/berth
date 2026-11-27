@@ -364,6 +364,7 @@ final class Store {
     @ObservationIgnored private var themeWatcher: FileWatcher?
     @ObservationIgnored private var summaries: [SessionSummary] = []
     @ObservationIgnored private var shownTasks: [StoredTask] = []
+    @ObservationIgnored private var formation = TaskFormationMemo()
     @ObservationIgnored private var unreadableTasks = TaskState.stored(UserDefaults.standard.string(forKey: "tasks")).unreadable
     @ObservationIgnored private var groupOrder: [String] = []
     @ObservationIgnored private var repositoryRoots: [String: String] = [:]
@@ -554,7 +555,7 @@ final class Store {
     func formTasks() {
         guard hasScanned else { return }
 
-        let result = TaskFormation.form(tasks, sessions: summaries.map(taskSession))
+        let result = formation.form(tasks, sessions: summaries.map(taskSession))
         if result.state != tasks { tasks = result.state }
         shownTasks = result.shown
         let suggestions = Dictionary(result.suggestions.flatMap { suggestion in suggestion.sessionIDs.map { ($0, suggestion) } }) { first, _ in first }
