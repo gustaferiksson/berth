@@ -1259,20 +1259,7 @@ enum Snapshot {
             }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        if let ref = UserDefaults.standard.string(forKey: "snapshotReviewSince") {
-            let found = await model.setSince(ref)
-            print("review since \(ref) found \(found), \(model.changes?.since.map { "\($0.shortSHA) committed \(model.changes?.committed.map(\.path) ?? [])" } ?? "-"), recent \(model.recentCommits.map(\.sha))")
-        }
-        if let specs = UserDefaults.standard.string(forKey: "snapshotReviewMarks"), let tab = store.selectedTabID {
-            let marks = specs.split(separator: ";").compactMap { entry -> ControlReviewMark? in
-                let parts = entry.split(separator: "|", maxSplits: 1)
-                guard let range = parts.first?.wholeMatch(of: /(.+):([0-9]+)(?:-([0-9]+))?/), let start = Int(range.2) else { return nil }
-
-                return ControlReviewMark(path: String(range.1), startLine: start, endLine: range.3.flatMap { Int($0) } ?? start, note: parts.dropFirst().first.map(String.init) ?? "")
-            }
-            let response = await store.updateReviewMarks(marks, base: UserDefaults.standard.string(forKey: "snapshotReviewMarkBase"), in: tab)
-            print("review marks \(response.succeeded ? response.text ?? "-" : response.error ?? "failed"), tabs \(model.tabs.map(\.document.path))")
-        }
+        await seedReviewSinceAndMarks(store: store, model: model)
         if let ref = UserDefaults.standard.string(forKey: "snapshotReviewBase"), let changes = model.changes {
             var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
             arguments[ReviewModel.baseBranchesKey] = [changes.root: [changes.branch: ref]]
