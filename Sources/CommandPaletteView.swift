@@ -53,6 +53,8 @@ struct CommandPaletteView: View {
         let rows = CommandPalette.rank(query, items: actions.map { action in
             PaletteItem(id: action.title, section: action.contexts.contains(store.paletteContext) ? .context : .general, title: action.title(in: store), detail: action.keywords)
         })
+        let isBlank = query.allSatisfy(\.isWhitespace)
+        let startsSection = { (index: Int) in isBlank && (index == 0 || rows[index - 1].section != rows[index].section) }
         let selection = min(highlighted, max(rows.count - 1, 0))
         let selectedRow = rows.indices.contains(selection) ? rows[selection] : nil
         let scopeGlyph = LauncherGlyph.symbol(AppAction.commandPalette.symbol)
@@ -72,9 +74,10 @@ struct CommandPaletteView: View {
                         LauncherMessage(symbol: "magnifyingglass", title: "No matching commands")
                     }
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                        if query.allSatisfy(\.isWhitespace), index == 0 || rows[index - 1].section != row.section {
+                        if startsSection(index) {
                             LauncherSectionHeader(row.section == .context ? store.paletteContext.rawValue.capitalized : "General")
                                 .padding(.top, index == 0 ? 0 : 6)
+                                .id("header\(index)")
                         }
                         if let action = byTitle[row.id] {
                             Button { run(action) } label: {
@@ -93,10 +96,10 @@ struct CommandPaletteView: View {
                         }
                     }
                 }
-                .onChange(of: selection) { proxy.scrollTo(selection) }
+                .onChange(of: selection) { proxy.scrollToLauncherRow(selection, startsSection: !rows.isEmpty && startsSection(selection)) }
                 .onChange(of: query) {
                     highlighted = 0
-                    if !rows.isEmpty { proxy.scrollTo(0, anchor: .top) }
+                    if isBlank { proxy.scrollTo("launcherResultsTop", anchor: .top) } else if !rows.isEmpty { proxy.scrollTo(0, anchor: .top) }
                 }
             }
         } footer: {
@@ -105,7 +108,7 @@ struct CommandPaletteView: View {
         .onExitCommand { store.launcherMode = nil }
         .onAppear {
             store.launcherQuery = ""
-            if Snapshot.output == nil { isQueryFocused = true }
+            if Snapshot.output == nil || Snapshot.launcherKeys != nil { isQueryFocused = true }
         }
     }
 

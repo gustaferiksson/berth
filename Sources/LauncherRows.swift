@@ -64,10 +64,40 @@ struct LauncherResultList<Rows: View>: View {
                 rows
             }
             .padding(8)
+            .id("launcherResultsTop")
             .onGeometryChange(for: Double.self) { $0.size.height } action: { contentHeight = $0 }
         }
         .frame(height: min(max(contentHeight, 64), maxHeight))
         .scrollBounceBehavior(.basedOnSize)
+        .probeLauncherScrollOffset()
+    }
+}
+
+extension ScrollViewProxy {
+    func scrollToLauncherRow(_ index: Int, startsSection: Bool) {
+        if startsSection {
+            scrollTo(index == 0 ? "launcherResultsTop" : "header\(index)", anchor: .top)
+        } else {
+            scrollTo(index)
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func probeLauncherScrollOffset() -> some View {
+        #if DEBUG
+        if Snapshot.launcherKeys != nil {
+            onScrollGeometryChange(for: Double.self) { Double($0.contentOffset.y + $0.contentInsets.top) } action: { _, offset in
+                Snapshot.launcherScrollOffset = offset
+            }
+            .onAppear { Snapshot.launcherScrollOffset = 0 }
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
 
