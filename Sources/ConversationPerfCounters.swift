@@ -1,12 +1,12 @@
 import Foundation
 
 enum ConversationPerfCounters {
-    nonisolated(unsafe) private static var totals: [String: Double] = [:]
+    private nonisolated(unsafe) static var totals: [String: Double] = [:]
 
     static func time<T>(_ name: String, _ body: () -> T) -> T {
         #if DEBUG
-            let start = ContinuousClock.now
-            defer { totals[name, default: 0] += Double((ContinuousClock.now - start).components.attoseconds) / 1e15 }
+        let start = ContinuousClock.now
+        defer { totals[name, default: 0] += Double((ContinuousClock.now - start).components.attoseconds) / 1e15 }
         #endif
         return body()
     }
