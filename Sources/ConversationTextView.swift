@@ -59,6 +59,7 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
     private var source: NSAttributedString?
     private var hoveredBlock: Int?
     private var copiedBlock: Int?
+    private var linkMonitor: Any?
     private static let fits = NSMapTable<NSAttributedString, NSMutableDictionary>.weakToStrongObjects()
 
     private var fitted: (width: CGFloat, height: CGFloat, used: CGFloat)?
@@ -401,10 +402,37 @@ final class ConversationNSTextView: NSTextView, NSTextViewDelegate {
         super.viewWillMove(toWindow: newWindow)
     }
 
+    private func followLink(_ link: Any, at index: Int, from down: NSEvent, selecting selection: ConversationSelection, offset: Int) {
+        linkMonitor.map(NSEvent.removeMonitor)
+        linkMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            guard let self else { return event }
+
+            let travelled = hypot(event.locationInWindow.x - down.locationInWindow.x, event.locationInWindow.y - down.locationInWindow.y)
+            if event.type == .leftMouseDragged, travelled < Self.dragThreshold { return nil }
+
+            linkMonitor.map(NSEvent.removeMonitor)
+            linkMonitor = nil
+            if event.type == .leftMouseUp {
+                _ = textView(self, clickedOnLink: link, at: index)
+                return nil
+            }
+
+            _ = selection.begin(in: self, at: offset, extending: false)
+            return nil
+        }
+    }
+
+    private static let dragThreshold = 4.0
+
     private func select(with event: NSEvent, at point: NSPoint) {
         let (offset, hit) = hitTest(text: point)
-        let isLink = hit.map { textStorage?.attribute(.link, at: $0, effectiveRange: nil) != nil } ?? false
-        guard let selection, event.clickCount == 1, !isLink, selection.begin(in: self, at: offset, extending: event.modifierFlags.contains(.shift)) else {
+        let link = hit.flatMap { textStorage?.attribute(.link, at: $0, effectiveRange: nil) }
+        if let selection, let hit, let link, event.clickCount == 1, !event.modifierFlags.contains(.shift) {
+            followLink(link, at: hit, from: event, selecting: selection, offset: offset)
+            window?.makeFirstResponder(self)
+            return
+        }
+        guard let selection, event.clickCount == 1, link == nil, selection.begin(in: self, at: offset, extending: event.modifierFlags.contains(.shift)) else {
             super.mouseDown(with: event)
             guard let selection else { return }
 

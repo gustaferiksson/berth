@@ -18,7 +18,7 @@ extension Snapshot {
         let results = await heavyConversationTurns > 0
             ? [selectAllLoadedTurns(store: store, tab: tab, window: window), autoscrollUp(store: store, tab: tab, window: window)]
             : [dragAcrossItems(window: window, save: save), dragInCodeBlock(window: window, save: save), dragProseIntoCodeBlock(window: window), dragAcrossTurns(window: window), shiftClick(window: window), selectAllFixture(window: window), clickLink(window: window), reopen(store: store, window: window)]
-            + (mentions == nil ? [] : [dragAcrossMentions(folder: mentions ?? "", window: window)])
+            + (mentions == nil ? [] : [dragAcrossMentions(folder: mentions ?? "", window: window), dragFromMention(folder: mentions ?? "", window: window)])
         let passed = results.allSatisfy(\.self)
         print(passed ? "select: ALL PASS" : "select: FAILED")
         ProcessAncestry.hangUpDescendants()
@@ -45,7 +45,22 @@ extension Snapshot {
         else { return fail("mentions", "fixture prompt is not on screen") }
 
         await click(from: from, to: to, in: window)
-        return check("mentions", copied(), inOrder: ["@\(folder)/Screen Recording demo.mov break down", "@\(folder)/diagram.png", "@\(folder)/notes.txt", "@\(folder)/gone.pdf", "@\(folder)/Acme\\ STC, this is the email", "@\(folder)/Acme\\ STC/pricelists has the rest."])
+        return check("mentions", copied(), inOrder: mentionPhrases(folder: folder))
+    }
+
+    private static func dragFromMention(folder: String, window: NSWindow) async -> Bool {
+        await scrollSelectionFixture(window: window, toTop: false)
+        guard let view = await reply(containing: "break down this video", in: window, revealing: true),
+              let from = point(in: view, offset: 0, edge: \.minX),
+              let to = point(in: view, after: "has the rest.")
+        else { return fail("mention drag", "fixture prompt is not on screen") }
+
+        await click(from: from, to: to, in: window)
+        return check("mention drag", copied(), inOrder: mentionPhrases(folder: folder))
+    }
+
+    private static func mentionPhrases(folder: String) -> [String] {
+        ["@\(folder)/Screen Recording demo.mov break down", "@\(folder)/diagram.png", "@\(folder)/notes.txt", "@\(folder)/gone.pdf", "@\(folder)/Acme\\ STC, this is the email", "@\(folder)/Acme\\ STC/pricelists has the rest."]
     }
 
     private static func dragInCodeBlock(window: NSWindow, save: (String) -> Void) async -> Bool {
