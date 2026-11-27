@@ -235,20 +235,23 @@ public enum ReviewGit {
         let unpushed = Set(upstreamSides.filter { $0.hasPrefix(">") }.map { $0.dropFirst() })
 
         let range = changes.isDefaultBranch || changes.base == nil ? ["-n", "2", head] : ["-n", "50", "\(changes.mergeBase)..\(head)"]
-        let log = try await git(["log", "-z", "--format=%H%x1f%h%x1f%at%x1f%s"] + range, in: root)
-        let commits = log.split(separator: 0).compactMap { record -> ReviewCommit? in
-            let fields = record.split(separator: 0x1F, maxSplits: 3, omittingEmptySubsequences: false).map { String(decoding: $0, as: UTF8.self) }
-            guard fields.count == 4, let time = TimeInterval(fields[2]) else { return nil }
-
-            return ReviewCommit(sha: fields[1], subject: fields[3], date: Date(timeIntervalSince1970: time), isPushed: ownUpstream != nil && !unpushed.contains(Substring(fields[0])))
-        }
 
         return ReviewBranchStatus(
             ahead: baseCounts.last ?? 0,
             behind: baseCounts.first ?? 0,
             upstream: ownUpstream.map { ReviewUpstream(name: $0, ahead: unpushed.count, behind: upstreamSides.count - unpushed.count) },
-            commits: commits
+            commits: try await commits(range, isPushed: { ownUpstream != nil && !unpushed.contains(Substring($0)) }, in: root)
         )
+    }
+
+    private static func commits(_ range: [String], isPushed: (String) -> Bool, in root: String) async throws -> [ReviewCommit] {
+        let log = try await git(["log", "-z", "--format=%H%x1f%h%x1f%at%x1f%s"] + range, in: root)
+        return log.split(separator: 0).compactMap { record -> ReviewCommit? in
+            let fields = record.split(separator: 0x1F, maxSplits: 3, omittingEmptySubsequences: false).map { String(decoding: $0, as: UTF8.self) }
+            guard fields.count == 4, let time = TimeInterval(fields[2]) else { return nil }
+
+            return ReviewCommit(sha: fields[1], subject: fields[3], date: Date(timeIntervalSince1970: time), isPushed: isPushed(fields[0]))
+        }
     }
 
     public static func branchSummary(in folder: String) async -> ReviewBranchSummary? {
