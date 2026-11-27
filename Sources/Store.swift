@@ -1110,7 +1110,9 @@ final class Store {
         let processes = Dictionary(processSessions.compactMap { session in ProcessAncestry.facts(of: session.pid).map { (session.pid, $0) } }) { first, _ in first }
         let orphans = OrphanedSessions.ids(live: processSessions, processes: processes)
         if orphans != orphanedSessionIDs { orphanedSessionIDs = orphans }
-        turnStarts.update(live: liveBySession, sessions: sessionsByID)
+        var starts = turnStarts
+        starts.update(live: liveBySession, sessions: sessionsByID)
+        if starts != turnStarts { turnStarts = starts }
         let claimed = Set(tabs.compactMap(\.sessionID))
         for session in live where session.pid > 0 && !claimed.contains(session.sessionId) {
             guard let position = tabs.firstIndex(where: { tab in
