@@ -16,6 +16,19 @@ extension Store {
         reviewMarks[sessionID] = kept.isEmpty ? nil : kept
     }
 
+    private func sinceBase(_ base: String, model: ReviewModel, sessionID: String) async -> String? {
+        guard base == ControlReviewMarks.lastReview else {
+            return await model.setSince(base) ? nil : "Couldn’t find \(base) in the session repository"
+        }
+
+        let shown = model.changes.flatMap { pullRequest(in: sessionsByID[sessionID]?.checkout ?? model.folder, branch: $0.branch) }
+        guard let number = shown?.pullRequest?.number ?? (Snapshot.output == nil ? nil : 1), let repository = shown?.repository ?? (Snapshot.output == nil ? nil : "acme/billing") else {
+            return "This session has no pull request, so there is no last review of yours to compare with"
+        }
+
+        return await model.sinceLastReview(repository: repository, number: number)
+    }
+
     func updateReviewMarks(_ marks: [ControlReviewMark], base: String?, in tabID: Tab.ID) async -> ControlResponse {
         guard UserDefaults.standard.bool(forKey: GeneralSettings.reviewKey) else { return .failure("Enable Review in Settings to mark changes") }
         guard let caller = tabs.first(where: { $0.id == tabID }),
@@ -35,7 +48,8 @@ extension Store {
         guard let model = reviewModels[sessionID] else { return .failure("Review couldn’t open for this session tab") }
 
         if let base {
-            guard await model.setSince(base) else { return .failure("Couldn’t find \(base) in the session repository") }
+            let failure = await sinceBase(base, model: model, sessionID: sessionID)
+            if let failure { return .failure(failure) }
         } else {
             await model.load()
         }

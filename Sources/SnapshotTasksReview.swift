@@ -9,6 +9,10 @@ extension Snapshot {
             let found = await model.setSince(ref)
             print("review since \(ref) found \(found), \(model.changes?.since.map { "\($0.shortSHA) committed \(model.changes?.committed.map(\.path) ?? [])" } ?? "-")")
         }
+        if UserDefaults.standard.bool(forKey: "snapshotReviewSinceLastReview") {
+            let failure = await model.sinceLastReview(repository: "acme/billing", number: 1)
+            print("review since last review \(failure ?? "ok"), \(model.changes?.since.map { "\($0.shortSHA) committed \(model.changes?.committed.map(\.path) ?? [])" } ?? "-")")
+        }
         if let specs = UserDefaults.standard.string(forKey: "snapshotReviewMarks"), let tab = store.selectedTabID {
             let marks = specs.split(separator: ";").compactMap { entry -> ControlReviewMark? in
                 let parts = entry.split(separator: "|", maxSplits: 1)

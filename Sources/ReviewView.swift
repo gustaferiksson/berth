@@ -1687,7 +1687,7 @@ struct ReviewFileList: View {
                     baseMenu(base, candidates: changes.bases)
                         .layoutPriority(1)
                 }
-                ReviewSinceMenu(model: model, changes: changes).layoutPriority(1)
+                ReviewSinceMenu(model: model, changes: changes, pullRequest: pullRequest.flatMap { shown in shown.pullRequest.map { (shown.repository, $0.number) } }).layoutPriority(1)
             }
             .font(.caption.monospaced())
             .foregroundStyle(theme.branch)
