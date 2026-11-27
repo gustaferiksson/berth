@@ -354,7 +354,7 @@ struct ConversationReply: View {
 
     private var warningTheme: GhosttyTheme {
         var themed = theme
-        themed.foreground = theme.needsYou
+        themed.foreground = theme.warning
         return themed
     }
 
