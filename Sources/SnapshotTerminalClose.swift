@@ -5,19 +5,21 @@ import SwiftUI
 
 extension Snapshot {
     static let terminalCloseClickTarget = output != nil && UserDefaults.standard.bool(forKey: "snapshotTerminalCloseClicks") ? UUID() : nil
+    static let sidebarHoverTarget = output != nil && UserDefaults.standard.bool(forKey: "snapshotSidebarHover") ? UUID() : nil
+    static var closeFixtureTarget: UUID? { terminalCloseClickTarget ?? sidebarHoverTarget }
     static var terminalCloseFrame: CGRect?
 
     static func validateTerminalCloseClicks() {
-        guard terminalCloseClickTarget != nil else { return }
+        guard closeFixtureTarget != nil else { return }
         guard let home = ProcessInfo.processInfo.environment["CFFIXED_USER_HOME"], !home.isEmpty,
               UserDefaults.standard.bool(forKey: "snapshotShell")
-        else { fail("-snapshotTerminalCloseClicks needs -snapshotShell YES and CFFIXED_USER_HOME pointing at an empty fixture home") }
+        else { fail("-snapshotTerminalCloseClicks and -snapshotSidebarHover need -snapshotShell YES and CFFIXED_USER_HOME pointing at an empty fixture home") }
     }
 
     static func prepareShellFixture(store: Store) {
         let cwd = store.activeSessions.first?.cwd ?? FileManager.default.homeDirectoryForCurrentUser.path
-        store.openShell(cwd: cwd, command: terminalCloseClickTarget == nil ? nil : "/bin/zsh -f")
-        store.openShell(cwd: cwd, command: "/bin/zsh -c 'printf \"\\033]2;npm run dev\\007\"; echo VITE ready; echo started >> \(NSTemporaryDirectory())berth-shell-starts; sleep 600'", id: terminalCloseClickTarget ?? UUID())
+        store.openShell(cwd: cwd, command: closeFixtureTarget == nil ? nil : "/bin/zsh -f")
+        store.openShell(cwd: cwd, command: "/bin/zsh -c 'printf \"\\033]2;npm run dev\\007\"; echo VITE ready; echo started >> \(NSTemporaryDirectory())berth-shell-starts; sleep 600'", id: closeFixtureTarget ?? UUID())
     }
 
     static func captureTerminalCloseClicks(target: Tab.ID, store: Store, window: NSWindow, output: URL) async {
@@ -98,7 +100,7 @@ struct SnapshotTerminalCloseGeometry: ViewModifier {
     let hoverID: String
 
     func body(content: Content) -> some View {
-        if hoverID == Snapshot.terminalCloseClickTarget?.uuidString {
+        if hoverID == Snapshot.closeFixtureTarget?.uuidString {
             content.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { Snapshot.terminalCloseFrame = $0 }
         } else {
             content

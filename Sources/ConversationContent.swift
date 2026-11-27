@@ -101,11 +101,18 @@ struct ConversationPrompt: View {
             }
             if showsText {
                 let itemID = selectionID ?? expansionID
-                ConversationTextView(text: Self.attributed(mentions, theme: theme, displayScale: displayScale, colorScheme: colorScheme, itemID: itemID, expanded: expansion?.keys ?? []), selectionID: selectionID, sizing: .hug)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(Self.bubble.fill(theme.foreground.opacity(0.07)))
-                    .contextMenu { Button("Copy") { copyToPasteboard(PromptTextPart.plain(entry.text)) } }
+                let command = entry.name == "slash" ? entry.command : nil
+                VStack(alignment: .leading, spacing: 4) {
+                    ConversationTextView(text: Self.attributed(mentions, theme: theme, displayScale: displayScale, colorScheme: colorScheme, itemID: itemID, expanded: expansion?.keys ?? [], command: command), selectionID: selectionID, sizing: .hug)
+                    if entry.name == "slash", entry.shellOutput?.isEmpty == false {
+                        shellOutput
+                            .font(Font(theme.conversationCodeNSFont()))
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(Self.bubble.fill(theme.foreground.opacity(0.07)))
+                .contextMenu { Button("Copy") { copyToPasteboard(PromptTextPart.plain(entry.text)) } }
             }
         }
         .frame(maxWidth: theme.messageWidth * 0.75, alignment: .trailing)
@@ -123,7 +130,7 @@ struct ConversationPrompt: View {
         let isCode: Bool
     }
 
-    static func attributed(_ mentions: PromptMentions.Result, theme: GhosttyTheme, displayScale: CGFloat? = nil, colorScheme: ColorScheme = .light, itemID: String? = nil, expanded: Set<String> = []) -> NSAttributedString {
+    static func attributed(_ mentions: PromptMentions.Result, theme: GhosttyTheme, displayScale: CGFloat? = nil, colorScheme: ColorScheme = .light, itemID: String? = nil, expanded: Set<String> = [], command: String? = nil) -> NSAttributedString {
         let text = mentions.text
         let font = theme.conversationNSFont()
         let style = NSMutableParagraphStyle()
@@ -198,6 +205,9 @@ struct ConversationPrompt: View {
             let title = isCollapsed ? "Show \(total - visible) more lines" : "Show less"
             result.append(MarkdownAttributedString.expansionLink(title, key: key, copyText: isCollapsed ? "\n" + hidden : "", attributes: attributes, color: NSColor(theme.secondary)))
         }
+        if let command, result.string.hasPrefix(command) {
+            result.addAttribute(.font, value: theme.conversationCodeNSFont(), range: NSRange(location: 0, length: command.utf16.count))
+        }
         return result
     }
 
@@ -262,15 +272,7 @@ struct ConversationPrompt: View {
     }
 
     private var shell: some View {
-        let output = entry.shellOutput.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
-        let errors = entry.shellError.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
-        let fullLines = output.map { (text: $0, isError: false) } + errors.map { (text: $0, isError: true) }
-        let movedID = entry.shellOutput?.firstMatch(of: /^Command did not complete within its \d+s timeout and was moved to the background \(ID: ([A-Za-z0-9_-]+)\)/)?.1
-        let collapsesNotice = movedID != nil && !isExpanded
-        let lines = movedID.flatMap { collapsesNotice ? [(text: Substring("Moved to the background · \($0)"), isError: false)] : nil } ?? fullLines
-        let moreLines = movedID == nil ? lines.count - 4 : 1
-
-        return VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(verbatim: "!")
                     .foregroundStyle(theme.shellAttached)
@@ -304,30 +306,7 @@ struct ConversationPrompt: View {
                 }
                 .padding(.leading, markerWidth + 10)
             }
-            if !lines.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(verbatim: "⎿")
-                        .foregroundStyle(theme.secondary)
-                        .fixedSize()
-                        .frame(width: markerWidth - 8, alignment: .leading)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(lines.prefix(isExpanded ? lines.count : 4).enumerated(), id: \.offset) { _, line in
-                            Text(verbatim: line.text.isEmpty ? " " : String(line.text))
-                                .foregroundStyle(line.isError ? theme.closed : theme.secondary)
-                                .textSelection(.enabled)
-                        }
-                        if moreLines > 0 {
-                            Button(isExpanded ? "Show less" : movedID == nil ? "Show \(moreLines) more lines" : "Show full notice") { isExpanded.toggle() }
-                                .buttonStyle(.borderless)
-                                .pointerStyle(.link)
-                                .font(.caption)
-                                .foregroundStyle(theme.secondary)
-                        }
-                    }
-                }
-                .padding(.leading, markerWidth + 10)
-            }
+            shellOutput
         }
         .font(Font(theme.conversationCodeNSFont()))
         .foregroundStyle(theme.foreground)
@@ -335,6 +314,41 @@ struct ConversationPrompt: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Self.bubble.fill(theme.foreground.opacity(0.07)))
+    }
+
+    @ViewBuilder private var shellOutput: some View {
+        let output = entry.shellOutput.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
+        let errors = entry.shellError.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
+        let fullLines = output.map { (text: $0, isError: false) } + errors.map { (text: $0, isError: true) }
+        let movedID = entry.name == "bash" ? entry.shellOutput?.firstMatch(of: /^Command did not complete within its \d+s timeout and was moved to the background \(ID: ([A-Za-z0-9_-]+)\)/)?.1 : nil
+        let collapsesNotice = movedID != nil && !isExpanded
+        let lines = movedID.flatMap { collapsesNotice ? [(text: Substring("Moved to the background · \($0)"), isError: false)] : nil } ?? fullLines
+        let moreLines = movedID == nil ? lines.count - 4 : 1
+
+        if !lines.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(verbatim: "⎿")
+                    .foregroundStyle(theme.secondary)
+                    .fixedSize()
+                    .frame(width: markerWidth - 8, alignment: .leading)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(lines.prefix(isExpanded ? lines.count : 4).enumerated(), id: \.offset) { _, line in
+                        Text(verbatim: line.text.isEmpty ? " " : String(line.text))
+                            .foregroundStyle(line.isError ? theme.closed : theme.secondary)
+                            .textSelection(.enabled)
+                    }
+                    if moreLines > 0 {
+                        Button(isExpanded ? "Show less" : movedID == nil ? "Show \(moreLines) more lines" : "Show full notice") { isExpanded.toggle() }
+                            .buttonStyle(.borderless)
+                            .pointerStyle(.link)
+                            .font(.caption)
+                            .foregroundStyle(theme.secondary)
+                    }
+                }
+            }
+            .padding(.leading, markerWidth + 10)
+        }
     }
 }
 

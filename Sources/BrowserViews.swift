@@ -604,7 +604,10 @@ private struct BrowserHeaderTab: View {
         .font(.system(size: 13, weight: .medium))
         .accessibilityLabel(tab.displayTitle)
         .overlay(alignment: .leading) {
-            if isHovered { BrowserCloseButton(browser: browser, tab: tab) }
+            BrowserCloseButton(browser: browser, tab: tab)
+                .opacity(isHovered ? 1 : 0)
+                .allowsHitTesting(isHovered)
+                .accessibilityHidden(!isHovered)
         }
         .overlay(alignment: .trailing) {
             if tab.isDrivenByAgent, let key = browser.sessionKey { BrowserAgentBadge(browser: browser, key: key).padding(.trailing, 4) }
@@ -746,7 +749,13 @@ private struct BrowserAddressField: View {
             }
         }
         .overlay(alignment: .leading) {
-            if showsClose, isHovering || Snapshot.forcedHover.contains(tab?.displayTitle ?? ""), let tab { BrowserCloseButton(browser: browser, tab: tab) }
+            if showsClose, let tab {
+                let isShown = isHovering || Snapshot.forcedHover.contains(tab.displayTitle)
+                BrowserCloseButton(browser: browser, tab: tab)
+                    .opacity(isShown ? 1 : 0)
+                    .allowsHitTesting(isShown)
+                    .accessibilityHidden(!isShown)
+            }
         }
         .glassEffect(.regular.interactive(), in: .capsule)
         .onHover { isHovering = $0 }

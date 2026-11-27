@@ -178,6 +178,10 @@ custom_rules:
     name: Negative Padding
     regex: '\.padding\((?:[^)\n]*,\s*)?-\s*[\w.]'
     message: 'A negative inset moves a view outside its parent, so the parent clips its hit area (a trailing × stopped working). Bleed with .background, .overlay or .contentShape; if the view holds no controls, disable this line with the reason.'
+  hover_inserted_control:
+    name: Hover-Inserted Control
+    regex: '\bif\s+(?:let\s+[^{\n]*,\s*)?(?:isHovered|isHovering|hovering|showsActions|showsRowActions)\b[^{\n]*\{\s*(?:Button|Image|HStack|RowActionButton|\w*(?:Close|Stop)\w*Button)\b'
+    message: 'Inserting a hover-only control changes the row tree on every hover, and the pointer resting on it flickers the hover and the control. Keep it mounted and toggle .opacity and .allowsHitTesting, with .onHover outside the overlay.'
   hosting_without_sizing_options:
     name: Hosting Without Sizing Options
     regex: 'let (\w+) = NSHosting(?:View|Controller)\([^\n]*\n(?!(?:[^\n]*\n){0,5}[^\n]*\1\.sizingOptions)'
@@ -190,6 +194,11 @@ custom_rules:
     name: Line Fragment Padding
     regex: 'lineFragmentPadding\s*=\s*(?!0\b|\s)'
     message: 'TextKit 2 puts the container origin at -lineFragmentPadding, so a live resize re-anchors the scroll by the padding. Keep it 0 (docs/adr/0003).'
+  tine_default_launch:
+    name: Tine Default Launch
+    regex: 'TineClient\(\)|TineClient\.launchApp'
+    message: 'The default TineClient launches /Applications/Tine.app, which pops its window during snapshots. Only ConversationShellCompleter builds one, gated on Snapshot.output.'
+    excluded: 'Sources/ConversationShellCompleter\.swift'
   snapshot_defaults_write:
     name: Snapshot Defaults Write
     regex: 'UserDefaults\.standard\.(?:set|removeObject)\('

@@ -218,6 +218,7 @@ private struct PromptBubble: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var isExpanded = false
+    @State private var isOutputExpanded = false
     @State private var viewerStart: ViewerImage?
     @ScaledMetric(relativeTo: .subheadline) private var markerWidth = 16
     @ScaledMetric(relativeTo: .caption2) private var imageTagDescent = 2.0
@@ -273,7 +274,7 @@ private struct PromptBubble: View {
             }
             if showsText {
                 VStack(alignment: .leading, spacing: 0) {
-                    promptText(parts)
+                    promptText(parts, text: text)
                         .lineLimit(moreLines > 0 && !isExpanded ? lineLimit : nil)
                         .textSelection(.enabled)
                     if moreLines > 0 {
@@ -285,6 +286,11 @@ private struct PromptBubble: View {
                                 .contentShape(.rect)
                         }
                         .buttonStyle(.borderless)
+                    }
+                    if entry.name == "slash", entry.shellOutput?.isEmpty == false {
+                        shellOutput
+                            .font(.subheadline.monospaced())
+                            .padding(.top, 4)
                     }
                 }
                 .padding(.horizontal, 14)
@@ -309,8 +315,13 @@ private struct PromptBubble: View {
         return references.count == count ? references : (0..<count).map { $0 + 1 }
     }
 
-    private func promptText(_ parts: [PromptTextPart]) -> Text {
-        parts.reduce(Text(verbatim: "")) { result, part in
+    private func promptText(_ parts: [PromptTextPart], text: String) -> Text {
+        if entry.name == "slash", let command = entry.command, text.hasPrefix(command) {
+            let name = Text(verbatim: command).font(.body.monospaced())
+            let args = Text(verbatim: String(text.dropFirst(command.count)))
+            return Text("\(name)\(args)")
+        }
+        return parts.reduce(Text(verbatim: "")) { result, part in
             let text = switch part {
             case let .text(value): Text(verbatim: String(value))
             case let .image(token, number): inlineImageTag(token: token, number: number)
@@ -333,12 +344,7 @@ private struct PromptBubble: View {
     }
 
     private var shell: some View {
-        let output = entry.shellOutput.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
-        let errors = entry.shellError.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
-        let lines = output.map { (text: $0, isError: false) } + errors.map { (text: $0, isError: true) }
-        let moreLines = lines.count - 4
-
-        return VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(verbatim: "!")
                     .foregroundStyle(.pink)
@@ -352,35 +358,44 @@ private struct PromptBubble: View {
                         .accessibilityLabel("Running")
                 }
             }
-            if !lines.isEmpty {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(verbatim: "⎿")
-                        .foregroundStyle(.secondary)
-                        .frame(width: markerWidth, alignment: .leading)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(lines.prefix(isExpanded ? lines.count : 4).enumerated(), id: \.offset) { _, line in
-                            Text(verbatim: line.text.isEmpty ? " " : String(line.text))
-                                .foregroundStyle(line.isError ? Color.red.opacity(0.8) : .secondary)
-                                .textSelection(.enabled)
-                        }
-                        if moreLines > 0 {
-                            Button { isExpanded.toggle() } label: {
-                                Text(isExpanded ? "Show less" : "Show \(moreLines) more lines")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .frame(minHeight: 44)
-                                    .contentShape(.rect)
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                }
-                .padding(.leading, markerWidth)
-            }
+            shellOutput
         }
         .font(.subheadline.monospaced())
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder private var shellOutput: some View {
+        let output = entry.shellOutput.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
+        let errors = entry.shellError.map { $0.isEmpty ? [] : $0.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) } ?? []
+        let lines = output.map { (text: $0, isError: false) } + errors.map { (text: $0, isError: true) }
+        let moreLines = lines.count - 4
+
+        if !lines.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(verbatim: "⎿")
+                    .foregroundStyle(.secondary)
+                    .frame(width: markerWidth, alignment: .leading)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(lines.prefix(isOutputExpanded ? lines.count : 4).enumerated(), id: \.offset) { _, line in
+                        Text(verbatim: line.text.isEmpty ? " " : String(line.text))
+                            .foregroundStyle(line.isError ? Color.red.opacity(0.8) : .secondary)
+                            .textSelection(.enabled)
+                    }
+                    if moreLines > 0 {
+                        Button { isOutputExpanded.toggle() } label: {
+                            Text(isOutputExpanded ? "Show less" : "Show \(moreLines) more lines")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(minHeight: 44)
+                                .contentShape(.rect)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+            .padding(.leading, markerWidth)
+        }
     }
 }
 
