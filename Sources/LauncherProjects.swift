@@ -77,7 +77,7 @@ struct ProjectItemRow: View {
     private var tint: Color {
         switch item.kind {
         case .issue: theme.working
-        case .pullRequest: .accentColor
+        case .pullRequest: theme.working
         case .draft: .secondary
         }
     }
