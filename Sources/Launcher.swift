@@ -35,15 +35,19 @@ struct Launcher: View {
         let trailing: String
     }
 
+    private enum Field {
+        case query, actionSearch
+    }
+
     let mode: LauncherMode
 
     @Environment(Store.self) private var store
     @Environment(\.ghosttyTheme) private var theme
     @AppStorage(GeneralSettings.worktreeKey) private var startsInWorktree = false
-    @AppStorage(ItemPreviewSetting.key) private var richPreviews = false
     @AppStorage(ProjectsModel.allowsEditingKey) private var allowsProjectEditing = false
     @State private var query: String
     @State private var highlighted = 0
+    @State private var actionQuery = ""
     @State private var highlightedAction: Int?
     @State private var folders: [Folder] = []
     @State private var hits: [SearchHit] = []
@@ -56,7 +60,7 @@ struct Launcher: View {
     @State private var selectedIssue: InboxIssue?
     @State private var issueLookup: (reference: IssueReference, result: Result<[LinkedPullRequest], IssuePullRequests.LookupError>)?
     @State private var issueOpenFailures: Set<PullRequestLink> = []
-    @FocusState private var isQueryFocused: Bool
+    @FocusState private var focusedField: Field?
     @Binding private var previousScope: LauncherMode?
 
     init(mode: LauncherMode, query: String, previousScope: Binding<LauncherMode?>) {
@@ -66,17 +70,17 @@ struct Launcher: View {
     }
 
     private static let visibleMatches = 6
-    private static let commandBarHeight: CGFloat = 42
+    private static let footerInset: CGFloat = 20
 
     private var scopes: [(mode: LauncherMode, title: String)] {
         let base: [(mode: LauncherMode, title: String)] = [(.newSession, "Folders"), (.pullRequests, "Pull Requests"), (.issues, "Issues")]
         return store.projects.isEnabled ? base + [(.projects, "Project")] : base
     }
 
-    private var nextScope: (mode: LauncherMode, title: String)? {
+    private var nextScope: LauncherMode? {
         guard let index = scopes.firstIndex(where: { $0.mode == mode }) else { return nil }
 
-        return scopes[(index + 1) % scopes.count]
+        return scopes[(index + 1) % scopes.count].mode
     }
 
     private var issueReference: IssueReference? {
@@ -181,8 +185,6 @@ struct Launcher: View {
         let pullRequest = ranked.pullRequests.indices.contains(highlighted) ? ranked.pullRequests[highlighted] : nil
         let issueRow = issues.issues.indices.contains(highlighted) ? issues.issues[highlighted] : nil
         let primary = mode.hasItemActions ? primaryAction(folder: target, pullRequest: pullRequest, issue: issueRow, openable: linked.count { $0.opening.isOpenable }) : nil
-        let actions = mode.hasItemActions && store.launcherActionsShown ? itemActions(primary: primary, folder: target, pullRequest: pullRequest, issue: issueRow) : []
-        let actionIndex = selectedActionIndex(in: actions)
         let count = switch mode {
         case .newSession: matches.count
         case .palette: rows.count
@@ -203,43 +205,13 @@ struct Launcher: View {
                 TextField("Query", text: $query, prompt: Text([LauncherMode.newSession: "Search folders or type a path", .palette: "Type a command or session", .pullRequests: "Search pull requests or paste an issue", .showPullRequestInReview: "Search pull requests or paste a PR URL", .issues: "Search or paste an issue", .projects: "Search project items"][mode] ?? "Search all sessions"))
                     .textFieldStyle(.plain)
                     .font(.system(size: 22))
-                    .focused($isQueryFocused)
+                    .focused($focusedField, equals: .query)
+                    .disabled(store.launcherActionsShown)
                     .onKeyPress(.downArrow) { move(by: 1, in: count) }
                     .onKeyPress(.upArrow) { move(by: -1, in: count) }
                     .modifier(LauncherItemPreview(url: pullRequest?.url ?? issueRow?.url, highlighted: highlighted, query: query, store: store))
-                    .onKeyPress(.tab) {
-                        guard let nextScope else { return .ignored }
-
-                        switchScope(to: nextScope.mode)
-                        return .handled
-                    }
-                    .onKeyPress(.return, phases: .down) { press in
-                        guard press.modifiers.contains(.option) else { return .ignored }
-
-                        if let url = selectedIssue?.url ?? issueReference?.url ?? highlightedIssue?.url ?? highlightedProject?.url {
-                            openOnGitHub(url)
-                            return .handled
-                        }
-                        if let pullRequest, showsPullRequests {
-                            if AppAction.showPullRequestInReview.isAvailable(in: store) {
-                                showInReview(PullRequestLink(repository: pullRequest.repository, number: pullRequest.number))
-                            } else if mode == .pullRequests {
-                                openOnGitHub(pullRequest.url)
-                            }
-                            return .handled
-                        }
-                        let matches = self.matches
-                        guard mode == .newSession, matches.indices.contains(highlighted) else { return .ignored }
-
-                        if press.modifiers.contains(.shift) {
-                            guard let other = Store.otherAgent else { return .ignored }
-
-                            start(other, in: matches[highlighted].path)
-                            return .handled
-                        }
-                        start(in: matches[highlighted].path, checkout: .main)
-                        return .handled
-                    }
+                    .onKeyPress(.tab, action: cycleScope)
+                    .onKeyPress(.return, phases: .down) { submitShortcut($0, pullRequest: pullRequest) }
                     .onSubmit(submitFromKeyboard)
                     .onChange(of: store.projects.columnSteps) { old, new in
                         let columns = [nil] + projectSections.map { Optional($0.name) }
@@ -309,16 +281,29 @@ struct Launcher: View {
                 }
             }
             if !mode.hasItemActions { Divider() }
-            if mode == .newSession {
-                folderList(matches)
-            } else {
-                results(rows, pullRequests: ranked, issues: issues, issue: issue, linked: linked)
+            VStack(spacing: 0) {
+                if mode == .newSession {
+                    folderList(matches)
+                } else {
+                    results(rows, pullRequests: ranked, issues: issues, issue: issue, linked: linked)
+                }
+                if let pullRequest, missingCheckout == pullRequest {
+                    Divider()
+                    checkoutNotice(repository: pullRequest.repository, url: pullRequest.url)
+                }
+                if mode == .projects { projectNotices }
             }
-            if let pullRequest, missingCheckout == pullRequest {
-                Divider()
-                checkoutNotice(repository: pullRequest.repository, url: pullRequest.url)
+            .overlay(alignment: .bottomTrailing) {
+                if mode.hasItemActions, store.launcherActionsShown {
+                    let actions = matchingActions(itemActions(primary: primary, folder: target, pullRequest: pullRequest, issue: issueRow))
+                    LauncherActionPanel(actions: actions, highlighted: selectedActionIndex(in: actions), select: perform) {
+                        actionSearchField(pullRequest: pullRequest)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.trailing, Self.footerInset)
+                    .padding(.bottom, 4)
+                }
             }
-            if mode == .projects { projectNotices }
             Divider()
             if mode.hasItemActions {
                 commandFooter(primary: primary, folder: target, pullRequest: pullRequest, issue: issueRow)
@@ -346,27 +331,27 @@ struct Launcher: View {
             }
         }
         .frame(maxWidth: 680)
-        .overlay(alignment: .bottomTrailing) {
-            if mode.hasItemActions, store.launcherActionsShown {
-                LauncherActionPanel(actions: actions, highlighted: actionIndex, shortcuts: actionShortcuts(canPreview: pullRequest != nil || issueRow != nil), select: perform)
-                    .padding(.trailing, 12)
-                    .padding(.bottom, Self.commandBarHeight + 7)
-            }
-        }
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
         .padding(.horizontal, 24)
         .onExitCommand(perform: exit)
-        .onChange(of: store.launcherActionsShown) { highlightedAction = nil }
+        .onChange(of: store.launcherActionsShown) {
+            if !store.launcherActionsShown {
+                setActionQuery("")
+                highlightedAction = nil
+                focusedField = .query
+            }
+        }
         .onChange(of: highlighted) { highlightedAction = nil }
         .onDisappear { store.launcherActionsShown = false }
         .onAppear {
             store.launcherActionsShown = false
             #if DEBUG
             store.probeLauncherQuery = query
+            store.probeLauncherActionQuery = ""
             store.probeLauncherIssue = nil
             #endif
             store.launcherQuery = ""
-            isQueryFocused = true
+            focusedField = .query
             if mode == .search { store.updateSearchIndex() }
             if showsPullRequests { store.refreshInbox() }
             if mode == .issues { store.refreshIssueInbox() }
@@ -456,8 +441,8 @@ struct Launcher: View {
             .focusable(false)
             .accessibilityValue(store.launcherActionsShown ? "Shown" : "Hidden")
         }
-        .padding(.horizontal, 20)
-        .frame(height: Self.commandBarHeight)
+        .padding(.horizontal, Self.footerInset)
+        .frame(height: 42)
     }
 
     private func primaryAction(folder: Folder?, pullRequest: InboxPullRequest?, issue: InboxIssue?, openable: Int) -> LauncherAction? {
@@ -498,12 +483,31 @@ struct Launcher: View {
         return nil
     }
 
-    private func actionShortcuts(canPreview: Bool) -> [(key: String, title: String)] {
-        var shortcuts: [(key: String, title: String)] = []
-        if richPreviews, query.isEmpty, canPreview { shortcuts.append(("␣", "Preview")) }
-        if mode == .projects, projectSections.count > 1 { shortcuts.append(("⌃⇥", "Column")) }
-        if let nextScope { shortcuts.append(("⇥", nextScope.title)) }
-        return shortcuts
+    private func actionSearchField(pullRequest: InboxPullRequest?) -> some View {
+        TextField("Search for actions", text: Binding(get: { actionQuery }, set: setActionQuery))
+            .textFieldStyle(.plain)
+            .font(.caption)
+            .focused($focusedField, equals: .actionSearch)
+            .onAppear { focusedField = .actionSearch }
+            .onKeyPress(.downArrow) { moveAction(by: 1) }
+            .onKeyPress(.upArrow) { moveAction(by: -1) }
+            .onKeyPress(.tab, action: cycleScope)
+            .onKeyPress(.return, phases: .down) { submitShortcut($0, pullRequest: pullRequest) }
+            .onSubmit(submitFromKeyboard)
+    }
+
+    private func setActionQuery(_ value: String) {
+        guard actionQuery != value else { return }
+
+        actionQuery = value
+        highlightedAction = nil
+        #if DEBUG
+        store.probeLauncherActionQuery = value
+        #endif
+    }
+
+    private func matchingActions(_ actions: [LauncherAction]) -> [LauncherAction] {
+        actionQuery.isEmpty ? actions : actions.filter { $0.title.localizedCaseInsensitiveContains(actionQuery) }
     }
 
     private var currentActions: [LauncherAction] {
@@ -514,7 +518,7 @@ struct Launcher: View {
         let linked = (try? issueResult?.get()) ?? []
         let openable = linked.count { store.opening(of: $0.link).isOpenable }
         let primary = primaryAction(folder: folder, pullRequest: pullRequest, issue: highlightedIssue, openable: openable)
-        return itemActions(primary: primary, folder: folder, pullRequest: pullRequest, issue: highlightedIssue)
+        return matchingActions(itemActions(primary: primary, folder: folder, pullRequest: pullRequest, issue: highlightedIssue))
     }
 
     private func itemActions(primary: LauncherAction?, folder: Folder?, pullRequest: InboxPullRequest?, issue: InboxIssue?) -> [LauncherAction] {
@@ -973,17 +977,18 @@ struct Launcher: View {
     }
 
     private func move(by offset: Int, in count: Int) -> KeyPress.Result {
-        if store.launcherActionsShown {
-            let actions = currentActions
-            let enabled = actions.indices.filter { actions[$0].isEnabled }
-            if let index = selectedActionIndex(in: actions), let position = enabled.firstIndex(of: index) {
-                highlightedAction = enabled[min(max(position + offset, 0), enabled.count - 1)]
-            }
-            return .handled
-        }
         guard count > 0 else { return .ignored }
 
         highlighted = min(max(highlighted + offset, 0), count - 1)
+        return .handled
+    }
+
+    private func moveAction(by offset: Int) -> KeyPress.Result {
+        let actions = currentActions
+        let enabled = actions.indices.filter { actions[$0].isEnabled }
+        if let index = selectedActionIndex(in: actions), let position = enabled.firstIndex(of: index) {
+            highlightedAction = enabled[min(max(position + offset, 0), enabled.count - 1)]
+        }
         return .handled
     }
 
@@ -1008,6 +1013,34 @@ struct Launcher: View {
         } else {
             submit()
         }
+    }
+
+    private func submitShortcut(_ press: KeyPress, pullRequest: InboxPullRequest?) -> KeyPress.Result {
+        guard press.modifiers.contains(.option) else { return .ignored }
+
+        if let url = selectedIssue?.url ?? issueReference?.url ?? highlightedIssue?.url ?? highlightedProject?.url {
+            openOnGitHub(url)
+            return .handled
+        }
+        if let pullRequest, showsPullRequests {
+            if AppAction.showPullRequestInReview.isAvailable(in: store) {
+                showInReview(PullRequestLink(repository: pullRequest.repository, number: pullRequest.number))
+            } else if mode == .pullRequests {
+                openOnGitHub(pullRequest.url)
+            }
+            return .handled
+        }
+        let matches = matches
+        guard mode == .newSession, matches.indices.contains(highlighted) else { return .ignored }
+
+        if press.modifiers.contains(.shift) {
+            guard let other = Store.otherAgent else { return .ignored }
+
+            start(other, in: matches[highlighted].path)
+            return .handled
+        }
+        start(in: matches[highlighted].path, checkout: .main)
+        return .handled
     }
 
     private func exit() {
@@ -1090,6 +1123,13 @@ struct Launcher: View {
     private func open(_ hit: SearchHit) {
         store.activate(.session(hit.id))
         store.launcherMode = nil
+    }
+
+    private func cycleScope() -> KeyPress.Result {
+        guard let nextScope else { return .ignored }
+
+        switchScope(to: nextScope)
+        return .handled
     }
 
     private func switchScope(to scope: LauncherMode) {

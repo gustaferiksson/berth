@@ -272,11 +272,11 @@ struct LauncherAction {
     let perform: () -> Void
 }
 
-struct LauncherActionPanel: View {
+struct LauncherActionPanel<SearchField: View>: View {
     let actions: [LauncherAction]
     let highlighted: Int?
-    let shortcuts: [(key: String, title: String)]
     let select: (LauncherAction) -> Void
+    @ViewBuilder let searchField: SearchField
 
     @Environment(\.ghosttyTheme) private var theme
 
@@ -286,7 +286,7 @@ struct LauncherActionPanel: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         if actions.isEmpty {
-                            Text("No actions available")
+                            Text("No matching actions")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
@@ -297,24 +297,19 @@ struct LauncherActionPanel: View {
                                 .id(index)
                         }
                     }
-                    .padding(6)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
                 }
-                .frame(height: CGFloat(min(max(actions.count, 1), 5) * 28 + 12))
+                .frame(height: CGFloat(min(max(actions.count, 1), 5) * 28 + 8))
                 .scrollBounceBehavior(.basedOnSize)
-                .onChange(of: highlighted) {
+                .onChange(of: highlighted, initial: true) {
                     if let highlighted { proxy.scrollTo(highlighted) }
                 }
             }
-            if !shortcuts.isEmpty {
-                Divider()
-                HStack(spacing: 10) {
-                    ForEach(shortcuts, id: \.key) { shortcut in
-                        LauncherKeyHint(shortcut.key, shortcut.title)
-                    }
-                }
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-            }
+            Divider()
+            searchField
+                .padding(.horizontal, 14)
+                .frame(height: 26)
         }
         .frame(idealWidth: 265, maxWidth: 265)
         .background(theme.chrome ?? Color(nsColor: .windowBackgroundColor), in: .rect(cornerRadius: 12))

@@ -336,6 +336,7 @@ final class Store {
     @ObservationIgnored var probeOpenedURLs: [URL] = []
     @ObservationIgnored var probeCopiedStrings: [String] = []
     @ObservationIgnored var probeLauncherQuery = ""
+    @ObservationIgnored var probeLauncherActionQuery = ""
     @ObservationIgnored var probeLauncherIssue: String?
     #endif
 

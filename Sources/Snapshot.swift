@@ -2254,7 +2254,7 @@ enum Snapshot {
         if let keys = launcherKeys {
             print("launcher first responder \(window.firstResponder.map { "\(type(of: $0))" } ?? "nil")")
             let special: [String: (keyCode: UInt16, characters: String)] = ["down": (125, "\u{F701}"), "up": (126, "\u{F700}"), "enter": (36, "\r"), "alt-enter": (36, "\r"), "alt-shift-enter": (36, "\r"), "tab": (48, "\t"), "ctrl-tab": (48, "\t"), "ctrl-shift-tab": (48, "\t"), "cmd-k": (40, "k"), "esc": (53, "\u{1B}")]
-            let letters: [Character: UInt16] = ["h": 4, "u": 32, "b": 11, "x": 7, "i": 34, "-": 27, "r": 15, "o": 31, "n": 45, "d": 2, "#": 20]
+            let letters: [Character: UInt16] = ["h": 4, "u": 32, "b": 11, "x": 7, "i": 34, "-": 27, "r": 15, "o": 31, "n": 45, "d": 2, "#": 20, "p": 35, "a": 0, "t": 17]
             for spec in keys.split(separator: " ").map(String.init) {
                 let strokes = special[spec].map { [$0] } ?? spec.compactMap { character in letters[character].map { (keyCode: $0, characters: String(character)) } }
                 let flags: NSEvent.ModifierFlags = switch spec {
@@ -2273,7 +2273,8 @@ enum Snapshot {
                     try? await Task.sleep(for: .milliseconds(300))
                 }
                 let isOpen = store.launcherMode != nil
-                print("\(spec): launcher \(String(describing: store.launcherMode)), actions \(store.launcherActionsShown), query \(String(reflecting: isOpen ? store.probeLauncherQuery : "")), issue \(isOpen ? store.probeLauncherIssue ?? "-" : "-")\(store.launcherMode == .projects ? ", column \(store.projects.launcherColumn ?? "All")" : "")")
+                let actionQuery = store.launcherActionsShown ? ", action query \(String(reflecting: store.probeLauncherActionQuery))" : ""
+                print("\(spec): launcher \(String(describing: store.launcherMode)), actions \(store.launcherActionsShown), query \(String(reflecting: isOpen ? store.probeLauncherQuery : ""))\(actionQuery), issue \(isOpen ? store.probeLauncherIssue ?? "-" : "-")\(store.launcherMode == .projects ? ", column \(store.projects.launcherColumn ?? "All")" : "")")
             }
             for harness in Harness.all {
                 let calls = store.probeOpened.filter { $0.agent == harness.agent }

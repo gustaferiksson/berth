@@ -163,7 +163,7 @@ final class ItemPreviewPanel {
         monitor = monitor ?? NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
 
-            return handle(event)
+            return handle(event, consumesDismissalKeys: !store.launcherActionsShown)
         }
         pendingPreview = Task { @MainActor in
             let preview = await ItemPreviewCache.shared.preview(for: reference)
@@ -238,7 +238,7 @@ final class ItemPreviewPanel {
         return NSRect(origin: NSPoint(x: x, y: y), size: size)
     }
 
-    private func handle(_ event: NSEvent) -> NSEvent? {
+    private func handle(_ event: NSEvent, consumesDismissalKeys: Bool) -> NSEvent? {
         guard event.type == .keyDown else {
             if event.window !== panel, !panel.frame.contains(NSEvent.mouseLocation) { hide() }
             return event
@@ -247,7 +247,7 @@ final class ItemPreviewPanel {
         let key = event.charactersIgnoringModifiers
         if key == String(KeyEquivalent.upArrow.character) || key == String(KeyEquivalent.downArrow.character) { return event }
 
-        let consumesKey = isShowing && (key == String(KeyEquivalent.escape.character) || key == " ")
+        let consumesKey = consumesDismissalKeys && isShowing && (key == String(KeyEquivalent.escape.character) || key == " ")
         hide()
         return consumesKey ? nil : event
     }

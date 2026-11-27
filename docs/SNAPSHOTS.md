@@ -160,13 +160,15 @@ The run restores the pasteboard's string afterwards. Consecutive edits in one ru
 
 ## Launcher keys, waiting and menus
 
-`-snapshotLauncherKeys "hub down enter"` starts in the requested scope or Folders by default. The two folder fixtures are `x-hub-ui` (a git repo) and `x-hub`. Tokens include `down`, `up`, `enter`, `alt-enter`, `alt-shift-enter`, `tab`, `ctrl-tab`, `ctrl-shift-tab`, `cmd-k`, `esc`, and text made of `hubxi-rond#`. After each token it prints the launcher mode, whether Actions is open, the query, and any issue drill-down or project column. It records session opens, URLs, and copied strings. Add `-startsInWorktree YES` for a worktree launch.
+`-snapshotLauncherKeys "hub down enter"` starts in the requested scope or Folders by default. The two folder fixtures are `x-hub-ui` (a git repo) and `x-hub`. Tokens include `down`, `up`, `enter`, `alt-enter`, `alt-shift-enter`, `tab`, `ctrl-tab`, `ctrl-shift-tab`, `cmd-k`, `esc`, and text made of `hubxi-rond#pat`. Text goes to the focused field. After each token it prints the launcher mode, whether Actions is open, the launcher query, the action query while Actions is open, and any issue drill-down or project column. It records session opens, URLs, and copied strings. Add `-startsInWorktree YES` for a worktree launch.
 
 Add `-snapshotLauncherActions YES` to open Actions in the requested scope. Use these recipes with `-snapshot /abs/out.png`.
 
 - **Empty folder query** `-snapshotLauncher ""`
 - **Matching folders** `-snapshotLauncher "hub"`
 - **Folder actions** `-snapshotLauncher "hub" -snapshotLauncherActions YES`
+- **Filter and run a folder action** `-snapshotLauncher "hub" -snapshotLauncherKeys "cmd-k path enter"` filters to Copy Path, records the copied path, and returns to the folder query.
+- **No matching actions** `-snapshotLauncher "hub" -snapshotLauncherKeys "cmd-k xx"` shows the empty action result while keeping the folder query. Append `esc x` to send the last `x` to the folder query.
 - **Pull request actions** `-snapshotPullRequests "" -snapshotLauncherActions YES`
 - **Issue actions** `-snapshotIssues "" -snapshotLauncherActions YES`
 - **Project actions and status moves** `-snapshotProjects YES -snapshotProjectsLauncher YES -projectsAllowsEditing YES -snapshotLauncherActions YES`
