@@ -1318,23 +1318,23 @@ final class Store {
     }
 
     var selectedShowsConversation: Bool {
-        tabs.first { $0.id == selectedTabID }.map(showsConversation) ?? false
+        sessionTab.map(showsConversation) ?? false
     }
 
     var selectedConversationIsVisible: Bool {
-        !isHarborShown && isConversationEnabled && selectedTabID.flatMap { conversationModels[$0] } != nil
+        !isHarborShown && isConversationEnabled && mainTabID.flatMap { conversationModels[$0] } != nil
     }
 
     var selectedStatusBarIsReachable: Bool {
-        selectedConversationIsVisible && selectedTabID.flatMap { conversationModels[$0]?.openSubagent } == nil
+        selectedConversationIsVisible && mainTabID.flatMap { conversationModels[$0]?.openSubagent } == nil
     }
 
     var canShowConversation: Bool {
-        isConversationEnabled && !isHarborShown && tabs.first { $0.id == selectedTabID }.map { $0.kind == .claude && $0.agent.harness.supports(.conversation) } == true
+        isConversationEnabled && !isHarborShown && sessionTab?.agent.harness.supports(.conversation) == true
     }
 
     func setConversation(_ isShown: Bool) {
-        guard let id = selectedTabID else { return }
+        guard let id = sessionTab?.id else { return }
 
         conversationSuspended.remove(id)
         if isShown { conversationTabIDs.insert(id) } else { conversationTabIDs.remove(id) }
