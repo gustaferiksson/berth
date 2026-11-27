@@ -14,6 +14,7 @@ struct ConversationComposerField: NSViewRepresentable {
     let rendersImageTags: Bool
     let focusRequest: Int
     let layoutWidth: CGFloat
+    let externalWrites: Int
     let slashPicker: ConversationSlashPicker?
     let shellCompleter: ConversationShellCompleter?
     let submit: () -> Void
@@ -100,6 +101,10 @@ struct ConversationComposerField: NSViewRepresentable {
         shellCompleter?.field = textView
         let imageTagsChanged = textView.rendersImageTags != rendersImageTags
         let current = textView.draftText
+        if externalWrites != context.coordinator.externalWrites {
+            context.coordinator.externalWrites = externalWrites
+            context.coordinator.emitted.removeAll()
+        }
         if text == current { context.coordinator.emitted.removeAll() }
         let target = context.coordinator.emitted.contains(text) ? current : text
         let textChanged = !hasMarkedText && current != target
@@ -153,6 +158,7 @@ struct ConversationComposerField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ConversationComposerField
         var focusRequest = 0
+        var externalWrites = 0
         var height: CGFloat = 0
         var isUpdatingText = false
         var emitted: [String] = []

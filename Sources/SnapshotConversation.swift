@@ -644,7 +644,7 @@ extension Snapshot {
 
                 print("caretprobe \(argument) caret \(textView.selectedRange().location) draftLength \(textView.draftText.utf16.count) fieldLength \(textView.string.utf16.count)")
 
-            case "strike": await strikeKeys(argument)
+            case "strike", "echorace": await (name == "strike" ? strikeKeys : echoRace)(argument)
 
             case "key":
                 guard let textView = conversationComposer, let window = textView.window else { break }
@@ -698,6 +698,26 @@ extension Snapshot {
         log()
     }
 
+    private static func press(_ characters: String, keyCode: UInt16, in window: NSWindow) {
+        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { return }
+
+        window.sendEvent(event)
+    }
+
+    private static func echoRace(_ argument: String) async {
+        let parts = argument.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 3, let textView = conversationComposer, let window = textView.window, let settle = Int(parts[2]) else { return }
+
+        window.makeFirstResponder(textView)
+        for character in parts[0] { press(String(character), keyCode: 0, in: window) }
+        try? await Task.sleep(for: .milliseconds(settle))
+        for _ in parts[0] { press("\u{7F}", keyCode: 51, in: window) }
+        for character in parts[1] { press(String(character), keyCode: 0, in: window) }
+        press("\r", keyCode: 36, in: window)
+        try? await Task.sleep(for: .milliseconds(settle * 4))
+        print("echorace field \(textView.string.debugDescription) probe \(textView.string.isEmpty ? "PASS" : "FAIL")")
+    }
+
     private static func strikeKeys(_ argument: String) async {
         let parts = argument.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 3, let textView = conversationComposer, let window = textView.window, let gap = Int(parts[1]), let expected = Int(parts[2]) else { return }
@@ -705,9 +725,7 @@ extension Snapshot {
         window.makeFirstResponder(textView)
         for character in parts[0] {
             let characters = String(character)
-            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: 0) else { return }
-
-            window.sendEvent(event)
+            press(characters, keyCode: 0, in: window)
             try? await Task.sleep(for: .milliseconds(gap))
         }
         try? await Task.sleep(for: .milliseconds(600))

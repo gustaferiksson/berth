@@ -133,6 +133,8 @@ final class ConversationModel {
 
     var blocksSending: Bool { isTurnOpen && !(store.liveBySession[sessionID ?? ""]?.reportsWaiting ?? false) }
 
+    private(set) var externalWrites = 0
+
     var draft: ConversationDraft {
         get { store.conversationDrafts[tabID] ?? ConversationDraft() }
         set { store.conversationDrafts[tabID] = newValue.text.isEmpty && newValue.files.isEmpty ? nil : newValue }
@@ -159,6 +161,11 @@ final class ConversationModel {
         self.draft = draft
     }
 
+    func clearDraft() {
+        externalWrites += 1
+        draft = ConversationDraft()
+    }
+
     func setText(_ text: String) {
         var draft = draft
         draft.text = text.hasPrefix("!") && store.tabs.first(where: { $0.id == tabID })?.agent.harness.supports(.bashMode) == true ? "!" + text.dropFirst().drop(while: \.isWhitespace) : text
@@ -177,6 +184,7 @@ final class ConversationModel {
 
         isSending = true
         notice = nil
+        externalWrites += 1
         draft = ConversationDraft()
         defer { isSending = false }
 
@@ -189,7 +197,10 @@ final class ConversationModel {
         }
 
         notice = message
-        if draft.isEmpty { draft = sent }
+        if draft.isEmpty {
+            externalWrites += 1
+            draft = sent
+        }
     }
 
     func send(prompt: String) async -> String? {
@@ -231,6 +242,7 @@ final class ConversationModel {
         }
 
         pending = recalled.pending
+        externalWrites += 1
         setText(draft.text.isEmpty ? recalled.text : recalled.text + "\n" + draft.text)
     }
 
@@ -266,10 +278,14 @@ final class ConversationModel {
             store.refreshLive()
             guard store.liveBySession[sessionID]?.status != "waiting" else { continue }
 
+            externalWrites += 1
             draft = ConversationDraft()
             if case let .refused(message) = await store.submit(sent.text, files: sent.orderedFiles, to: sessionID) {
                 notice = message
-                if draft.isEmpty { draft = sent }
+                if draft.isEmpty {
+                    externalWrites += 1
+                    draft = sent
+                }
             }
             return
         }
