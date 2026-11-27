@@ -1385,7 +1385,12 @@ final class Store {
 
     var focusedTerminal: TerminalViewState? {
         let responder = launcherMode == .palette ? paletteResponder : NSApp.keyWindow?.firstResponder
-        return (responder.flatMap { responder in tabs.first { $0.terminal.attachedPlatformView === responder } } ?? tabs.first { $0.id == selectedTabID })?.terminal
+        let focusedTab = if launcherMode == .palette {
+            responder.flatMap { responder in tabs.first { $0.terminal.attachedPlatformView === responder } }
+        } else {
+            tabs.first { $0.terminal.attachedPlatformView === responder }
+        }
+        return (focusedTab ?? tabs.first { $0.id == selectedTabID })?.terminal
     }
 
     func selectFocusedSurface() {

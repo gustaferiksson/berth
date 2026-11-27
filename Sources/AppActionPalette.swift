@@ -4,6 +4,30 @@ import SwiftUI
 import WebKit
 
 extension AppAction {
+    static let paletteOnlyActions: [Self] = [
+        .closeTerminal, .copyTerminal, .pasteTerminal, .selectAllInTerminal, .nextTab, .previousTab,
+        .pinSession, .unpinSession, .snoozeHour, .snoozeTomorrow, .snoozeUntilNeeded, .unsnoozeSession, .unloadSession, .reopenSession, .copySessionID, .markSessionRead, .markSessionUnread, .dismissSessionAttention, .stopWatchingSession, .newTaskFromSessions, .removeSessionFromTask, .reopenSessionTask, .acceptTaskSuggestion, .dismissTaskSuggestion,
+        .stopConversation, .closeSubagentConversation,
+        .findInReview, .refreshReview, .toggleReviewTree, .toggleReviewComments, .sendReviewComments, .closeReviewTab, .closeOtherReviewTabs, .closeReviewPreview, .revealReviewFile, .copyReviewPath, .copyReviewRelativePath, .openReviewFile,
+        .stopBrowserLoading, .copyBrowserURL, .openInDefaultBrowser,
+        .toggleIgnoredFiles, .clearFilesFilter, .openSelectedFile, .revealSelectedFile, .openFileInDefaultApp, .copyFilePath, .copyRelativeFilePath,
+    ]
+
+    func isBrowserActionAvailableInPalette(in store: Store) -> Bool {
+        guard store.shownPane == .browser else { return false }
+
+        return switch self {
+        case .openLocation, .newBrowserTab: store.browser.sessionKey != nil
+        case .closeBrowserTab: store.browser.shownTab != nil
+        case .reopenBrowserTab: store.browser.canReopenClosedTab
+        case .reloadPage: store.browser.shownTab?.loadedWebView != nil && store.browser.shownTab?.url != nil
+        case .browserBack: store.browser.shownTab?.canGoBack == true
+        case .browserForward: store.browser.shownTab?.canGoForward == true
+        case .showWebInspector: store.browser.shownTab?.canShowInspector == true
+        default: false
+        }
+    }
+
     func isAvailableInContext(in store: Store) -> Bool {
         switch self {
         case .pinSession, .unpinSession, .reopenSession, .snoozeHour, .snoozeTomorrow, .snoozeUntilNeeded, .unsnoozeSession,
@@ -38,7 +62,7 @@ extension AppAction {
 
         case .copyBrowserURL, .openInDefaultBrowser: store.shownPane == .browser && store.browser.shownTab?.url != nil
 
-        case .findInReview: reviewTextView(in: store)?.window != nil
+        case .findInReview: (store.paletteResponder as? ReviewTextView)?.window != nil
 
         case .refreshReview: store.shownPane == .changes && store.primaryReviewModel?.isLoading == false
 
@@ -78,11 +102,13 @@ extension AppAction {
                 return self != .openSelectedFile || (!row.entry.isFolder && store.primaryReviewModel != nil)
             } == true
 
-        default: true
+        default: false
         }
     }
 
     func performInContext(on store: Store) {
+        guard store.launcherMode == .palette else { return }
+
         switch self {
         case .closeTerminal: for tab in terminalTabs(in: store) { store.close(tab.id) }
 
@@ -166,17 +192,13 @@ extension AppAction {
     private func performInReviewBrowserOrFiles(on store: Store) {
         switch self {
         case .findInReview:
-            guard let textView = reviewTextView(in: store) else { return }
+            guard let textView = store.paletteResponder as? ReviewTextView else { return }
 
-            if store.launcherMode == .palette {
-                store.launcherMode = nil
-                DispatchQueue.main.async {
-                    guard store.launcherMode == nil, let window = textView.window else { return }
+            store.launcherMode = nil
+            DispatchQueue.main.async {
+                guard store.launcherMode == nil, let window = textView.window else { return }
 
-                    window.makeFirstResponder(textView)
-                    Self.showReviewFind(in: textView)
-                }
-            } else {
+                window.makeFirstResponder(textView)
                 Self.showReviewFind(in: textView)
             }
 
@@ -236,11 +258,6 @@ extension AppAction {
 
         default: break
         }
-    }
-
-    private func reviewTextView(in store: Store) -> ReviewTextView? {
-        if store.launcherMode == .palette { return store.paletteResponder as? ReviewTextView }
-        return NSApp.keyWindow?.firstResponder as? ReviewTextView
     }
 
     private static func showReviewFind(in textView: ReviewTextView) {

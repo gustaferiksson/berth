@@ -16,22 +16,14 @@ enum AppAction: Hashable {
     case toggleIgnoredFiles, clearFilesFilter, openSelectedFile, revealSelectedFile, openFileInDefaultApp, copyFilePath, copyRelativeFilePath
     case caret(CaretAction)
 
-    static let palette: [Self] = [
-        .filterSidebar, .newSession, .pullRequests, .showPullRequestInReview, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession,
-        .showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showTasksPane, .showBrowser, .openPreview, .showSideBySide, .showInline, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates,
-        .goBack, .goForward, .previousChange, .nextChange,
-        .closeTerminal, .copyTerminal, .pasteTerminal, .selectAllInTerminal, .nextTab, .previousTab,
-        .pinSession, .unpinSession, .snoozeHour, .snoozeTomorrow, .snoozeUntilNeeded, .unsnoozeSession, .unloadSession, .reopenSession, .copySessionID, .markSessionRead, .markSessionUnread, .dismissSessionAttention, .stopWatchingSession, .newTaskFromSessions, .removeSessionFromTask, .reopenSessionTask, .acceptTaskSuggestion, .dismissTaskSuggestion,
-        .stopConversation, .closeSubagentConversation,
-        .findInReview, .refreshReview, .toggleReviewTree, .toggleReviewComments, .sendReviewComments, .closeReviewTab, .closeOtherReviewTabs, .closeReviewPreview, .revealReviewFile, .copyReviewPath, .copyReviewRelativePath, .openReviewFile,
-        .stopBrowserLoading, .copyBrowserURL, .openInDefaultBrowser,
-        .toggleIgnoredFiles, .clearFilesFilter, .openSelectedFile, .revealSelectedFile, .openFileInDefaultApp, .copyFilePath, .copyRelativeFilePath,
-    ] + GroupingMode.allCases.map(Self.groupBy) + browser
+    private static let launcherActions: [Self] = [.filterSidebar, .newSession, .pullRequests, .showPullRequestInReview, .searchSessions, .newTerminal, .newTerminalForSession, .switchTerminal, .findInTerminal, .clearTerminal, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession]
+    private static let workspaceActions: [Self] = [.showTriage, .hideTriage, .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showTasksPane, .showBrowser, .openPreview, .showSideBySide, .showInline, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showClaudeBelow, .showClaudeBeside, .showConversation, .showTerminal, .save, .settings, .checkForUpdates]
+    private static let groupingActions = GroupingMode.allCases.map(Self.groupBy)
+    private static let reviewNavigationActions: [Self] = [.goBack, .goForward, .previousChange, .nextChange]
+    static let palette = launcherActions + workspaceActions + reviewNavigationActions + paletteOnlyActions + groupingActions + browser
     static let browser: [Self] = [.openLocation, .newBrowserTab, .closeBrowserTab, .reopenBrowserTab, .reloadPage, .browserBack, .browserForward, .showWebInspector]
     static let carets = CaretAction.allCases.map(Self.caret)
-    static let routedPastTerminal = ([.commandPalette] + palette + carets).filter { action in
-        action.shortcut != nil && !browser.contains(action) && ![.closeTerminal, .copyTerminal, .pasteTerminal, .selectAllInTerminal, .nextTab, .previousTab, .findInReview, .closeReviewTab].contains(action)
-    }
+    static let routedPastTerminal = ([.commandPalette] + launcherActions + groupingActions + workspaceActions + carets + reviewNavigationActions).filter { $0.shortcut != nil }
 
     var title: String {
         switch self {
@@ -424,19 +416,14 @@ enum AppAction: Hashable {
 
         case .showBrowser: store.sessionTab != nil
 
-        case .openLocation, .newBrowserTab: store.shownPane == .browser && store.browser.sessionKey != nil
+        case _ where store.launcherMode == .palette && Self.browser.contains(self): isBrowserActionAvailableInPalette(in: store)
 
-        case .closeBrowserTab: store.shownPane == .browser && store.browser.shownTab != nil
+        case .openLocation: store.shownPane == .browser
 
-        case .reopenBrowserTab: store.shownPane == .browser && store.browser.canReopenClosedTab
+        case .newBrowserTab, .closeBrowserTab, .reopenBrowserTab, .reloadPage, .browserBack, .browserForward:
+            store.shownPane == .browser && (NSApp.keyWindow?.firstResponder as? NSView).map { sequence(first: $0, next: \.superview).contains { $0 is NSHostingView<PaneHost> } } == true
 
-        case .reloadPage: store.shownPane == .browser && store.browser.shownTab?.loadedWebView != nil && store.browser.shownTab?.url != nil
-
-        case .browserBack: store.shownPane == .browser && store.browser.shownTab?.canGoBack == true
-
-        case .browserForward: store.shownPane == .browser && store.browser.shownTab?.canGoForward == true
-
-        case .showWebInspector: store.shownPane == .browser && store.browser.shownTab?.canShowInspector == true
+        case .showWebInspector: Self.reloadPage.isAvailable(in: store) && store.browser.shownTab?.canShowInspector == true
 
         case .openPreview: Self.hideChanges.isAvailable(in: store) && store.reviewModel?.isPreviewSelected == false
 
@@ -463,7 +450,10 @@ enum AppAction: Hashable {
 
         case .caret: store.isReviewTextFocused
 
-        default: isAvailableInContext(in: store)
+        case .commandPalette, .filterSidebar, .newSession, .pullRequests, .searchSessions, .newTerminal, .switchTerminal,
+             .newGroup, .collapseAllGroups, .expandAllGroups, .showStats, .harbor, .settings, .checkForUpdates: true
+
+        default: store.launcherMode == .palette && isAvailableInContext(in: store)
         }
     }
 
@@ -593,6 +583,12 @@ enum AppAction: Hashable {
     }
 
     func title(in store: Store) -> String {
+        if store.launcherMode != .palette {
+            guard !store.multiSelection.isEmpty, [.archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession].contains(self) else { return title }
+
+            return title.replacing("Current Session", with: String(AttributedString(localized: "^[\(sessionIDs(in: store).count) Session](inflect: true)").characters))
+        }
+
         if self == .toggleReviewTree { return UserDefaults.standard.bool(forKey: ReviewModel.changesAsTreeKey) ? "View Changes as List" : "View Changes as Tree" }
         if self == .toggleReviewComments { return store.primaryReviewModel?.showsCommentList == true ? "Hide Review Comments" : "Show Review Comments" }
         if self == .toggleIgnoredFiles { return currentFiles(in: store)?.showsIgnored == true ? "Hide Ignored Files" : "Show Ignored Files" }
@@ -621,12 +617,13 @@ enum AppAction: Hashable {
             store.multiSelectedSessions.map(\.id)
         } else if case let .session(id)? = item {
             [id]
-        } else if case let .tab(id)? = item, let sessionID = store.tabs.first(where: { $0.id == id })?.sessionID {
+        } else if store.launcherMode == .palette, case let .tab(id)? = item, let sessionID = store.tabs.first(where: { $0.id == id })?.sessionID {
             [sessionID]
         } else {
             []
         }
         switch self {
+        case .archiveCurrentSession: return ids.filter { id in store.activeSessions.contains { $0.id == id } }
         case .flagCurrentSession: return ids.filter { !store.flaggedIDs.contains($0) }
         case .unflagCurrentSession: return ids.filter(store.flaggedIDs.contains)
         case .copySessionID: return store.multiSelection.isEmpty ? ids : []

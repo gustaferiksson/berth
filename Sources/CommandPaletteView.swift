@@ -88,19 +88,7 @@ struct CommandPaletteView: View {
                             }
                             if let action = byTitle[row.id] {
                                 Button { run(action) } label: {
-                                    LauncherRowFrame(symbol: .symbol(action.symbol), tint: .accentColor, title: row.title, isHighlighted: index == selection) {
-                                        HStack(spacing: 10) {
-                                            if let shortcut = action.shortcutLabel {
-                                                Text(verbatim: shortcut)
-                                                    .font(.caption.monospaced())
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                            if index != selection {
-                                                Color.clear.frame(width: 22, height: 20)
-                                                    .accessibilityHidden(true)
-                                            }
-                                        }
-                                    }
+                                    CommandPaletteRow(symbol: action.symbol, title: row.title, shortcut: action.shortcutLabel, isHighlighted: index == selection)
                                 }
                                 .buttonStyle(.plain)
                                 .focusable(false)
@@ -111,7 +99,7 @@ struct CommandPaletteView: View {
                     .padding(8)
                     .onGeometryChange(for: Double.self) { $0.size.height } action: { resultsHeight = $0 }
                 }
-                .frame(height: min(max(resultsHeight, 64), 420))
+                .frame(height: min(max(resultsHeight, 64), 440))
                 .scrollBounceBehavior(.basedOnSize)
                 .onChange(of: selection) { proxy.scrollTo(selection) }
                 .onChange(of: query) {
@@ -153,5 +141,51 @@ struct CommandPaletteView: View {
 
         action.perform(on: store)
         if store.launcherMode == .palette { store.launcherMode = nil }
+    }
+}
+
+private struct CommandPaletteRow: View {
+    let symbol: String
+    let title: String
+    let shortcut: String?
+    let isHighlighted: Bool
+
+    var body: some View {
+        let accent = Color.accentColor
+        HStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(accent)
+                .frame(width: 22, height: 22)
+                .background(accent.opacity(0.16), in: .rect(cornerRadius: 6))
+                .accessibilityHidden(true)
+
+            Text(verbatim: title)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let shortcut {
+                Text(verbatim: shortcut)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, minHeight: 36)
+        .background {
+            if isHighlighted {
+                let shape = RoundedRectangle(cornerRadius: 12)
+                shape.fill(accent.opacity(0.20))
+                    .overlay { shape.strokeBorder(accent.opacity(0.35), lineWidth: 1) }
+            }
+        }
+        .contentShape(.rect)
+        .transaction { $0.animation = nil }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isHighlighted ? .isSelected : [])
     }
 }

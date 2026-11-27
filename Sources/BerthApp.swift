@@ -60,8 +60,10 @@ struct BerthApp: App {
                 }
             }
             CommandGroup(before: .windowList) {
-                AppAction.nextTab.menuButton(appDelegate.store)
-                AppAction.previousTab.menuButton(appDelegate.store)
+                Button("Show Next Tab") { appDelegate.store.cycleTab(by: 1) }
+                    .keyboardShortcut("]", modifiers: [.command, .shift])
+                Button("Show Previous Tab") { appDelegate.store.cycleTab(by: -1) }
+                    .keyboardShortcut("[", modifiers: [.command, .shift])
                 ForEach(1..<9) { number in
                     Button("Select Tab \(number)") { appDelegate.store.selectTab(number: number) }
                         .keyboardShortcut(KeyEquivalent(Character("\(number)")))
@@ -206,15 +208,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let tabNumber = flags == .command ? event.charactersIgnoringModifiers.flatMap(Int.init).flatMap { (1...9).contains($0) ? $0 : nil } : nil
             if flags == [.command, .shift], event.keyCode == 30 || event.keyCode == 33 {
-                let action: AppAction = event.keyCode == 30 ? .nextTab : .previousTab
-                action.perform(on: store)
+                store.cycleTab(by: event.keyCode == 30 ? 1 : -1)
                 return nil
             }
             let modifiers = EventModifiers([(NSEvent.ModifierFlags.command, EventModifiers.command), (.shift, .shift), (.option, .option), (.control, .control)].filter { flags.contains($0.0) }.map(\.1))
             let responder = event.window?.firstResponder as? NSView
             let ancestors = responder.map { Array(sequence(first: $0, next: \.superview)) } ?? []
-            let isBrowserFocused = store.shownPane == .browser && ancestors.contains { $0 is NSHostingView<PaneHost> }
-            if isBrowserFocused {
+            if store.shownPane == .browser, ancestors.contains(where: { $0 is NSHostingView<PaneHost> }) {
                 if isTabCycle {
                     store.browser.selectTab(offset: flags.contains(.shift) ? -1 : 1)
                     return nil
@@ -228,12 +228,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store.cycleTab(by: flags.contains(.shift) ? -1 : 1)
                 return nil
             }
-            if flags.contains(.command), let key = [33: "[", 30: "]"][event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key && $0.shortcut?.modifiers == modifiers }), store.launcherMode != .palette, isBrowserFocused || action == .openLocation && store.shownPane == .browser {
-                if action.isAvailable(in: store) { action.perform(on: store) }
+            if flags.contains(.command), let key = [33: "[", 30: "]"][event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased().first, let action = AppAction.browser.first(where: { $0.shortcut?.key.character == key && $0.shortcut?.modifiers == modifiers }), action.isAvailable(in: store) {
+                action.perform(on: store)
                 return nil
             }
             if flags == .command, event.charactersIgnoringModifiers == "f", store.sessionPane == .changes || store.sessionPane == .files, ancestors.contains(where: { $0 is NSHostingView<PaneHost> }) {
-                AppAction.findInReview.perform(on: store)
+                let textView = ancestors.lazy.compactMap { $0 as? ReviewTextView }.first
+                if let textView, textView.selectedRanges.count == 1, textView.selectedRange().length > 0, textView.textStorage?.mutableString.rangeOfCharacter(from: .newlines, options: [], range: textView.selectedRange()).location == NSNotFound {
+                    let setSearchString = NSMenuItem()
+                    setSearchString.tag = NSTextFinder.Action.setSearchString.rawValue
+                    textView.performTextFinderAction(setSearchString)
+                }
+                let showFindInterface = NSMenuItem()
+                showFindInterface.tag = NSTextFinder.Action.showFindInterface.rawValue
+                textView?.performTextFinderAction(showFindInterface)
                 return nil
             }
             if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "w", !store.tabs.contains(where: { $0.parentTabID != nil && $0.terminal.attachedPlatformView === responder }), AppAction.hideChanges.isAvailable(in: store) || store.reviewModel?.selectedTab != nil && !store.tabs.contains(where: { $0.terminal.attachedPlatformView === responder }) {
@@ -241,8 +249,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return nil
             }
             let keys = [event.charactersIgnoringModifiers?.lowercased(), event.characters(byApplyingModifiers: [])]
-            let reviewNavigation: [AppAction] = [.goBack, .goForward, .previousChange, .nextChange]
-            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!reviewNavigation.contains($0) || store.isReviewTextFocused) && (!([.showPullRequestInReview, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showTasksPane, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .clearTerminal, .save] + reviewNavigation + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
+            if let action = AppAction.routedPastTerminal.first(where: { $0.shortcut?.modifiers == modifiers && keys.contains($0.shortcut.map { String($0.key.character) }) && (!([.showPullRequestInReview, .showChanges, .hideChanges, .showChangesPane, .showFilesPane, .showTasksPane, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showConversation, .showTerminal, .findInTerminal, .save, .goBack, .goForward, .previousChange, .nextChange] + AppAction.carets).contains($0) || $0.isAvailable(in: store)) }) {
                 action.perform(on: store)
                 return nil
             }
