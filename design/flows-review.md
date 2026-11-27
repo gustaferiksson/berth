@@ -102,6 +102,15 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
   both are gone; the notice clears if the session moves back.
 - The header's base menu lists candidates as "<ref> · N commits", marks the PR base and
   checks the current selection. Picking a base saves it and reloads the list.
+- Since: the header's clock menu next to the base lists the 15 latest commits (`ReviewGit.recentCommits`)
+  and "Compare with…" (a commit, tag or branch). `ReviewModel.since` (memory only, per model) goes to
+  `ReviewGit.changes(since:)`, which resolves it to a commit and takes its merge base with HEAD.
+  That commit replaces the merge base of the base for the Committed compare, the total and the
+  Commits section (`ReviewChanges.since`, shown as "since <short sha>" with a clear button). It works on
+  the default branch too, where the plain view has no Committed compare. The base menu, ahead and
+  behind and the PR still use the base. A ref that doesn't resolve, or shares no history with HEAD, is
+  dropped on the next load and the typed one shows "Couldn’t find ...". `berth review mark --base <ref>`
+  sets it before placing marks. Not built: "since your last review" from a PR review's commit.
 - Diff column (`ReviewDiffColumn`, the Changes pane of `PaneHost`, an `NSSplitViewController` item next to the terminal): open
   whenever the panel shows (or the session's Terminal pane does), collapsed only while both are hidden or Harbor is shown, so the
   terminal's width doesn't change as files open and close. With no tab (or a terminal tab

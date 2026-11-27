@@ -44,7 +44,7 @@ public enum ControlInstall {
     - `berth browser forward [--tab <id>] [--json]` goes forward in the tab’s history.
     - `berth browser eval <js> [--tab <id>] [--json]` runs an async JavaScript body in the page for cases the other commands do not cover. Use `return` to return a JSON value, for example `return document.title`. Results are limited to 100000 characters.
     - `berth show-pr <number|url> [--repo <path>] [--json]` expands a GitHub pull request in the current session’s Review panel and opens its first changed file. A number uses the origin of your current repo or `--repo`. For a URL such as `https://github.com/acme/api/pull/42`, Berth looks for a matching local clone. Use `--repo` if the clone is elsewhere.
-    - `berth review mark <path>:<start>[-<end>] [--note <text>] ... [--json]` opens each file in the current session’s Review diff, scrolls to the first mark and marks the line ranges with a faint tint and a note icon in the gutter. Hovering the icon shows the note. Paths are relative to the session’s repo and line numbers are on the new side of the diff. A `--note` belongs to the mark before it. Pass up to 50 marks in one call, with notes up to 500 characters. The session must be the one shown in Berth.
+    - `berth review mark <path>:<start>[-<end>] [--note <text>] ... [--base <ref>] [--json]` opens each file in the current session’s Review diff, scrolls to the first mark and marks the line ranges with a faint tint and a note icon in the gutter. Hovering the icon shows the note. Paths are relative to the session’s repo and line numbers are on the new side of the diff. A `--note` belongs to the mark before it. Pass up to 50 marks in one call, with notes up to 500 characters. The session must be the one shown in Berth. `--base <ref>` (a commit, tag or branch) first narrows Review to what changed since that ref, so marks land on the diff against it; the header shows `since <sha>` and the user clears it there.
     - `berth review marks clear [--json]` removes all marks for the session.
     - `berth send <tab> <text> [--no-enter]`: types text into a tab you opened and presses Return.
     - `berth capture <tab>`: prints the tab's recent output. Works only for tabs running behind Berth's session host ("Keep sessions running when Berth quits" on); otherwise it reports that capture is unsupported.
@@ -53,7 +53,7 @@ public enum ControlInstall {
 
     When the user asks to review or check out a PR in Berth, use `berth show-pr` to show it in their current tab. If the user asks for a separate working session, open it with `berth open-session --cwd <worktree> --background -- "<prompt>"` so each session shows in the sidebar.
 
-    When the user asks where something changed (for example "where were the lib changes?"), mark it instead of only listing paths, then say briefly what you marked. Give each mark a note that says why the lines matter. Clear stale marks first with `berth review marks clear`.
+    When the user asks where something changed (for example "where were the lib changes?"), mark it instead of only listing paths, then say briefly what you marked. Give each mark a note that says why the lines matter. Clear stale marks first with `berth review marks clear`. When the user asks what changed since a commit or since their last review, mark with `--base <that ref>`.
 
     ```sh
     berth review mark src/auth.ts:42-60 --note "Token refresh now retries once" src/api.ts:12 --note "New 401 handler"

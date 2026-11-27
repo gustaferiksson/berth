@@ -258,11 +258,11 @@ public enum ReviewGit {
 
         let range = changes.since == nil && (changes.isDefaultBranch || changes.base == nil) ? ["-n", "2", head] : ["-n", "50", "\(changes.mergeBase)..\(head)"]
 
-        return ReviewBranchStatus(
+        return try await ReviewBranchStatus(
             ahead: baseCounts.last ?? 0,
             behind: baseCounts.first ?? 0,
             upstream: ownUpstream.map { ReviewUpstream(name: $0, ahead: unpushed.count, behind: upstreamSides.count - unpushed.count) },
-            commits: try await commits(range, isPushed: { ownUpstream != nil && !unpushed.contains(Substring($0)) }, in: root)
+            commits: commits(range, isPushed: { ownUpstream != nil && !unpushed.contains(Substring($0)) }, in: root)
         )
     }
 
