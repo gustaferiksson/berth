@@ -103,6 +103,12 @@ public enum PendingPrompts {
         return pending.lazy.compactMap(\.shellCommand).first { normalised($0) == text || normalised("!\($0)") == text }
     }
 
+    public static func shellStart(of command: String, recorded: Date?, pending: [PendingPrompt], queued: [String]) -> Date? {
+        if let recorded { return recorded }
+
+        return pending.first { $0.shellCommand == command && !isQueued($0, queued: queued) }?.sentAt
+    }
+
     public static func unqueued(_ pending: [PendingPrompt], queued: [String]) -> [PendingPrompt] {
         pending.filter { $0.isFailed || !isQueued($0, queued: queued) }
     }
