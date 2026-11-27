@@ -1084,6 +1084,7 @@ private struct RowChrome: ViewModifier {
     func body(content: Content) -> some View {
         let isSelected = isSelected
         let isHighlighted = isHovering || Snapshot.forcedHover.contains(hoverID)
+        let showsClose = close != nil && (isHighlighted || isSelected)
         let fill = isSelected ? 0.18 : isHighlighted ? 0.06 : 0
         content
             .environment(\.showsRowActions, isHighlighted)
@@ -1094,7 +1095,7 @@ private struct RowChrome: ViewModifier {
             // swiftlint:disable:next negative_padding - widens the row's hit area back to the list edges, the close button is an overlay added after
             .padding(.horizontal, -SidebarRowLayout.horizontalInset)
             .overlay(alignment: .trailing) {
-                if let close, isHighlighted || isSelected {
+                if let close, showsClose {
                     Button(action: close) {
                         Label("Close Terminal", systemImage: "xmark")
                             .labelStyle(.iconOnly)
@@ -1110,6 +1111,9 @@ private struct RowChrome: ViewModifier {
                     .help("Close terminal")
                 }
             }
+            #if DEBUG
+            .modifier(SnapshotRowHoverProbe(hoverID: hoverID, isHighlighted: isHighlighted, showsClose: showsClose))
+            #endif
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction(.default, select)
             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 0))

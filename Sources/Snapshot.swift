@@ -632,6 +632,7 @@ enum Snapshot {
         let (reviewFolder, shownPullRequestClone) = await prepareReviewAndLauncher(store: store)
         let (window, hosting, showsStats) = await prepareWindow(to: output, store: store, reviewFolder: reviewFolder)
         if let target = terminalCloseClickTarget { await captureTerminalCloseClicks(target: target, store: store, window: window, output: output) }
+        if let target = sidebarHoverTarget { await captureSidebarHover(target: target, store: store, window: window) }
         await captureReview(to: output, store: store, window: window, reviewFolder: reviewFolder, shownPullRequestClone: shownPullRequestClone, options: reviewOptions)
         await captureWindowProbes(to: output, store: store, window: window, topSessions: topSessions, showsStats: showsStats)
         await captureTerminalProbes(to: output, store: store, window: window, hosting: hosting)
