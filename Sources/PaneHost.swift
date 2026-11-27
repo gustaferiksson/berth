@@ -107,8 +107,8 @@ struct ModeSwitcher: View {
         ModeSegments(modes: modes, selected: store.shownPane, choose: store.selectPane)
             .frame(minWidth: CGFloat(modes.count) * 36, minHeight: 24)
             .fixedSize()
-            .onAppear { paneLog.info("mode switcher created \(itemID, privacy: .public)") }
-            .onDisappear { paneLog.info("mode switcher removed \(itemID, privacy: .public)") }
+            .onAppear { paneLog.info("mode switcher created \(itemID, privacy: .public) \(ProcessInfo.processInfo.systemUptime, privacy: .public)") }
+            .onDisappear { paneLog.info("mode switcher removed \(itemID, privacy: .public) \(ProcessInfo.processInfo.systemUptime, privacy: .public)") }
     }
 }
 

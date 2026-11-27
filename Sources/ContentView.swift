@@ -26,8 +26,8 @@ struct ContentView: View {
     @State private var sidebarYieldsToDiff = false
     @State private var keepsSidebarForDiff = false
     @State private var paneSidebarWidth = SessionPanel.idealWidth
-    @State private var paneHostFlips = 0
-    @State private var isRebuildingModeSwitcher = false
+    @State private var hostFlips = PaneHostFlips()
+    @State private var settledFlips = 0
     @State private var previousLauncherScope: LauncherMode?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -49,7 +49,7 @@ struct ContentView: View {
                     .glassSidebarTint(fill: sidebarFill)
                     .toolbar(removing: isReviewEnabled ? nil : .sidebarToggle)
                     .toolbar {
-                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: paneHostFlips, isRebuilding: isRebuildingModeSwitcher) }
+                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: hostFlips.count(isPanel: showsPanelSidebar), isRebuilding: hostFlips.count(isPanel: showsPanelSidebar) != settledFlips) }
                     }
                     .navigationSplitViewColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
             } else {
@@ -143,7 +143,7 @@ struct ContentView: View {
                     if isReviewEnabled, !isTrailing, !store.showsSessionToolbar {
                         ToolbarItem(placement: .primaryAction) { panelToggle(symbol: "sidebar.right") }
                     }
-                    if !showsPanelSidebar { ChangesToolbar(store: store, host: "detail", flips: paneHostFlips, isRebuilding: isRebuildingModeSwitcher) }
+                    if !showsPanelSidebar { ChangesToolbar(store: store, host: "detail", flips: hostFlips.count(isPanel: showsPanelSidebar), isRebuilding: hostFlips.count(isPanel: showsPanelSidebar) != settledFlips) }
                     if isTrailing, !showsSessions {
                         if store.showsSessionToolbar { ToolbarSpacer(.fixed, placement: .primaryAction) }
                         ToolbarItem(placement: .primaryAction) { sessionsToggle }
@@ -171,7 +171,7 @@ struct ContentView: View {
                     .background(ScrollPocketSeparatorRemover())
                     .inspectorColumnWidth(min: 220, ideal: panelSidebarWidth, max: 440)
                     .toolbar {
-                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: paneHostFlips, isRebuilding: isRebuildingModeSwitcher) }
+                        if showsPanelSidebar { ChangesToolbar(store: store, host: "panel", flips: hostFlips.count(isPanel: showsPanelSidebar), isRebuilding: hostFlips.count(isPanel: showsPanelSidebar) != settledFlips) }
                     }
             }
         }
@@ -206,10 +206,11 @@ struct ContentView: View {
             }
         }
         .onChange(of: showsPanelSidebar) {
-            paneHostFlips += 1
-            isRebuildingModeSwitcher = true
-            paneLog.info("mode switcher toolbar rebuild")
-            DispatchQueue.main.async { isRebuildingModeSwitcher = false }
+            DispatchQueue.main.async {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { settledFlips = hostFlips.count(isPanel: showsPanelSidebar) }
+            }
         }
         .onChange(of: showsColumn) {
             guard !showsColumn else { return }
@@ -276,6 +277,24 @@ struct ContentView: View {
         } message: { folder in
             Text("\((folder as NSString).abbreviatingWithTildeInPath) no longer exists, so Claude can’t start there.")
         }
+    }
+}
+
+// Read while the toolbar is declared, so the gate closes in the same render that flips the host.
+final class PaneHostFlips {
+    private var lastIsPanel: Bool?
+    private var flips = 0
+
+    func count(isPanel: Bool) -> Int {
+        guard let last = lastIsPanel, last != isPanel else {
+            lastIsPanel = isPanel
+            return flips
+        }
+
+        lastIsPanel = isPanel
+        flips += 1
+        paneLog.info("mode switcher toolbar rebuild \(ProcessInfo.processInfo.systemUptime, privacy: .public)")
+        return flips
     }
 }
 
