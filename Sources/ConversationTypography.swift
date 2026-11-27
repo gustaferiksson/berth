@@ -129,7 +129,7 @@ private struct ConversationTypographyModifier: ViewModifier {
     @AppStorage(ReviewStyle.lineHeightKey) private var reviewLineHeight = 1.3
 
     func body(content: Content) -> some View {
-        let codeStyle = ReviewStyle(scheme: reviewScheme, fontFamily: reviewFontFamily, fontSize: reviewFontSize, lineHeightMultiple: reviewLineHeight, ghostty: theme).withSyntaxColors(syntaxColors)
+        let codeStyle = ReviewStyle.matching(scheme: reviewScheme, fontFamily: reviewFontFamily, fontSize: reviewFontSize, lineHeightMultiple: reviewLineHeight, ghostty: theme).withSyntaxColors(syntaxColors)
         content.environment(\.ghosttyTheme, theme.typeset(ConversationTypeset(bodyFont: bodyFont, bodyFamily: bodyFamily, bodySize: bodySize, lineSpacing: lineSpacing, width: width), codeStyle: codeStyle))
     }
 }
