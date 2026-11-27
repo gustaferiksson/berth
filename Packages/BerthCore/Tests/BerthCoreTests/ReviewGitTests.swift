@@ -202,6 +202,50 @@ final class ReviewGitTests {
         #expect(feature.base == "main" && feature.total.map { [$0.additions, $0.deletions] } == [6, 1])
     }
 
+    @Test func sinceNarrowsTheCommittedListToCommitsAfterTheRef() async throws {
+        let repo = try await featureRepo()
+        try await git(repo, "add", "-A")
+        try await git(repo, "commit", "--quiet", "-m", "tidy")
+        try await git(repo, "tag", "reviewed")
+        try write(repo, "later.txt", "l1\nl2\n")
+        try write(repo, "committed.txt", "x\ny\nz\nw\n")
+        try await git(repo, "add", "later.txt", "committed.txt")
+        try await git(repo, "commit", "--quiet", "-m", "later work")
+        let previous = try await git(repo, "rev-parse", "--short", "HEAD~1")
+
+        let all = try await ReviewGit.changes(in: repo.path)
+        #expect(all.since == nil && all.committed.count > 2)
+
+        for ref in ["reviewed", "HEAD~1", previous] {
+            let changes = try await ReviewGit.changes(in: repo.path, since: ref)
+            #expect(changes.since?.ref == ref && changes.since?.shortSHA == previous)
+            #expect(changes.committed.map(\.path) == ["committed.txt", "later.txt"])
+            #expect(changes.committed.map { [$0.additions, $0.deletions] } == [[1, 0], [2, 0]])
+            #expect(changes.base == "main" && changes.mergeBase == changes.since?.sha)
+            #expect(changes.total.map { [$0.additions, $0.deletions] } == [3, 0])
+        }
+        let status = try await ReviewGit.branchStatus(of: ReviewGit.changes(in: repo.path, since: "reviewed"))
+        #expect(status.commits.map(\.subject) == ["later work"])
+    }
+
+    @Test func sinceWorksOnTheDefaultBranchAndIgnoresUnknownOrOptionLikeRefs() async throws {
+        let repo = try await repo("trunk")
+        try write(repo, "next.txt", "n\n")
+        try await git(repo, "add", ".")
+        try await git(repo, "commit", "--quiet", "-m", "next")
+
+        let since = try await ReviewGit.changes(in: repo.path, since: "HEAD~1")
+        #expect(since.isDefaultBranch && since.since != nil && since.committed.map(\.path) == ["next.txt"])
+        #expect(since.total.map { [$0.additions, $0.deletions] } == [1, 0])
+
+        for ref in ["nope", "--output=/tmp/x", ""] {
+            let ignored = try await ReviewGit.changes(in: repo.path, since: ref)
+            #expect(ignored.since == nil && ignored.committed.isEmpty && ignored.total == nil)
+        }
+        let recent = try await ReviewGit.recentCommits(of: since, limit: 1)
+        #expect(recent.map(\.subject) == ["next"])
+    }
+
     @Test func contentsFollowTheirCompareAndTheListedHead() async throws {
         let repo = try await pushedFeatureRepo()
         let changes = try await ReviewGit.changes(in: repo.path)
