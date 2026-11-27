@@ -3,12 +3,14 @@ import AppKit
 final class ReviewInlineComment: NSView {
     enum Kind {
         case draft(onAdd: (String) -> Void, onCancel: () -> Void, onResize: () -> Void)
-        case card(onEdit: () -> Void, onDelete: () -> Void)
+        case card(onEdit: () -> Void, onDelete: () -> Void, onToggle: (Bool) -> Void)
     }
 
     let field = ReviewCommentField(usingTextLayoutManager: false)
     private let kind: Kind
     let header: NSTextField
+    private let summary = NSTextField(labelWithString: "")
+    private let disclosure = NSButton()
     private let buttons: [NSButton]
     private var restingBackground: CGColor?
     private var hoverBackground: CGColor?
@@ -17,6 +19,14 @@ final class ReviewInlineComment: NSView {
     private var pullRequestItem: NSMenuItem?
     var onSendToPullRequest: (() -> Void)? {
         didSet { pullRequestItem?.isEnabled = onSendToPullRequest != nil }
+    }
+
+    var isCollapsed = false {
+        didSet {
+            guard isCollapsed != oldValue else { return }
+
+            updateDisclosure()
+        }
     }
 
     var isSubmitting = false {
@@ -52,6 +62,13 @@ final class ReviewInlineComment: NSView {
 
         header.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
         header.lineBreakMode = .byTruncatingTail
+        summary.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        summary.lineBreakMode = .byTruncatingTail
+        disclosure.target = self
+        disclosure.action = #selector(toggle)
+        disclosure.isBordered = false
+        disclosure.imagePosition = .imageOnly
+        disclosure.controlSize = .small
 
         field.string = text
         field.drawsBackground = false
@@ -88,6 +105,11 @@ final class ReviewInlineComment: NSView {
             button.sizeToFit()
         }
         for view in [header, field] + buttons { addSubview(view) }
+        if case .card = kind {
+            addSubview(summary)
+            addSubview(disclosure)
+            updateDisclosure()
+        }
         apply(style)
     }
 
@@ -105,6 +127,8 @@ final class ReviewInlineComment: NSView {
         hoverBackground = style.commentBackground.blended(withFraction: 0.1, of: style.foreground)?.cgColor
         layer?.backgroundColor = restingBackground
         header.textColor = style.secondary
+        summary.textColor = style.secondary
+        disclosure.contentTintColor = style.secondary
         if case .card = kind { buttons.forEach { $0.contentTintColor = style.secondary } }
         field.font = style.font
         field.textColor = style.foreground
@@ -116,6 +140,8 @@ final class ReviewInlineComment: NSView {
     }
 
     func fittingHeight(forWidth width: CGFloat) -> CGFloat {
+        if isCollapsed { return padding + headerHeight + padding }
+
         let buttonsHeight = if case .draft = kind { 8 + (buttons.map(\.frame.height).max() ?? 0) } else { CGFloat(0) }
         return padding + headerHeight + 4 + textHeight(forWidth: width - 2 * padding) + buttonsHeight + padding
     }
@@ -123,12 +149,20 @@ final class ReviewInlineComment: NSView {
     override func layout() {
         super.layout()
         let width = bounds.width - 2 * padding
-        header.frame = NSRect(x: padding, y: padding, width: width - 24, height: headerHeight)
-        field.frame = NSRect(x: padding, y: padding + headerHeight + 4, width: width, height: textHeight(forWidth: width))
         guard case .draft = kind else {
-            buttons[0].frame = NSRect(x: bounds.width - padding - 16, y: padding, width: 16, height: 16)
+            let trailing = bounds.width - padding - 16
+            summary.stringValue = field.string.split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: \.isNewline).first.map(String.init) ?? ""
+            let headerWidth = min(header.attributedStringValue.size().width.rounded(.up) + 4, width / 2)
+            disclosure.frame = NSRect(x: trailing, y: padding, width: 16, height: 16)
+            buttons[0].frame = NSRect(x: trailing - 20, y: padding, width: 16, height: 16)
+            header.frame = NSRect(x: padding, y: padding, width: isCollapsed ? headerWidth : trailing - 24 - padding, height: headerHeight)
+            summary.frame = NSRect(x: padding + headerWidth + 8, y: padding, width: max(trailing - 24 - padding - headerWidth - 8, 0), height: headerHeight)
+            field.frame = NSRect(x: padding, y: padding + headerHeight + 4, width: width, height: isCollapsed ? 0 : textHeight(forWidth: width))
             return
         }
+
+        header.frame = NSRect(x: padding, y: padding, width: width - 24, height: headerHeight)
+        field.frame = NSRect(x: padding, y: padding + headerHeight + 4, width: width, height: textHeight(forWidth: width))
 
         let add = buttons[1].frame.size
         let cancel = buttons[0].frame.size
@@ -136,9 +170,14 @@ final class ReviewInlineComment: NSView {
         buttons[0].frame = NSRect(origin: NSPoint(x: buttons[1].frame.minX - 8 - cancel.width, y: bounds.height - padding - cancel.height), size: cancel)
     }
 
-    override func mouseDown(with _: NSEvent) {
-        if case .card = kind { return edit() }
-        window?.makeFirstResponder(field)
+    override func mouseDown(with event: NSEvent) {
+        guard case .card = kind else {
+            window?.makeFirstResponder(field)
+            return
+        }
+
+        if isCollapsed || convert(event.locationInWindow, from: nil).y < padding + headerHeight { return toggle() }
+        edit()
     }
 
     override func resetCursorRects() {
@@ -157,6 +196,22 @@ final class ReviewInlineComment: NSView {
 
         buttons.forEach { $0.isHidden = true }
         layer?.backgroundColor = restingBackground
+    }
+
+    private func updateDisclosure() {
+        let title = isCollapsed ? "Expand comment" : "Collapse comment"
+        disclosure.image = NSImage(systemSymbolName: isCollapsed ? "chevron.right" : "chevron.down", accessibilityDescription: title)
+        disclosure.setAccessibilityLabel(title)
+        disclosure.toolTip = title
+        summary.isHidden = !isCollapsed
+        field.isHidden = isCollapsed
+        needsLayout = true
+    }
+
+    @objc private func toggle() {
+        guard case let .card(_, _, onToggle) = kind else { return }
+
+        onToggle(!isCollapsed)
     }
 
     @objc private func sendToPullRequest() {
@@ -197,7 +252,7 @@ final class ReviewInlineComment: NSView {
     }
 
     @objc private func edit() {
-        guard case let .card(onEdit, _) = kind else { return }
+        guard case let .card(onEdit, _, _) = kind else { return }
 
         buttons.forEach { $0.isHidden = true }
         layer?.backgroundColor = restingBackground
@@ -205,7 +260,7 @@ final class ReviewInlineComment: NSView {
     }
 
     @objc private func delete() {
-        guard case let .card(_, onDelete) = kind else { return }
+        guard case let .card(_, onDelete, _) = kind else { return }
 
         onDelete()
     }

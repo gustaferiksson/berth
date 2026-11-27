@@ -11,7 +11,7 @@ enum AppAction: Hashable {
     case closeTerminal, copyTerminal, pasteTerminal, selectAllInTerminal, nextTab, previousTab
     case pinSession, unpinSession, snoozeHour, snoozeTomorrow, snoozeUntilNeeded, unsnoozeSession, unloadSession, reopenSession, copySessionID, markSessionRead, markSessionUnread, dismissSessionAttention, stopWatchingSession, newTaskFromSessions, removeSessionFromTask, reopenSessionTask, acceptTaskSuggestion, dismissTaskSuggestion
     case stopConversation, closeSubagentConversation
-    case findInReview, refreshReview, toggleReviewTree, toggleReviewComments, sendReviewComments, closeReviewTab, closeOtherReviewTabs, closeReviewPreview, revealReviewFile, copyReviewPath, copyReviewRelativePath, openReviewFile
+    case findInReview, refreshReview, toggleReviewTree, toggleReviewComments, collapseAllComments, expandAllComments, sendReviewComments, closeReviewTab, closeOtherReviewTabs, closeReviewPreview, revealReviewFile, copyReviewPath, copyReviewRelativePath, openReviewFile
     case stopBrowserLoading, copyBrowserURL, openInDefaultBrowser
     case toggleIgnoredFiles, clearFilesFilter, openSelectedFile, revealSelectedFile, openFileInDefaultApp, copyFilePath, copyRelativeFilePath
     case caret(CaretAction)
@@ -110,6 +110,8 @@ enum AppAction: Hashable {
         case .refreshReview: "Refresh Review"
         case .toggleReviewTree: "Toggle Changes Tree"
         case .toggleReviewComments: "Toggle Review Comments"
+        case .collapseAllComments: "Collapse All Comments"
+        case .expandAllComments: "Expand All Comments"
         case .sendReviewComments: "Send Review Comments"
         case .closeReviewTab: "Close Review Tab"
         case .closeOtherReviewTabs: "Close Other Review Tabs"
@@ -193,6 +195,7 @@ enum AppAction: Hashable {
         case .refreshReview: "reload changes git diff"
         case .toggleReviewTree: "view as list tree file layout"
         case .toggleReviewComments: "show hide comment list"
+        case .collapseAllComments, .expandAllComments: "diff inline threads fold unfold"
         case .sendReviewComments: "paste pending comments into session"
         case .closeReviewTab: "diff file editor"
         case .closeOtherReviewTabs: "diff file editor"
@@ -288,6 +291,8 @@ enum AppAction: Hashable {
         case .refreshReview: "arrow.clockwise"
         case .toggleReviewTree: "list.bullet.indent"
         case .toggleReviewComments: "bubble.left"
+        case .collapseAllComments: "chevron.right"
+        case .expandAllComments: "chevron.down"
         case .sendReviewComments: "paperplane"
         case .closeReviewTab: "xmark"
         case .closeOtherReviewTabs: "xmark"
@@ -376,7 +381,7 @@ enum AppAction: Hashable {
         case .stopWatchingSession: [.session, .conversation]
         case .stopConversation, .closeSubagentConversation, .showTerminal: [.conversation]
         case .newSession: [.conversation, .session]
-        case .findInReview, .refreshReview, .toggleReviewTree, .toggleReviewComments, .sendReviewComments, .closeReviewTab, .closeOtherReviewTabs, .closeReviewPreview, .revealReviewFile, .copyReviewPath, .copyReviewRelativePath, .openReviewFile, .goBack, .goForward, .previousChange, .nextChange, .save, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showSideBySide, .showInline: [.review, .files]
+        case .findInReview, .refreshReview, .toggleReviewTree, .toggleReviewComments, .collapseAllComments, .expandAllComments, .sendReviewComments, .closeReviewTab, .closeOtherReviewTabs, .closeReviewPreview, .revealReviewFile, .copyReviewPath, .copyReviewRelativePath, .openReviewFile, .goBack, .goForward, .previousChange, .nextChange, .save, .wrapLines, .showRenderedMarkdown, .showMarkdownSource, .showSideBySide, .showInline: [.review, .files]
         case .stopBrowserLoading, .copyBrowserURL, .openInDefaultBrowser, .openLocation, .newBrowserTab, .closeBrowserTab, .reopenBrowserTab, .reloadPage, .browserBack, .browserForward, .showWebInspector: [.browser]
         case .toggleIgnoredFiles, .clearFilesFilter, .openSelectedFile, .revealSelectedFile, .openFileInDefaultApp, .copyFilePath, .copyRelativeFilePath: [.files]
         case .findInTerminal, .clearTerminal, .showConversation: [.terminal]

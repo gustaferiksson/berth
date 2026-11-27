@@ -17,6 +17,7 @@ final class ReviewThreadCard: NSView {
             avatar.isBezeled = false
             avatar.drawsBackground = false
             avatar.isEditable = false
+            avatar.isSelectable = false
             author = NSTextField(labelWithString: name)
             time = NSTextField(labelWithString: comment?.createdAt?.formatted(.relative(presentation: .numeric, unitsStyle: .narrow)) ?? "")
             body = NSTextField(wrappingLabelWithString: comment?.body ?? "")
@@ -36,27 +37,40 @@ final class ReviewThreadCard: NSView {
     }
 
     let thread: ReviewThread
-    private(set) var isExpanded: Bool
+    var isExpanded: Bool {
+        didSet {
+            guard isExpanded != oldValue else { return }
+
+            measured = nil
+            updateDisclosure()
+        }
+    }
+
     let replyButton = NSButton(title: "Reply", target: nil, action: nil)
     private let sendButton = NSButton(title: "Send to Claude", target: nil, action: nil)
     private let disclosure = NSButton()
     private let status: NSTextField
+    private let summary: NSTextField
+    private let replies: NSTextField
     private let messages: [Message]
     private let onReply: () -> Void
     private let onSend: () -> Void
-    private let onResize: () -> Void
+    private let onToggle: (Bool) -> Void
     private let padding: CGFloat = 10
     private let headerHeight: CGFloat = 22
     private var measured: (width: CGFloat, height: CGFloat)?
 
-    init(thread: ReviewThread, style: ReviewStyle, isExpanded: Bool?, onReply: @escaping () -> Void, onSend: @escaping () -> Void, onResize: @escaping () -> Void) {
+    init(thread: ReviewThread, style: ReviewStyle, isExpanded: Bool, onReply: @escaping () -> Void, onSend: @escaping () -> Void, onToggle: @escaping (Bool) -> Void) {
         self.thread = thread
-        self.isExpanded = isExpanded ?? !thread.isResolved
+        self.isExpanded = isExpanded
         self.onReply = onReply
         self.onSend = onSend
-        self.onResize = onResize
+        self.onToggle = onToggle
         status = NSTextField(labelWithString: thread.isResolved ? "Resolved" : thread.isOutdated ? "Outdated" : "")
         messages = thread.comments.isEmpty ? [Message(nil)] : thread.comments.map { Message($0) }
+        let firstLine = thread.comments.first?.body.split(maxSplits: 1, omittingEmptySubsequences: false, whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        summary = NSTextField(labelWithString: firstLine)
+        replies = NSTextField(labelWithString: thread.comments.count > 1 ? String(AttributedString(localized: "^[\(thread.comments.count - 1) reply](inflect: true)").characters) : "")
         super.init(frame: .zero)
 
         wantsLayer = true
@@ -64,6 +78,10 @@ final class ReviewThreadCard: NSView {
         layer?.masksToBounds = true
         layer?.borderWidth = 1
         status.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        summary.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        summary.lineBreakMode = .byTruncatingTail
+        replies.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        replies.lineBreakMode = .byTruncatingTail
 
         replyButton.action = #selector(reply)
         replyButton.toolTip = "Write a reply to this review thread"
@@ -77,8 +95,7 @@ final class ReviewThreadCard: NSView {
         disclosure.action = #selector(toggle)
         disclosure.isBordered = false
         disclosure.imagePosition = .imageOnly
-        disclosure.isHidden = !thread.isResolved
-        for view in [status, disclosure] { addSubview(view) }
+        for view in [status, summary, replies, disclosure] { addSubview(view) }
         for message in messages {
             for view in [message.avatar, message.author, message.time, message.body] { addSubview(view) }
         }
@@ -100,6 +117,8 @@ final class ReviewThreadCard: NSView {
         layer?.backgroundColor = background.withAlphaComponent(1).cgColor
         layer?.borderColor = style.commentBorder.cgColor
         status.textColor = tint
+        summary.textColor = style.secondary
+        replies.textColor = style.secondary
         disclosure.contentTintColor = style.secondary
         for message in messages {
             message.avatar.layer?.backgroundColor = tint.withAlphaComponent(0.15).cgColor
@@ -127,12 +146,19 @@ final class ReviewThreadCard: NSView {
         let inner = max(width - 2 * padding, 1)
         let leading = padding
         let trailing = leading + inner
-        let disclosureWidth: CGFloat = thread.isResolved ? 18 : 0
+        let disclosureWidth: CGFloat = 18
         let statusWidth = status.stringValue.isEmpty ? 0 : status.intrinsicContentSize.width + 6
+        if !isExpanded {
+            arrangeCollapsed(leading: leading, trailing: trailing - disclosureWidth - statusWidth, placesSubviews: placesSubviews)
+            if placesSubviews {
+                status.frame = NSRect(x: trailing - statusWidth - disclosureWidth, y: padding + 3, width: statusWidth, height: 16)
+                disclosure.frame = NSRect(x: trailing - disclosureWidth, y: padding, width: disclosureWidth, height: headerHeight)
+            }
+            return padding + headerHeight + padding
+        }
+
         var top = padding
         for (index, message) in messages.enumerated() {
-            if index > 0, !isExpanded { break }
-
             let metadataEnd = trailing - (index == 0 ? statusWidth + disclosureWidth : 0)
             let authorStart = leading + headerHeight + 6
             let metadataWidth = max(metadataEnd - authorStart, 0)
@@ -150,32 +176,47 @@ final class ReviewThreadCard: NSView {
                 }
             }
             top += headerHeight + (wrapsTime ? 16 : 0)
-            if isExpanded, !message.body.stringValue.isEmpty {
+            if !message.body.stringValue.isEmpty {
                 top += 4
                 let proposed = NSRect(x: leading, y: top, width: inner, height: .greatestFiniteMagnitude)
                 let height = (message.body.cell?.cellSize(forBounds: proposed).height ?? 0).rounded(.up)
                 if placesSubviews { message.body.frame = NSRect(x: leading, y: top, width: inner, height: height) }
                 top += height
             }
-            if isExpanded, index < messages.count - 1 { top += 10 }
+            if index < messages.count - 1 { top += 10 }
         }
 
-        if isExpanded {
-            let reply = replyButton.frame.size
-            let send = sendButton.frame.size
-            let wraps = reply.width + 6 + send.width > inner
-            top += 8
-            if placesSubviews {
-                replyButton.frame.origin = NSPoint(x: leading, y: top)
-                sendButton.frame.origin = NSPoint(x: wraps ? leading : leading + reply.width + 6, y: top + (wraps ? reply.height + 4 : 0))
-            }
-            top += wraps ? reply.height + 4 + send.height : max(reply.height, send.height)
+        let reply = replyButton.frame.size
+        let send = sendButton.frame.size
+        let wraps = reply.width + 6 + send.width > inner
+        top += 8
+        if placesSubviews {
+            replyButton.frame.origin = NSPoint(x: leading, y: top)
+            sendButton.frame.origin = NSPoint(x: wraps ? leading : leading + reply.width + 6, y: top + (wraps ? reply.height + 4 : 0))
         }
+        top += wraps ? reply.height + 4 + send.height : max(reply.height, send.height)
         return top + padding
     }
 
+    private func arrangeCollapsed(leading: CGFloat, trailing: CGFloat, placesSubviews: Bool) {
+        guard placesSubviews, let message = messages.first else { return }
+
+        let authorStart = leading + headerHeight + 6
+        let timeWidth = message.time.attributedStringValue.size().width.rounded(.up) + 4
+        let repliesWidth = replies.stringValue.isEmpty ? 0 : replies.attributedStringValue.size().width.rounded(.up) + 4
+        let timeStart = trailing - timeWidth
+        let repliesStart = timeStart - (repliesWidth > 0 ? repliesWidth + 8 : 0)
+        let authorWidth = min(message.author.attributedStringValue.size().width.rounded(.up) + 4, max(repliesStart - authorStart - 8, 0))
+        let summaryStart = authorStart + authorWidth + 8
+        message.avatar.frame = NSRect(x: leading, y: padding, width: headerHeight, height: headerHeight)
+        message.author.frame = NSRect(x: authorStart, y: padding + 3, width: authorWidth, height: 16)
+        summary.frame = NSRect(x: summaryStart, y: padding + 3, width: max(repliesStart - 8 - summaryStart, 0), height: 16)
+        replies.frame = NSRect(x: repliesStart, y: padding + 3, width: repliesWidth, height: 16)
+        message.time.frame = NSRect(x: timeStart, y: padding + 3, width: timeWidth, height: 16)
+    }
+
     private func updateDisclosure() {
-        let title = isExpanded ? "Collapse resolved thread" : "Expand resolved thread"
+        let title = isExpanded ? "Collapse thread" : "Expand thread"
         disclosure.image = NSImage(systemSymbolName: isExpanded ? "chevron.down" : "chevron.right", accessibilityDescription: title)
         disclosure.setAccessibilityLabel(title)
         disclosure.toolTip = title
@@ -183,15 +224,21 @@ final class ReviewThreadCard: NSView {
             for view in [message.avatar, message.author, message.time] { view.isHidden = !isExpanded && index != 0 }
             message.body.isHidden = !isExpanded
         }
+        summary.isHidden = isExpanded
+        replies.isHidden = isExpanded
         for button in [replyButton, sendButton] { button.isHidden = !isExpanded }
         needsLayout = true
     }
 
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard !isExpanded || point.y < padding + headerHeight else { return super.mouseDown(with: event) }
+
+        toggle()
+    }
+
     @objc private func toggle() {
-        isExpanded.toggle()
-        measured = nil
-        updateDisclosure()
-        onResize()
+        onToggle(!isExpanded)
     }
 
     @objc private func reply() {
@@ -200,6 +247,20 @@ final class ReviewThreadCard: NSView {
 
     @objc private func send() {
         onSend()
+    }
+}
+
+struct ReviewCommentCollapse {
+    var overrides: [String: Bool] = [:]
+    var all: Bool?
+
+    func isCollapsed(_ id: String, default fallback: Bool) -> Bool {
+        overrides[id] ?? all ?? fallback
+    }
+
+    mutating func set(all isCollapsed: Bool) {
+        overrides = [:]
+        all = isCollapsed
     }
 }
 
