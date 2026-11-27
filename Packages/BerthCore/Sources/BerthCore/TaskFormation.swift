@@ -48,7 +48,7 @@ public struct StoredTask: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
-public struct TaskSession: Sendable {
+public struct TaskSession: Sendable, Equatable {
     public let id: String
     public let lastPrompt: Date
     public let repository: String?
@@ -298,5 +298,22 @@ public struct SessionTask: Identifiable, Equatable, Sendable {
 
             return shown.insert(task.id).inserted ? .task(task.id) : nil
         }
+    }
+}
+
+public struct TaskFormationMemo {
+    public typealias Result = (state: TaskState, shown: [StoredTask], suggestions: [TaskSuggestion])
+
+    private var last: (tasks: TaskState, sessions: [TaskSession], result: Result)?
+
+    public init() {}
+
+    public mutating func form(_ tasks: TaskState, sessions: [TaskSession]) -> Result {
+        if let last, last.tasks == tasks, last.sessions == sessions { return last.result }
+
+        let result = TaskFormation.form(tasks, sessions: sessions)
+        last = nil
+        if result.state == tasks { last = (tasks, sessions, result) }
+        return result
     }
 }

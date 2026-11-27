@@ -35,6 +35,16 @@ enum SidebarStatus: String, CaseIterable, Identifiable {
     }
 }
 
+typealias SidebarSource = (group: SessionGroup, tabs: [Tab], entries: [GroupEntry])
+
+struct SidebarSources {
+    let active: SidebarSource?
+    let groups: [SidebarSource]
+    let attention: [SessionSummary]
+    let working: [SessionSummary]
+    let unread: [SessionSummary]
+}
+
 extension Store {
     func matchesStatus(_ status: SidebarStatus, _ session: SessionSummary) -> Bool {
         switch status {
@@ -52,27 +62,35 @@ extension Store {
         return sessionsByID.values.count(where: { !hidden.contains($0.id) && matchesStatus(status, $0) })
     }
 
-    private var standaloneSessions: [SessionSummary] {
+    var sidebarSources: SidebarSources {
+        let active = sidebarActive
+        let groups = sidebarGroups
         let liveIDs = activeLiveIDs
         let pinned = pinnedSessions.filter { !liveIDs.contains($0.id) }.map { GroupEntry.session($0.id) }
-        let entries = (sidebarActive.map { [$0.entries] } ?? []) + sidebarGroups.map(\.entries) + [pinned]
-        return entries.joined().compactMap { entry in
+        let entries = (active.map { [$0.entries] } ?? []) + groups.map(\.entries) + [pinned]
+        let standalone = entries.joined().compactMap { entry -> SessionSummary? in
             guard case let .session(id) = entry else { return nil }
 
             return sessionsByID[id]
         }
-    }
+        let attention = standalone
+            .compactMap { session -> (session: SessionSummary, rank: Int)? in
+                if case .needsInput = liveBySession[session.id]?.activity { return (session, 0) }
 
-    var triageSections: (working: [SessionSummary], unread: [SessionSummary]) {
-        guard showsTriage else { return ([], []) }
+                return hasUndismissedFailure(session) ? (session, 1) : nil
+            }
+            .sorted { ($0.rank, $1.session.lastPrompt, $0.session.id) < ($1.rank, $0.session.lastPrompt, $1.session.id) }
+            .map(\.session)
+        guard showsTriage else { return SidebarSources(active: active, groups: groups, attention: attention, working: [], unread: []) }
 
-        let attention = Set(attentionSessions.map(\.id))
-        let rest = standaloneSessions.filter { !attention.contains($0.id) }
-        return SessionTriage.sections(
+        let attentionIDs = Set(attention.map(\.id))
+        let rest = standalone.filter { !attentionIDs.contains($0.id) }
+        let triage = SessionTriage.sections(
             rest,
             working: Set(rest.filter { liveBySession[$0.id]?.activity == .working }.map(\.id)),
             unread: Set(rest.filter(hasUnseenActivity).map(\.id))
         )
+        return SidebarSources(active: active, groups: groups, attention: attention, working: triage.working, unread: triage.unread)
     }
 
     func hasUndismissedFailure(_ session: SessionSummary) -> Bool {
@@ -87,18 +105,6 @@ extension Store {
         return hasUndismissedFailure(session) && pullRequest(for: session)?.headSHA != nil
     }
 
-    var attentionSessions: [SessionSummary] {
-        standaloneSessions
-            .compactMap { session -> (session: SessionSummary, rank: Int)? in
-                let id = session.id
-                if case .needsInput = liveBySession[id]?.activity { return (session, 0) }
-
-                return hasUndismissedFailure(session) ? (session, 1) : nil
-            }
-            .sorted { ($0.rank, $1.session.lastPrompt, $0.session.id) < ($1.rank, $0.session.lastPrompt, $1.session.id) }
-            .map(\.session)
-    }
-
     var sidebarLayout: SidebarLayout { sidebarLayout(filter: sidebarFilter, status: sidebarStatus) }
 
     func sidebarLayout(filter: String, status: SidebarStatus) -> SidebarLayout {
@@ -111,11 +117,11 @@ extension Store {
         let matchesTab = { (tab: Tab) in
             status == .all && (words.isEmpty || matches([tab.title(terminalTitle: tab.terminal.title, sessionTitle: self.sessionTitle(of: tab)), URL(filePath: tab.folder).lastPathComponent]))
         }
-        let source = (sidebarActive.map { [$0] } ?? []) + sidebarGroups
-        let attentionIDs = attentionSessions.filter(matchesSession).map(\.id)
-        let triage = triageSections
-        let workingIDs = triage.working.filter(matchesSession).map(\.id)
-        let unreadIDs = triage.unread.filter(matchesSession).map(\.id)
+        let sources = sidebarSources
+        let source = (sources.active.map { [$0] } ?? []) + sources.groups
+        let attentionIDs = sources.attention.filter(matchesSession).map(\.id)
+        let workingIDs = sources.working.filter(matchesSession).map(\.id)
+        let unreadIDs = sources.unread.filter(matchesSession).map(\.id)
         let attention = Set(attentionIDs + workingIDs + unreadIDs)
         let sidebarGroups = source.compactMap { group, tabs, entries -> SidebarLayout.Group? in
             let tabs = tabs.filter(matchesTab)
