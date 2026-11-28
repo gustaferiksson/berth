@@ -181,8 +181,13 @@ targets:
       - package: TreeSitterYAML
       - package: TreeSitterCSS
       - package: TreeSitterBash
+    entitlements:
+      path: Resources/BerthRemote.entitlements
+      properties:
+        aps-environment: $(APS_ENVIRONMENT)
     settings:
       base:
+        APS_ENVIRONMENT: development
         PRODUCT_NAME: BerthRemote
         PRODUCT_BUNDLE_IDENTIFIER: dev.gustaf.berth.remote
         GENERATE_INFOPLIST_FILE: YES
@@ -194,6 +199,7 @@ targets:
         SWIFT_APPROACHABLE_CONCURRENCY: YES
       configs:
         Release:
+          APS_ENVIRONMENT: production
           DEVELOPMENT_TEAM: 82K3YC8HVF
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: Berth Remote Ad Hoc

@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct BerthRemoteApp: App {
+    @UIApplicationDelegateAdaptor(PushDelegate.self) var pushDelegate
     @State private var client = RemoteClient.shared
     @State private var updates = UpdateCheck()
     @AppStorage("colorScheme") private var colorScheme = "system"
