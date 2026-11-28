@@ -126,10 +126,11 @@ private struct BrowserHeader: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .frame(height: Self.controlSize)
+        .frame(height: Self.controlSize + 4)
         .buttonStyle(.plain)
         .font(.callout)
         .padding(.horizontal, spacing)
+        .padding(.top, 6)
         .padding(.bottom, 8)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }

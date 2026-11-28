@@ -47,8 +47,9 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let agent: RemoteAgent?
     public let pullRequestWatch: PullRequestWatch?
     public let isPinned: Bool?
+    public let isFlagged: Bool?
 
-    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil, pullRequestWatch: PullRequestWatch? = nil, isPinned: Bool? = nil) {
+    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil, pullRequestWatch: PullRequestWatch? = nil, isPinned: Bool? = nil, isFlagged: Bool? = nil) {
         self.id = id
         self.title = title
         self.folder = folder
@@ -66,6 +67,7 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
         self.agent = agent
         self.pullRequestWatch = pullRequestWatch
         self.isPinned = isPinned
+        self.isFlagged = isFlagged
     }
 }
 
@@ -379,6 +381,13 @@ public enum RemoteKey: String, Codable, Sendable, CaseIterable {
 
 public enum RemoteSessionAction: String, Codable, Sendable {
     case show, pin, unpin, markRead, markUnread, archive, interrupt
+    case flag, unflag, unarchive, snoozeOneHour, snoozeTomorrow, snoozeUntilNeedsYou, unsnooze
+}
+
+public nonisolated enum RemoteTriageFeature {
+    public static let name = "triage"
+    public static let snoozedGroupID = "snoozed"
+    public static let doneGroupID = "archived"
 }
 
 public nonisolated enum RemoteUpload {
