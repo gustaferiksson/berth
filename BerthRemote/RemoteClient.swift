@@ -1,8 +1,11 @@
 import CryptoKit
 import Foundation
 import Observation
+import os
 import Security
 import UIKit
+
+private let log = Logger(subsystem: "dev.gustaf.berth.remote", category: "remote")
 
 @Observable
 final class RemoteClient {
@@ -149,7 +152,10 @@ final class RemoteClient {
     }
 
     func resume() {
-        guard state == .reconnecting, task == nil, let url = UserDefaults.standard.string(forKey: "remoteURL").flatMap(Self.url(from:)), let token = Self.savedToken else { return }
+        guard state == .reconnecting, task == nil, let url = UserDefaults.standard.string(forKey: "remoteURL").flatMap(Self.url(from:)), let token = Self.savedToken else {
+            log.info("resume skipped, state \(String(describing: self.state)), task \(self.task == nil ? "none" : "open")")
+            return
+        }
 
         open(url, token: token)
     }
@@ -356,6 +362,7 @@ final class RemoteClient {
     #endif
 
     func retryNow() {
+        log.info("retry now, state \(String(describing: self.state)), task \(self.task == nil ? "none" : "open")")
         guard state == .reconnecting, task == nil else { return }
 
         retry?.cancel()
@@ -375,6 +382,7 @@ final class RemoteClient {
     func suspend() {
         guard state == .connected || state == .reconnecting else { return }
 
+        log.info("suspending")
         retry?.cancel()
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
@@ -595,6 +603,7 @@ final class RemoteClient {
     }
 
     private func open(_ url: URL, token: String) {
+        log.info("opening \(url.host() ?? "?")")
         retry?.cancel()
         task?.cancel(with: .goingAway, reason: nil)
         let task = URLSession.shared.webSocketTask(with: url)
@@ -622,6 +631,7 @@ final class RemoteClient {
         } catch {
             guard self.task === task else { return }
 
+            log.info("closed, code \(task.closeCode.rawValue), \(error.localizedDescription)")
             self.task = nil
             if task.closeCode == .policyViolation {
                 state = .disconnected("Berth rejected the token.")
@@ -635,6 +645,7 @@ final class RemoteClient {
             state = .reconnecting
             let delay = [1, 2, 5, 10][min(failures, 3)]
             failures += 1
+            log.info("retrying in \(delay) s")
             retry = Task {
                 try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
