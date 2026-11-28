@@ -160,10 +160,11 @@ final class RemoteClient {
 
     func seedDemo() {
         state = .connected
+        features = [RemoteTriageFeature.name]
         if Self.showsDemoNewSession {
             let folders = ["/Projects/fieldnotes", "/Projects/atlas-api", "/Projects/tidewater"]
             self.folders = folders
-            features = [RemoteLaunchOptions.feature]
+            features.append(RemoteLaunchOptions.feature)
             launchOptions = RemoteLaunchOptions(
                 agents: [
                     RemoteLaunchAgent(id: "claude", name: "Claude", asset: "HarnessClaude", worktreeFolders: Array(folders.prefix(2))),
@@ -269,7 +270,7 @@ final class RemoteClient {
         ]
         let unread = [
             RemoteSession(id: "demo-unread-feed", title: "Keep the feed anchored", folder: fieldnotes, branch: "feature/anchor-the-activity-feed-scroll-position-for-large-text", lastActivity: now.addingTimeInterval(-9 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, pullRequest: RemotePullRequest(number: 139, state: "Open", url: pullRequests.appending(path: "fieldnotes/pull/139"), checks: "passed"), isUnread: true),
-            RemoteSession(id: "demo-unread-routes", title: "Review route naming", folder: atlasAPI, branch: "feature/route-names", lastActivity: now.addingTimeInterval(-12 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, isUnread: true),
+            RemoteSession(id: "demo-unread-routes", title: "Review route naming", folder: atlasAPI, branch: "feature/route-names", lastActivity: now.addingTimeInterval(-12 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, isUnread: true, isFlagged: true),
         ]
         let pinned = [
             RemoteSession(id: "demo-pinned", title: "Add a printable harbor log", folder: harborLog, branch: "feature/print-log", lastActivity: now.addingTimeInterval(-18 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, pullRequest: RemotePullRequest(number: 28, state: "Merged", url: pullRequests.appending(path: "harbor-log/pull/28")), isPinned: true),
@@ -292,6 +293,12 @@ final class RemoteClient {
             RemoteSession(id: "demo-older-pagination", title: "Document pagination limits", folder: atlasAPI, branch: "docs/pagination", lastActivity: now.addingTimeInterval(-9 * 86_400), status: nil, waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false),
             RemoteSession(id: "demo-older-fixtures", title: "Refresh the harbor fixtures", folder: harborLog, branch: "main", lastActivity: now.addingTimeInterval(-16 * 86_400), status: nil, waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false),
         ]
+        let snoozed = [
+            RemoteSession(id: "demo-snoozed", title: "Plan the schema migration", folder: atlasAPI, branch: "feature/schema-migration", lastActivity: now.addingTimeInterval(-3 * 3600), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false),
+        ]
+        let done = [
+            RemoteSession(id: "demo-done", title: "Ship the harbor log export", folder: harborLog, branch: "feature/export", lastActivity: yesterday, status: nil, waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false, pullRequest: RemotePullRequest(number: 25, state: "Merged", url: pullRequests.appending(path: "harbor-log/pull/25")), isFlagged: true),
+        ]
         return [
             RemoteGroup(id: "attention", title: "Needs You", sessions: attention),
             RemoteGroup(id: "working", title: "Working", sessions: working),
@@ -300,6 +307,8 @@ final class RemoteClient {
             RemoteGroup(id: "recent:today", title: "Today", sessions: today, isCollapsed: false, visibleCount: 6),
             RemoteGroup(id: "recent:yesterday", title: "Yesterday", sessions: previous, isCollapsed: false),
             RemoteGroup(id: "recent:older", title: "Older", sessions: older, isCollapsed: true),
+            RemoteGroup(id: RemoteTriageFeature.snoozedGroupID, title: "Snoozed", sessions: snoozed, isCollapsed: false),
+            RemoteGroup(id: RemoteTriageFeature.doneGroupID, title: "Done", sessions: done, isCollapsed: false),
         ]
     }
     #endif

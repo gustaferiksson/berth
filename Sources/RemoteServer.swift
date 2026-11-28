@@ -483,6 +483,7 @@ final class RemoteServer {
         let layout = store.sidebarLayout(filter: "", status: .all)
         let open = Set(store.tabs.compactMap(\.sessionID))
         let pinned = Set(store.pinnedSessions.map(\.id))
+        let flagged = store.flaggedIDs
         let tabs = Dictionary(uniqueKeysWithValues: store.tabs.map { ($0.id, $0) })
         func sessions(_ ids: [String]) -> [RemoteSession] {
             ids.compactMap { id in
@@ -506,7 +507,8 @@ final class RemoteServer {
                     turnStartedAt: store.turnStarts[id],
                     agent: RemoteAgent(harness: session.agent.harness),
                     pullRequestWatch: store.pullRequestWatch(for: id),
-                    isPinned: pinned.contains(id)
+                    isPinned: pinned.contains(id),
+                    isFlagged: flagged.contains(id)
                 )
             }
         }
@@ -536,11 +538,11 @@ final class RemoteServer {
             RemoteGroup(id: Sidebar.pinnedID, title: "Pinned", sessions: sessions(layout.pinnedIDs)),
         ]
         let hidden = [
-            RemoteGroup(id: "snoozed", title: "Snoozed", sessions: sessions(layout.snoozedIDs), isCollapsed: true),
-            RemoteGroup(id: "archived", title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
+            RemoteGroup(id: RemoteTriageFeature.snoozedGroupID, title: "Snoozed", sessions: sessions(layout.snoozedIDs), isCollapsed: true),
+            RemoteGroup(id: RemoteTriageFeature.doneGroupID, title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
         ]
         let groups = [attention] + active + triage + layout.groups.map(section) + hidden
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteLaunchOptions.feature, RemoteInbox.feature] + usageFeatures)
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTriageFeature.name, RemoteLaunchOptions.feature, RemoteInbox.feature] + usageFeatures)
     }
 
     #if DEBUG
@@ -712,6 +714,27 @@ final class RemoteServer {
             }
 
             store.archive(sessionID)
+
+        case .flag:
+            store.flag(sessionID)
+
+        case .unflag:
+            store.unflag(sessionID)
+
+        case .unarchive:
+            store.unarchive(sessionID)
+
+        case .snoozeOneHour:
+            store.snooze(sessionID, .until(.now.addingTimeInterval(3600)))
+
+        case .snoozeTomorrow:
+            store.snooze(sessionID, .until(SessionTriage.tomorrowMorning(after: .now)))
+
+        case .snoozeUntilNeedsYou:
+            store.snooze(sessionID, .needsYou)
+
+        case .unsnooze:
+            store.unsnooze(sessionID)
 
         case .interrupt:
             guard case let .refused(message) = store.interrupt(sessionID) else { return }
