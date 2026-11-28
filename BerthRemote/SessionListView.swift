@@ -134,6 +134,11 @@ struct SessionListView: View {
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()
             }
+            .task {
+                #if DEBUG
+                isStartingSession = RemoteClient.showsDemoNewSession
+                #endif
+            }
             .onChange(of: client.openedSessionID, initial: true) {
                 guard let id = client.openedSessionID else { return }
 
@@ -497,10 +502,33 @@ private struct NewSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var folder = ""
     @State private var prompt = ""
+    @State private var agentID: String?
+    @State private var usesWorktree = false
+
+    private var agent: RemoteLaunchAgent? {
+        guard let options = client.launchOptions else { return nil }
+
+        return options.agents.first { $0.id == agentID } ?? options.agents.first { $0.id == options.defaultAgent } ?? options.agents.first
+    }
+
+    private var offersWorktree: Bool {
+        agent?.worktreeFolders.contains(folder) == true
+    }
 
     var body: some View {
         NavigationStack {
             Form {
+                if let options = client.launchOptions, options.agents.count > 1 {
+                    Section {
+                        Picker("Agent", selection: Binding(get: { agent?.id ?? "" }, set: { agentID = $0 })) {
+                            ForEach(options.agents) { Text($0.name).tag($0.id) }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    } header: {
+                        Text("Agent")
+                    }
+                }
                 Picker("Folder", selection: $folder) {
                     ForEach(client.folders, id: \.self) { folder in
                         VStack(alignment: .leading) {
@@ -514,7 +542,14 @@ private struct NewSessionView: View {
                     }
                 }
                 .pickerStyle(.navigationLink)
-                TextField("What should Claude do?", text: $prompt, axis: .vertical)
+                if offersWorktree {
+                    Section {
+                        Toggle("Worktree", isOn: $usesWorktree)
+                    } footer: {
+                        Text("A worktree gets its own branch. Turn it off to work in the main checkout.")
+                    }
+                }
+                TextField("What should \(agent?.name ?? "Claude") do?", text: $prompt, axis: .vertical)
                     .lineLimit(3...8)
             }
             .navigationTitle("New Session")
@@ -528,12 +563,24 @@ private struct NewSessionView: View {
                         .disabled(folder.isEmpty)
                 }
             }
-            .onAppear { if folder.isEmpty { folder = client.folders.first ?? "" } }
+            .onAppear {
+                if folder.isEmpty { folder = client.folders.first ?? "" }
+                client.loadLaunchOptions()
+            }
+            .onChange(of: client.launchOptions, initial: true) {
+                usesWorktree = client.launchOptions?.startsInWorktree ?? false
+            }
         }
     }
 
     private func start() {
-        client.send(.newSession(folder: folder, prompt: prompt))
+        guard let agent else {
+            client.send(.newSession(folder: folder, prompt: prompt))
+            return dismiss()
+        }
+
+        let checkout: RemoteCheckout? = offersWorktree ? (usesWorktree ? .worktree : .main) : nil
+        client.send(.startSession(RemoteSessionStart(folder: folder, prompt: prompt, agent: agent.id, checkout: checkout)))
         dismiss()
     }
 }
