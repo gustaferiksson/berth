@@ -217,6 +217,12 @@ final class RemoteServer {
         case let .startSession(start):
             Task { await startSession(start, from: connection) }
 
+        case .inbox:
+            Task { await sendInbox(to: connection) }
+
+        case let .startItem(kind, repository, number):
+            Task { await startItem(kind, repository: repository, number: number, from: connection) }
+
         case .launchOptions:
             send(try? JSONEncoder().encode(RemoteServerMessage.launchOptions(launchOptions)), to: connection)
 
@@ -534,7 +540,7 @@ final class RemoteServer {
             RemoteGroup(id: "archived", title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
         ]
         let groups = [attention] + active + triage + layout.groups.map(section) + hidden
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteLaunchOptions.feature] + usageFeatures)
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteLaunchOptions.feature, RemoteInbox.feature] + usageFeatures)
     }
 
     #if DEBUG
@@ -720,6 +726,68 @@ final class RemoteServer {
             RemoteLaunchAgent(id: agent.rawValue, name: agent.name, asset: agent.harness.asset, worktreeFolders: folders.filter { Store.canStartInWorktree(agent, in: $0) })
         }
         return RemoteLaunchOptions(agents: agents, defaultAgent: Store.defaultAgent.rawValue, startsInWorktree: UserDefaults.standard.bool(forKey: GeneralSettings.worktreeKey))
+    }
+
+    private var inboxMessage: RemoteInbox {
+        let pullRequests = store.inbox.map { inbox in
+            PullRequestInbox.rank("", in: inbox, now: .now).pullRequests.map { pullRequest in
+                RemoteInboxItem(kind: .pullRequest, repository: pullRequest.repository, number: pullRequest.number, title: pullRequest.title, group: pullRequest.role.title, isOpenable: store.opening(of: PullRequestLink(repository: pullRequest.repository, number: pullRequest.number)).isOpenable, updatedAt: pullRequest.updatedAt, author: pullRequest.author, branch: pullRequest.branch, isDraft: pullRequest.isDraft, checks: pullRequest.checks?.rawValue)
+            }
+        }
+        let issues = store.issueInbox.map { inbox in
+            IssueInbox.rank("", in: inbox, now: .now).issues.map { issue in
+                RemoteInboxItem(kind: .issue, repository: issue.repository, number: issue.number, title: issue.title, group: issue.role.title, isOpenable: issue.openPullRequestCount > 0 || store.localCheckout(of: issue.repository) != nil, updatedAt: issue.updatedAt, author: issue.author)
+            }
+        }
+        return RemoteInbox(pullRequests: pullRequests, issues: issues)
+    }
+
+    private func sendInbox(to connection: NWConnection) async {
+        store.refreshInbox()
+        store.refreshIssueInbox()
+        for _ in 0..<40 where (store.inbox == nil && store.isInboxLoading) || (store.issueInbox == nil && store.isIssueInboxLoading) {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        send(try? JSONEncoder().encode(RemoteServerMessage.inbox(inboxMessage)), to: connection)
+    }
+
+    private func startItem(_ kind: RemoteInboxItem.Kind, repository: String, number: Int, from connection: NWConnection) async {
+        let notice = await kind == .pullRequest ? startPullRequest(repository: repository, number: number) : startIssue(repository: repository, number: number)
+        guard let notice else { return }
+
+        send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: notice)), to: connection)
+    }
+
+    private func startPullRequest(repository: String, number: Int) -> String? {
+        guard let pullRequest = store.inbox?.first(where: { $0.repository == repository && $0.number == number }) else { return "That pull request is no longer in your list" }
+
+        let link = PullRequestLink(repository: pullRequest.repository, number: pullRequest.number)
+        let opening = store.opening(of: link)
+        guard opening.isOpenable else { return "No local checkout of \(repository)" }
+
+        return store.openPullRequest(link, url: pullRequest.url, opening: opening) ? nil : "Couldn’t open the pull request"
+    }
+
+    private func startIssue(repository: String, number: Int) async -> String? {
+        guard let issue = store.issueInbox?.first(where: { $0.repository == repository && $0.number == number }), let reference = IssueReference.parse(issue.id) else { return "That issue is no longer in your list" }
+
+        let result = await Task.detached { PullRequestStatus.linkedPullRequests(issue: reference) }.value
+        guard case let .success(linked) = result else { return "Couldn’t look up the issue with the GitHub CLI (gh)" }
+        guard !linked.isEmpty else {
+            guard store.localCheckout(of: repository) != nil else { return "No local checkout of \(repository)" }
+
+            store.startIssueSession(repository: repository, number: number, url: issue.url, title: issue.title)
+            return nil
+        }
+
+        let openable = linked.filter { store.opening(of: $0.link).isOpenable }
+        guard !openable.isEmpty else { return "No local checkout of \(repository)" }
+
+        var selectsTab = true
+        for pullRequest in openable where store.openPullRequest(pullRequest.link, url: pullRequest.url, opening: store.opening(of: pullRequest.link), selectsTab: selectsTab) {
+            selectsTab = false
+        }
+        return selectsTab ? "Couldn’t open the linked pull requests" : nil
     }
 
     private func startSession(_ start: RemoteSessionStart, from connection: NWConnection) async {
