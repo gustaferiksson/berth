@@ -5,4 +5,10 @@ public enum NeedsYou {
         let entered = previous.map { previous in needsYou.filter { !previous.contains($0.sessionId) } } ?? []
         return (Set(waiting.map(\.sessionId)), Set(needsYou.map(\.sessionId)), entered)
     }
+
+    public static func finished(previousBusy: Set<String>?, live: [LiveSession], inBerth: Set<String>) -> (busy: Set<String>, finished: [LiveSession]) {
+        let busy = Set(live.filter { $0.status == "busy" }.map(\.sessionId))
+        let finished = previousBusy.map { previous in live.filter { previous.contains($0.sessionId) && $0.status != "busy" && $0.status != "waiting" && inBerth.contains($0.sessionId) } } ?? []
+        return (busy, finished)
+    }
 }
