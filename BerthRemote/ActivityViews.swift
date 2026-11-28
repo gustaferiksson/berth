@@ -1,6 +1,10 @@
 import SwiftUI
 
 extension RemoteTask {
+    var stopTitle: LocalizedStringKey {
+        kind == Self.shell ? "Stop Shell" : kind == Self.monitor ? "Stop Monitor" : "Stop Subagent"
+    }
+
     var stats: Text? {
         guard let toolCount else { return nil }
 
@@ -73,6 +77,7 @@ struct RunningSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var path: [String]
     @State private var detent = PresentationDetent.medium
+    @State private var stopping: RemoteTask?
 
     init(sessionID: String, taskID: String? = nil) {
         self.sessionID = sessionID
@@ -83,13 +88,21 @@ struct RunningSheet: View {
 
     var body: some View {
         let tasks = client.activity[sessionID]?.tasks ?? []
+        let canStop = client.features.contains(RemoteTaskStopFeature.name)
 
         NavigationStack(path: $path) {
             List(tasks) { task in
                 NavigationLink(value: task.id) {
                     TaskRow(task: task)
                 }
+                .swipeActions {
+                    if canStop {
+                        Button(task.stopTitle, systemImage: "stop.fill") { stopping = task }
+                            .tint(.red)
+                    }
+                }
             }
+            .stopConfirmation($stopping) { client.stopTask($0.id, in: sessionID) }
             .overlay {
                 if tasks.isEmpty {
                     ContentUnavailableView("Nothing Running", systemImage: "checkmark.circle", description: Text("Subagents, background shells and monitors show here while they run."))
@@ -108,6 +121,9 @@ struct RunningSheet: View {
             }
         }
         .presentationDetents([.medium, .large], selection: $detent)
+        #if DEBUG
+        .onAppear { if UserDefaults.standard.bool(forKey: "snapshotStopConfirm"), path.isEmpty { stopping = tasks.first } }
+        #endif
         .onChange(of: path.isEmpty) { _, isEmpty in
             if !isEmpty { detent = .large }
         }
@@ -155,6 +171,16 @@ private struct TaskRow: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+private extension View {
+    func stopConfirmation(_ task: Binding<RemoteTask?>, stop: @escaping (RemoteTask) -> Void) -> some View {
+        confirmationDialog(task.wrappedValue?.stopTitle ?? "Stop", isPresented: Binding(get: { task.wrappedValue != nil }, set: { if !$0 { task.wrappedValue = nil } }), titleVisibility: .visible, presenting: task.wrappedValue) { task in
+            Button(task.stopTitle, role: .destructive) { stop(task) }
+        } message: { task in
+            Text(task.kind == RemoteTask.shell ? "This ends the command on your Mac." : "This ends the \(task.kind == RemoteTask.monitor ? "monitor" : "subagent") in this session.")
         }
     }
 }
@@ -244,6 +270,7 @@ private struct TaskDetailView: View {
 
     @Environment(RemoteClient.self) private var client
     @State private var expanded: Set<String> = []
+    @State private var stopping: RemoteTask?
 
     var body: some View {
         let task = client.activity[sessionID]?.tasks.first { $0.id == taskID }
@@ -251,11 +278,17 @@ private struct TaskDetailView: View {
         let canFetch = client.features.contains(RemoteTaskDetail.feature)
         let rows = ToolRow.rows(detail?.calls ?? [])
         let isShell = task?.kind == RemoteTask.shell || (task == nil && detail?.output != nil)
+        let canStop = client.features.contains(RemoteTaskStopFeature.name)
 
         ScrollViewReader { proxy in
             List {
                 Section {
                     header(task)
+                }
+                if let task, canStop {
+                    Section {
+                        Button(task.stopTitle, role: .destructive) { stopping = task }
+                    }
                 }
                 if let task, let command = task.command, command != task.title {
                     Section("Command") {
@@ -310,6 +343,10 @@ private struct TaskDetailView: View {
         }
         .navigationTitle(task?.title ?? "Finished")
         .navigationBarTitleDisplayMode(.inline)
+        .stopConfirmation($stopping) { client.stopTask($0.id, in: sessionID) }
+        #if DEBUG
+        .onAppear { if UserDefaults.standard.bool(forKey: "snapshotStopConfirm") { stopping = task } }
+        #endif
         .task {
             while !Task.isCancelled, task?.kind != RemoteTask.monitor {
                 client.requestTaskDetail(taskID, in: sessionID)

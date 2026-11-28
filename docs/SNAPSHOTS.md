@@ -224,7 +224,7 @@ Moved out of the feature notes they came from.
 
 ### Remote
 
-Phone: `-snapshotRunning YES` / `-snapshotContext YES` open the sheets.
+Phone: `-snapshotRunning YES` / `-snapshotContext YES` open the sheets. With `-snapshotDemo YES`, `-snapshotDemoTasks YES` seeds a shell, a subagent and a monitor with the stop feature on, and `-snapshotStopConfirm YES` presents the Stop confirmation (list, or detail with `-snapshotRunningTask <id>`: `bg-shell`, `bg-agent`, `bg-monitor`).
 
 Snapshot hook: `-snapshotRemote YES -remoteEnabled YES -remoteToken <t>`, plus `-snapshotRemotePort <p>` (Debug only) so it doesn't collide with a running Berth on 7878; `-snapshotFakeStatus YES -snapshotHarbor YES` gives the faked sessions tabs, so they aren't read-only; with `-snapshotRemote` it also fakes an idle session in a tab and one locked elsewhere, and `-snapshotRemoteLog /abs/file` makes those tabs `tee -a` into that file instead of running zsh, so sent prompts can be asserted.
 

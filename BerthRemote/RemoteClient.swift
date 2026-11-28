@@ -202,6 +202,12 @@ final class RemoteClient {
             }
             entries[session.id]?.append(RemoteEntry(id: "prompt-image", kind: .prompt, text: "[Image #1]", images: [image], imageNumbers: [1]))
         }
+        let tasks = UserDefaults.standard.bool(forKey: "snapshotDemoTasks") ? [
+            RemoteTask(id: "bg-shell", kind: RemoteTask.shell, title: "Watch the build", started: now.addingTimeInterval(-340), command: "npm run watch"),
+            RemoteTask(id: "bg-agent", kind: RemoteTask.agent, title: "Audit the import checks", started: now.addingTimeInterval(-95), agentType: "Explore", toolCount: 12, tokens: 31_400, call: RemoteToolCall(name: "Grep", summary: "validateImport")),
+            RemoteTask(id: "bg-monitor", kind: RemoteTask.monitor, title: "Tail the deploy log", started: now.addingTimeInterval(-600)),
+        ] : []
+        if !tasks.isEmpty { features.append(RemoteTaskStopFeature.name) }
         if isAsking {
             let questions = #"{"questions":[{"header":"Format","question":"Which format should the export use?","multiSelect":false,"options":[{"label":"CSV","description":"Opens in any spreadsheet"},{"label":"JSON","description":"Keeps nested fields"}]},{"header":"Fields","question":"Which fields should it include?","multiSelect":true,"options":[{"label":"Name","description":"The display name"},{"label":"Email","description":"The contact address"},{"label":"Plan","description":"The subscription tier"}]}]}"#
             entries[session.id]?.append(RemoteEntry(id: "tool-questions", kind: .toolUse, text: questions, toolID: "toolu_questions", name: "AskUserQuestion"))
@@ -209,7 +215,7 @@ final class RemoteClient {
         }
         let mode = UserDefaults.standard.string(forKey: "snapshotDemoMode")
         if mode != nil { features.append(RemotePermissionModeFeature.name) }
-        activity[session.id] = RemoteActivity(tasks: [], context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"), permissionMode: mode)
+        activity[session.id] = RemoteActivity(tasks: tasks, context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"), permissionMode: mode)
         let resets = Date.now.addingTimeInterval(3 * 3600)
         usage = PlanUsage(windows: [
             UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: resets),
@@ -360,6 +366,12 @@ final class RemoteClient {
         guard features.contains(RemoteTaskDetail.feature) else { return }
 
         send(.taskDetail(sessionID: sessionID, taskID: taskID))
+    }
+
+    func stopTask(_ taskID: String, in sessionID: String) {
+        guard features.contains(RemoteTaskStopFeature.name) else { return }
+
+        send(.stopTask(sessionID: sessionID, taskID: taskID))
     }
 
     func loadPullRequest(of sessionID: String) {
