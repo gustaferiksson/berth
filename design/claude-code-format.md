@@ -42,6 +42,8 @@ Completion can arrive in a `<task-notification>` on an enqueue operation, a queu
 
 A Code Mode `REPL` call is answered at once with `(dispatched #N)`; the eval's output arrives later, as a queue-operation enqueue or a tool_result carrying `<event kind="repl-eval" eval="N">`. Berth counts the script as running (`eval-N`, titled by the call's `description`) from the dispatch until that event. A script whose shell command outlives its timeout prints `It went on as task <id>, writing to <path>.output` in that event; Berth then tracks the shell as a task until its task-notification or until no process holds the file. The repository documents no callable CLI interface for stopping an individual task by ID from Berth.
 
+A `!` command sent while the session is busy is queued like a prompt: a `queue-operation` enqueue whose `content` is the bare command in current Claude Code (`! cmd` in older versions), with no field marking it as bash mode. The `<bash-input>` user record arrives at the dequeue. Berth therefore knows a queued item is a shell command only from its own pending prompt (kept across the Conversation view's stop and start) or a leading `!`; it shows it as a shell row reading "Queued".
+
 An agent transcript lives at `<sessionId>/subagents/agent-<agentId>.jsonl`. Its sibling `.meta.json` can identify the launch via `toolUseId` or record completion via `finished` and `stoppedByUser`. Log writes more than five seconds after completion metadata suggest the agent resumed. The Tasks pane uses the current live process start time to mark unfinished history from an earlier process as Finished.
 
 
