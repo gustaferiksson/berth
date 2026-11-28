@@ -15,7 +15,15 @@ final class RemotePush {
         let isSandbox: Bool
     }
 
+    private struct Activity {
+        let device: Device
+        let registeredAt: Date
+        var last: LiveActivityState.Status
+        var hasBeenActive = false
+    }
+
     private(set) var devices: [Device]
+    @ObservationIgnored private var activities: [String: Activity] = [:]
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var cachedJWT: (value: String, identity: String, issuedAt: Date)?
 
@@ -40,6 +48,41 @@ final class RemotePush {
 
         devices = Array((devices.filter { $0.token != device.token } + [device]).suffix(APNs.maxDevices))
         save()
+    }
+
+    func registerActivity(sessionID: String, token: String, isSandbox: Bool) {
+        guard APNs.isValidDeviceToken(token) else { return }
+
+        let device = Device(token: token.lowercased(), isSandbox: isSandbox)
+        let previous = activities[sessionID]
+        activities[sessionID] = Activity(device: device, registeredAt: previous?.registeredAt ?? .now, last: previous?.last ?? .working, hasBeenActive: previous?.hasBeenActive ?? false)
+        syncActivities()
+    }
+
+    func endActivity(sessionID: String) {
+        activities[sessionID] = nil
+    }
+
+    func syncActivities() {
+        guard !activities.isEmpty else { return }
+
+        for (sessionID, activity) in activities {
+            let live = store.liveBySession[sessionID]
+            let current = LiveActivityState(sessionStatus: live?.status, statusUpdatedAt: live?.statusUpdatedAt, turnStart: store.turnStarts[sessionID], now: .now)
+            let step = LiveActivityStep.next(current: current, last: activity.last, hasBeenActive: activity.hasBeenActive, age: Date.now.timeIntervalSince(activity.registeredAt))
+            if current != nil { activities[sessionID]?.hasBeenActive = true }
+            switch step {
+            case .keep: continue
+
+            case let .update(state):
+                activities[sessionID]?.last = state.status
+                sendActivity(.update, state, sessionID: sessionID, to: activity.device)
+
+            case .end:
+                activities[sessionID] = nil
+                sendActivity(.end, LiveActivityState(status: .finished, since: Date.now.timeIntervalSince1970), sessionID: sessionID, to: activity.device)
+            }
+        }
     }
 
     func notify(_ alert: PushAlert, sessionID: String, title: String) {
@@ -76,6 +119,21 @@ final class RemotePush {
             outcomes.append(outcome)
         }
         return outcomes
+    }
+
+    private func sendActivity(_ event: LiveActivityEvent, _ state: LiveActivityState, sessionID: String, to device: Device) {
+        if Self.logsInsteadOfSending { print("would push live activity \(sessionID): \(event.rawValue) \(state.status.rawValue)") }
+        guard !Self.logsInsteadOfSending, isConfigured, let jwt = providerToken() else { return }
+
+        Task {
+            guard let request = try? APNs.liveActivityRequest(deviceToken: device.token, isSandbox: device.isSandbox, jwt: jwt, event: event, state: state, now: .now),
+                  let (data, response) = try? await URLSession.shared.data(for: request)
+            else { return }
+
+            let outcome = APNs.outcome(statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0, body: data)
+            if outcome == .unregistered { activities[sessionID] = nil }
+            if case let .rejected(reason) = outcome, reason.hasSuffix("ProviderToken") { cachedJWT = nil }
+        }
     }
 
     private func send(_ alert: PushAlert, sessionID: String, title: String, jwt: String, to device: Device) async -> APNsOutcome {

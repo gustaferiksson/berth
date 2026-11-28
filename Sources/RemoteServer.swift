@@ -275,6 +275,12 @@ final class RemoteServer {
         case let .pushToken(token, isSandbox):
             push.register(token: token, isSandbox: isSandbox)
 
+        case let .liveActivityToken(sessionID, token, isSandbox):
+            push.registerActivity(sessionID: sessionID, token: token, isSandbox: isSandbox)
+
+        case let .liveActivityEnded(sessionID):
+            push.endActivity(sessionID: sessionID)
+
         case let .commands(sessionID):
             Task { await sendCommands(of: sessionID, to: connection) }
 
@@ -607,7 +613,7 @@ final class RemoteServer {
             RemoteGroup(id: RemoteTriageFeature.doneGroupID, title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
         ]
         let groups = [attention] + active + triage + layout.groups.map(section) + hidden
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTaskStopFeature.name, RemoteTriageFeature.name, RemoteQuestionsFeature.name, RemotePermissionModeFeature.name, RemoteLaunchOptions.feature, RemoteInbox.feature] + usageFeatures + (isPushConfigured ? [RemotePushFeature.name] : []))
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTaskStopFeature.name, RemoteTriageFeature.name, RemoteQuestionsFeature.name, RemotePermissionModeFeature.name, RemoteLaunchOptions.feature, RemoteInbox.feature] + usageFeatures + (isPushConfigured ? [RemotePushFeature.name, RemoteLiveActivityFeature.name] : []))
     }
 
     #if DEBUG
