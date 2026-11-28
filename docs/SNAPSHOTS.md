@@ -232,7 +232,7 @@ Add `-snapshotDemoCode YES` to append a fenced code block with one long line and
 
 On the Mac, run Berth with `-snapshotRemoteSections /abs/out.json -snapshotBusySidebar YES` to write the seeded sidebar sections as wire-format JSON and exit. In the iOS simulator, launch Berth Remote with `-snapshotDemoSectionsFile /abs/in.json` pointing to the exported file to open it in the demo session list.
 
-Add `-snapshotDemoSlashCommands YES` to seed `/co` and sample project and user commands. Capture each appearance with `xcrun simctl io booted screenshot /abs/out.png` after setting it with `xcrun simctl ui booted appearance light|dark`.
+Add `-snapshotDemoSubagent YES` to seed a running Explore agent with an invented transcript; with `-snapshotRunning YES -snapshotRunningTask demo-agent` the Running sheet opens its detail, and `-snapshotSubagentTranscript YES` pushes the Full Transcript view. Add `-snapshotDemoSlashCommands YES` to seed `/co` and sample project and user commands. Capture each appearance with `xcrun simctl io booted screenshot /abs/out.png` after setting it with `xcrun simctl ui booted appearance light|dark`.
 
 ### Glass (see docs/adr/0005)
 
