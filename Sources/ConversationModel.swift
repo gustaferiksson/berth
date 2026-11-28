@@ -397,7 +397,7 @@ final class ConversationModel {
         needsRead = false
         openSubagent = nil
         notice = nil
-        pending.removeAll()
+        pending.removeAll { $0.shellCommand == nil }
         shellTasks.removeAll()
         pickedModel = nil
         pickedEffort = nil

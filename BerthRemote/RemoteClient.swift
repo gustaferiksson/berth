@@ -66,10 +66,13 @@ final class RemoteClient {
             guard state != .connected else { return }
 
             activity = [:]
+            launchOptions = nil
+            inbox = nil
             pullRequests = [:]
             changes = [:]
             diffs = [:]
             taskDetails = [:]
+            subagentTranscripts = [:]
             slashCommands = [:]
             requestedSlashCommands = []
             images = images.filter { if case .loaded = $0.value { true } else { false } }
@@ -79,6 +82,8 @@ final class RemoteClient {
 
     private(set) var groups: [RemoteGroup] = []
     private(set) var folders: [String] = []
+    private(set) var launchOptions: RemoteLaunchOptions?
+    private(set) var inbox: RemoteInbox?
     private(set) var entries: [String: [RemoteEntry]] = [:]
     private(set) var queued: [String: [String]] = [:]
     private(set) var pending: [String: [PendingPrompt]] = [:]
@@ -88,6 +93,7 @@ final class RemoteClient {
     private(set) var changes: [String: ChangesLoad] = [:]
     private(set) var diffs: [ChangeKey: DiffLoad] = [:]
     private(set) var taskDetails: [String: RemoteTaskDetail] = [:]
+    private(set) var subagentTranscripts: [String: [RemoteEntry]] = [:]
     private(set) var features: [String] = []
     private(set) var slashCommands: [String: [SlashCommand]] = [:]
     private(set) var usage: PlanUsage?
@@ -156,11 +162,39 @@ final class RemoteClient {
     #if DEBUG
     private static let demoSectionsFile = UserDefaults.standard.string(forKey: "snapshotDemoSectionsFile")
     static let isDemo = UserDefaults.standard.bool(forKey: "snapshotDemo") || demoSectionsFile != nil
+    static let demoNewSessionScope = UserDefaults.standard.string(forKey: "snapshotDemoNewSessionScope")
+    static let showsDemoNewSession = UserDefaults.standard.bool(forKey: "snapshotDemoNewSession")
     static let showsDemoList = UserDefaults.standard.bool(forKey: "snapshotDemoList") || demoSectionsFile != nil
 
     func seedDemo() {
         state = .connected
-        features = [RemoteTriageFeature.name]
+        features = [RemoteTriageFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name]
+        if Self.showsDemoNewSession {
+            let folders = ["/Projects/fieldnotes", "/Projects/atlas-api", "/Projects/tidewater"]
+            self.folders = folders
+            features.append(RemoteLaunchOptions.feature)
+            launchOptions = RemoteLaunchOptions(
+                agents: [
+                    RemoteLaunchAgent(id: "claude", name: "Claude", asset: "HarnessClaude", worktreeFolders: Array(folders.prefix(2))),
+                    RemoteLaunchAgent(id: "codex", name: "Codex", asset: "HarnessCodex", worktreeFolders: Array(folders.prefix(1))),
+                ],
+                defaultAgent: "claude",
+                startsInWorktree: true
+            )
+            features.append(RemoteInbox.feature)
+            let updated = Date.now.addingTimeInterval(-3600)
+            inbox = RemoteInbox(
+                pullRequests: [
+                    RemoteInboxItem(kind: .pullRequest, repository: "acme/fieldnotes", number: 142, title: "Keep the activity feed anchored when a new entry arrives", group: "Review Requested", isOpenable: true, updatedAt: updated, author: "mara", branch: "fix/anchor-feed", isDraft: false, checks: "passed"),
+                    RemoteInboxItem(kind: .pullRequest, repository: "acme/atlas-api", number: 67, title: "Sketch the offline cache", group: "Review Requested", isOpenable: false, updatedAt: updated, author: "jun", branch: "draft/offline-cache", isDraft: true, checks: "running"),
+                    RemoteInboxItem(kind: .pullRequest, repository: "acme/fieldnotes", number: 139, title: "Rank journal search by tag", group: "Mine", isOpenable: true, updatedAt: updated, author: "you", branch: "feature/rank-search", isDraft: false, checks: "failed"),
+                ],
+                issues: [
+                    RemoteInboxItem(kind: .issue, repository: "acme/fieldnotes", number: 377, title: "Export fails for entries with attachments", group: "Assigned to you", isOpenable: true, updatedAt: updated, author: "mara"),
+                    RemoteInboxItem(kind: .issue, repository: "acme/tidewater", number: 21, title: "Tide chart labels overlap", group: "Mentioned", isOpenable: true, updatedAt: updated, author: "jun"),
+                ]
+            )
+        }
         if let file = Self.demoSectionsFile {
             do {
                 groups = try JSONDecoder().decode([RemoteGroup].self, from: Data(contentsOf: URL(filePath: file)))
@@ -207,6 +241,24 @@ final class RemoteClient {
             }
             entries[session.id]?.append(RemoteEntry(id: "prompt-image", kind: .prompt, text: "[Image #1]", images: [image], imageNumbers: [1]))
         }
+        let agentTasks = UserDefaults.standard.bool(forKey: "snapshotDemoSubagent") ? [RemoteTask(id: "demo-agent", kind: RemoteTask.agent, title: "Audit the feed rows", started: now.addingTimeInterval(-95), agentType: "Explore", toolCount: 3, tokens: 18_400)] : []
+        if !agentTasks.isEmpty {
+            taskDetails["demo-agent"] = RemoteTaskDetail(calls: [RemoteToolCall(name: "Grep", summary: "ForEach in Sources/Feed"), RemoteToolCall(name: "Read", summary: "Sources/Feed/FeedRow.swift")], reply: "Rows are keyed by position.")
+            subagentTranscripts["demo-agent"] = [
+                RemoteEntry(id: "sub-prompt", kind: .prompt, text: "Audit how the feed rows are identified and report anything that depends on their position."),
+                RemoteEntry(id: "sub-use-1", kind: .toolUse, text: "{\"pattern\":\"ForEach\"}", toolID: "t1", name: "Grep", detail: "ForEach in Sources/Feed"),
+                RemoteEntry(id: "sub-result-1", kind: .toolResult, text: "Sources/Feed/EntryList.swift:42:    ForEach(entries.indices, id: \\.self) { index in", toolID: "t1"),
+                RemoteEntry(id: "sub-use-2", kind: .toolUse, text: "{\"file_path\":\"Sources/Feed/FeedRow.swift\"}", toolID: "t2", name: "Read", filePath: "Sources/Feed/FeedRow.swift"),
+                RemoteEntry(id: "sub-result-2", kind: .toolResult, text: "struct FeedRow: View { let index: Int }", toolID: "t2"),
+                RemoteEntry(id: "sub-reply", kind: .reply, text: "Rows are identified by their index in EntryList.swift, so inserting an entry at the top gives every visible row a new identity. FeedRow also stores its index, which would need to become the entry ID."),
+            ]
+        }
+        let tasks = UserDefaults.standard.bool(forKey: "snapshotDemoTasks") ? [
+            RemoteTask(id: "bg-shell", kind: RemoteTask.shell, title: "Watch the build", started: now.addingTimeInterval(-340), command: "npm run watch"),
+            RemoteTask(id: "bg-agent", kind: RemoteTask.agent, title: "Audit the import checks", started: now.addingTimeInterval(-95), agentType: "Explore", toolCount: 12, tokens: 31_400, call: RemoteToolCall(name: "Grep", summary: "validateImport")),
+            RemoteTask(id: "bg-monitor", kind: RemoteTask.monitor, title: "Tail the deploy log", started: now.addingTimeInterval(-600)),
+        ] : []
+        if !tasks.isEmpty { features.append(RemoteTaskStopFeature.name) }
         if isAsking {
             let questions = #"{"questions":[{"header":"Format","question":"Which format should the export use?","multiSelect":false,"options":[{"label":"CSV","description":"Opens in any spreadsheet"},{"label":"JSON","description":"Keeps nested fields"}]},{"header":"Fields","question":"Which fields should it include?","multiSelect":true,"options":[{"label":"Name","description":"The display name"},{"label":"Email","description":"The contact address"},{"label":"Plan","description":"The subscription tier"}]}]}"#
             entries[session.id]?.append(RemoteEntry(id: "tool-questions", kind: .toolUse, text: questions, toolID: "toolu_questions", name: "AskUserQuestion"))
@@ -214,7 +266,7 @@ final class RemoteClient {
         }
         let mode = UserDefaults.standard.string(forKey: "snapshotDemoMode")
         if mode != nil { features.append(RemotePermissionModeFeature.name) }
-        activity[session.id] = RemoteActivity(tasks: [], context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"), permissionMode: mode)
+        activity[session.id] = RemoteActivity(tasks: tasks + agentTasks, context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"), permissionMode: mode)
         let resets = Date.now.addingTimeInterval(3 * 3600)
         usage = PlanUsage(windows: [
             UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: resets),
@@ -386,6 +438,18 @@ final class RemoteClient {
         send(.taskDetail(sessionID: sessionID, taskID: taskID))
     }
 
+    func requestSubagentTranscript(_ taskID: String, in sessionID: String) {
+        guard features.contains(RemoteSubagentTranscriptFeature.name) else { return }
+
+        send(.subagentTranscript(sessionID: sessionID, taskID: taskID))
+    }
+
+    func stopTask(_ taskID: String, in sessionID: String) {
+        guard features.contains(RemoteTaskStopFeature.name) else { return }
+
+        send(.stopTask(sessionID: sessionID, taskID: taskID))
+    }
+
     func loadPullRequest(of sessionID: String) {
         send(.pullRequest(sessionID: sessionID))
     }
@@ -399,6 +463,18 @@ final class RemoteClient {
 
     func loadChanges(of sessionID: String) {
         send(.changes(sessionID: sessionID))
+    }
+
+    func loadLaunchOptions() {
+        guard features.contains(RemoteLaunchOptions.feature) else { return }
+
+        send(.launchOptions)
+    }
+
+    func loadInbox() {
+        guard features.contains(RemoteInbox.feature) else { return }
+
+        send(.inbox)
     }
 
     func loadSlashCommands(for sessionID: String) {
@@ -635,6 +711,9 @@ final class RemoteClient {
         case let .taskDetail(_, taskID, detail):
             taskDetails[taskID] = detail
 
+        case let .subagentTranscript(_, taskID, entries):
+            subagentTranscripts[taskID] = entries ?? []
+
         case let .uploaded(id, error):
             uploads[id] = error.map(UploadState.failed) ?? .done
 
@@ -658,6 +737,12 @@ final class RemoteClient {
 
         case let .commands(sessionID, commands):
             slashCommands[sessionID] = commands.map { SlashCommand($0) }
+
+        case let .launchOptions(options):
+            launchOptions = options
+
+        case let .inbox(inbox):
+            self.inbox = inbox
 
         case let .codexUsage(usage):
             if features.contains(RemoteCodexUsageFeature.name) { codexUsage = usage }

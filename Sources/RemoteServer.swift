@@ -215,7 +215,19 @@ final class RemoteServer {
             Task { await change(setting, from: current, in: sessionID, from: connection) }
 
         case let .newSession(folder, prompt):
-            Task { await startSession(in: folder, prompt: prompt, from: connection) }
+            Task { await startSession(RemoteSessionStart(folder: folder, prompt: prompt), from: connection) }
+
+        case let .startSession(start):
+            Task { await startSession(start, from: connection) }
+
+        case .inbox:
+            Task { await sendInbox(to: connection) }
+
+        case let .startItem(kind, repository, number):
+            Task { await startItem(kind, repository: repository, number: number, from: connection) }
+
+        case .launchOptions:
+            send(try? JSONEncoder().encode(RemoteServerMessage.launchOptions(launchOptions)), to: connection)
 
         case let .session(sessionID, action):
             perform(action, on: sessionID, from: connection)
@@ -265,6 +277,42 @@ final class RemoteServer {
 
         case let .commands(sessionID):
             Task { await sendCommands(of: sessionID, to: connection) }
+
+        case let .subagentTranscript(sessionID, taskID):
+            Task { await sendSubagentTranscript(taskID, in: sessionID, to: id) }
+
+        case let .stopTask(sessionID, taskID):
+            Task { await stopTask(taskID, in: sessionID, from: id) }
+        }
+    }
+
+    private func stopTask(_ taskID: String, in sessionID: String, from id: ObjectIdentifier) async {
+        guard let connection = clients[id]?.connection, clients[id]?.sessionID == sessionID else { return }
+
+        let notify = { (message: String) in self.send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection) }
+        let agent = store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude
+        guard agent.harness.usesTranscriptActivity else { return notify("Tasks can’t be stopped from here for \(agent.harness.name) sessions") }
+
+        let tasks = await store.backgroundTasks(ofSession: sessionID)
+        guard let task = tasks.first(where: { ($0.id == taskID || $0.toolUseID == taskID) && $0.status == .running }) else { return notify("That task already finished") }
+
+        if task.kind == .shell {
+            guard await store.stopShell(task, in: sessionID) else { return notify("Berth can’t identify this shell’s process, so it wasn’t stopped") }
+
+            return
+        }
+        switch store.subagentStop(for: task, in: sessionID, among: tasks) {
+        case .subagent, .monitor:
+            let isStopped = { self.clients[id]?.sentActivity?.tasks.contains { $0.id == task.id || $0.toolUseID == task.id } != true }
+            guard case let .refused(message) = await store.stopSubagentThroughTasksDialog(task, in: sessionID, among: tasks, isStopped: isStopped) else { return }
+
+            notify(message)
+
+        case .turn:
+            notify("Claude is working, so this can’t be stopped on its own. Interrupt the session to stop the whole turn.")
+
+        case nil:
+            notify("This \(task.kind == .monitor ? "monitor" : "subagent") can’t be stopped from here right now")
         }
     }
 
@@ -418,6 +466,28 @@ final class RemoteServer {
         send(try? JSONEncoder().encode(RemoteServerMessage.taskDetail(sessionID: sessionID, taskID: taskID, detail: detail)), to: connection)
     }
 
+    private func sendSubagentTranscript(_ taskID: String, in sessionID: String, to id: ObjectIdentifier) async {
+        guard let client = clients[id], client.sessionID == sessionID, let transcript = client.transcript else { return }
+
+        let agent = store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude
+        let harness = agent.harness
+        let root = store.sessionIndex(for: agent).root
+        let entries = await Task.detached { () -> [RemoteEntry]? in
+            guard let subagent = harness.locateSubagent(root, transcript, taskID, nil),
+                  let chunk = harness.readSubagentTranscript(subagent.url, nil, [])
+            else { return nil }
+
+            return RemoteSubagentTranscriptFeature.fitting(chunk.entries.map { entry in
+                var entry = entry
+                entry.imageRefs = nil
+                return entry
+            })
+        }.value
+        guard let connection = clients[id]?.connection else { return }
+
+        send(try? JSONEncoder().encode(RemoteServerMessage.subagentTranscript(sessionID: sessionID, taskID: taskID, entries: entries)), to: connection)
+    }
+
     private func receiveUpload(_ uploadID: String, name: String, offset: Int, chunk: Data, isLast: Bool, from connection: NWConnection) {
         let fail = { (message: String) in self.send(try? JSONEncoder().encode(RemoteServerMessage.uploaded(id: uploadID, error: message)), to: connection) }
         guard let id = UUID(uuidString: uploadID)?.uuidString else { return fail("The upload had an invalid id") }
@@ -537,7 +607,7 @@ final class RemoteServer {
             RemoteGroup(id: RemoteTriageFeature.doneGroupID, title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
         ]
         let groups = [attention] + active + triage + layout.groups.map(section) + hidden
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTriageFeature.name, RemoteQuestionsFeature.name, RemotePermissionModeFeature.name] + usageFeatures + (isPushConfigured ? [RemotePushFeature.name] : []))
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTaskStopFeature.name, RemoteTriageFeature.name, RemoteQuestionsFeature.name, RemotePermissionModeFeature.name, RemoteLaunchOptions.feature, RemoteInbox.feature] + usageFeatures + (isPushConfigured ? [RemotePushFeature.name] : []))
     }
 
     #if DEBUG
@@ -739,16 +809,100 @@ final class RemoteServer {
         }
     }
 
-    private func startSession(in folder: String, prompt: String, from connection: NWConnection) async {
-        guard store.knownFolders.contains(where: { $0.path == folder }), FileManager.default.fileExists(atPath: folder) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown folder")), to: connection) }
+    private var launchOptions: RemoteLaunchOptions {
+        let folders = store.knownFolders.prefix(30).map(\.path)
+        let agents = Agent.allCases.filter { Store.isEnabled($0) && $0.harness.supports(.remote) }.map { agent in
+            RemoteLaunchAgent(id: agent.rawValue, name: agent.name, asset: agent.harness.asset, worktreeFolders: folders.filter { Store.canStartInWorktree(agent, in: $0) })
+        }
+        return RemoteLaunchOptions(agents: agents, defaultAgent: Store.defaultAgent.rawValue, startsInWorktree: UserDefaults.standard.bool(forKey: GeneralSettings.worktreeKey))
+    }
 
-        store.openSession(cwd: folder)
-        guard let sessionID = store.tabs.first(where: { $0.id == store.selectedTabID })?.sessionID else { return }
+    private var inboxMessage: RemoteInbox {
+        let pullRequests = store.inbox.map { inbox in
+            PullRequestInbox.rank("", in: inbox, now: .now).pullRequests.map { pullRequest in
+                RemoteInboxItem(kind: .pullRequest, repository: pullRequest.repository, number: pullRequest.number, title: pullRequest.title, group: pullRequest.role.title, isOpenable: store.opening(of: PullRequestLink(repository: pullRequest.repository, number: pullRequest.number)).isOpenable, updatedAt: pullRequest.updatedAt, author: pullRequest.author, branch: pullRequest.branch, isDraft: pullRequest.isDraft, checks: pullRequest.checks?.rawValue)
+            }
+        }
+        let issues = store.issueInbox.map { inbox in
+            IssueInbox.rank("", in: inbox, now: .now).issues.map { issue in
+                RemoteInboxItem(kind: .issue, repository: issue.repository, number: issue.number, title: issue.title, group: issue.role.title, isOpenable: issue.openPullRequestCount > 0 || store.localCheckout(of: issue.repository) != nil, updatedAt: issue.updatedAt, author: issue.author)
+            }
+        }
+        return RemoteInbox(pullRequests: pullRequests, issues: issues)
+    }
+
+    private func sendInbox(to connection: NWConnection) async {
+        store.refreshInbox()
+        store.refreshIssueInbox()
+        for _ in 0..<40 where (store.inbox == nil && store.isInboxLoading) || (store.issueInbox == nil && store.isIssueInboxLoading) {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        send(try? JSONEncoder().encode(RemoteServerMessage.inbox(inboxMessage)), to: connection)
+    }
+
+    private func startItem(_ kind: RemoteInboxItem.Kind, repository: String, number: Int, from connection: NWConnection) async {
+        let notice = await kind == .pullRequest ? startPullRequest(repository: repository, number: number) : startIssue(repository: repository, number: number)
+        guard let notice else { return }
+
+        send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: notice)), to: connection)
+    }
+
+    private func startPullRequest(repository: String, number: Int) -> String? {
+        guard let pullRequest = store.inbox?.first(where: { $0.repository == repository && $0.number == number }) else { return "That pull request is no longer in your list" }
+
+        let link = PullRequestLink(repository: pullRequest.repository, number: pullRequest.number)
+        let opening = store.opening(of: link)
+        guard opening.isOpenable else { return "No local checkout of \(repository)" }
+
+        return store.openPullRequest(link, url: pullRequest.url, opening: opening) ? nil : "Couldn’t open the pull request"
+    }
+
+    private func startIssue(repository: String, number: Int) async -> String? {
+        guard let issue = store.issueInbox?.first(where: { $0.repository == repository && $0.number == number }), let reference = IssueReference.parse(issue.id) else { return "That issue is no longer in your list" }
+
+        let result = await Task.detached { PullRequestStatus.linkedPullRequests(issue: reference) }.value
+        guard case let .success(linked) = result else { return "Couldn’t look up the issue with the GitHub CLI (gh)" }
+        guard !linked.isEmpty else {
+            guard store.localCheckout(of: repository) != nil else { return "No local checkout of \(repository)" }
+
+            store.startIssueSession(repository: repository, number: number, url: issue.url, title: issue.title)
+            return nil
+        }
+
+        let openable = linked.filter { store.opening(of: $0.link).isOpenable }
+        guard !openable.isEmpty else { return "No local checkout of \(repository)" }
+
+        var selectsTab = true
+        for pullRequest in openable where store.openPullRequest(pullRequest.link, url: pullRequest.url, opening: store.opening(of: pullRequest.link), selectsTab: selectsTab) {
+            selectsTab = false
+        }
+        return selectsTab ? "Couldn’t open the linked pull requests" : nil
+    }
+
+    private func startSession(_ start: RemoteSessionStart, from connection: NWConnection) async {
+        guard store.knownFolders.contains(where: { $0.path == start.folder }), FileManager.default.fileExists(atPath: start.folder) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown folder")), to: connection) }
+
+        let agent = start.agent.map { Agent(rawValue: $0) } ?? Store.defaultAgent
+        guard let agent, Store.isEnabled(agent), agent.harness.supports(.remote) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown agent")), to: connection) }
+
+        let checkout: NewSessionCheckout = switch start.checkout {
+        case .main: .main
+        case .worktree: .worktree
+        case nil: .preferred
+        }
+        guard let tabID = store.openSession(agent, cwd: start.folder, checkout: checkout) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "The folder is missing")), to: connection) }
+
+        var sessionID = store.tabs.first { $0.id == tabID }?.sessionID
+        for _ in 0..<50 where sessionID == nil {
+            try? await Task.sleep(for: .milliseconds(200))
+            sessionID = store.tabs.first { $0.id == tabID }?.sessionID
+        }
+        guard let sessionID else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "\(agent.name) is starting on your Mac")), to: connection) }
 
         send(try? JSONEncoder().encode(RemoteServerMessage.opened(sessionID: sessionID)), to: connection)
-        guard !prompt.isEmpty else { return }
+        guard !start.prompt.isEmpty else { return }
 
-        await submit(prompt, attachments: [], in: sessionID, from: connection)
+        await submit(start.prompt, attachments: [], in: sessionID, from: connection)
     }
 
     private func send(_ data: Data?, to connection: NWConnection) {

@@ -21,6 +21,7 @@ struct SessionListView: View {
 
     @State private var isStartingSession = false
     @State private var query = UserDefaults.standard.string(forKey: "snapshotQuery") ?? ""
+    @State private var status = SessionStatusFilter.allCases.first { UserDefaults.standard.string(forKey: "snapshotFilter") == "\($0)" } ?? .all
     @State private var expandedGroups: [String: Bool] = [:]
     @State private var groupsShowingAll: Set<String> = []
     @State private var isShowingSettings = UserDefaults.standard.bool(forKey: "snapshotSettings")
@@ -35,14 +36,14 @@ struct SessionListView: View {
 
         NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selection) {
-                if let version = updates.available, query.isEmpty {
+                if let version = updates.available, !isFiltering {
                     Section {
                         Link(destination: UpdateCheck.installURL) {
                             Label("Install Berth Remote \(version)", systemImage: "arrow.down.circle")
                         }
                     }
                 }
-                if query.isEmpty {
+                if !isFiltering {
                     let usageGroups = client.usageGroups(at: .now)
                     if !usageGroups.isEmpty {
                         Section {
@@ -54,13 +55,13 @@ struct SessionListView: View {
                 }
                 ForEach(groups) { group in
                     let isCollapsed = group.isCollapsed ?? (group.id == "recent:older")
-                    let expansion = if query.isEmpty {
+                    let expansion = if !isFiltering {
                         Binding { expandedGroups[group.id, default: !isCollapsed] } set: { expandedGroups[group.id] = $0 }
                     } else {
                         Binding.constant(true)
                     }
                     let count = group.sessions.count
-                    let limit = query.isEmpty ? max(0, group.visibleCount ?? count) : count
+                    let limit = !isFiltering ? max(0, group.visibleCount ?? count) : count
                     let hiddenCount = max(0, count - limit)
                     let showsAll = groupsShowingAll.contains(group.id)
                     Section {
@@ -93,7 +94,7 @@ struct SessionListView: View {
                             }
                         }
                     } header: {
-                        if query.isEmpty {
+                        if !isFiltering {
                             SessionSectionHeader(title: group.title, count: count, isExpanded: expansion)
                         } else {
                             Text(group.title)
@@ -133,6 +134,15 @@ struct SessionListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu("Filter", systemImage: status == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill") {
+                        Picker("Filter", selection: $status) {
+                            ForEach(SessionStatusFilter.allCases.filter { $0 != .flagged || client.features.contains(RemoteTriageFeature.name) }) { filter in
+                                Label(filter.title, systemImage: filter.symbol).tag(filter)
+                            }
+                        }
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button("New Session", systemImage: "plus") { isStartingSession = true }
                         .disabled(client.folders.isEmpty || client.state != .connected)
@@ -149,6 +159,11 @@ struct SessionListView: View {
             }
             .onChange(of: selection) {
                 UserDefaults.standard.set(selection, forKey: "remoteSession")
+            }
+            .task {
+                #if DEBUG
+                isStartingSession = RemoteClient.showsDemoNewSession
+                #endif
             }
             .onChange(of: client.openedSessionID, initial: true) {
                 guard let id = client.openedSessionID else { return }
@@ -179,10 +194,10 @@ struct SessionListView: View {
 
     private func listedSessions(in group: RemoteGroup) -> [RemoteSession] {
         let isCollapsed = group.isCollapsed ?? (group.id == "recent:older")
-        guard !query.isEmpty || expandedGroups[group.id, default: !isCollapsed] else { return [] }
+        guard isFiltering || expandedGroups[group.id, default: !isCollapsed] else { return [] }
 
         let count = group.sessions.count
-        let limit = query.isEmpty ? max(0, group.visibleCount ?? count) : count
+        let limit = !isFiltering ? max(0, group.visibleCount ?? count) : count
         return Array(group.sessions.prefix(groupsShowingAll.contains(group.id) ? count : limit))
     }
 
@@ -195,17 +210,58 @@ struct SessionListView: View {
         selection = ids[target]
     }
 
-    private var visibleGroups: [RemoteGroup] {
-        guard !query.isEmpty else { return client.groups.filter { !$0.sessions.isEmpty } }
+    private var isFiltering: Bool { !query.isEmpty || status != .all }
 
+    private var visibleGroups: [RemoteGroup] {
+        guard isFiltering else { return client.groups.filter { !$0.sessions.isEmpty } }
+
+        let hiddenGroupIDs = status == .all ? [] : [RemoteTriageFeature.snoozedGroupID, RemoteTriageFeature.doneGroupID]
         let matches = { (session: RemoteSession) in
-            [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) }
+            status.matches(session) && (query.isEmpty || [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) })
         }
         return client.groups.compactMap { group in
+            guard !hiddenGroupIDs.contains(group.id) else { return nil }
+
             let sessions = group.sessions.filter(matches)
             guard !sessions.isEmpty else { return nil }
 
             return RemoteGroup(id: group.id, title: group.title, sessions: sessions, isCollapsed: group.isCollapsed, visibleCount: group.visibleCount)
+        }
+    }
+}
+
+private enum SessionStatusFilter: CaseIterable, Identifiable {
+    case all, needsYou, working, unread, flagged
+
+    var id: Self { self }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .all: "All"
+        case .needsYou: "Needs You"
+        case .working: "Working"
+        case .unread: "Unread"
+        case .flagged: "Flagged"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: "tray"
+        case .needsYou: "exclamationmark.circle"
+        case .working: "ellipsis.circle"
+        case .unread: "circlebadge"
+        case .flagged: "flag"
+        }
+    }
+
+    func matches(_ session: RemoteSession) -> Bool {
+        switch self {
+        case .all: true
+        case .needsYou: session.status == "waiting"
+        case .working: session.status == "busy"
+        case .unread: session.isUnread == true
+        case .flagged: session.isFlagged == true
         }
     }
 }
@@ -336,6 +392,11 @@ private struct SessionRow: View {
             } else if let pullRequest = session.pullRequest, pullRequest.url.scheme == "https" {
                 Link(destination: pullRequest.url) {
                     Label("Open Pull Request #\(String(pullRequest.number))", image: Octicon.pullRequest.assetName())
+                }
+            }
+            if let watch = session.pullRequestWatch {
+                Section(watch.title) {
+                    Text("Expires \(watch.expiresAt, format: .relative(presentation: .named))")
                 }
             }
             if isDone, hasTriage {
@@ -584,25 +645,48 @@ private struct NewSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var folder = ""
     @State private var prompt = ""
+    @State private var agentID: String?
+    @State private var usesWorktree = false
+    @State private var scope = Scope.folder
+
+    private enum Scope: String, CaseIterable {
+        case folder = "Folder"
+        case pullRequests = "Pull Requests"
+        case issues = "Issues"
+    }
+
+    private var offersInbox: Bool {
+        client.features.contains(RemoteInbox.feature)
+    }
+
+    private var agent: RemoteLaunchAgent? {
+        guard let options = client.launchOptions else { return nil }
+
+        return options.agents.first { $0.id == agentID } ?? options.agents.first { $0.id == options.defaultAgent } ?? options.agents.first
+    }
+
+    private var offersWorktree: Bool {
+        agent?.worktreeFolders.contains(folder) == true
+    }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Picker("Folder", selection: $folder) {
-                    ForEach(client.folders, id: \.self) { folder in
-                        VStack(alignment: .leading) {
-                            Text(URL(filePath: folder).lastPathComponent)
-                            Text(folder)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .monospaced()
-                        .tag(folder)
-                    }
+            Group {
+                if scope == .folder {
+                    sessionForm
+                } else {
+                    InboxList(kind: scope == .issues ? .issue : .pullRequest, dismiss: dismiss)
                 }
-                .pickerStyle(.navigationLink)
-                TextField("What should Claude do?", text: $prompt, axis: .vertical)
-                    .lineLimit(3...8)
+            }
+            .safeAreaInset(edge: .top) {
+                if offersInbox {
+                    Picker("Start from", selection: $scope) {
+                        ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+                }
             }
             .navigationTitle("New Session")
             .navigationBarTitleDisplayMode(.inline)
@@ -611,17 +695,148 @@ private struct NewSessionView: View {
                     Button("Cancel") { dismiss() }
                         .keyboardShortcut(.cancelAction)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Start", action: start)
-                        .disabled(folder.isEmpty)
+                if scope == .folder {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Start", action: start)
+                            .disabled(folder.isEmpty)
+                    }
                 }
             }
-            .onAppear { if folder.isEmpty { folder = client.folders.first ?? "" } }
+            .onAppear {
+                if folder.isEmpty { folder = client.folders.first ?? "" }
+                client.loadLaunchOptions()
+                client.loadInbox()
+                #if DEBUG
+                if RemoteClient.demoNewSessionScope == "pullRequests" { scope = .pullRequests }
+                if RemoteClient.demoNewSessionScope == "issues" { scope = .issues }
+                #endif
+            }
+            .onChange(of: client.launchOptions, initial: true) {
+                usesWorktree = client.launchOptions?.startsInWorktree ?? false
+            }
+        }
+    }
+
+    private var sessionForm: some View {
+        Form {
+            if let options = client.launchOptions, options.agents.count > 1 {
+                Section {
+                    Picker("Agent", selection: Binding(get: { agent?.id ?? "" }, set: { agentID = $0 })) {
+                        ForEach(options.agents) { Text($0.name).tag($0.id) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                } header: {
+                    Text("Agent")
+                }
+            }
+            Picker("Folder", selection: $folder) {
+                ForEach(client.folders, id: \.self) { folder in
+                    VStack(alignment: .leading) {
+                        Text(URL(filePath: folder).lastPathComponent)
+                        Text(folder)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .monospaced()
+                    .tag(folder)
+                }
+            }
+            .pickerStyle(.navigationLink)
+            if offersWorktree {
+                Section {
+                    Toggle("Worktree", isOn: $usesWorktree)
+                } footer: {
+                    Text("A worktree gets its own branch. Turn it off to work in the main checkout.")
+                }
+            }
+            TextField("What should \(agent?.name ?? "Claude") do?", text: $prompt, axis: .vertical)
+                .lineLimit(3...8)
         }
     }
 
     private func start() {
-        client.send(.newSession(folder: folder, prompt: prompt))
+        guard let agent else {
+            client.send(.newSession(folder: folder, prompt: prompt))
+            return dismiss()
+        }
+
+        let checkout: RemoteCheckout? = offersWorktree ? (usesWorktree ? .worktree : .main) : nil
+        client.send(.startSession(RemoteSessionStart(folder: folder, prompt: prompt, agent: agent.id, checkout: checkout)))
+        dismiss()
+    }
+}
+
+private struct InboxList: View {
+    @Environment(RemoteClient.self) private var client
+    let kind: RemoteInboxItem.Kind
+    let dismiss: DismissAction
+
+    private var items: [RemoteInboxItem]? {
+        kind == .pullRequest ? client.inbox?.pullRequests : client.inbox?.issues
+    }
+
+    private var groups: [(title: String, items: [RemoteInboxItem])] {
+        (items ?? []).reduce(into: []) { groups, item in
+            if let index = groups.firstIndex(where: { $0.title == item.group }) {
+                groups[index].items.append(item)
+            } else {
+                groups.append((item.group, [item]))
+            }
+        }
+    }
+
+    var body: some View {
+        if client.inbox == nil {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if items == nil {
+            ContentUnavailableView(kind == .pullRequest ? "Couldn’t List Pull Requests" : "Couldn’t List Issues", systemImage: "exclamationmark.circle", description: Text("Your Mac couldn’t reach GitHub with the GitHub CLI (gh)."))
+        } else if groups.isEmpty {
+            ContentUnavailableView(kind == .pullRequest ? "No Pull Requests" : "No Issues", systemImage: kind == .pullRequest ? "arrow.triangle.pull" : "circle.dotted")
+        } else {
+            List {
+                ForEach(groups, id: \.title) { group in
+                    Section(group.title) {
+                        ForEach(group.items) { item in
+                            Button { start(item) } label: { row(item) }
+                                .buttonStyle(.plain)
+                                .disabled(!item.isOpenable)
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+        }
+    }
+
+    private func row(_ item: RemoteInboxItem) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+            HStack(spacing: 4) {
+                Text("\(item.repository) #\(String(item.number))")
+                if let author = item.author { Text("by \(author)") }
+                if item.isDraft == true { Text("Draft") }
+                if let checks = item.checks {
+                    Image(systemName: ChecksStyle.symbol(checks))
+                        .foregroundStyle(ChecksStyle.color(checks))
+                        .accessibilityLabel(ChecksStyle.title(checks))
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if !item.isOpenable {
+                Text("No local checkout of \(item.repository)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func start(_ item: RemoteInboxItem) {
+        client.send(.startItem(kind: item.kind, repository: item.repository, number: item.number))
         dismiss()
     }
 }

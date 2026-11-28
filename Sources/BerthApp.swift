@@ -286,8 +286,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         #if DEBUG
         Snapshot.seedConversationFixture()
-        #endif
+        store.persistsTabs = SnapshotPullRequests.persists
+        #else
         store.persistsTabs = false
+        #endif
         store.start(restoringTabs: false)
         Task { await Snapshot.capture(to: output, store: store) }
     }

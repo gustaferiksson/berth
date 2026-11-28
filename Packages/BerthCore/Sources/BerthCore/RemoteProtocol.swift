@@ -326,6 +326,24 @@ public struct RemoteTaskDetail: Codable, Sendable, Hashable {
     }
 }
 
+public nonisolated enum RemoteSubagentTranscriptFeature {
+    public static let name = "subagentTranscript"
+    public static let byteBudget = 8 << 20
+
+    public static func fitting(_ entries: [RemoteEntry]) -> [RemoteEntry] {
+        var used = 0
+        let kept = entries.reversed().prefix { entry in
+            used += entry.text.utf8.count + (entry.images ?? []).reduce(0) { $0 + $1.count }
+            return used <= byteBudget
+        }
+        return kept.reversed()
+    }
+}
+
+public nonisolated enum RemoteTaskStopFeature {
+    public static let name = "taskStop"
+}
+
 public nonisolated enum SessionHandoff {
     public static let activityType = "dev.gustaf.berth.session"
     public static let sessionIDKey = "sessionID"
@@ -544,6 +562,98 @@ public struct RemoteSlashCommand: Codable, Equatable, Sendable {
     }
 }
 
+public enum RemoteCheckout: String, Codable, Sendable {
+    case main, worktree
+}
+
+public struct RemoteLaunchAgent: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let name: String
+    public let asset: String
+    public let worktreeFolders: [String]
+
+    public init(id: String, name: String, asset: String, worktreeFolders: [String]) {
+        self.id = id
+        self.name = name
+        self.asset = asset
+        self.worktreeFolders = worktreeFolders
+    }
+}
+
+public struct RemoteLaunchOptions: Codable, Sendable, Equatable {
+    public static let feature = "launchOptions"
+
+    public let agents: [RemoteLaunchAgent]
+    public let defaultAgent: String
+    public let startsInWorktree: Bool
+
+    public init(agents: [RemoteLaunchAgent], defaultAgent: String, startsInWorktree: Bool) {
+        self.agents = agents
+        self.defaultAgent = defaultAgent
+        self.startsInWorktree = startsInWorktree
+    }
+}
+
+public struct RemoteSessionStart: Codable, Sendable, Equatable {
+    public let folder: String
+    public let prompt: String
+    public let agent: String?
+    public let checkout: RemoteCheckout?
+
+    public init(folder: String, prompt: String, agent: String? = nil, checkout: RemoteCheckout? = nil) {
+        self.folder = folder
+        self.prompt = prompt
+        self.agent = agent
+        self.checkout = checkout
+    }
+}
+
+public struct RemoteInboxItem: Codable, Sendable, Hashable, Identifiable {
+    public enum Kind: String, Codable, Sendable {
+        case pullRequest, issue
+    }
+
+    public let kind: Kind
+    public let repository: String
+    public let number: Int
+    public let title: String
+    public let group: String
+    public let isOpenable: Bool
+    public let updatedAt: Date
+    public let author: String?
+    public let branch: String?
+    public let isDraft: Bool?
+    public let checks: String?
+
+    public var id: String { "\(kind.rawValue)/\(repository)#\(number)" }
+
+    public init(kind: Kind, repository: String, number: Int, title: String, group: String, isOpenable: Bool, updatedAt: Date, author: String? = nil, branch: String? = nil, isDraft: Bool? = nil, checks: String? = nil) {
+        self.kind = kind
+        self.repository = repository
+        self.number = number
+        self.title = title
+        self.group = group
+        self.isOpenable = isOpenable
+        self.updatedAt = updatedAt
+        self.author = author
+        self.branch = branch
+        self.isDraft = isDraft
+        self.checks = checks
+    }
+}
+
+public struct RemoteInbox: Codable, Sendable, Equatable {
+    public static let feature = "inbox"
+
+    public let pullRequests: [RemoteInboxItem]?
+    public let issues: [RemoteInboxItem]?
+
+    public init(pullRequests: [RemoteInboxItem]?, issues: [RemoteInboxItem]?) {
+        self.pullRequests = pullRequests
+        self.issues = issues
+    }
+}
+
 public enum RemoteClientMessage: Codable, Sendable {
     case auth(hmac: Data)
     case subscribe(sessionID: String)
@@ -563,6 +673,12 @@ public enum RemoteClientMessage: Codable, Sendable {
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
     case commands(sessionID: String)
+    case launchOptions
+    case startSession(RemoteSessionStart)
+    case inbox
+    case startItem(kind: RemoteInboxItem.Kind, repository: String, number: Int)
+    case subagentTranscript(sessionID: String, taskID: String)
+    case stopTask(sessionID: String, taskID: String)
     case pushToken(token: String, isSandbox: Bool)
 }
 
@@ -582,4 +698,7 @@ public enum RemoteServerMessage: Codable, Sendable {
     case taskDetail(sessionID: String, taskID: String, detail: RemoteTaskDetail?)
     case image(sessionID: String, id: String, variant: RemoteImageVariant, data: Data?)
     case commands(sessionID: String, commands: [RemoteSlashCommand])
+    case launchOptions(RemoteLaunchOptions)
+    case inbox(RemoteInbox)
+    case subagentTranscript(sessionID: String, taskID: String, entries: [RemoteEntry]?)
 }

@@ -31,15 +31,15 @@ enum Snapshot {
         PullRequestLink(repository: "acme/web", number: 77): PullRequest(number: 77, url: URL(string: "https://github.com/acme/web/pull/77")!, title: "Show linked pull requests", state: .closed, headRefName: "feature/linked-web"),
         PullRequestLink(repository: "acme/billing", number: 4822): PullRequest(number: 4822, url: URL(string: "https://github.com/acme/billing/pull/4822")!, title: "Reconcile settlement exports, part 2", state: .merged, headRefName: "feature/settlement-part-2"),
         PullRequestLink(repository: "acme/billing", number: 4823): PullRequest(number: 4823, url: URL(string: "https://github.com/acme/billing/pull/4823")!, title: "Export ledger entries", state: .open, headRefName: "feature/ledger-export", checks: .passed, reviewDecision: .approved),
-    ] : [:]
+    ].merging(SnapshotPullRequests.merged(in: "acme/billing")) { first, _ in first } : [:]
     private static let linkedFixtureLinks = linkedFixtures.keys.sorted { $0.number > $1.number }
     private static let showsReviewSessionPullRequests = UserDefaults.standard.bool(forKey: "snapshotReviewSessionPullRequests")
     private static let reviewSessionPullRequests: [PullRequestLink: PullRequest] = showsReviewSessionPullRequests ? [
-        PullRequestLink(repository: fixtureRepository, number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/\(fixtureRepository)/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase"), headRefName: "feature/approved-reviewers"),
-    ] : [:]
+        PullRequestLink(repository: fixtureRepository, number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/\(fixtureRepository)/pull/1445")!, title: "Let reviewers switch between approved signers", state: .open, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase"), headRefName: "feature/approved-reviewers"),
+    ].merging(SnapshotPullRequests.many(in: fixtureRepository)) { first, _ in first } : [:]
 
     static let fixtureShownPullRequests: [PullRequestLink: PullRequest] = [
-        PullRequestLink(repository: "acme/billing", number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/acme/billing/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: "main", headRefName: "feature/approved-reviewers"),
+        PullRequestLink(repository: "acme/billing", number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/acme/billing/pull/1445")!, title: "Let reviewers switch between approved signers", state: .open, baseRefName: "main", headRefName: "feature/approved-reviewers"),
         PullRequestLink(repository: "acme/api", number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/acme/api/pull/1445")!, title: "Document webhook retry behavior", state: .open, baseRefName: "main", headRefName: "feature/webhook-retries"),
     ]
 
@@ -297,7 +297,7 @@ enum Snapshot {
             return #"{"number":\#(number),"title":"\#(title)","url":"https://github.com/\#(repository)/pull/\#(number)","isDraft":\#(draft),"updatedAt":"\#((Date.now - hours * 3600).ISO8601Format())","headRefName":"\#(branch)","reviewDecision":\#(reviewDecision),"author":{"login":"\#(author)"},"repository":{"nameWithOwner":"\#(repository)"},"statusCheckRollup":\#(rollup)}"#
         }
         let reviewRequested = if UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") {
-            [node(1445, "acme/billing", "Let Margo switch between approved reviewers", "feature/approved-reviewers", "lee", 1, false, "SUCCESS", "REVIEW_REQUIRED")]
+            [node(1445, "acme/billing", "Let reviewers switch between approved signers", "feature/approved-reviewers", "lee", 1, false, "SUCCESS", "REVIEW_REQUIRED")]
         } else {
             [
                 node(88, "acme/web", "Add usage export page", "lee/usage-export-page", "lee", 3, false, "SUCCESS", "REVIEW_REQUIRED"),
@@ -320,7 +320,7 @@ enum Snapshot {
             ],
             [RepositoryRoot.resolve(billing): "acme/billing", RepositoryRoot.resolve(web): "acme/web"],
             [
-                PullRequestBranch(repository: "acme/billing", branch: "fix/invoice-rounding"): PullRequest(number: 212, url: URL(string: "https://github.com/acme/billing/pull/212")!, title: "Fix rounding in invoice totals", state: .open, checks: .failed, viewerDidAuthor: true),
+                PullRequestBranch(repository: "acme/billing", branch: "fix/invoice-rounding"): PullRequest(number: 212, url: URL(string: "https://github.com/acme/billing/pull/212")!, title: "Fix rounding in invoice totals", state: .open, checks: .failed),
                 PullRequestBranch(repository: "acme/billing", branch: "main"): PullRequest?.none,
                 PullRequestBranch(repository: "acme/web", branch: "main"): PullRequest?.none,
             ],
@@ -446,7 +446,7 @@ enum Snapshot {
             ("agent-logs", "automation", "Summarize the nightly run failures"),
         ]
         let pullRequestStates: [String: (PullRequestState, PullRequestChecks.State?)] = [
-            "rounding": (.open, .failed), "passed": (.open, .passed), "draft": (.draft, .running),
+            "rounding": (.open, .failed), "ledger-index": (.open, .failed), "passed": (.open, .passed), "draft": (.draft, .running),
             "merged": (.merged, nil), "closed": (.closed, nil),
         ]
         var repositories: [String: String?] = [:]
@@ -463,7 +463,7 @@ enum Snapshot {
                 let number = 4800 + index
                 let url = URL(string: "https://github.com/\(row.project)/pull/\(number)")!
                 pullRequests[PullRequestBranch(repository: row.project, branch: branch)] =
-                    PullRequest(number: number, url: url, title: row.title, state: state, headRefName: branch, checks: checks, viewerDidAuthor: true)
+                    PullRequest(number: number, url: url, title: row.title, state: state, headRefName: branch, checks: checks)
             }
             let issueRefs = ["export-api", "export-tests", "retry-export"].contains(row.id) ? [BusySidebarFixture.exportIssue] : []
             let context = row.id == "rounding" ? SessionContext(model: "fixture", tokens: 162_000, window: 200_000) : nil
@@ -478,7 +478,7 @@ enum Snapshot {
             if index.isMultiple(of: 4) {
                 let url = URL(string: "https://github.com/\(project)/pull/\(9000 + index)")!
                 pullRequests[PullRequestBranch(repository: project, branch: branch)] =
-                    PullRequest(number: 9000 + index, url: url, title: "Scale fixture \(index)", state: .open, headRefName: branch, checks: .passed, viewerDidAuthor: true)
+                    PullRequest(number: 9000 + index, url: url, title: "Scale fixture \(index)", state: .open, headRefName: branch, checks: .passed)
             }
             return SessionSummary(id: "scale-\(index)", cwd: folder, title: "Scale fixture session \(index)", lastActivity: now - Double(60 * (index + 30)), branch: branch)
         }
@@ -515,7 +515,6 @@ enum Snapshot {
         item.session.branch.map { branch in
             var pullRequest = item.pullRequest
             pullRequest?.checks = index < fixtureChecks.count ? fixtureChecks[index] : nil
-            pullRequest?.viewerDidAuthor = true
             return (PullRequestBranch(repository: fixtureRepository, branch: branch), pullRequest)
         }
     }) { first, _ in first }
@@ -878,6 +877,10 @@ enum Snapshot {
     }
 
     private static func prepareSessionProbes(store: Store) async {
+        if SnapshotPullRequests.persists {
+            for session in store.activeSessions { print("session \(session.id) pull requests \(session.pullRequests.map { "\($0.repository)#\($0.number)" })") }
+            exit(0)
+        }
         if store.selection == nil, let forced = forcedSelection(in: store.groups) { store.sidebarCursor = forced }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
             for _ in 0..<2 { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
