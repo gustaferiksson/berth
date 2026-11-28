@@ -33,6 +33,8 @@ The fixture loads via `file:` and embeds its favicons as `data:` URLs. By defaul
 
 `-snapshotBrowserError YES` opens the browser fixture with a selected tab at `http://berth-missing.invalid` and prints `browser error <title>` after waiting for the load to fail. This flag allows the reserved host `berth-missing.invalid` through the snapshot navigation and content rules.
 
+Add `-snapshotContinueSession <id>` (try `busy-rounding` with `-snapshotBusySidebar YES`) to feed a Handoff `NSUserActivity` for that session id to `Store.continueHandoff` and print whether it was accepted and which session is selected, plus whether a foreign activity type is refused. Berth Remote's `-snapshotContinueSession <id>` does the same in the demo (`demo` with `-snapshotDemo YES -snapshotDemoList YES` opens the session from the list).
+
 Add `-snapshotIncomingURL <url>` (with or without `-snapshotBrowser YES`) to feed a URL to `Store.openIncomingURL` and print the session, browser tab counts, pane, launcher and pending URL.
 
 Add `-snapshotBrowserApproval YES` to show the Allow Browser Access prompt for a long-titled worktree session with a requested URL and save the window to the output path (use `-snapshotGhosttyTheme "Atom One Light"` for light).

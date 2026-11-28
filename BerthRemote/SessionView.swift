@@ -64,6 +64,11 @@ struct SessionView: View {
             .padding()
             .modifier(ConversationStyle())
         }
+        .userActivity(SessionHandoff.activityType) { activity in
+            activity.isEligibleForHandoff = true
+            activity.userInfo = [SessionHandoff.sessionIDKey: sessionID]
+            activity.requiredUserInfoKeys = [SessionHandoff.sessionIDKey]
+        }
         .scrollPosition($position)
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
