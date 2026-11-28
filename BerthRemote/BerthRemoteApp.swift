@@ -1,5 +1,15 @@
 import SwiftUI
 
+#if DEBUG
+private struct RegularWidthSnapshot: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    func body(content: Content) -> some View {
+        content.environment(\.horizontalSizeClass, UserDefaults.standard.bool(forKey: "snapshotRegularWidth") ? .regular : sizeClass)
+    }
+}
+#endif
+
 @main
 struct BerthRemoteApp: App {
     @State private var client = RemoteClient.shared
@@ -23,6 +33,9 @@ struct BerthRemoteApp: App {
             }
             .environment(client)
             .environment(updates)
+            #if DEBUG
+            .modifier(RegularWidthSnapshot())
+            #endif
             .preferredColorScheme(colorScheme == "light" ? .light : colorScheme == "dark" ? .dark : nil)
             .task(id: scenePhase) {
                 #if DEBUG
@@ -41,5 +54,6 @@ struct BerthRemoteApp: App {
                 await updates.checkIfDue()
             }
         }
+        .commands { RemoteCommands() }
     }
 }
