@@ -36,7 +36,7 @@ enum Snapshot {
     private static let showsReviewSessionPullRequests = UserDefaults.standard.bool(forKey: "snapshotReviewSessionPullRequests")
     private static let reviewSessionPullRequests: [PullRequestLink: PullRequest] = showsReviewSessionPullRequests ? [
         PullRequestLink(repository: fixtureRepository, number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/\(fixtureRepository)/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase"), headRefName: "feature/approved-reviewers"),
-    ] : [:]
+    ].merging(SnapshotPullRequests.many(in: fixtureRepository)) { first, _ in first } : [:]
 
     static let fixtureShownPullRequests: [PullRequestLink: PullRequest] = [
         PullRequestLink(repository: "acme/billing", number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/acme/billing/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: "main", headRefName: "feature/approved-reviewers"),
@@ -878,6 +878,10 @@ enum Snapshot {
     }
 
     private static func prepareSessionProbes(store: Store) async {
+        if SnapshotPullRequests.persists {
+            for session in store.activeSessions { print("session \(session.id) pull requests \(session.pullRequests.map { "\($0.repository)#\($0.number)" })") }
+            exit(0)
+        }
         if store.selection == nil, let forced = forcedSelection(in: store.groups) { store.sidebarCursor = forced }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
             for _ in 0..<2 { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
@@ -1052,6 +1056,7 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotBrowserApproval") { await captureBrowserApproval(store: store, window: window, output: output) }
         if browserFixtures != nil { await captureBrowser(store: store, window: window) }
         if let url = UserDefaults.standard.string(forKey: "snapshotIncomingURL") { probeIncomingURL(url, store: store) }
+        if let id = UserDefaults.standard.string(forKey: "snapshotContinueSession") { probeContinuedSession(id, store: store) }
         if let mode = UserDefaults.standard.string(forKey: "snapshotHost") { await captureHost(mode: mode, store: store, window: window, output: output) }
         if let backgroundTasksFolder {
             await captureBackgroundTasks(in: backgroundTasksFolder, store: store, window: window, output: output)
@@ -2464,7 +2469,7 @@ private final class UnconstrainedWindow: NSWindow {
 }
 
 #if DEBUG
-private final class FakeDrag: NSObject, NSDraggingInfo {
+final class FakeDrag: NSObject, NSDraggingInfo {
     let draggingPasteboard: NSPasteboard
     let draggingLocation: NSPoint
     let draggingDestinationWindow: NSWindow?

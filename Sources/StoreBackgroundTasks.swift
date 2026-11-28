@@ -38,7 +38,7 @@ final class BackgroundTaskModel {
             let previous = activity
             let live = store.liveBySession[source.sessionID]
             let url = source.transcript
-            let claudePID = live?.pid
+            let claudePID = live.map(\.pid).flatMap { $0 > 1 ? $0 : nil }
             let (updated, tasks) = await Task.detached {
                 var activity = previous
                 activity.read(url)

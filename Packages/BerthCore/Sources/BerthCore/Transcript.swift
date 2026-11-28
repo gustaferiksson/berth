@@ -56,7 +56,7 @@ public struct SessionSummary: Sendable, Hashable, Identifiable {
     public let lastTypedPrompt: Date?
     public let branch: String?
     public let branches: [String]
-    public let pullRequests: [PullRequestLink]
+    public var pullRequests: [PullRequestLink]
     public let issueRefs: [IssueRef]
     public let continuedIn: String?
     public let originalCwd: String?

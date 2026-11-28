@@ -286,14 +286,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         #if DEBUG
         Snapshot.seedConversationFixture()
-        #endif
+        store.persistsTabs = SnapshotPullRequests.persists
+        #else
         store.persistsTabs = false
+        #endif
         store.start(restoringTabs: false)
         Task { await Snapshot.capture(to: output, store: store) }
     }
 
     func application(_: NSApplication, open urls: [URL]) {
         for url in urls { store.openIncomingURL(url) }
+    }
+
+    func application(_: NSApplication, continue userActivity: NSUserActivity, restorationHandler _: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        store.continueHandoff(userActivity)
     }
 
     func applicationWillTerminate(_: Notification) {

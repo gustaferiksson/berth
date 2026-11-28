@@ -124,12 +124,15 @@ struct ConversationView: View {
     }
 
     private func transcript(isWorking: Bool, showsStatus: Bool, waitingFor: String??, since: Date?) -> some View {
-        let pending = PendingPrompts.unqueued(model.pending, queued: model.queued)
+        let placed = PendingPrompts.placingShells(PendingPrompts.unqueued(model.pending, queued: model.queued), among: model.turns)
 
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
                 ForEach(model.turns) { turn in
                     let isCurrent = turn.id == model.turns.last?.id
+                    ForEach(placed.above[turn.id] ?? [], id: \.sentAt) { prompt in
+                        ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: prompt.shellCommand ?? "", name: "bash", command: prompt.shellCommand, date: prompt.sentAt), isShellRunning: true)
+                    }
                     ConversationTurnView(
                         turn: turn,
                         isFinished: !(isCurrent && (isWorking || waitingFor != nil)),
@@ -149,7 +152,7 @@ struct ConversationView: View {
                         QueuedPrompt(text: prompt)
                     }
                 }
-                ForEach(pending, id: \.sentAt) { prompt in
+                ForEach(placed.rest, id: \.sentAt) { prompt in
                     if let command = prompt.shellCommand {
                         ConversationPrompt(entry: RemoteEntry(id: "", kind: .prompt, text: command, name: "bash", command: command, date: prompt.sentAt), isShellRunning: true)
                     } else {

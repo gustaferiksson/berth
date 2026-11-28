@@ -116,6 +116,8 @@ extension Store {
     }
 
     func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, since waitingSince: Double?) -> InputOutcome {
+        if key == .shiftTab, waitingFor == nil { return cycleMode(sessionID) }
+
         refreshLive()
         let tab = tab(forSession: sessionID)
         let harness = (tab?.agent ?? sessionsByID[sessionID]?.agent ?? .claude).harness
@@ -133,6 +135,7 @@ extension Store {
         case .enter: TerminalKeyPress(.enter)
         case .escape: TerminalKeyPress(.escape)
         case .shiftTab: TerminalKeyPress(.tab, modifiers: .shift)
+        case .arrowDown: TerminalKeyPress(.arrowDown)
         case .digit1: TerminalKeyPress(.digit1)
         case .digit2: TerminalKeyPress(.digit2)
         case .digit3: TerminalKeyPress(.digit3)

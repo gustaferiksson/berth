@@ -45,6 +45,7 @@ struct PullRequestSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
                 }
             }
             .task(id: client.state) {
