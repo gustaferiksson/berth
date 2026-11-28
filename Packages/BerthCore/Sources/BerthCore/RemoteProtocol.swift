@@ -326,6 +326,17 @@ public struct RemoteTaskDetail: Codable, Sendable, Hashable {
     }
 }
 
+public nonisolated enum SessionHandoff {
+    public static let activityType = "dev.gustaf.berth.session"
+    public static let sessionIDKey = "sessionID"
+
+    public static func sessionID(in activity: NSUserActivity) -> String? {
+        guard activity.activityType == activityType, let id = activity.userInfo?[sessionIDKey] as? String, !id.isEmpty else { return nil }
+
+        return id
+    }
+}
+
 public struct RemoteContext: Codable, Sendable, Hashable {
     public let model: String
     public let tokens: Int?
