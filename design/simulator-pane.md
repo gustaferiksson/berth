@@ -37,13 +37,13 @@ Takeaway: `simctl` alone is fine for an agent screenshot (a second or two) and u
 
 - Frameworks live in Xcode (`CoreSimulator.framework` is at /Library/Developer/PrivateFrameworks, SimulatorKit inside Xcode). The framebuffer exposes an IOSurface through the same ports `simctl io enumerate` lists; Berth could draw it in a `CALayer` at display rate.
 - Same machinery gives HID (touch, keyboard, buttons) from one long-lived session, so taps cost milliseconds.
-- Tradeoffs: private and changes every Xcode release (macOS 27 and Xcode 27 are already on the move). Needs dlopen of the active Xcode's frameworks, ObjC runtime calls with no headers, and a break-and-fix cycle per Xcode. Not an App Store issue for Berth, but a maintenance one.
+- Tradeoffs: private and changes every Xcode release (the AXe first-call timeout seen here is the kind of fragility to expect). Needs dlopen of the active Xcode's frameworks, ObjC runtime calls with no headers, and a break-and-fix cycle per Xcode. Not an App Store issue for Berth, but a maintenance one.
 
 ### C. Helper process that wraps B (idb, AXe, Radon's simulator-server)
 
 - idb (Meta) and AXe wrap the same private frameworks behind a CLI or gRPC server; Radon (Software Mansion's VS Code and Cursor extension) ships its own native helper that streams the simulator into its panel; FlowDeck is a commercial CLI in the same space. I did not install idb or FlowDeck, and the Radon and FlowDeck details are from memory, so treat them as unverified. Only AXe was run.
 - Berth would spawn the helper, read MJPEG or frames from a pipe, and call it for taps. The private-API breakage lives in someone else's repo, and a crash cannot take Berth down.
-- Tradeoffs: a dependency the user installs (`brew install`), a pipe protocol to parse, and the 12 s first-call setup unless Berth keeps one session open (AXe has `batch` for "one HID session"; a long-lived helper is the real fix). AXe is MIT-licensed at time of writing; verify before bundling.
+- Tradeoffs: a dependency the user installs (`brew install`), a pipe protocol to parse, and the 12 s first-call setup unless Berth keeps one session open (AXe has `batch` for "one HID session"; a long-lived helper is the real fix). Check AXe's licence before bundling it (not checked).
 
 ### D. Host Simulator.app's window inside the pane
 
@@ -52,7 +52,7 @@ Takeaway: `simctl` alone is fine for an agent screenshot (a second or two) and u
 
 ### E. Xcode previews, Xcode's own simulator embedding
 
-- Xcode 26 and later can run the simulator inside its own window and previews render through a separate service. Neither is an API Berth can call. Not an option.
+- Xcode's own simulator embedding and previews are not APIs Berth can call (from memory, unverified). Not an option.
 
 ## Input injection
 
@@ -62,7 +62,7 @@ Takeaway: `simctl` alone is fine for an agent screenshot (a second or two) and u
 
 ## Performance and cost
 
-- A booted simulator is a handful of processes and about 1 to 3 GB resident per device, and the first boot of a device took 35 s here. Berth should boot lazily and never auto-boot.
+- A booted simulator is a handful of processes and several processes and real memory (not measured here), and the first boot of a device took 35 s here. Berth should boot lazily and never auto-boot.
 - Frame cost for B or C at 30 fps and 0.5 scale is small next to Review and the terminal, but it must stop when the pane is hidden. The Terminal surface rule (keep mounted, docs/adr/0002) does not apply: nothing in the simulator pane owns a shell.
 - Agents on several worktrees will contend for one booted device unless each session gets its own (see Unknowns).
 
@@ -71,3 +71,41 @@ Takeaway: `simctl` alone is fine for an agent screenshot (a second or two) and u
 - Berth is Developer ID signed and notarized, not sandboxed, so loading Xcode's private frameworks at runtime and spawning `xcrun simctl` is permitted. Hardened runtime library validation applies only to frameworks loaded in Berth's process; it would block B unless the `disable-library-validation` entitlement is added (it is not in Berth.entitlements today). Option C avoids that by keeping the load in the helper.
 - A helper that Berth does not bundle needs no notarization of its own. Bundling one means signing and notarizing it with Berth and tracking its licence.
 - Requires Xcode installed; Command Line Tools alone have no simulators. Berth should detect `xcrun simctl` and hide the pane otherwise.
+
+## Recommendation
+
+Ship in two steps, public tooling first, private only behind a helper.
+
+1. Phase 1 is Option A plus `simctl`: no private API, no dependency beyond Xcode. The pane shows the last screenshot and refreshes after every agent command, with a device picker and Boot and Shut Down. This already answers "boot a simulator, see it beside the session, screenshot it".
+2. Phase 2 adds input and a live view through Option C with AXe (or idb) as an optional, user-installed helper, kept as one long-lived process per booted device. Do not link CoreSimulator or SimulatorKit into Berth (Option B) unless C proves too slow, because it needs the library validation entitlement and breaks per Xcode.
+
+Reject D and E.
+
+## berth sim commands
+
+Same shape as `berth browser`: CLI, control socket, `ControlService`, a per-session approval prompt before the first command (reuse `BrowserAccess` with a sim key, or a sibling), and results as plain text or `--json`.
+
+- `berth sim devices [--json]` lists devices with udid, name, runtime and state. A leading `*` marks the session's device.
+- `berth sim boot [<name|udid>] [--json]` boots (creating a Berth-owned device if none named), waits for boot, and shows the pane. Only devices Berth created or the user picked in the pane are bootable by an agent.
+- `berth sim shutdown` and `berth sim delete` act only on the session's own device, never "all".
+- `berth sim screenshot [--out <path>] [--json]` writes a PNG and prints the path, like browser screenshot.
+- `berth sim install <app>` and `berth sim launch <bundle-id> [-- args]` wrap `simctl install` and `launch`; `berth sim openurl <url>` and `berth sim appearance light|dark` wrap theirs.
+- `berth sim snapshot [--json]` prints the accessibility outline (phase 2), the counterpart of `berth browser snapshot`.
+- `berth sim tap (<x> <y> | --label <text> | --id <id>)`, `berth sim type <text>`, `berth sim swipe` and `berth sim button home|lock` (phase 2).
+- `berth sim log [--since <n>] [--follow]` wraps `simctl spawn log stream` filtered to the app (optional).
+
+## Phased plan
+
+1. Pane shell: Simulator mode in the mode switcher (hidden when `xcrun simctl` is missing), device list, boot and shut down, screenshot view. Setting to gate it, off by default like the other opt-in features. Snapshot flag with a stubbed `simctl` so offscreen runs never boot anything.
+2. `berth sim` read and lifecycle commands (devices, boot, shutdown, screenshot, install, launch, openurl, appearance) and the approval prompt.
+3. Input and live view through a helper (snapshot, tap, type, swipe, button; MJPEG into the pane at a capped fps that stops when the pane is hidden).
+4. Per-session device ownership, cleanup on quit (shut down only devices Berth booted, same rule as child processes in app-lifecycle.md), log streaming.
+
+## Unknowns
+
+- Boot and frame cost on the user's usual machines: one measurement set here, no sustained fps test for the MJPEG path, no memory figure.
+- Whether a long-lived AXe or idb session removes the 12 to 14 s first-call setup, and how it behaves when a user also has Simulator.app open on the same device.
+- Whether the helper's output should be bundled (licence, notarization) or stay user-installed; AXe's licence and idb's maintenance status were not checked.
+- Device ownership policy: one device per Claude session, or one shared. Parallel worktrees building different apps would fight over a shared one.
+- Text input beyond ASCII, hardware keyboard routing and gestures (pinch, multi-touch) were not tried.
+- Whether the user wants the pane to take pointer input directly (draw a tap where the user clicks) or only mirror what the agent does. Direct input needs phase 3 and a hit-test mapping from pane points to device points.
