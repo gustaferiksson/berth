@@ -12,6 +12,7 @@ enum NeedsYouAlerts {
         let badge = needsYouCount == 0 ? nil : "\(needsYouCount)"
         if NSApp.dockTile.badgeLabel != badge { NSApp.dockTile.badgeLabel = badge }
         if logsInsteadOfPosting { print("badge: \(NSApp.dockTile.badgeLabel ?? "nil")") }
+        store.remote.push.syncActivities()
         let turns = NeedsYou.finished(previousBusy: busy, live: live, inBerth: Set(store.tabs.compactMap(\.sessionID)))
         busy = turns.busy
         let selectedSession = store.tabs.first { $0.id == store.selectedTabID }?.sessionID

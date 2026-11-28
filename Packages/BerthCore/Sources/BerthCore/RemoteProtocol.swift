@@ -680,6 +680,8 @@ public enum RemoteClientMessage: Codable, Sendable {
     case subagentTranscript(sessionID: String, taskID: String)
     case stopTask(sessionID: String, taskID: String)
     case pushToken(token: String, isSandbox: Bool)
+    case liveActivityToken(sessionID: String, token: String, isSandbox: Bool)
+    case liveActivityEnded(sessionID: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {

@@ -1,5 +1,6 @@
 import AppKit
 import BerthCore
+import os
 import SwiftUI
 
 struct GitHubSettings: View {
@@ -31,7 +32,11 @@ struct GitHubSettings: View {
                             .accessibilityAddTraits(.isHeader)
                         ForEach(groups[owner] ?? [], id: \.id) { project in
                             Toggle(isOn: Binding {
-                                store.projects.selectedIDs.contains(project.id)
+                                let shown = store.projects.selectedIDs.contains(project.id)
+                                if store.persistsTabs, let stored = ProjectsModel.storedSelection(), stored.contains(project.id) != shown {
+                                    projectsLog.info("row \(project.id, privacy: .public) shows \(shown) but stored selection says \(!shown)")
+                                }
+                                return shown
                             } set: { selected in
                                 store.projects.select(project.id, isSelected: selected, persists: store.persistsTabs)
                             }) {

@@ -131,6 +131,8 @@ final class RemoteClient {
         didSet { sendPushToken() }
     }
 
+    @ObservationIgnored private(set) lazy var liveActivities = SessionLiveActivities { [weak self] message in self?.send(message) }
+
     @ObservationIgnored private var task: URLSessionWebSocketTask?
     @ObservationIgnored private var retry: Task<Void, Never>?
     @ObservationIgnored private var failures = 0
@@ -415,12 +417,19 @@ final class RemoteClient {
     private func sendPushToken() {
         guard features.contains(RemotePushFeature.name), let pushToken else { return }
 
-        #if DEBUG
-        let isSandbox = true
-        #else
-        let isSandbox = false
-        #endif
-        send(.pushToken(token: pushToken, isSandbox: isSandbox))
+        send(.pushToken(token: pushToken, isSandbox: Self.isSandboxBuild))
+    }
+
+    #if DEBUG
+    static let isSandboxBuild = true
+    #else
+    static let isSandboxBuild = false
+    #endif
+
+    func startLiveActivity(for sessionID: String) {
+        guard features.contains(RemoteLiveActivityFeature.name), let session = groups.lazy.flatMap(\.sessions).first(where: { $0.id == sessionID }) else { return }
+
+        liveActivities.start(sessionID: sessionID, title: session.title)
     }
 
     func disconnect() {
@@ -442,6 +451,7 @@ final class RemoteClient {
         }
         subscribedSessionID = sessionID
         send(.subscribe(sessionID: sessionID))
+        if groups.lazy.flatMap(\.sessions).first(where: { $0.id == sessionID })?.status == "busy" { startLiveActivity(for: sessionID) }
     }
 
     func continueHandoff(_ activity: NSUserActivity) {
@@ -573,6 +583,7 @@ final class RemoteClient {
         guard let task, !prompt.isFailed else { return false }
 
         lastSent = (sessionID, date)
+        startLiveActivity(for: sessionID)
         let message = RemoteClientMessage.prompt(sessionID: sessionID, text: text, attachments: attachments.isEmpty ? nil : attachments.map(\.id))
         Task { [weak self] in
             do {
@@ -697,6 +708,10 @@ final class RemoteClient {
             self.groups = groups
             self.folders = folders
             self.features = features ?? []
+            if self.features.contains(RemoteLiveActivityFeature.name) {
+                liveActivities.sync(groups: groups)
+                liveActivities.resendTokens()
+            }
             if !self.features.contains(RemoteUsageFeature.name) { usage = nil }
             if !self.features.contains(RemoteCodexUsageFeature.name) { codexUsage = nil }
             guard state != .connected else {
