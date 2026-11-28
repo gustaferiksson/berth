@@ -109,6 +109,22 @@ public enum PendingPrompts {
         return pending.first { $0.shellCommand == command && !isQueued($0, queued: queued) }?.sentAt
     }
 
+    public static func placingShells(_ pending: [PendingPrompt], among turns: [Turn]) -> (above: [String: [PendingPrompt]], rest: [PendingPrompt]) {
+        var above: [String: [PendingPrompt]] = [:]
+        var rest: [PendingPrompt] = []
+
+        for prompt in pending {
+            let target = prompt.shellCommand == nil ? nil : turns.indices.first { index in
+                guard let date = turns[index].shellDate, date > prompt.sentAt else { return false }
+
+                return index == 0 || turns[index - 1].shellDate.map { $0 <= prompt.sentAt } ?? true
+            }
+            if let target { above[turns[target].id, default: []].append(prompt) } else { rest.append(prompt) }
+        }
+
+        return (above, rest)
+    }
+
     public static func unqueued(_ pending: [PendingPrompt], queued: [String]) -> [PendingPrompt] {
         pending.filter { $0.isFailed || !isQueued($0, queued: queued) }
     }
