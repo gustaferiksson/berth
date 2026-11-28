@@ -51,6 +51,11 @@ back into the same Claude session. Strictly native (SwiftUI and TextKit, no web 
   Stack when present, then Session pull requests. Review Threads, Uncommitted, Committed,
   Commits, Files and Edited by Session follow. Counts show on collapsed sections. The comments
   bar sits below the list. Stacked sessions keep their per-repository cards.
+- Session pull requests keep open and draft ones on top. With more than five merged or closed
+  ones, those group by the day they finished (Today, Yesterday, This Week, Older, collapse ids
+  `pullRequests.<bucket>`, Older starts collapsed), five rows per group and a "N more" row. The
+  selected or expanded pull request stays visible in a capped or collapsed group. The set per
+  session survives restarts (`sessionPullRequests`, docs/SETTINGS.md).
 - Uncommitted and Committed appear when they have files. Rows show a coloured status letter,
   a monospaced file name and nonzero line counts at the right edge. Click to open the compare.
   ⌘-click or use the hover Open File button to open the working-tree file. Deleted files only

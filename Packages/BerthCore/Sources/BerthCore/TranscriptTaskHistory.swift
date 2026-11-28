@@ -20,11 +20,12 @@ extension TranscriptActivity {
                 task.status = outcome
             } else if live == nil || task.started < started {
                 task.status = .finished
-            } else if running[task.id]?.endsWithProcess == true, let output = task.outputFile, isProcessGone(output) {
-                task.status = .finished
             }
             if task.kind == .shell, task.status == .running, task.outputFile == nil {
                 task.outputFile = Self.sessionTaskOutput(task.id, session: transcript.deletingPathExtension().lastPathComponent, under: tasksRoot)
+            }
+            if task.kind == .shell, task.status == .running, running[task.id]?.endsWithProcess == true, let output = task.outputFile, isProcessGone(output) {
+                task.status = .finished
             }
             return task
         }
@@ -35,11 +36,13 @@ extension TranscriptActivity {
         let status: SessionBackgroundTask.Status
         let path: String?
         let result: String?
+        var command: String?
 
-        init(status: SessionBackgroundTask.Status, path: String?, result: String?) {
+        init(status: SessionBackgroundTask.Status, path: String?, result: String?, command: String? = nil) {
             self.status = status
             self.path = path
             self.result = result
+            self.command = command
         }
 
         init?(_ notification: String) {
@@ -74,6 +77,7 @@ extension TranscriptActivity {
         }
         if let path = completion.path, let file = Self.taskOutputFile(path, id: id) { task.outputFile = file }
         if let result = completion.result, !result.isEmpty { task.result = result }
+        if task.title == "Background shell", let command = completion.command, !command.isEmpty { task.title = command }
         taskHistory[id] = task
     }
 

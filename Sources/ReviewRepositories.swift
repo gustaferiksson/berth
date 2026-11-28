@@ -191,10 +191,56 @@ struct ReviewOtherPullRequests: View {
     let entries: [ReviewPullRequest]
     let model: ReviewModel
     let changesAsTree: Bool
+    let groupExpansion: (String) -> Binding<Bool>
+    @State private var unlimited: Set<RecentBucket> = []
     @Environment(\.ghosttyTheme) private var theme
 
+    private static let visibleLimit = 5
+
     var body: some View {
-        ForEach(entries) { entry in
+        let active = entries.filter { [.open, .draft].contains($0.pullRequest.state) }
+        let finished = entries.filter { ![.open, .draft].contains($0.pullRequest.state) }
+        if finished.count <= Self.visibleLimit {
+            rows(active + finished)
+        } else {
+            rows(active)
+            ForEach(Self.groups(of: finished), id: \.bucket) { group in
+                finishedGroup(group.bucket, group.entries)
+            }
+        }
+    }
+
+    private static func groups(of finished: [ReviewPullRequest]) -> [(bucket: RecentBucket, entries: [ReviewPullRequest])] {
+        let now = Date.now
+        let newestFirst = finished.sorted { ($0.pullRequest.closedAt ?? .distantPast, $0.id.number) > ($1.pullRequest.closedAt ?? .distantPast, $1.id.number) }
+        return RecentBucket.allCases.compactMap { bucket in
+            let members = newestFirst.filter { RecentBucket(date: $0.pullRequest.closedAt ?? .distantPast, now: now, calendar: .current) == bucket }
+            return members.isEmpty ? nil : (bucket, members)
+        }
+    }
+
+    @ViewBuilder
+    private func finishedGroup(_ bucket: RecentBucket, _ members: [ReviewPullRequest]) -> some View {
+        let isExpanded = groupExpansion(bucket.rawValue)
+        let inUse = members.filter { model.selectedDocument?.pullRequestLink == $0.id || model.expandedPullRequests.contains($0.id) }
+        let showsAll = unlimited.contains(bucket)
+        let capped = members.enumerated().filter { index, entry in showsAll || index < Self.visibleLimit || inUse.contains { $0.id == entry.id } }.map(\.element)
+        SidebarSectionHeader<EmptyView, EmptyView>(title: bucket.title, help: "Merged or closed pull requests, grouped by the day they finished", count: members.count, isExpanded: isExpanded, accessory: nil, replacementTitle: nil)
+            .reviewRow()
+        if isExpanded.wrappedValue {
+            rows(capped)
+            if showsAll || capped.count < members.count {
+                ShowMoreRow(isExpanded: showsAll, hiddenCount: members.count - capped.count) {
+                    if showsAll { unlimited.remove(bucket) } else { unlimited.insert(bucket) }
+                }
+            }
+        } else {
+            rows(inUse)
+        }
+    }
+
+    private func rows(_ shown: [ReviewPullRequest]) -> some View {
+        ForEach(shown) { entry in
             let link = entry.id
             let isExpanded = model.expandedPullRequests.contains(link)
             ReviewCompactPullRequestRow(entry: entry, model: model, isExpanded: isExpanded) {
@@ -347,6 +393,7 @@ struct ReviewRepositoryHeader<Accessory: View>: View {
             HStack(spacing: 4) {
                 Text(title)
                     .lineLimit(1)
+                    .layoutPriority(1)
                 Spacer(minLength: 4)
                 accessory()
             }
@@ -366,6 +413,8 @@ struct ReviewRepositoryAccessory: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
+        let shown = pullRequests.filter { $0.number != hiding }
+        let merged = shown.filter { $0.state == .merged }
         HStack(spacing: 6) {
             if let branch {
                 Text(base.map { "\(branch) → \($0)" } ?? branch)
@@ -376,11 +425,21 @@ struct ReviewRepositoryAccessory: View {
                     .layoutPriority(-1)
                     .transaction { $0.animation = nil }
             }
-            ForEach(pullRequests, id: \.number) { pullRequest in
-                PullRequestTag(pullRequest: pullRequest)
-                    .fixedSize()
-                    .opacity(pullRequest.number == hiding ? 0 : 1)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(shown.filter { $0.state != .merged }, id: \.number) { pullRequest in
+                        PullRequestTag(pullRequest: pullRequest)
+                            .fixedSize()
+                    }
+                    if !merged.isEmpty {
+                        Text("\(merged.count) merged")
+                            .foregroundStyle(theme.merged)
+                    }
+                }
+                Text("\(shown.count) PRs")
             }
+            .font(.caption)
+            .help(merged.isEmpty ? "" : "Merged pull requests \(merged.map { "#\($0.number)" }.joined(separator: ", "))")
         }
         .animation(.easeInOut(duration: 0.2), value: hiding)
     }

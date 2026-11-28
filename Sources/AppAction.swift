@@ -9,7 +9,7 @@ enum AppAction: Hashable {
     case goBack, goForward, previousChange, nextChange
     case openLocation, newBrowserTab, closeBrowserTab, reopenBrowserTab, reloadPage, browserBack, browserForward, showWebInspector
     case closeTerminal, copyTerminal, pasteTerminal, selectAllInTerminal, nextTab, previousTab
-    case pinSession, unpinSession, snoozeHour, snoozeTomorrow, snoozeUntilNeeded, unsnoozeSession, unloadSession, reopenSession, copySessionID, markSessionRead, markSessionUnread, dismissSessionAttention, stopWatchingSession, newTaskFromSessions, removeSessionFromTask, reopenSessionTask, acceptTaskSuggestion, dismissTaskSuggestion
+    case pinSession, unpinSession, snoozeHour, snoozeTomorrow, snoozeUntilNeeded, unsnoozeSession, unloadSession, reopenSession, copySessionID, markSessionRead, markSessionUnread, stopWatchingSession, newTaskFromSessions, removeSessionFromTask, reopenSessionTask, acceptTaskSuggestion, dismissTaskSuggestion
     case stopConversation, closeSubagentConversation
     case findInReview, refreshReview, toggleReviewTree, toggleReviewComments, collapseAllComments, expandAllComments, clearReviewMarks, sendReviewComments, closeReviewTab, closeOtherReviewTabs, closeReviewPreview, revealReviewFile, copyReviewPath, copyReviewRelativePath, openReviewFile
     case stopBrowserLoading, copyBrowserURL, openInDefaultBrowser
@@ -97,7 +97,6 @@ enum AppAction: Hashable {
         case .copySessionID: "Copy Session ID"
         case .markSessionRead: "Mark Session as Read"
         case .markSessionUnread: "Mark Session as Unread"
-        case .dismissSessionAttention: "Dismiss Session Attention"
         case .stopWatchingSession: "Stop Watching Pull Request"
         case .newTaskFromSessions: "New Task from Selected Sessions"
         case .removeSessionFromTask: "Remove Session from Task"
@@ -183,7 +182,6 @@ enum AppAction: Hashable {
         case .copySessionID: "clipboard identifier uuid"
         case .markSessionRead: "sidebar unread activity"
         case .markSessionUnread: "sidebar unread activity"
-        case .dismissSessionAttention: "sidebar failed checks"
         case .stopWatchingSession: "sidebar github pr watch"
         case .newTaskFromSessions: "sidebar multi selection group"
         case .removeSessionFromTask: "sidebar unlink"
@@ -280,7 +278,6 @@ enum AppAction: Hashable {
         case .copySessionID: "doc.on.doc"
         case .markSessionRead: "envelope.open"
         case .markSessionUnread: "envelope.badge"
-        case .dismissSessionAttention: "checkmark.circle"
         case .stopWatchingSession: "bell.slash"
         case .newTaskFromSessions: "plus.square.on.square"
         case .removeSessionFromTask: "minus.square"
@@ -380,7 +377,7 @@ enum AppAction: Hashable {
         case .closeTerminal: [.terminal, .session]
         case .nextTab, .previousTab: [.terminal, .conversation]
         case .newTerminalForSession: [.terminal, .conversation, .session]
-        case .pinSession, .unpinSession, .snoozeHour, .snoozeTomorrow, .snoozeUntilNeeded, .unsnoozeSession, .unloadSession, .reopenSession, .copySessionID, .markSessionRead, .markSessionUnread, .dismissSessionAttention, .newTaskFromSessions, .removeSessionFromTask, .reopenSessionTask, .acceptTaskSuggestion, .dismissTaskSuggestion, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession: [.session]
+        case .pinSession, .unpinSession, .snoozeHour, .snoozeTomorrow, .snoozeUntilNeeded, .unsnoozeSession, .unloadSession, .reopenSession, .copySessionID, .markSessionRead, .markSessionUnread, .newTaskFromSessions, .removeSessionFromTask, .reopenSessionTask, .acceptTaskSuggestion, .dismissTaskSuggestion, .archiveCurrentSession, .flagCurrentSession, .unflagCurrentSession: [.session]
         case .stopWatchingSession: [.session, .conversation]
         case .stopConversation, .closeSubagentConversation, .showTerminal: [.conversation]
         case .newSession: [.conversation, .session]
@@ -651,7 +648,6 @@ enum AppAction: Hashable {
             case .unsnoozeSession: return store.multiSelection.isEmpty && store.snooze(of: id) != nil
             case .markSessionRead: return store.isUnread(session)
             case .markSessionUnread: return !store.isUnread(session) && store.selection != .session(id)
-            case .dismissSessionAttention: return store.multiSelection.isEmpty && store.canDismissAttention(session)
             case .removeSessionFromTask: return store.multiSelection.isEmpty && store.task(containing: id) != nil
             case .acceptTaskSuggestion, .dismissTaskSuggestion: return store.multiSelection.isEmpty && store.taskSuggestions[id] != nil
             default: return true

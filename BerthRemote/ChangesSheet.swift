@@ -39,6 +39,7 @@ struct ChangesSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
                 }
             }
             .task(id: client.state) {
@@ -96,19 +97,24 @@ private struct ChangedFileRow: View {
     var body: some View {
         let url = URL(filePath: file.path)
         let folder = url.deletingLastPathComponent().relativePath
+        let oldURL = file.oldPath.map { URL(filePath: $0) }
+        let oldName = oldURL?.lastPathComponent
+        let name = oldName.flatMap { $0 == url.lastPathComponent ? nil : "\($0) → \(url.lastPathComponent)" } ?? url.lastPathComponent
+        let oldFolder = oldURL?.deletingLastPathComponent().relativePath
+        let folderTitle = oldFolder.flatMap { $0 == folder ? nil : "\($0) → \(folder)" } ?? folder
         NavigationLink(value: RemoteClient.ChangeKey(sessionID: sessionID, path: file.path, isCommitted: isCommitted)) {
             HStack(spacing: 12) {
                 Image(systemName: ChangeStatus.symbol(file.status))
                     .foregroundStyle(ChangeStatus.color(file.status))
                     .accessibilityLabel(ChangeStatus.title(file.status))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(url.lastPathComponent)
+                    Text(name)
                         .font(.body)
                         .fontWeight(.medium)
                         .monospaced()
-                        .lineLimit(1)
-                    if folder != "." {
-                        Text(folder)
+                        .lineLimit(2)
+                    if folderTitle != "." {
+                        Text(folderTitle)
                             .font(.caption)
                             .monospaced()
                             .foregroundStyle(.secondary)

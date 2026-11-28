@@ -3,15 +3,25 @@ import SwiftUI
 struct SessionListView: View {
     @Environment(RemoteClient.self) private var client
     @Environment(UpdateCheck.self) private var updates
-    @State private var path: [String] = {
+    @State private var selection: String? = {
         #if DEBUG
-        if RemoteClient.isDemo, RemoteClient.showsDemoList { return [] }
+        if RemoteClient.isDemo, RemoteClient.showsDemoList { return UserDefaults.standard.bool(forKey: "snapshotDemoOpen") ? "demo" : nil }
         #endif
-        return UserDefaults.standard.string(forKey: "remoteSession").map { [$0] } ?? []
+        return UserDefaults.standard.string(forKey: "remoteSession")
     }()
+
+    @State private var columnVisibility: NavigationSplitViewVisibility = {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "snapshotRegularWidth") { return .all }
+        #endif
+        return .automatic
+    }()
+
+    @FocusState private var isSearching: Bool
 
     @State private var isStartingSession = false
     @State private var query = UserDefaults.standard.string(forKey: "snapshotQuery") ?? ""
+    @State private var status = SessionStatusFilter.allCases.first { UserDefaults.standard.string(forKey: "snapshotFilter") == "\($0)" } ?? .all
     @State private var expandedGroups: [String: Bool] = [:]
     @State private var groupsShowingAll: Set<String> = []
     @State private var isShowingSettings = UserDefaults.standard.bool(forKey: "snapshotSettings")
@@ -24,16 +34,16 @@ struct SessionListView: View {
         let searchedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let searchesTranscripts = client.features.contains(RemoteSearchFeature.name) && searchedQuery.count >= RemoteSearchFeature.minimumQueryLength
 
-        NavigationStack(path: $path) {
-            List {
-                if let version = updates.available, query.isEmpty {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            List(selection: $selection) {
+                if let version = updates.available, !isFiltering {
                     Section {
                         Link(destination: UpdateCheck.installURL) {
                             Label("Install Berth Remote \(version)", systemImage: "arrow.down.circle")
                         }
                     }
                 }
-                if query.isEmpty {
+                if !isFiltering {
                     let usageGroups = client.usageGroups(at: .now)
                     if !usageGroups.isEmpty {
                         Section {
@@ -45,20 +55,20 @@ struct SessionListView: View {
                 }
                 ForEach(groups) { group in
                     let isCollapsed = group.isCollapsed ?? (group.id == "recent:older")
-                    let expansion = if query.isEmpty {
+                    let expansion = if !isFiltering {
                         Binding { expandedGroups[group.id, default: !isCollapsed] } set: { expandedGroups[group.id] = $0 }
                     } else {
                         Binding.constant(true)
                     }
                     let count = group.sessions.count
-                    let limit = query.isEmpty ? max(0, group.visibleCount ?? count) : count
+                    let limit = !isFiltering ? max(0, group.visibleCount ?? count) : count
                     let hiddenCount = max(0, count - limit)
                     let showsAll = groupsShowingAll.contains(group.id)
                     Section {
                         if expansion.wrappedValue {
-                            ForEach(group.sessions.prefix(showsAll ? count : limit)) { session in
+                            ForEach(listedSessions(in: group)) { session in
                                 SessionRow(session: session, groupID: group.id, isPinned: session.isPinned ?? pinned.contains(session.id)) {
-                                    path.append(session.id)
+                                    selection = session.id
                                 } didAct: { action in
                                     feedback = ActionFeedback(count: feedback.count + 1, action: action)
                                 }
@@ -78,12 +88,13 @@ struct SessionListView: View {
                                         .foregroundStyle(Color.accentColor)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .contentShape(.rect)
+                                        .hoverEffect()
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
                     } header: {
-                        if query.isEmpty {
+                        if !isFiltering {
                             SessionSectionHeader(title: group.title, count: count, isExpanded: expansion)
                         } else {
                             Text(group.title)
@@ -94,7 +105,10 @@ struct SessionListView: View {
                     }
                 }
                 if searchesTranscripts {
-                    TranscriptSearchSection(query: searchedQuery)
+                    TranscriptSearchSection(query: searchedQuery) { hit in
+                        client.searchJump = hit.snippets.first.map { (hit.id, $0) }
+                        selection = hit.id
+                    }
                 }
             }
             .listStyle(.insetGrouped)
@@ -113,12 +127,21 @@ struct SessionListView: View {
                 }
             }
             .searchable(text: $query, prompt: "Search Sessions")
+            .searchFocused($isSearching)
             .refreshable { await client.refresh() }
             .navigationTitle("Sessions")
-            .navigationDestination(for: String.self) { SessionView(sessionID: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu("Filter", systemImage: status == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill") {
+                        Picker("Filter", selection: $status) {
+                            ForEach(SessionStatusFilter.allCases.filter { $0 != .flagged || client.features.contains(RemoteTriageFeature.name) }) { filter in
+                                Label(filter.title, systemImage: filter.symbol).tag(filter)
+                            }
+                        }
+                    }
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button("New Session", systemImage: "plus") { isStartingSession = true }
@@ -134,6 +157,9 @@ struct SessionListView: View {
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()
             }
+            .onChange(of: selection) {
+                UserDefaults.standard.set(selection, forKey: "remoteSession")
+            }
             .task {
                 #if DEBUG
                 isStartingSession = RemoteClient.showsDemoNewSession
@@ -143,22 +169,99 @@ struct SessionListView: View {
                 guard let id = client.openedSessionID else { return }
 
                 client.openedSessionID = nil
-                path = [id]
+                selection = id
+            }
+        } detail: {
+            if let selection {
+                SessionView(sessionID: selection)
+                    .id(selection)
+            } else {
+                ContentUnavailableView("No Session Selected", systemImage: "text.bubble", description: Text("Choose a session from the sidebar."))
             }
         }
+        .focusedSceneValue(\.sessionListActions, SessionListActions(
+            canStartSession: !client.folders.isEmpty && client.state == .connected,
+            newSession: { isStartingSession = true },
+            search: {
+                columnVisibility = .all
+                isSearching = true
+            },
+            refresh: { Task { await client.refresh() } },
+            selectPrevious: { moveSelection(by: -1) },
+            selectNext: { moveSelection(by: 1) }
+        ))
     }
 
-    private var visibleGroups: [RemoteGroup] {
-        guard !query.isEmpty else { return client.groups.filter { !$0.sessions.isEmpty } }
+    private func listedSessions(in group: RemoteGroup) -> [RemoteSession] {
+        let isCollapsed = group.isCollapsed ?? (group.id == "recent:older")
+        guard isFiltering || expandedGroups[group.id, default: !isCollapsed] else { return [] }
 
+        let count = group.sessions.count
+        let limit = !isFiltering ? max(0, group.visibleCount ?? count) : count
+        return Array(group.sessions.prefix(groupsShowingAll.contains(group.id) ? count : limit))
+    }
+
+    private func moveSelection(by offset: Int) {
+        let ids = visibleGroups.flatMap { listedSessions(in: $0).map(\.id) }
+        guard !ids.isEmpty else { return }
+
+        let current = selection.flatMap { ids.firstIndex(of: $0) }
+        let target = current.map { min(max($0 + offset, 0), ids.count - 1) } ?? (offset > 0 ? 0 : ids.count - 1)
+        selection = ids[target]
+    }
+
+    private var isFiltering: Bool { !query.isEmpty || status != .all }
+
+    private var visibleGroups: [RemoteGroup] {
+        guard isFiltering else { return client.groups.filter { !$0.sessions.isEmpty } }
+
+        let hiddenGroupIDs = status == .all ? [] : [RemoteTriageFeature.snoozedGroupID, RemoteTriageFeature.doneGroupID]
         let matches = { (session: RemoteSession) in
-            [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) }
+            status.matches(session) && (query.isEmpty || [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) })
         }
         return client.groups.compactMap { group in
+            guard !hiddenGroupIDs.contains(group.id) else { return nil }
+
             let sessions = group.sessions.filter(matches)
             guard !sessions.isEmpty else { return nil }
 
             return RemoteGroup(id: group.id, title: group.title, sessions: sessions, isCollapsed: group.isCollapsed, visibleCount: group.visibleCount)
+        }
+    }
+}
+
+private enum SessionStatusFilter: CaseIterable, Identifiable {
+    case all, needsYou, working, unread, flagged
+
+    var id: Self { self }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .all: "All"
+        case .needsYou: "Needs You"
+        case .working: "Working"
+        case .unread: "Unread"
+        case .flagged: "Flagged"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: "tray"
+        case .needsYou: "exclamationmark.circle"
+        case .working: "ellipsis.circle"
+        case .unread: "circlebadge"
+        case .flagged: "flag"
+        }
+    }
+
+    func matches(_ session: RemoteSession) -> Bool {
+        switch self {
+        case .all: true
+        case .needsYou: session.status == "waiting"
+        case .working: session.status == "busy"
+        case .unread: session.isUnread == true
+        case .flagged: session.isFlagged == true
         }
     }
 }
@@ -185,6 +288,7 @@ private struct SessionSectionHeader: View {
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(Color.secondary)
             .contentShape(.rect)
+            .hoverEffect()
         }
         .buttonStyle(.plain)
         .textCase(nil)
@@ -239,6 +343,7 @@ private struct SessionRow: View {
         Button(action: open) {
             SessionRowLabel(session: session)
                 .contentShape(.rect)
+                .hoverEffect()
         }
         .buttonStyle(.plain)
         .listRowInsets(.vertical, 0)
@@ -287,6 +392,11 @@ private struct SessionRow: View {
             } else if let pullRequest = session.pullRequest, pullRequest.url.scheme == "https" {
                 Link(destination: pullRequest.url) {
                     Label("Open Pull Request #\(String(pullRequest.number))", image: Octicon.pullRequest.assetName())
+                }
+            }
+            if let watch = session.pullRequestWatch {
+                Section(watch.title) {
+                    Text("Expires \(watch.expiresAt, format: .relative(presentation: .named))")
                 }
             }
             if isDone, hasTriage {
@@ -583,6 +693,7 @@ private struct NewSessionView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
                 }
                 if scope == .folder {
                     ToolbarItem(placement: .confirmationAction) {

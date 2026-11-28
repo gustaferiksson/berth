@@ -61,7 +61,10 @@ struct SidebarSectionHeader<Accessory: View, ReplacementTitle: View>: View {
 
         HStack(spacing: 6) {
             if let replacementTitle {
-                chevron
+                Button { isExpanded.toggle() } label: { chevron.contentShape(.rect) }
+                    .buttonStyle(.plain)
+                    .help(help)
+                    .accessibilityHidden(true)
                 replacementTitle
                 Spacer(minLength: 0)
             } else {

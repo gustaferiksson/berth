@@ -57,6 +57,10 @@
 	</dict>
 	<key>NSHumanReadableCopyright</key>
 	<string>Berth</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>dev.gustaf.berth.session</string>
+	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
