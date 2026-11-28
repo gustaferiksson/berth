@@ -563,6 +563,52 @@ public struct RemoteSessionStart: Codable, Sendable, Equatable {
     }
 }
 
+public struct RemoteInboxItem: Codable, Sendable, Hashable, Identifiable {
+    public enum Kind: String, Codable, Sendable {
+        case pullRequest, issue
+    }
+
+    public let kind: Kind
+    public let repository: String
+    public let number: Int
+    public let title: String
+    public let group: String
+    public let isOpenable: Bool
+    public let updatedAt: Date
+    public let author: String?
+    public let branch: String?
+    public let isDraft: Bool?
+    public let checks: String?
+
+    public var id: String { "\(kind.rawValue)/\(repository)#\(number)" }
+
+    public init(kind: Kind, repository: String, number: Int, title: String, group: String, isOpenable: Bool, updatedAt: Date, author: String? = nil, branch: String? = nil, isDraft: Bool? = nil, checks: String? = nil) {
+        self.kind = kind
+        self.repository = repository
+        self.number = number
+        self.title = title
+        self.group = group
+        self.isOpenable = isOpenable
+        self.updatedAt = updatedAt
+        self.author = author
+        self.branch = branch
+        self.isDraft = isDraft
+        self.checks = checks
+    }
+}
+
+public struct RemoteInbox: Codable, Sendable, Equatable {
+    public static let feature = "inbox"
+
+    public let pullRequests: [RemoteInboxItem]?
+    public let issues: [RemoteInboxItem]?
+
+    public init(pullRequests: [RemoteInboxItem]?, issues: [RemoteInboxItem]?) {
+        self.pullRequests = pullRequests
+        self.issues = issues
+    }
+}
+
 public enum RemoteClientMessage: Codable, Sendable {
     case auth(hmac: Data)
     case subscribe(sessionID: String)
@@ -584,6 +630,8 @@ public enum RemoteClientMessage: Codable, Sendable {
     case commands(sessionID: String)
     case launchOptions
     case startSession(RemoteSessionStart)
+    case inbox
+    case startItem(kind: RemoteInboxItem.Kind, repository: String, number: Int)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
@@ -603,4 +651,5 @@ public enum RemoteServerMessage: Codable, Sendable {
     case image(sessionID: String, id: String, variant: RemoteImageVariant, data: Data?)
     case commands(sessionID: String, commands: [RemoteSlashCommand])
     case launchOptions(RemoteLaunchOptions)
+    case inbox(RemoteInbox)
 }

@@ -36,6 +36,22 @@ struct RemoteLaunchOptionsTests {
         #expect(decodedOptions == options)
     }
 
+    @Test func inboxAndItemStartRoundTrip() throws {
+        let item = RemoteInboxItem(kind: .pullRequest, repository: "acme/widgets", number: 12, title: "Fix the build", group: "Review Requested", isOpenable: false, updatedAt: Date(timeIntervalSinceReferenceDate: 0), author: "mara", branch: "fix/build", isDraft: false, checks: "passed")
+        let inbox = RemoteInbox(pullRequests: [item], issues: nil)
+        let decoded = try JSONDecoder().decode(RemoteServerMessage.self, from: JSONEncoder().encode(RemoteServerMessage.inbox(inbox)))
+        let start = try JSONDecoder().decode(RemoteClientMessage.self, from: JSONEncoder().encode(RemoteClientMessage.startItem(kind: .issue, repository: "acme/widgets", number: 7)))
+
+        guard case let .inbox(decodedInbox) = decoded, case let .startItem(kind, repository, number) = start else {
+            Issue.record("wrong case")
+            return
+        }
+
+        #expect(decodedInbox == inbox)
+        #expect(item.id == "pullRequest/acme/widgets#12")
+        #expect(kind == .issue && repository == "acme/widgets" && number == 7)
+    }
+
     @Test func legacyNewSessionStillDecodes() throws {
         let decoded = try JSONDecoder().decode(RemoteClientMessage.self, from: JSONEncoder().encode(RemoteClientMessage.newSession(folder: "/projects/acme", prompt: "Hi")))
 
