@@ -35,11 +35,11 @@ enum Snapshot {
     private static let linkedFixtureLinks = linkedFixtures.keys.sorted { $0.number > $1.number }
     private static let showsReviewSessionPullRequests = UserDefaults.standard.bool(forKey: "snapshotReviewSessionPullRequests")
     private static let reviewSessionPullRequests: [PullRequestLink: PullRequest] = showsReviewSessionPullRequests ? [
-        PullRequestLink(repository: fixtureRepository, number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/\(fixtureRepository)/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase"), headRefName: "feature/approved-reviewers"),
+        PullRequestLink(repository: fixtureRepository, number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/\(fixtureRepository)/pull/1445")!, title: "Let reviewers switch between approved signers", state: .open, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase"), headRefName: "feature/approved-reviewers"),
     ].merging(SnapshotPullRequests.many(in: fixtureRepository)) { first, _ in first } : [:]
 
     static let fixtureShownPullRequests: [PullRequestLink: PullRequest] = [
-        PullRequestLink(repository: "acme/billing", number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/acme/billing/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: "main", headRefName: "feature/approved-reviewers"),
+        PullRequestLink(repository: "acme/billing", number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/acme/billing/pull/1445")!, title: "Let reviewers switch between approved signers", state: .open, baseRefName: "main", headRefName: "feature/approved-reviewers"),
         PullRequestLink(repository: "acme/api", number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/acme/api/pull/1445")!, title: "Document webhook retry behavior", state: .open, baseRefName: "main", headRefName: "feature/webhook-retries"),
     ]
 
@@ -297,7 +297,7 @@ enum Snapshot {
             return #"{"number":\#(number),"title":"\#(title)","url":"https://github.com/\#(repository)/pull/\#(number)","isDraft":\#(draft),"updatedAt":"\#((Date.now - hours * 3600).ISO8601Format())","headRefName":"\#(branch)","reviewDecision":\#(reviewDecision),"author":{"login":"\#(author)"},"repository":{"nameWithOwner":"\#(repository)"},"statusCheckRollup":\#(rollup)}"#
         }
         let reviewRequested = if UserDefaults.standard.bool(forKey: "snapshotReviewShowPullRequestLauncher") {
-            [node(1445, "acme/billing", "Let Margo switch between approved reviewers", "feature/approved-reviewers", "lee", 1, false, "SUCCESS", "REVIEW_REQUIRED")]
+            [node(1445, "acme/billing", "Let reviewers switch between approved signers", "feature/approved-reviewers", "lee", 1, false, "SUCCESS", "REVIEW_REQUIRED")]
         } else {
             [
                 node(88, "acme/web", "Add usage export page", "lee/usage-export-page", "lee", 3, false, "SUCCESS", "REVIEW_REQUIRED"),
