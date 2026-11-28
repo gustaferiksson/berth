@@ -29,6 +29,7 @@ struct BerthRemoteApp: App {
                 #if DEBUG
                 if RemoteClient.isDemo {
                     if scenePhase == .active, client.state != .connected { client.seedDemo() }
+                    if scenePhase == .active { await runSnapshotPushTap() }
                     return
                 }
                 #endif
