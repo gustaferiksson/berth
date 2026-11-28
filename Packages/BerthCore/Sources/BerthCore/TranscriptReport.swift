@@ -12,7 +12,7 @@ public extension TranscriptActivity {
         let finished = Set(activity.runningAgentIDs.filter { Self.subagentOutcome(agent: $0, in: subagents) != nil })
         let catalogs = ((try? FileManager.default.contentsOfDirectory(at: catalogDirectory, includingPropertiesForKeys: nil)) ?? []).compactMap { try? Data(contentsOf: $0) }
         let window = activity.model.flatMap { catalogModel($0, catalogs: catalogs).window }
-        return (activity, logs, RemoteActivity(tasks: activity.tasks(of: live, now: .now, progress: logs, isProcessGone: isProcessGone) { finished.contains($0) }, context: activity.context(window: window)))
+        return (activity, logs, RemoteActivity(tasks: activity.tasks(of: live, now: .now, progress: logs, isProcessGone: isProcessGone) { finished.contains($0) }, context: activity.context(window: window), permissionMode: activity.permissionMode))
     }
 
     internal static func subagentOutcome(agent: String, in subagents: URL) -> SessionBackgroundTask.Status? {
