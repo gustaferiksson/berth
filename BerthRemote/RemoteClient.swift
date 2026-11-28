@@ -93,6 +93,7 @@ final class RemoteClient {
     private(set) var codexUsage: CodexUsage?
     private(set) var images: [ImageKey: ImageLoad] = [:]
     private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
+    var searchJump: (sessionID: String, snippet: RemoteSnippet)?
     private(set) var uploads: [String: UploadState] = [:]
     var draftTexts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:] {
         didSet {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TranscriptSearchSection: View {
     let query: String
+    let open: (RemoteSearchHit) -> Void
 
     @Environment(RemoteClient.self) private var client
 
@@ -10,9 +11,12 @@ struct TranscriptSearchSection: View {
 
         Section("Transcripts") {
             ForEach(search?.hits ?? []) { hit in
-                NavigationLink(value: hit.id) {
+                Button { open(hit) } label: {
                     TranscriptHitView(hit: hit)
+                        .contentShape(.rect)
                 }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the session")
             }
             if search?.isIndexing != false {
                 HStack(spacing: 12) {
