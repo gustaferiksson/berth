@@ -260,6 +260,11 @@ private struct SessionRow: View {
                     Label("Open Pull Request #\(String(pullRequest.number))", image: Octicon.pullRequest.assetName())
                 }
             }
+            if let watch = session.pullRequestWatch {
+                Section(watch.title) {
+                    Text("Expires \(watch.expiresAt, format: .relative(presentation: .named))")
+                }
+            }
             if session.status == nil {
                 Divider()
                 Button("Mark as Done", systemImage: "checkmark", role: .destructive) { perform(.archive) }
