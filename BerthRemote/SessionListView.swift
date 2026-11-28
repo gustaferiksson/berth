@@ -107,7 +107,7 @@ struct SessionListView: View {
                 if searchesTranscripts {
                     TranscriptSearchSection(query: searchedQuery) { hit in
                         client.searchJump = hit.snippets.first.map { (hit.id, $0) }
-                        path.append(hit.id)
+                        selection = hit.id
                     }
                 }
             }
