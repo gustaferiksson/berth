@@ -259,6 +259,39 @@ final class RemoteServer {
 
         case let .commands(sessionID):
             Task { await sendCommands(of: sessionID, to: connection) }
+
+        case let .stopTask(sessionID, taskID):
+            Task { await stopTask(taskID, in: sessionID, from: id) }
+        }
+    }
+
+    private func stopTask(_ taskID: String, in sessionID: String, from id: ObjectIdentifier) async {
+        guard let connection = clients[id]?.connection, clients[id]?.sessionID == sessionID else { return }
+
+        let notify = { (message: String) in self.send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection) }
+        let agent = store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude
+        guard agent.harness.usesTranscriptActivity else { return notify("Tasks can’t be stopped from here for \(agent.harness.name) sessions") }
+
+        let tasks = await store.backgroundTasks(ofSession: sessionID)
+        guard let task = tasks.first(where: { ($0.id == taskID || $0.toolUseID == taskID) && $0.status == .running }) else { return notify("That task already finished") }
+
+        if task.kind == .shell {
+            guard await store.stopShell(task, in: sessionID) else { return notify("Berth can’t identify this shell’s process, so it wasn’t stopped") }
+
+            return
+        }
+        switch store.subagentStop(for: task, in: sessionID, among: tasks) {
+        case .subagent, .monitor:
+            let isStopped = { self.clients[id]?.sentActivity?.tasks.contains { $0.id == task.id || $0.toolUseID == task.id } != true }
+            guard case let .refused(message) = await store.stopSubagentThroughTasksDialog(task, in: sessionID, among: tasks, isStopped: isStopped) else { return }
+
+            notify(message)
+
+        case .turn:
+            notify("Claude is working, so this can’t be stopped on its own. Interrupt the session to stop the whole turn.")
+
+        case nil:
+            notify("This \(task.kind == .monitor ? "monitor" : "subagent") can’t be stopped from here right now")
         }
     }
 
@@ -528,7 +561,7 @@ final class RemoteServer {
             RemoteGroup(id: "archived", title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
         ]
         let groups = [attention] + active + triage + layout.groups.map(section) + hidden
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature] + usageFeatures)
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTaskStopFeature.name] + usageFeatures)
     }
 
     #if DEBUG

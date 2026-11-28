@@ -321,6 +321,10 @@ public struct RemoteTaskDetail: Codable, Sendable, Hashable {
     }
 }
 
+public nonisolated enum RemoteTaskStopFeature {
+    public static let name = "taskStop"
+}
+
 public struct RemoteContext: Codable, Sendable, Hashable {
     public let model: String
     public let tokens: Int?
@@ -536,6 +540,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
     case commands(sessionID: String)
+    case stopTask(sessionID: String, taskID: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
