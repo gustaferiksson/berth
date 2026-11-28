@@ -389,6 +389,11 @@ private struct SessionRow: View {
                     Label("Open Pull Request #\(String(pullRequest.number))", image: Octicon.pullRequest.assetName())
                 }
             }
+            if let watch = session.pullRequestWatch {
+                Section(watch.title) {
+                    Text("Expires \(watch.expiresAt, format: .relative(presentation: .named))")
+                }
+            }
             if isDone, hasTriage {
                 Divider()
                 Button("Mark as Not Done", systemImage: "arrow.uturn.backward") { perform(.unarchive) }
