@@ -57,8 +57,8 @@ struct RemoteSettings: View {
         TextField("Address", text: $pairAddress, prompt: Text("wss://mac.tailnet.ts.net"))
             .autocorrectionDisabled()
             .monospaced()
-        if let payload = RemotePairing.payload(address: pairAddress, token: remoteToken), let qr = Self.qrCode(payload) {
-            Image(nsImage: qr)
+        if let payload = RemotePairing.payload(address: pairAddress, token: remoteToken), let code = Self.qrCode(payload) {
+            Image(nsImage: code)
                 .interpolation(.none)
                 .resizable()
                 .frame(width: 220, height: 220)

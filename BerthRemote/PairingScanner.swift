@@ -41,7 +41,7 @@ private struct ScannerRepresentable: UIViewControllerRepresentable {
         return scanner
     }
 
-    func updateUIViewController(_ scanner: DataScannerViewController, context: Context) {
+    func updateUIViewController(_ scanner: DataScannerViewController, context _: Context) {
         guard !scanner.isScanning else { return }
 
         try? scanner.startScanning()
@@ -52,7 +52,7 @@ private struct ScannerRepresentable: UIViewControllerRepresentable {
 
         init(onScan: @escaping (String) -> Void) { self.onScan = onScan }
 
-        func dataScanner(_ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) {
+        func dataScanner(_ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems _: [RecognizedItem]) {
             for case let .barcode(barcode) in addedItems {
                 guard let payload = barcode.payloadStringValue, RemotePairing.parse(payload) != nil else { continue }
 
