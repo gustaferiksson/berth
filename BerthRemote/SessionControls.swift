@@ -442,6 +442,7 @@ private struct Composer: View {
                             .background(controlFill, in: .circle)
                             .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
                             .contentShape(.rect)
+                            .hoverEffect(.lift)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(context.model)
@@ -465,6 +466,7 @@ private struct Composer: View {
                     .background(isAvailable ? Color.accentColor : controlFill, in: .circle)
                     .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
                     .contentShape(.rect)
+                    .hoverEffect(.lift)
             }
             .buttonStyle(.plain)
             .disabled(!isAvailable)

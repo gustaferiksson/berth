@@ -87,6 +87,7 @@ struct SessionListView: View {
                                         .foregroundStyle(Color.accentColor)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .contentShape(.rect)
+                                        .hoverEffect()
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -228,6 +229,7 @@ private struct SessionSectionHeader: View {
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(Color.secondary)
             .contentShape(.rect)
+            .hoverEffect()
         }
         .buttonStyle(.plain)
         .textCase(nil)
@@ -282,6 +284,7 @@ private struct SessionRow: View {
         Button(action: open) {
             SessionRowLabel(session: session)
                 .contentShape(.rect)
+                .hoverEffect()
         }
         .buttonStyle(.plain)
         .listRowInsets(.vertical, 0)
