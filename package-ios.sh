@@ -6,11 +6,14 @@ cd "$(dirname "$0")"
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)-local}"
 BUILD="${BUILD:-1}"
 PROFILE="${IOS_ADHOC_PROFILE_PATH:-.secrets/Berth_Remote_Ad_Hoc.mobileprovision}"
+WIDGET_PROFILE="${IOS_WIDGET_ADHOC_PROFILE_PATH:-.secrets/Berth_Remote_Widget_Ad_Hoc.mobileprovision}"
 PROFILES_DIR="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
 
-[[ -f "$PROFILE" ]] || { echo "✗ $PROFILE not found"; exit 1; }
 mkdir -p "$PROFILES_DIR"
-cp "$PROFILE" "$PROFILES_DIR/$(security cms -D -i "$PROFILE" | plutil -extract UUID raw -o - -).mobileprovision"
+for profile in "$PROFILE" "$WIDGET_PROFILE"; do
+  [[ -f "$profile" ]] || { echo "✗ $profile not found"; exit 1; }
+  cp "$profile" "$PROFILES_DIR/$(security cms -D -i "$profile" | plutil -extract UUID raw -o - -).mobileprovision"
+done
 
 echo "▸ Generating Xcode project…"
 xcodegen generate --quiet
