@@ -1,4 +1,5 @@
 @testable import BerthCore
+import Foundation
 import Testing
 
 @Test func textContinuationKeepsEarlierCallsAndHandlesTheNextPrompt() throws {
@@ -87,4 +88,21 @@ import Testing
 
     #expect(calls.map(\.id) == ["b"])
     #expect(calls[0].result?.isError == true)
+}
+
+@Test func pairsOverlappingShellOutputsWithTheirOwnCommandNotTheLastOne() {
+    func record(_ uuid: String, parent: String, _ seconds: Int, _ content: String) -> String {
+        #"{"type":"user","uuid":"\#(uuid)","parentUuid":"\#(parent)","timestamp":"1970-01-01T00:16:\#(40 + seconds).000Z","message":{"role":"user","content":"\#(content)"}}"#
+    }
+    let records = [
+        record("slow", parent: "root", 1, "<bash-input>brew uninstall docker</bash-input>"),
+        record("fast", parent: "slow", 2, "<bash-input>ls</bash-input>"),
+        record("fast-out", parent: "fast", 3, "<bash-stdout>files</bash-stdout><bash-stderr></bash-stderr>"),
+        record("slow-out", parent: "slow", 9, "<bash-stdout>removed</bash-stdout><bash-stderr></bash-stderr>"),
+    ]
+    let entries = TranscriptTail.entries(in: Data((records.joined(separator: "\n") + "\n").utf8), dropFirst: false, queue: []).entries
+    let prompts = Turn.turns(from: entries).compactMap(\.prompt)
+
+    #expect(prompts.map(\.text) == ["brew uninstall docker", "ls"])
+    #expect(prompts.map(\.shellOutput) == ["removed", "files"])
 }

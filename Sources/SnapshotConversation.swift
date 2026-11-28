@@ -297,6 +297,13 @@ extension Snapshot {
         return [base("user", 1, ["role": "user", "content": "<bash-input>npm run build:slow</bash-input>"]).merging(["timestamp": started]) { $1 }]
     }
 
+    private static func overlappingShellRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
+        guard UserDefaults.standard.bool(forKey: "snapshotConversationOverlappingShells") else { return [] }
+
+        let started = Date.now.addingTimeInterval(-3).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+        return [base("user", 1, ["role": "user", "content": "<bash-input>brew uninstall --cask --zap docker-desktop</bash-input>"]).merging(["timestamp": started]) { $1 }]
+    }
+
     private static func monitorRecords(assistant: (TimeInterval, [[String: Any]]) -> [String: Any], use: (String, String, [String: Any]) -> [String: Any], result: (String, String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
         guard UserDefaults.standard.bool(forKey: "snapshotConversationMonitor") else { return [] }
 
@@ -416,7 +423,7 @@ extension Snapshot {
             assistant(3, [use("t12", "SendMessage", ["to": "agent-docs", "message": "Also check the CSV header."])]),
             result("t12", "", 1, [:]),
             assistant(30, [use("t9", "Read", ["file_path": "\(conversationFolder)/docs/columns.md"])]),
-        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + narrowImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base) + movedShellRecords(base: base) + runningShellRecords(base: base) + monitorRecords(assistant: assistant, use: use, result: result)
+        ] + pendingRecords(assistant: assistant, use: use, result: result) + queuedRecords(base: base) + imageOnlyRecords(base: base) + pastedImageRecords(base: base) + narrowImageRecords(base: base) + mentionRecords(base: base) + apiErrorRecords(base: base) + movedShellRecords(base: base) + runningShellRecords(base: base) + overlappingShellRecords(base: base) + monitorRecords(assistant: assistant, use: use, result: result)
         let repetitions = UserDefaults.standard.integer(forKey: "snapshotConversationRepeat")
         guard repetitions > 1 else { return records }
 
@@ -795,6 +802,10 @@ extension Snapshot {
         surface("in conversation")
         if let command = UserDefaults.standard.string(forKey: "snapshotConversationQueuedShell") {
             store.conversationModels[tab.id]?.show(pending: "!\(command)", sentAt: .now)
+            try? await Task.sleep(for: .seconds(1))
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotConversationOverlappingShells") {
+            store.conversationModels[tab.id]?.show(pending: "!rm -rf ~/Library/Caches/org.swift.swiftpm ~/.cache/huggingface", sentAt: .now.addingTimeInterval(-7))
             try? await Task.sleep(for: .seconds(1))
         }
         if showsSlashCommands { save(".slash-open.png") }

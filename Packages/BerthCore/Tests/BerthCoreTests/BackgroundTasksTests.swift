@@ -119,4 +119,77 @@ struct BackgroundTasksTests {
         #expect(tasks.map(\.toolUseID) == ["tool-inline", "tool-later"])
         #expect(tasks.map(\.runsInForeground) == [true, false])
     }
+
+    @Test func backgroundShellWithoutAProcessHoldingItsOutputIsFinished() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "killed-shell-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let transcript = folder.appending(path: "session.jsonl")
+        let output = folder.appending(path: "dev.output")
+        let live = LiveSession(pid: 1, sessionId: "session", cwd: folder.path, status: "idle", startedAt: Date(timeIntervalSince1970: 1_793_000_000).timeIntervalSince1970 * 1000)
+        let records = [
+            #"{"type":"assistant","timestamp":"2026-11-26T10:00:00.000Z","message":{"content":[{"type":"tool_use","id":"tool-dev","name":"Bash","input":{"command":"npm start","description":"Start the acme dev server","run_in_background":true}}]}}"#,
+            #"{"type":"user","timestamp":"2026-11-26T10:00:01.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"tool-dev","content":"Command running in background with ID: dev. Output is being written to: \#(output.path)"}]},"toolUseResult":{"backgroundTaskId":"dev"}}"#,
+        ].joined(separator: "\n") + "\n"
+        try records.write(to: transcript, atomically: true, encoding: .utf8)
+        try "ready on http://localhost:5173\n[killed]\n".write(to: output, atomically: true, encoding: .utf8)
+        var activity = TranscriptActivity(keepsTaskHistory: true)
+        activity.read(transcript)
+
+        let alive = BackgroundTaskGroups(activity.backgroundTasks(of: live, in: transcript, isProcessGone: { _ in false }))
+        #expect(alive.running.map(\.id) == ["dev"])
+
+        let gone = BackgroundTaskGroups(activity.backgroundTasks(of: live, in: transcript, isProcessGone: { $0 == output }))
+        #expect(gone.running.isEmpty)
+        #expect(gone.finished.map(\.title) == ["Start the acme dev server"])
+    }
+
+    @Test func virtualTaskStopFinishesAShellAndNamesItAfterItsCommand() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "virtual-stop-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let transcript = folder.appending(path: "session.jsonl")
+        let live = LiveSession(pid: 1, sessionId: "session", cwd: folder.path, status: "idle", startedAt: Date(timeIntervalSince1970: 1_793_000_000).timeIntervalSince1970 * 1000)
+        let records = [
+            #"{"type":"user","timestamp":"2026-11-26T10:00:01.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"repl_1","content":""}]},"toolUseResult":{"backgroundTaskId":"dev"}}"#,
+            #"{"type":"user","timestamp":"2026-11-26T11:00:00.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"repl_2","content":""}]},"toolUseResult":{"message":"Successfully stopped task: dev (npm start)","task_id":"dev","task_type":"local_bash","command":"npm start"}}"#,
+        ].joined(separator: "\n") + "\n"
+        try records.write(to: transcript, atomically: true, encoding: .utf8)
+        var activity = TranscriptActivity(keepsTaskHistory: true)
+        activity.read(transcript)
+
+        let groups = BackgroundTaskGroups(activity.backgroundTasks(of: live, in: transcript))
+        #expect(groups.running.isEmpty)
+        #expect(groups.finished.map(\.status) == [.stopped])
+        #expect(groups.finished.map(\.title) == ["npm start"])
+    }
+
+    @Test func dispatchedScriptsAndTheShellsTheyLeaveBehindRunUntilTheirEnd() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "repl-eval-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let transcript = folder.appending(path: "session.jsonl")
+        let output = folder.appending(path: "bdev.output")
+        let now = try Date("2026-11-26T10:30:00Z", strategy: .iso8601)
+        let live = LiveSession(pid: 1, sessionId: "session", cwd: folder.path, status: "idle", startedAt: (now - 3600).timeIntervalSince1970 * 1000)
+        let dispatch = [
+            #"{"type":"assistant","timestamp":"2026-11-26T10:00:00.000Z","message":{"content":[{"type":"tool_use","id":"tool-repl","name":"REPL","input":{"code":"await $`npm start`","description":"Start the acme dev server"}}]}}"#,
+            #"{"type":"user","timestamp":"2026-11-26T10:00:01.000Z","message":{"content":[{"type":"tool_result","tool_use_id":"tool-repl","content":"(dispatched #50)"}]}}"#,
+        ]
+        let evalDone = #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-26T10:10:00.000Z","content":"<event kind=\"repl-eval\" eval=\"50\">npm start was moved to the background. It went on as task bdev, writing to \#(output.path).</event>"}"#
+        let notified = #"{"type":"queue-operation","operation":"enqueue","timestamp":"2026-11-26T10:20:00.000Z","content":"<task-notification><task-id>bdev</task-id><status>killed</status></task-notification>"}"#
+        func tasks(_ records: [String], gone: Bool = false) throws -> [RemoteTask] {
+            try (records.joined(separator: "\n") + "\n").write(to: transcript, atomically: true, encoding: .utf8)
+            var activity = TranscriptActivity()
+            activity.read(transcript)
+            return activity.tasks(of: live, now: now, isProcessGone: { _ in gone }, isFinished: { _ in false })
+        }
+
+        let running = try tasks(dispatch)
+        #expect(running.map(\.id) == ["eval-50"])
+        #expect(running.map(\.title) == ["Start the acme dev server"])
+        #expect(try tasks(dispatch + [evalDone]).map(\.id) == ["bdev"])
+        #expect(try tasks(dispatch + [evalDone], gone: true).isEmpty)
+        #expect(try tasks(dispatch + [evalDone, notified]).isEmpty)
+    }
 }
