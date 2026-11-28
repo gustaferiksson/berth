@@ -37,6 +37,7 @@ struct BerthRemoteApp: App {
             .environment(updates)
             #if DEBUG
             .modifier(RegularWidthSnapshot())
+            .modifier(WidgetsSnapshot())
             #endif
             .preferredColorScheme(colorScheme == "light" ? .light : colorScheme == "dark" ? .dark : nil)
             .task(id: scenePhase) {
