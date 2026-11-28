@@ -258,7 +258,7 @@ private struct SidebarList: View, Equatable {
                 terminalsSection
             }
             if !layout.attentionIDs.isEmpty {
-                SidebarSection(title: layout.showsTriage ? "Needs You" : "Needs Attention", help: "Needs you or your PR has failing checks", count: layout.attentionIDs.count, tint: theme.needsYou, isExpanded: expansion(of: Sidebar.attentionID)) {
+                SidebarSection(title: layout.showsTriage ? "Needs You" : "Needs Attention", help: "Waiting for you", count: layout.attentionIDs.count, tint: theme.needsYou, isExpanded: expansion(of: Sidebar.attentionID)) {
                     ForEach(layout.attentionIDs, id: \.self) { id in
                         SessionItem(id: id, place: .triage, select: select)
                             .id(SidebarItem.session(id))
