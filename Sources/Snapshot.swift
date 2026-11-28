@@ -1052,6 +1052,7 @@ enum Snapshot {
         if UserDefaults.standard.bool(forKey: "snapshotBrowserApproval") { await captureBrowserApproval(store: store, window: window, output: output) }
         if browserFixtures != nil { await captureBrowser(store: store, window: window) }
         if let url = UserDefaults.standard.string(forKey: "snapshotIncomingURL") { probeIncomingURL(url, store: store) }
+        if let id = UserDefaults.standard.string(forKey: "snapshotContinueSession") { probeContinuedSession(id, store: store) }
         if let mode = UserDefaults.standard.string(forKey: "snapshotHost") { await captureHost(mode: mode, store: store, window: window, output: output) }
         if let backgroundTasksFolder {
             await captureBackgroundTasks(in: backgroundTasksFolder, store: store, window: window, output: output)
@@ -2464,7 +2465,7 @@ private final class UnconstrainedWindow: NSWindow {
 }
 
 #if DEBUG
-private final class FakeDrag: NSObject, NSDraggingInfo {
+final class FakeDrag: NSObject, NSDraggingInfo {
     let draggingPasteboard: NSPasteboard
     let draggingLocation: NSPoint
     let draggingDestinationWindow: NSWindow?

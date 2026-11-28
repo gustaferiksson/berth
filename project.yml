@@ -110,6 +110,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSMinimumSystemVersion: "26.0"
         NSHumanReadableCopyright: "Berth"
+        NSUserActivityTypes: [dev.gustaf.berth.session]
         CFBundleURLTypes:
           - CFBundleURLName: Web site URL
             CFBundleURLSchemes: [http, https]
@@ -159,6 +160,7 @@ targets:
     sources:
       - path: BerthRemote
       - path: Packages/BerthCore/Sources/BerthCore/RemoteProtocol.swift
+      - path: Packages/BerthCore/Sources/BerthCore/RemoteQuestions.swift
       - path: Packages/BerthCore/Sources/BerthCore/SlashCommands.swift
       - path: Packages/BerthCore/Sources/BerthCore/SlashToken.swift
       - path: Packages/BerthCore/Sources/BerthCore/FuzzyMatch.swift
@@ -194,6 +196,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Berth Remote
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_FILE: Resources/BerthRemote-Info.plist
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         SWIFT_APPROACHABLE_CONCURRENCY: YES

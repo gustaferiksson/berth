@@ -1,6 +1,7 @@
 import AppKit
 import BerthCore
 import os
+import SwiftUI
 import WebKit
 
 enum BrowserSearch: String, CaseIterable {
@@ -744,6 +745,17 @@ final class BrowserModel: NSObject, WKDownloadDelegate {
         let count = tabs(in: key).count
         sessionTabs[key, default: []].insert(tab, at: min(index ?? count, count))
         save()
+    }
+
+    func move(_ tab: BrowserTab, beside target: BrowserTab, edge: HorizontalEdge, in key: String) {
+        guard tab !== target else { return }
+
+        let isPinned = pinned.contains { $0 === target }
+        let siblings = (isPinned ? pinned : tabs(in: key)).filter { $0 !== tab }
+        guard let index = siblings.firstIndex(where: { $0 === target }) else { return }
+
+        let destination = index + (edge == .trailing ? 1 : 0)
+        if isPinned { pin(tab, at: destination) } else { unpin(tab, into: key, at: destination) }
     }
 
     func lock(_ tab: BrowserTab) {

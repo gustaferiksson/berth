@@ -217,6 +217,8 @@ public struct FileChanges: Sendable {
 }
 
 public struct Turn: Identifiable, Sendable {
+    var shellDate: Date? { prompt?.name == "bash" ? prompt?.date : nil }
+
     public let id: String
     public var prompt: RemoteEntry?
     public var parts: [TurnPart] = []
@@ -292,6 +294,23 @@ public struct Turn: Identifiable, Sendable {
         return turns
     }
 
+    public static func id(matching snippet: RemoteSnippet, in turns: [Self]) -> String? {
+        let normalised = { (text: String) in
+            text.replacing(/\*\*|`/, with: "").replacing(/\s+/, with: " ").trimmingCharacters(in: CharacterSet(charactersIn: "… "))
+        }
+        let needle = normalised(snippet.text)
+        guard !needle.isEmpty else { return nil }
+
+        return turns.last { turn in
+            let replies = turn.parts.compactMap { part -> String? in
+                guard case let .reply(entry) = part else { return nil }
+
+                return entry.text
+            }
+            return (replies + [turn.prompt?.text].compactMap(\.self)).contains { normalised($0).contains(needle) }
+        }?.id
+    }
+
     public static func continuing(_ turns: [Self], with entries: [RemoteEntry]) -> [Self]? {
         // Tool records can change earlier turns by resolving a result or revealing a script's inner calls.
         guard entries.allSatisfy({ $0.kind == .prompt || $0.kind == .reply }) else { return nil }
@@ -313,11 +332,12 @@ public struct Turn: Identifiable, Sendable {
                 continue
             }
             if entry.kind == .toolResult, entry.name == "bash-output" {
-                guard let last = turns.indices.last, var prompt = turns[last].prompt, prompt.name == "bash" else { continue }
+                let index = turns.lastIndex { $0.prompt?.name == "bash" && $0.id == entry.parentID } ?? turns.indices.last
+                guard let index, var prompt = turns[index].prompt, prompt.name == "bash" else { continue }
 
                 prompt.shellOutput = entry.text
                 prompt.shellError = entry.detail
-                turns[last].prompt = prompt
+                turns[index].prompt = prompt
                 continue
             }
 
