@@ -11,9 +11,12 @@ public struct MarkdownBlock: Sendable {
     public let kind: Kind
     public var lines: [String]
 
+    public static func linkedInline(_ source: String) -> AttributedString {
+        (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
+    }
+
     public static func inline(_ source: String) -> AttributedString {
-        let parsed = (try? AttributedString(markdown: source, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(source)
-        return parsed.transformingAttributes(\.link) { $0.value = nil }
+        linkedInline(source).transformingAttributes(\.link) { $0.value = nil }
     }
 
     public static func compact(_ text: String) -> AttributedString {

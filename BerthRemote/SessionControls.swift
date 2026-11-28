@@ -12,6 +12,7 @@ struct SessionControls: View {
     let pendingCall: ToolCall?
     let approval: RemoteApproval?
     let context: RemoteContext?
+    let permissionMode: String?
     let openContext: (() -> Void)?
     let isKeyboardUp: Bool
 
@@ -41,6 +42,8 @@ struct SessionControls: View {
                         return approvalCall(for: waiting).flatMap { $0.use.name == "AskUserQuestion" ? nil : waiting }
                     },
                     context: context,
+                    permissionMode: permissionMode,
+                    isWaiting: session?.status == "waiting",
                     openContext: openContext,
                     isKeyboardUp: isKeyboardUp,
                     draft: Binding { client.draftTexts[sessionID, default: ""] } set: { client.draftTexts[sessionID] = $0 },
@@ -66,13 +69,15 @@ private struct ApprovalCard: View {
     @State private var answers = 0
     @State private var denials = 0
     @State private var isExpanded = false
+    @State private var isAnswering = UserDefaults.standard.object(forKey: "snapshotQuestionStep") != nil
 
     var body: some View {
         let agent = session.agent ?? .legacyClaude
         let name = pendingCall?.use.name ?? ""
         let input = pendingCall.flatMap { try? JSONSerialization.jsonObject(with: Data($0.use.text.utf8)) as? [String: Any] }
-        let questions = input?["questions"] as? [[String: Any]] ?? []
-        let choices = questions.count == 1 && questions[0]["multiSelect"] as? Bool != true ? questions[0]["options"] as? [[String: Any]] ?? [] : []
+        let questions = RemoteQuestion.parse(input)
+        let single = questions.flatMap { $0.count == 1 && !$0[0].isMultiSelect ? $0[0] : nil }
+        let canStep = client.features.contains(RemoteQuestionsFeature.name)
         let plan = input?["plan"] as? String
         let target = pendingCall.flatMap { $0.use.command ?? $0.use.filePath ?? input?["url"] as? String ?? $0.use.text }
 
@@ -93,25 +98,25 @@ private struct ApprovalCard: View {
                 }
             }
             if name == "AskUserQuestion" {
-                ForEach(Array(questions.enumerated()), id: \.offset) { _, question in
-                    Text(question["question"] as? String ?? "\(agent.name) has a question")
+                ForEach(questions ?? []) { question in
+                    Text(question.text)
                         .font(.headline)
                 }
-                if choices.isEmpty || choices.count > 9 {
-                    Text("This one needs more than a tap, so answer it on your Mac.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
+                if questions == nil {
+                    Text("\(agent.name) has a question")
+                        .font(.headline)
+                }
+                if let single {
                     GlassEffectContainer(spacing: 8) {
                         VStack(spacing: 8) {
-                            ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
+                            ForEach(Array(single.options.enumerated()), id: \.offset) { index, option in
                                 Button {
                                     press(RemoteKey(rawValue: "digit\(index + 1)") ?? .digit1)
                                 } label: {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(choice["label"] as? String ?? "Option \(index + 1)")
+                                        Text(option.label)
                                             .font(.body.weight(.semibold))
-                                        if let detail = choice["description"] as? String {
+                                        if let detail = option.detail {
                                             Text(detail)
                                                 .font(.footnote)
                                                 .foregroundStyle(.secondary)
@@ -125,6 +130,18 @@ private struct ApprovalCard: View {
                             }
                         }
                     }
+                } else if let questions, canStep {
+                    Button(questions.count == 1 ? "Answer Question" : "Answer \(questions.count) Questions") { isAnswering = true }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .frame(maxWidth: .infinity)
+                        .sheet(isPresented: $isAnswering) {
+                            QuestionSheet(session: session, questions: questions)
+                        }
+                } else {
+                    Text("This one needs more than a tap, so answer it on your Mac.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 if (agent.approvalKeys?.deny ?? .escape) == .escape {
                     Button("Dismiss", role: .destructive, action: deny)
@@ -220,6 +237,8 @@ private struct Composer: View {
     let isWorking: Bool
     let declining: RemoteSession?
     let context: RemoteContext?
+    let permissionMode: String?
+    let isWaiting: Bool
     let openContext: (() -> Void)?
     let isKeyboardUp: Bool
     @Binding var draft: String
@@ -315,6 +334,11 @@ private struct Composer: View {
                 }
                 if isExpanded, agent.canChangeSettings, let context, let openContext {
                     modelMenu(context, openContext: openContext)
+                }
+                if isExpanded, let permissionMode, client.features.contains(RemotePermissionModeFeature.name) {
+                    PermissionModeChip(mode: permissionMode, isEnabled: !isWaiting && client.state == .connected) {
+                        client.send(.key(sessionID: sessionID, key: .shiftTab, waitingFor: nil, waitingSince: nil))
+                    }
                 }
             }
             trailingControls(isExpanded: isExpanded)
@@ -442,6 +466,7 @@ private struct Composer: View {
                             .background(controlFill, in: .circle)
                             .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
                             .contentShape(.rect)
+                            .hoverEffect(.lift)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(context.model)
@@ -465,6 +490,7 @@ private struct Composer: View {
                     .background(isAvailable ? Color.accentColor : controlFill, in: .circle)
                     .frame(width: ComposerLayout.hitSize, height: ComposerLayout.hitSize)
                     .contentShape(.rect)
+                    .hoverEffect(.lift)
             }
             .buttonStyle(.plain)
             .disabled(!isAvailable)
@@ -472,6 +498,12 @@ private struct Composer: View {
             .animation(.snappy(duration: 0.2), value: showsStop)
             .animation(.snappy(duration: 0.2), value: isAvailable)
         }
+        .focusedSceneValue(\.composerActions, ComposerActions(
+            canSend: client.state == .connected && canSend,
+            canStop: client.state == .connected && showsStop,
+            send: send,
+            stop: stop
+        ))
     }
 
     private func modelMenu(_ context: RemoteContext, openContext: @escaping () -> Void) -> some View {

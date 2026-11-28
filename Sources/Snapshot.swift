@@ -2464,7 +2464,7 @@ private final class UnconstrainedWindow: NSWindow {
 }
 
 #if DEBUG
-private final class FakeDrag: NSObject, NSDraggingInfo {
+final class FakeDrag: NSObject, NSDraggingInfo {
     let draggingPasteboard: NSPasteboard
     let draggingLocation: NSPoint
     let draggingDestinationWindow: NSWindow?

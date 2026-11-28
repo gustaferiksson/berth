@@ -530,7 +530,7 @@ final class RemoteServer {
             RemoteGroup(id: RemoteTriageFeature.doneGroupID, title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
         ]
         let groups = [attention] + active + triage + layout.groups.map(section) + hidden
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTriageFeature.name] + usageFeatures)
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTriageFeature.name, RemoteQuestionsFeature.name, RemotePermissionModeFeature.name] + usageFeatures)
     }
 
     #if DEBUG
@@ -671,7 +671,8 @@ final class RemoteServer {
 
     private func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, since waitingSince: Double?, from connection: NWConnection) {
         let harness = (store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude).harness
-        guard harness.supports(.approvals) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Answer \(harness.name) on your Mac")), to: connection) }
+        let isModeChange = key == .shiftTab && waitingFor == nil
+        guard harness.supports(isModeChange ? .permissionModes : .approvals) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: isModeChange ? "\(harness.name) has no permission modes to switch" : "Answer \(harness.name) on your Mac")), to: connection) }
         guard case let .refused(message) = store.press(key, in: sessionID, answering: waitingFor, since: waitingSince) else { return }
 
         send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection)

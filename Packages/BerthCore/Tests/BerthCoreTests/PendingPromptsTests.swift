@@ -5,6 +5,21 @@ import Testing
 struct PendingPromptsTests {
     private let sent = Date(timeIntervalSince1970: 1000)
 
+    @Test func keepsTwoOverlappingShellsInSendOrderWhileOnlyTheLaterOneIsRecorded() {
+        let removal = PendingPrompt(text: "!rm -rf cache", sentAt: sent)
+        let brew = RemoteEntry(id: "brew", kind: .prompt, text: "brew uninstall x", name: "bash", command: "brew uninstall x", date: sent.addingTimeInterval(4))
+        let recorded = [Turn(id: "brew", prompt: brew)]
+
+        let bothPending = PendingPrompts.placingShells([removal], among: [])
+        let laterRecorded = PendingPrompts.placingShells([removal], among: recorded)
+        let newer = PendingPrompt(text: "!ls", sentAt: sent.addingTimeInterval(6))
+        let sentAfterRecorded = PendingPrompts.placingShells([newer], among: recorded)
+
+        #expect(bothPending.rest == [removal])
+        #expect(laterRecorded.above["brew"] == [removal] && laterRecorded.rest.isEmpty)
+        #expect(sentAfterRecorded.above.isEmpty && sentAfterRecorded.rest == [newer])
+    }
+
     @Test func showsASentPromptBeforeTheTranscriptHasIt() {
         let pending = [PendingPrompt(text: "run the tests", sentAt: sent)]
         let kept = PendingPrompts.reconcile(pending, entries: [], queued: [], now: sent.addingTimeInterval(1))

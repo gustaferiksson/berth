@@ -3,21 +3,30 @@ import SwiftUI
 struct SessionListView: View {
     @Environment(RemoteClient.self) private var client
     @Environment(UpdateCheck.self) private var updates
-    @State private var path: [String] = {
+    @State private var selection: String? = {
         #if DEBUG
-        if RemoteClient.isDemo, RemoteClient.showsDemoList { return [] }
+        if RemoteClient.isDemo, RemoteClient.showsDemoList { return UserDefaults.standard.bool(forKey: "snapshotDemoOpen") ? "demo" : nil }
         #endif
-        return UserDefaults.standard.string(forKey: "remoteSession").map { [$0] } ?? []
+        return UserDefaults.standard.string(forKey: "remoteSession")
     }()
+
+    @State private var columnVisibility: NavigationSplitViewVisibility = {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "snapshotRegularWidth") { return .all }
+        #endif
+        return .automatic
+    }()
+
+    @FocusState private var isSearching: Bool
 
     @State private var isStartingSession = false
     @State private var query = UserDefaults.standard.string(forKey: "snapshotQuery") ?? ""
+    @State private var status = SessionStatusFilter.allCases.first { UserDefaults.standard.string(forKey: "snapshotFilter") == "\($0)" } ?? .all
     @State private var expandedGroups: [String: Bool] = [:]
     @State private var groupsShowingAll: Set<String> = []
     @State private var isShowingSettings = UserDefaults.standard.bool(forKey: "snapshotSettings")
     @State private var isShowingUsage = UserDefaults.standard.bool(forKey: "snapshotUsageSheet")
     @State private var feedback = ActionFeedback(count: 0, action: nil)
-    @State private var status = SessionStatusFilter.allCases.first { UserDefaults.standard.string(forKey: "snapshotFilter") == "\($0)" } ?? .all
 
     var body: some View {
         let pinned = Set(client.groups.first { $0.id == "pinned" }?.sessions.map(\.id) ?? [])
@@ -25,8 +34,8 @@ struct SessionListView: View {
         let searchedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let searchesTranscripts = client.features.contains(RemoteSearchFeature.name) && searchedQuery.count >= RemoteSearchFeature.minimumQueryLength
 
-        NavigationStack(path: $path) {
-            List {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            List(selection: $selection) {
                 if let version = updates.available, !isFiltering {
                     Section {
                         Link(destination: UpdateCheck.installURL) {
@@ -57,9 +66,9 @@ struct SessionListView: View {
                     let showsAll = groupsShowingAll.contains(group.id)
                     Section {
                         if expansion.wrappedValue {
-                            ForEach(group.sessions.prefix(showsAll ? count : limit)) { session in
+                            ForEach(listedSessions(in: group)) { session in
                                 SessionRow(session: session, groupID: group.id, isPinned: session.isPinned ?? pinned.contains(session.id)) {
-                                    path.append(session.id)
+                                    selection = session.id
                                 } didAct: { action in
                                     feedback = ActionFeedback(count: feedback.count + 1, action: action)
                                 }
@@ -79,6 +88,7 @@ struct SessionListView: View {
                                         .foregroundStyle(Color.accentColor)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .contentShape(.rect)
+                                        .hoverEffect()
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -95,7 +105,10 @@ struct SessionListView: View {
                     }
                 }
                 if searchesTranscripts {
-                    TranscriptSearchSection(query: searchedQuery)
+                    TranscriptSearchSection(query: searchedQuery) { hit in
+                        client.searchJump = hit.snippets.first.map { (hit.id, $0) }
+                        path.append(hit.id)
+                    }
                 }
             }
             .listStyle(.insetGrouped)
@@ -114,9 +127,9 @@ struct SessionListView: View {
                 }
             }
             .searchable(text: $query, prompt: "Search Sessions")
+            .searchFocused($isSearching)
             .refreshable { await client.refresh() }
             .navigationTitle("Sessions")
-            .navigationDestination(for: String.self) { SessionView(sessionID: $0) }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
@@ -144,13 +157,52 @@ struct SessionListView: View {
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()
             }
+            .onChange(of: selection) {
+                UserDefaults.standard.set(selection, forKey: "remoteSession")
+            }
             .onChange(of: client.openedSessionID, initial: true) {
                 guard let id = client.openedSessionID else { return }
 
                 client.openedSessionID = nil
-                path = [id]
+                selection = id
+            }
+        } detail: {
+            if let selection {
+                SessionView(sessionID: selection)
+                    .id(selection)
+            } else {
+                ContentUnavailableView("No Session Selected", systemImage: "text.bubble", description: Text("Choose a session from the sidebar."))
             }
         }
+        .focusedSceneValue(\.sessionListActions, SessionListActions(
+            canStartSession: !client.folders.isEmpty && client.state == .connected,
+            newSession: { isStartingSession = true },
+            search: {
+                columnVisibility = .all
+                isSearching = true
+            },
+            refresh: { Task { await client.refresh() } },
+            selectPrevious: { moveSelection(by: -1) },
+            selectNext: { moveSelection(by: 1) }
+        ))
+    }
+
+    private func listedSessions(in group: RemoteGroup) -> [RemoteSession] {
+        let isCollapsed = group.isCollapsed ?? (group.id == "recent:older")
+        guard isFiltering || expandedGroups[group.id, default: !isCollapsed] else { return [] }
+
+        let count = group.sessions.count
+        let limit = !isFiltering ? max(0, group.visibleCount ?? count) : count
+        return Array(group.sessions.prefix(groupsShowingAll.contains(group.id) ? count : limit))
+    }
+
+    private func moveSelection(by offset: Int) {
+        let ids = visibleGroups.flatMap { listedSessions(in: $0).map(\.id) }
+        guard !ids.isEmpty else { return }
+
+        let current = selection.flatMap { ids.firstIndex(of: $0) }
+        let target = current.map { min(max($0 + offset, 0), ids.count - 1) } ?? (offset > 0 ? 0 : ids.count - 1)
+        selection = ids[target]
     }
 
     private var isFiltering: Bool { !query.isEmpty || status != .all }
@@ -231,6 +283,7 @@ private struct SessionSectionHeader: View {
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(Color.secondary)
             .contentShape(.rect)
+            .hoverEffect()
         }
         .buttonStyle(.plain)
         .textCase(nil)
@@ -285,6 +338,7 @@ private struct SessionRow: View {
         Button(action: open) {
             SessionRowLabel(session: session)
                 .contentShape(.rect)
+                .hoverEffect()
         }
         .buttonStyle(.plain)
         .listRowInsets(.vertical, 0)
@@ -606,6 +660,7 @@ private struct NewSessionView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .keyboardShortcut(.cancelAction)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Start", action: start)
