@@ -305,29 +305,49 @@ private struct Composer: View {
 
     private func composer(matches: [SlashCommand], selected: SlashCommand?) -> some View {
         let isExpanded = isFocused || !draft.isEmpty || !attachments.isEmpty
-        let isShell = agent.canRunBash == true && draft.hasPrefix("!")
+        let isShell = isShellDraft
+        let placeholder = declining != nil ? "Decline with a message…" : isShell ? "Run a shell command" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)"
+        let shownText = Binding {
+            isShell ? String(draft.dropFirst()) : draft
+        } set: { text in
+            setDraft(isShell ? "!" + text : text)
+        }
         let shape = isKeyboardUp ? AnyShape(.rect(cornerRadius: ComposerLayout.keyboardCornerRadius, style: .continuous)) : AnyShape(ConcentricRectangle(corners: .concentric(minimum: .fixed(ComposerLayout.cornerRadius)), isUniform: true))
 
         return ComposerLayout(isExpanded: isExpanded, hasAttachmentMenu: agent.canAttach) {
-            TextField(declining != nil ? "Decline with a message…" : isWorking ? "Queue for after this turn…" : "Message \(agent.name)", text: $draft, selection: $selection, axis: .vertical)
-                .font(isShell ? .body.monospaced() : .body)
-                .textFieldStyle(.plain)
-                .lineLimit(1...(isExpanded ? 6 : 1))
-                .focused($isFocused)
-                .onKeyPress(keys: [.upArrow, .downArrow, .tab, .return, .escape], phases: [.down, .repeat]) { press in
-                    guard press.modifiers.isEmpty, let selected, let index = matches.firstIndex(of: selected) else { return .ignored }
-
-                    if press.key == .escape {
-                        dismissedSlashQuery = slashQuery
-                    } else if press.key == .return || press.key == .tab {
-                        complete(selected)
-                    } else {
-                        let step = press.key == .upArrow ? -1 : 1
-                        selectedSlashCommand = matches[(index + step + matches.count) % matches.count].name
-                    }
-                    return .handled
+            HStack(alignment: .top, spacing: 6) {
+                if isShell {
+                    Text(verbatim: "!")
+                        .font(.body.monospaced())
+                        .foregroundStyle(.pink)
+                        .accessibilityHidden(true)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                TextField(placeholder, text: shownText, selection: $selection, axis: .vertical)
+                    .font(isShell ? .body.monospaced() : .body)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...(isExpanded ? 6 : 1))
+                    .focused($isFocused)
+                    .onKeyPress(.delete) {
+                        guard isShell, case let .selection(range)? = selection?.indices, range.isEmpty, range.lowerBound == draft.dropFirst().startIndex else { return .ignored }
+
+                        draft = String(draft.dropFirst())
+                        return .handled
+                    }
+                    .onKeyPress(keys: [.upArrow, .downArrow, .tab, .return, .escape], phases: [.down, .repeat]) { press in
+                        guard press.modifiers.isEmpty, let selected, let index = matches.firstIndex(of: selected) else { return .ignored }
+
+                        if press.key == .escape {
+                            dismissedSlashQuery = slashQuery
+                        } else if press.key == .return || press.key == .tab {
+                            complete(selected)
+                        } else {
+                            let step = press.key == .upArrow ? -1 : 1
+                            selectedSlashCommand = matches[(index + step + matches.count) % matches.count].name
+                        }
+                        return .handled
+                    }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 0) {
                 if agent.canAttach {
                     attachmentMenu
@@ -397,7 +417,7 @@ private struct Composer: View {
         .task {
             guard let text = UserDefaults.standard.string(forKey: "snapshotDemoDraft") else { return }
 
-            draft = text
+            setDraft(text)
         }
         #if DEBUG
         .task {
@@ -416,6 +436,17 @@ private struct Composer: View {
             isFocused = true
         }
         #endif
+    }
+
+    private var isShellDraft: Bool { agent.canRunBash == true && draft.hasPrefix("!") }
+
+    private func setDraft(_ text: String) {
+        guard agent.canRunBash == true, text.hasPrefix("!") else {
+            draft = text
+            return
+        }
+
+        draft = "!" + text.dropFirst().drop(while: \.isWhitespace)
     }
 
     private var attachmentMenu: some View {
@@ -455,7 +486,7 @@ private struct Composer: View {
     }
 
     private func trailingControls(isExpanded _: Bool) -> some View {
-        let isEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
+        let isEmpty = (isShellDraft ? String(draft.dropFirst()) : draft).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
         let showsStop = isWorking && isEmpty
         let canSend = !isEmpty && attachments.allSatisfy { client.uploads[$0.id] == .done }
         let isAvailable = client.state == .connected && (showsStop || canSend)
