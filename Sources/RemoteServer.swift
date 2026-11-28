@@ -212,7 +212,13 @@ final class RemoteServer {
             Task { await change(setting, from: current, in: sessionID, from: connection) }
 
         case let .newSession(folder, prompt):
-            Task { await startSession(in: folder, prompt: prompt, from: connection) }
+            Task { await startSession(RemoteSessionStart(folder: folder, prompt: prompt), from: connection) }
+
+        case let .startSession(start):
+            Task { await startSession(start, from: connection) }
+
+        case .launchOptions:
+            send(try? JSONEncoder().encode(RemoteServerMessage.launchOptions(launchOptions)), to: connection)
 
         case let .session(sessionID, action):
             perform(action, on: sessionID, from: connection)
@@ -588,7 +594,7 @@ final class RemoteServer {
             RemoteGroup(id: RemoteTriageFeature.doneGroupID, title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
         ]
         let groups = [attention] + active + triage + layout.groups.map(section) + hidden
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTaskStopFeature.name, RemoteTriageFeature.name, RemoteQuestionsFeature.name, RemotePermissionModeFeature.name] + usageFeatures)
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTaskStopFeature.name, RemoteTriageFeature.name, RemoteQuestionsFeature.name, RemotePermissionModeFeature.name, RemoteLaunchOptions.feature] + usageFeatures)
     }
 
     #if DEBUG
@@ -790,16 +796,38 @@ final class RemoteServer {
         }
     }
 
-    private func startSession(in folder: String, prompt: String, from connection: NWConnection) async {
-        guard store.knownFolders.contains(where: { $0.path == folder }), FileManager.default.fileExists(atPath: folder) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown folder")), to: connection) }
+    private var launchOptions: RemoteLaunchOptions {
+        let folders = store.knownFolders.prefix(30).map(\.path)
+        let agents = Agent.allCases.filter { Store.isEnabled($0) && $0.harness.supports(.remote) }.map { agent in
+            RemoteLaunchAgent(id: agent.rawValue, name: agent.name, asset: agent.harness.asset, worktreeFolders: folders.filter { Store.canStartInWorktree(agent, in: $0) })
+        }
+        return RemoteLaunchOptions(agents: agents, defaultAgent: Store.defaultAgent.rawValue, startsInWorktree: UserDefaults.standard.bool(forKey: GeneralSettings.worktreeKey))
+    }
 
-        store.openSession(cwd: folder)
-        guard let sessionID = store.tabs.first(where: { $0.id == store.selectedTabID })?.sessionID else { return }
+    private func startSession(_ start: RemoteSessionStart, from connection: NWConnection) async {
+        guard store.knownFolders.contains(where: { $0.path == start.folder }), FileManager.default.fileExists(atPath: start.folder) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown folder")), to: connection) }
+
+        let agent = start.agent.map { Agent(rawValue: $0) } ?? Store.defaultAgent
+        guard let agent, Store.isEnabled(agent), agent.harness.supports(.remote) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Unknown agent")), to: connection) }
+
+        let checkout: NewSessionCheckout = switch start.checkout {
+        case .main: .main
+        case .worktree: .worktree
+        case nil: .preferred
+        }
+        guard let tabID = store.openSession(agent, cwd: start.folder, checkout: checkout) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "The folder is missing")), to: connection) }
+
+        var sessionID = store.tabs.first { $0.id == tabID }?.sessionID
+        for _ in 0..<50 where sessionID == nil {
+            try? await Task.sleep(for: .milliseconds(200))
+            sessionID = store.tabs.first { $0.id == tabID }?.sessionID
+        }
+        guard let sessionID else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "\(agent.name) is starting on your Mac")), to: connection) }
 
         send(try? JSONEncoder().encode(RemoteServerMessage.opened(sessionID: sessionID)), to: connection)
-        guard !prompt.isEmpty else { return }
+        guard !start.prompt.isEmpty else { return }
 
-        await submit(prompt, attachments: [], in: sessionID, from: connection)
+        await submit(start.prompt, attachments: [], in: sessionID, from: connection)
     }
 
     private func send(_ data: Data?, to connection: NWConnection) {

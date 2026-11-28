@@ -558,6 +558,52 @@ public struct RemoteSlashCommand: Codable, Equatable, Sendable {
     }
 }
 
+public enum RemoteCheckout: String, Codable, Sendable {
+    case main, worktree
+}
+
+public struct RemoteLaunchAgent: Codable, Sendable, Hashable, Identifiable {
+    public let id: String
+    public let name: String
+    public let asset: String
+    public let worktreeFolders: [String]
+
+    public init(id: String, name: String, asset: String, worktreeFolders: [String]) {
+        self.id = id
+        self.name = name
+        self.asset = asset
+        self.worktreeFolders = worktreeFolders
+    }
+}
+
+public struct RemoteLaunchOptions: Codable, Sendable, Equatable {
+    public static let feature = "launchOptions"
+
+    public let agents: [RemoteLaunchAgent]
+    public let defaultAgent: String
+    public let startsInWorktree: Bool
+
+    public init(agents: [RemoteLaunchAgent], defaultAgent: String, startsInWorktree: Bool) {
+        self.agents = agents
+        self.defaultAgent = defaultAgent
+        self.startsInWorktree = startsInWorktree
+    }
+}
+
+public struct RemoteSessionStart: Codable, Sendable, Equatable {
+    public let folder: String
+    public let prompt: String
+    public let agent: String?
+    public let checkout: RemoteCheckout?
+
+    public init(folder: String, prompt: String, agent: String? = nil, checkout: RemoteCheckout? = nil) {
+        self.folder = folder
+        self.prompt = prompt
+        self.agent = agent
+        self.checkout = checkout
+    }
+}
+
 public enum RemoteClientMessage: Codable, Sendable {
     case auth(hmac: Data)
     case subscribe(sessionID: String)
@@ -577,6 +623,8 @@ public enum RemoteClientMessage: Codable, Sendable {
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
     case commands(sessionID: String)
+    case launchOptions
+    case startSession(RemoteSessionStart)
     case subagentTranscript(sessionID: String, taskID: String)
     case stopTask(sessionID: String, taskID: String)
 }
@@ -597,5 +645,6 @@ public enum RemoteServerMessage: Codable, Sendable {
     case taskDetail(sessionID: String, taskID: String, detail: RemoteTaskDetail?)
     case image(sessionID: String, id: String, variant: RemoteImageVariant, data: Data?)
     case commands(sessionID: String, commands: [RemoteSlashCommand])
+    case launchOptions(RemoteLaunchOptions)
     case subagentTranscript(sessionID: String, taskID: String, entries: [RemoteEntry]?)
 }
