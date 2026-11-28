@@ -1,5 +1,8 @@
 import BerthCore
 import Foundation
+import os
+
+let projectsLog = Logger(subsystem: "dev.gustaf.berth", category: "projects")
 
 @Observable
 @MainActor
@@ -27,9 +30,15 @@ final class ProjectsModel {
     private(set) var viewerLogin = ""
     private(set) var boards: [String: ProjectBoard] = [:]
     private(set) var selectedIDs: [String] = {
-        let stored = UserDefaults.standard.string(forKey: selectedKey) ?? "[]"
-        return (try? JSONDecoder().decode(Selection.self, from: Data(stored.utf8)))?.ids ?? []
+        let ids = storedSelection()
+        projectsLog.info("init decoded \(ids?.count ?? 0) ids, failed \(ids == nil)")
+        return ids ?? []
     }()
+
+    static func storedSelection() -> [String]? {
+        let stored = UserDefaults.standard.string(forKey: selectedKey) ?? "[]"
+        return (try? JSONDecoder().decode(Selection.self, from: Data(stored.utf8)))?.ids
+    }
 
     enum MoveFailure {
         case needsScope, failed
@@ -117,6 +126,7 @@ final class ProjectsModel {
     func select(_ id: String, isSelected: Bool, persists: Bool) {
         guard selectedIDs.contains(id) != isSelected else { return }
 
+        defer { projectsLog.info("select \(id, privacy: .public) requested \(isSelected), now \(self.selectedIDs.count) selected, persists \(persists)") }
         if isSelected {
             selectedIDs.append(id)
         } else {
