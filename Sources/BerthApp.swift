@@ -298,6 +298,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for url in urls { store.openIncomingURL(url) }
     }
 
+    func application(_: NSApplication, continue userActivity: NSUserActivity, restorationHandler _: @escaping ([any NSUserActivityRestoring]) -> Void) -> Bool {
+        store.continueHandoff(userActivity)
+    }
+
     func applicationWillTerminate(_: Notification) {
         store.isTerminating = true
         store.saveOpenTabs()

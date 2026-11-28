@@ -2436,6 +2436,12 @@ final class Store {
 }
 
 extension Store {
+    func continueHandoff(_ activity: NSUserActivity) -> Bool {
+        guard let id = SessionHandoff.sessionID(in: activity) else { return false }
+
+        return activate(.session(id))
+    }
+
     func showBrowserPane() {
         guard let session = sessionTab else { return }
 

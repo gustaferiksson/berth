@@ -31,6 +31,7 @@ struct BerthRemoteApp: App {
                     ConnectionStatus()
                 }
             }
+            .onContinueUserActivity(SessionHandoff.activityType) { client.continueHandoff($0) }
             .environment(client)
             .environment(updates)
             #if DEBUG
