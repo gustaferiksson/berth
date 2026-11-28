@@ -88,7 +88,7 @@ struct APNsTests {
     }
 
     private func decode(_ value: String) throws -> Data {
-        let padded = value.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/") + String(repeating: "=", count: (4 - value.count % 4) % 4)
+        let padded = value.replacing("-", with: "+").replacing("_", with: "/") + String(repeating: "=", count: (4 - value.count % 4) % 4)
         return try #require(Data(base64Encoded: padded))
     }
 }
