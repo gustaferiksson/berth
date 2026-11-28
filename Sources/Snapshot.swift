@@ -320,7 +320,7 @@ enum Snapshot {
             ],
             [RepositoryRoot.resolve(billing): "acme/billing", RepositoryRoot.resolve(web): "acme/web"],
             [
-                PullRequestBranch(repository: "acme/billing", branch: "fix/invoice-rounding"): PullRequest(number: 212, url: URL(string: "https://github.com/acme/billing/pull/212")!, title: "Fix rounding in invoice totals", state: .open, checks: .failed, viewerDidAuthor: true),
+                PullRequestBranch(repository: "acme/billing", branch: "fix/invoice-rounding"): PullRequest(number: 212, url: URL(string: "https://github.com/acme/billing/pull/212")!, title: "Fix rounding in invoice totals", state: .open, checks: .failed),
                 PullRequestBranch(repository: "acme/billing", branch: "main"): PullRequest?.none,
                 PullRequestBranch(repository: "acme/web", branch: "main"): PullRequest?.none,
             ],
@@ -463,7 +463,7 @@ enum Snapshot {
                 let number = 4800 + index
                 let url = URL(string: "https://github.com/\(row.project)/pull/\(number)")!
                 pullRequests[PullRequestBranch(repository: row.project, branch: branch)] =
-                    PullRequest(number: number, url: url, title: row.title, state: state, headRefName: branch, checks: checks, viewerDidAuthor: true)
+                    PullRequest(number: number, url: url, title: row.title, state: state, headRefName: branch, checks: checks)
             }
             let issueRefs = ["export-api", "export-tests", "retry-export"].contains(row.id) ? [BusySidebarFixture.exportIssue] : []
             let context = row.id == "rounding" ? SessionContext(model: "fixture", tokens: 162_000, window: 200_000) : nil
@@ -478,7 +478,7 @@ enum Snapshot {
             if index.isMultiple(of: 4) {
                 let url = URL(string: "https://github.com/\(project)/pull/\(9000 + index)")!
                 pullRequests[PullRequestBranch(repository: project, branch: branch)] =
-                    PullRequest(number: 9000 + index, url: url, title: "Scale fixture \(index)", state: .open, headRefName: branch, checks: .passed, viewerDidAuthor: true)
+                    PullRequest(number: 9000 + index, url: url, title: "Scale fixture \(index)", state: .open, headRefName: branch, checks: .passed)
             }
             return SessionSummary(id: "scale-\(index)", cwd: folder, title: "Scale fixture session \(index)", lastActivity: now - Double(60 * (index + 30)), branch: branch)
         }
@@ -515,7 +515,6 @@ enum Snapshot {
         item.session.branch.map { branch in
             var pullRequest = item.pullRequest
             pullRequest?.checks = index < fixtureChecks.count ? fixtureChecks[index] : nil
-            pullRequest?.viewerDidAuthor = true
             return (PullRequestBranch(repository: fixtureRepository, branch: branch), pullRequest)
         }
     }) { first, _ in first }
