@@ -429,6 +429,10 @@ public nonisolated enum RemoteCodexUsageFeature {
     public static let name = "codexUsage"
 }
 
+public nonisolated enum RemotePushFeature {
+    public static let name = "push"
+}
+
 public nonisolated enum RemoteChangesFeature {
     public static let name = "changes"
     public static let maxFiles = 200
@@ -536,6 +540,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
     case commands(sessionID: String)
+    case pushToken(token: String, isSandbox: Bool)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
