@@ -9,11 +9,15 @@ struct SessionListActions {
     let selectNext: () -> Void
 }
 
-struct ComposerActions {
+struct ComposerActions: Equatable {
     let canSend: Bool
     let canStop: Bool
     let send: () -> Void
     let stop: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.canSend == rhs.canSend && lhs.canStop == rhs.canStop
+    }
 }
 
 extension FocusedValues {
