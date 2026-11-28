@@ -33,6 +33,15 @@ enum Snapshot {
         PullRequestLink(repository: "acme/billing", number: 4823): PullRequest(number: 4823, url: URL(string: "https://github.com/acme/billing/pull/4823")!, title: "Export ledger entries", state: .open, headRefName: "feature/ledger-export", checks: .passed, reviewDecision: .approved),
     ] : [:]
     private static let linkedFixtureLinks = linkedFixtures.keys.sorted { $0.number > $1.number }
+    static let persistsPullRequests: Bool = {
+        guard UserDefaults.standard.bool(forKey: "snapshotSessionPullRequestLinks") else { return false }
+        guard ProcessInfo.processInfo.environment["CFFIXED_USER_HOME"] != nil else {
+            FileHandle.standardError.write(Data("snapshot: -snapshotSessionPullRequestLinks needs CFFIXED_USER_HOME\n".utf8))
+            exit(1)
+        }
+
+        return true
+    }()
     private static let showsReviewSessionPullRequests = UserDefaults.standard.bool(forKey: "snapshotReviewSessionPullRequests")
     private static let reviewSessionPullRequests: [PullRequestLink: PullRequest] = showsReviewSessionPullRequests ? [
         PullRequestLink(repository: fixtureRepository, number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/\(fixtureRepository)/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase"), headRefName: "feature/approved-reviewers"),
@@ -878,6 +887,10 @@ enum Snapshot {
     }
 
     private static func prepareSessionProbes(store: Store) async {
+        if persistsPullRequests {
+            for session in store.activeSessions { print("session \(session.id) pull requests \(session.pullRequests.map { "\($0.repository)#\($0.number)" })") }
+            exit(0)
+        }
         if store.selection == nil, let forced = forcedSelection(in: store.groups) { store.sidebarCursor = forced }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
             for _ in 0..<2 { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
