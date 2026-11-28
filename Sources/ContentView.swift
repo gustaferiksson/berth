@@ -42,6 +42,7 @@ struct ContentView: View {
         let windowChrome = matchesTheme ? store.theme.background ?? store.theme.chrome : store.theme.chrome
         let reviewRoots = showsPanel ? store.sessionReviewModels.compactMap { $0.changes?.root } : []
         let folderWithoutRepository: String? = if showsPanel, let model = store.primaryReviewModel, case ReviewGitError.notARepository? = model.error { model.folder } else { nil }
+        let handoffSessionID = store.selectedSessionID
         let reviewRequests = store.inbox?.count { $0.role == .reviewRequested } ?? 0
         NavigationSplitView(columnVisibility: Binding(get: { isTrailing ? (showsPanelSidebar ? .all : .detailOnly) : leadingSessions }, set: setLeadingColumn)) {
             if isTrailing {
@@ -241,6 +242,11 @@ struct ContentView: View {
 
             store.isSettingsRequested = false
             openSettings()
+        }
+        .userActivity(SessionHandoff.activityType, isActive: handoffSessionID != nil) { activity in
+            activity.isEligibleForHandoff = true
+            activity.userInfo = [SessionHandoff.sessionIDKey: handoffSessionID ?? ""]
+            activity.requiredUserInfoKeys = [SessionHandoff.sessionIDKey]
         }
         .overlay { AgentBrowserPrompt(access: store.browser.access) }
         .sheet(item: $store.editingGroup) { GroupEditor(group: $0) }
