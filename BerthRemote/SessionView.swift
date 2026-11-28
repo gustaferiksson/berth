@@ -109,6 +109,7 @@ struct SessionView: View {
                     pendingCall: isWaitingForApproval ? turns.last?.openCall : nil,
                     approval: activity?.approval,
                     context: activity?.context,
+                    permissionMode: activity?.permissionMode,
                     openContext: { isShowingContext = true },
                     isKeyboardUp: isKeyboardUp
                 )

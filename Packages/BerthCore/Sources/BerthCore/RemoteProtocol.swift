@@ -236,11 +236,13 @@ public struct RemoteActivity: Codable, Sendable, Hashable {
     public let tasks: [RemoteTask]
     public let context: RemoteContext?
     public let approval: RemoteApproval?
+    public let permissionMode: String?
 
-    public init(tasks: [RemoteTask], context: RemoteContext?, approval: RemoteApproval? = nil) {
+    public init(tasks: [RemoteTask], context: RemoteContext?, approval: RemoteApproval? = nil, permissionMode: String? = nil) {
         self.tasks = tasks
         self.context = context
         self.approval = approval
+        self.permissionMode = permissionMode
     }
 }
 
@@ -376,7 +378,7 @@ public enum RemoteSessionSetting: Codable, Sendable, Hashable {
 }
 
 public enum RemoteKey: String, Codable, Sendable, CaseIterable {
-    case enter, escape, shiftTab, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9
+    case enter, escape, shiftTab, arrowDown, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9
 }
 
 public enum RemoteSessionAction: String, Codable, Sendable {
