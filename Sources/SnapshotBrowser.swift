@@ -167,6 +167,7 @@ extension Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserNewTab") { await probeNewTabKeyViewLoop(store: store, window: window) }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserTabFocus") { await probeTabFocus(store: store, window: window) }
+        if let directory = UserDefaults.standard.string(forKey: "snapshotBrowserDrag") { await probeTabDrag(store: store, window: window, directory: URL(fileURLWithPath: directory)) }
         let shown = store.browser.shownTab
         if showsError { print("browser error \(shown?.loadError?.title ?? "unavailable")") }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserInspector"), let shown {

@@ -27,6 +27,8 @@ Use `-windowBackground theme|glass|darker` to select the detail background throu
 
 Add `-snapshotBrowserLocked YES` for two pinned tabs and one selected session tab, with a lock marker on the collapsed Berth Docs tab.
 
+Add `-snapshotBrowserDrag /abs/dir` to the default browser fixture to drop tabs through the real SwiftUI drop destinations: it finds each tab's frame, hit-tests the window for the registered destination and sends a synthesized `NSDraggingInfo` (entered, updated, perform), so the `DropDelegate`, the leading or trailing half and the model move all run. It runs a regular reorder, a pinned reorder, a regular tab to pinned and a pinned tab to regular, printing `browser tab drag <step> PASS` or `FAIL` (order and selection checked) and writing `0-before.png` and one PNG per step into the directory. The system drag session itself can't run offscreen. `-snapshotBrowserDropEdge "Export API|leading"` forces the insertion indicator on that tab's leading or trailing edge.
+
 The fixture loads via `file:` and embeds its favicons as `data:` URLs. By default, the content rule list permits `file:`, `data:` and `about:` resources. Other navigations print `snapshot browser blocked <url>`. The store runs in memory. Web views turn off WebKit's window occlusion check so the offscreen window can paint the page.
 
 `-snapshotBrowserError YES` opens the browser fixture with a selected tab at `http://berth-missing.invalid` and prints `browser error <title>` after waiting for the load to fail. This flag allows the reserved host `berth-missing.invalid` through the snapshot navigation and content rules.
