@@ -258,7 +258,7 @@ private struct SidebarList: View, Equatable {
                 terminalsSection
             }
             if !layout.attentionIDs.isEmpty {
-                SidebarSection(title: layout.showsTriage ? "Needs You" : "Needs Attention", help: "Needs you or your PR has failing checks", count: layout.attentionIDs.count, tint: theme.needsYou, isExpanded: expansion(of: Sidebar.attentionID)) {
+                SidebarSection(title: layout.showsTriage ? "Needs You" : "Needs Attention", help: "Waiting for you", count: layout.attentionIDs.count, tint: theme.needsYou, isExpanded: expansion(of: Sidebar.attentionID)) {
                     ForEach(layout.attentionIDs, id: \.self) { id in
                         SessionItem(id: id, place: .triage, select: select)
                             .id(SidebarItem.session(id))
@@ -872,7 +872,6 @@ private struct SessionItem: View {
             Button("Mark as Unread") { store.markUnread(id) }
         }
         flagButton
-        if place == .triage, store.canDismissAttention(session) { Button("Dismiss") { store.dismissAttention(id) } }
         Button("Mark as Done") { store.archive(id) }
         Menu("Snooze") {
             Button("1 Hour") { store.snooze(id, .until(.now.addingTimeInterval(3600))) }

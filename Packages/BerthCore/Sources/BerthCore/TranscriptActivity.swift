@@ -13,6 +13,7 @@ public struct TranscriptActivity: Sendable {
         var prompt: String?
         var requestsBackground = false
         var endsWithProcess = false
+        var detached = false
     }
 
     struct Reply: Sendable {
@@ -21,13 +22,14 @@ public struct TranscriptActivity: Sendable {
         let date: Date
     }
 
-    static let tools = ["Agent", "Task", "Bash", "Monitor", "SendMessage", "TaskStop"]
+    static let tools = ["Agent", "Task", "Bash", "Monitor", "SendMessage", "TaskStop", "REPL"]
     static let agentTools: Set<String> = ["Agent", "Task"]
     static let toolNames = tools.map { Array(#""name":"\#($0)""#.utf8) }
     static let resultKey = Array(#""tool_use_id":""#.utf8)
-    static let virtualLaunchKeys = [#""agentId":""#, #""resumedAgentId":""#, #""backgroundTaskId":""#, #""taskId":""#].map { Array($0.utf8) }
+    static let virtualLaunchKeys = [#""agentId":""#, #""resumedAgentId":""#, #""backgroundTaskId":""#, #""taskId":""#, #""task_type":""#].map { Array($0.utf8) }
     static let movedToBackground = Array("was moved to the background (ID: ".utf8)
     static let bashInput = Array("<bash-input>".utf8)
+    static let scriptMarkers = ["repl-eval", "went on as task"].map { Array($0.utf8) }
     static let chunkBytes = 4 << 20
     static let requestPrefix = Array(#"{"type":"api-request","#.utf8)
     static let mainThreadSources = [#""querySource":"repl_main_thread"#, #""querySource":"main_thread"#].map { Array($0.utf8) }
@@ -84,14 +86,14 @@ public struct TranscriptActivity: Sendable {
         let background = running.filter { id, launch in
             launch.started >= startedAt
                 && launch.deadline.map { now < $0 } ?? true
-                && !(launch.tool == "Bash" && status == "idle")
+                && !(launch.tool == "Bash" && !launch.detached && status == "idle")
                 && !(launch.endsWithProcess && launch.output.flatMap { Self.taskOutputFile($0, id: id) }.map(isProcessGone) == true)
                 && !(Self.agentTools.contains(launch.tool) && isFinished(id))
         }
         let foreground = ["busy", "waiting"].contains(status) ? pending.filter { Self.agentTools.contains($0.value.tool) && $0.value.started >= startedAt } : [:]
         return background.merging(foreground) { first, _ in first }
             .map { id, launch in
-                RemoteTask(id: id, kind: Self.agentTools.contains(launch.tool) ? RemoteTask.agent : launch.tool == "Bash" ? RemoteTask.shell : RemoteTask.monitor, title: launch.title, started: launch.started, command: launch.command, agentType: launch.agentType, toolCount: progress[id]?.toolCount, tokens: progress[id]?.tokens, call: progress[id]?.calls.last)
+                RemoteTask(id: id, kind: Self.agentTools.contains(launch.tool) ? RemoteTask.agent : launch.tool == "Bash" || launch.tool == "REPL" ? RemoteTask.shell : RemoteTask.monitor, title: launch.title, started: launch.started, command: launch.command, agentType: launch.agentType, toolCount: progress[id]?.toolCount, tokens: progress[id]?.tokens, call: progress[id]?.calls.last)
             }
             .sorted { ($0.started, $0.id) < ($1.started, $1.id) }
     }
@@ -171,7 +173,7 @@ public struct TranscriptActivity: Sendable {
                 let resolvesLaunch = resultID.map { pending[$0] != nil } ?? false
                 guard watches || isReply && find(Array(#""type":"tool_use""#.utf8)) != nil && Self.toolNames.contains(where: { find($0) != nil })
                     || find(Array(#""compact_boundary""#.utf8)) != nil
-                    || !watchOnly && (find(Self.movedToBackground) != nil || find(Self.bashInput) != nil)
+                    || !watchOnly && (find(Self.movedToBackground) != nil || find(Self.bashInput) != nil || Self.scriptMarkers.contains { find($0) != nil })
                     || resolvesLaunch
                     || resultID?.hasPrefix("repl_") == true && Self.virtualLaunchKeys.contains(where: { find($0) != nil }),
                     let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
@@ -191,6 +193,7 @@ public struct TranscriptActivity: Sendable {
                     launch(object, at: date)
                     resolve(object, at: date)
                     adoptMovedShell(object, at: date)
+                    endScripts(object, at: date)
                 }
                 endNotified(object, at: date)
             }
@@ -255,7 +258,7 @@ public struct TranscriptActivity: Sendable {
             launch.toolUseID = id
             let isAgent = Self.agentTools.contains(launch.tool)
             let isError = block["is_error"] as? Bool == true
-            let hasTaskOutput = isAgent || launch.tool == "Bash"
+            let hasTaskOutput = isAgent || launch.tool == "Bash" || launch.tool == "REPL"
             let content = hasTaskOutput ? block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n") : ""
             if isError {
                 if keepsTaskHistory, isAgent || launch.requestsBackground {
@@ -264,9 +267,9 @@ public struct TranscriptActivity: Sendable {
                 continue
             }
 
-            if launch.tool == "TaskStop", let task = result["task_id"] as? String ?? launch.command {
+            if launch.tool == "TaskStop", let task = result["task_id"] as? String ?? result["shell_id"] as? String ?? launch.command {
                 end(task, at: date)
-                if keepsTaskHistory { finishTask(task, completion: TaskCompletion(status: .stopped, path: nil, result: nil), at: date) }
+                if keepsTaskHistory { finishTask(task, completion: TaskCompletion(status: .stopped, path: nil, result: nil, command: result["command"] as? String), at: date) }
             } else if isAgent, result["isAsync"] as? Bool == true || result["status"] as? String == "async_launched", let agent = result["agentId"] as? String {
                 agentTitles[agent] = launch.title
                 agentTypes[agent] = launch.agentType
@@ -276,10 +279,13 @@ public struct TranscriptActivity: Sendable {
             } else if launch.tool == "Bash", let task = (result["backgroundTaskId"] as? String)
                 ?? (keepsTaskHistory && launch.requestsBackground ? content.firstMatch(of: /^Command running in background with ID:? ([A-Za-z0-9_-]+)/)?.1.description : nil) {
                 launch.output = (result["outputFile"] as? String) ?? content.firstMatch(of: /written to:? (\/[^\s;]+?)\.?(?:\s|;|$)/)?.1.description
+                launch.endsWithProcess = true
                 start(task, launch)
             } else if keepsTaskHistory, isAgent {
                 let agent = (result["agentId"] as? String) ?? content.firstMatch(of: /agentId:\s*([A-Za-z0-9_-]+)/)?.1.description
                 taskHistory[id] = launch.backgroundTask(id: id, agentID: agent, status: .completed, result: content)
+            } else if launch.tool == "REPL", let eval = content.firstMatch(of: /^\(dispatched #(\d+)\)/)?.1 {
+                start("eval-\(eval)", launch)
             } else if launch.tool == "Monitor", let task = result["taskId"] as? String {
                 let timeout = result["persistent"] as? Bool == true ? nil : result["timeoutMs"] as? Double
                 start(task, Launch(tool: launch.tool, title: launch.title, started: launch.started, deadline: timeout.map { launch.started + $0 / 1000 }, command: launch.command))
@@ -312,7 +318,11 @@ public struct TranscriptActivity: Sendable {
             return Launch(tool: "SendMessage", title: "Agent", started: date)
         }
         if result["backgroundTaskId"] != nil {
-            return Launch(tool: "Bash", title: title ?? "Background shell", started: date, command: result["command"] as? String)
+            let command = result["command"] as? String
+            return Launch(tool: "Bash", title: title ?? command ?? "Background shell", started: date, command: command)
+        }
+        if result["task_id"] != nil, result["task_type"] != nil {
+            return Launch(tool: "TaskStop", title: "TaskStop", started: date, command: result["task_id"] as? String)
         }
         if result["taskId"] != nil {
             return Launch(tool: "Monitor", title: title ?? "Monitor", started: date)
@@ -320,7 +330,7 @@ public struct TranscriptActivity: Sendable {
         return nil
     }
 
-    mutating func endNotified(_ object: [String: Any], at date: Date) {
+    static func carriedText(_ object: [String: Any]) -> String {
         let type = object["type"] as? String
         let attachment = object["attachment"] as? [String: Any]
         let carried: Any? = if type == "queue-operation", object["operation"] as? String == "enqueue" {
@@ -332,7 +342,27 @@ public struct TranscriptActivity: Sendable {
         } else {
             nil
         }
-        let text = carried as? String ?? (carried as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+        return carried as? String ?? (carried as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+    }
+
+    mutating func endScripts(_ object: [String: Any], at date: Date) {
+        let blocks = (object["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
+        let results = blocks.filter { $0["type"] as? String == "tool_result" }.map { block in
+            block["content"] as? String ?? (block["content"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: "\n")
+        }
+        let text = ([Self.carriedText(object)] + results).joined(separator: "\n")
+        for event in text.matches(of: /<event\s[^>]*kind="repl-eval"[^>]*>/) {
+            guard let eval = event.0.firstMatch(of: /eval="(\d+)"/)?.1 else { continue }
+
+            end("eval-\(eval)", at: date)
+        }
+        for shell in text.matches(of: /went on as task ([A-Za-z0-9_-]+), writing to (\/[^\s,]+?\.output)/) {
+            start(String(shell.1), Launch(tool: "Bash", title: "Background shell", started: date, output: String(shell.2), endsWithProcess: true, detached: true))
+        }
+    }
+
+    mutating func endNotified(_ object: [String: Any], at date: Date) {
+        let text = Self.carriedText(object)
 
         for envelope in text.components(separatedBy: "<task-notification>").dropFirst() {
             let notification = envelope.components(separatedBy: "</task-notification>").first ?? envelope

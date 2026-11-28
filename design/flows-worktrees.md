@@ -10,11 +10,11 @@ Code reaches `wt` through the `worktrunk@worktrunk` plugin's `WorktreeCreate` an
 
 - `claude --session-id <id> -w <name>` honours both: the transcript is `<id>.jsonl`, the
   session runs in `<repo>.worktrees/<name>` on branch `<name>`, `node_modules` copied.
-- The transcript lives under the worktree's slug (`…-plug-hub-worktrees-<name>`), and
+- The transcript lives under the worktree's slug (`…-acme-web-worktrees-<name>`), and
   records carry `cwd` = the worktree path.
 - A `worktree-state` record (`worktreeSession: {originalCwd, worktreePath, worktreeName,
   hookBased}`) is written at start and re-appended with metadata during the turn (4 times
-  in the 332 KB `wt-plugin-test` transcript, the last 7 KB from the end), so the tail has it. After the worktree is gone and the session resumes, it becomes
+  in the 332 KB `wt-fixture-test` transcript, the last 7 KB from the end), so the tail has it. After the worktree is gone and the session resumes, it becomes
   `worktreeSession: null` and later records carry the main checkout's `cwd` and branch.
 - `claude --resume <id>` from the main checkout re-enters the worktree while it exists.
   After `wt remove`, it continues in the main checkout on `main`. `--resume <id> -w <name>`
@@ -23,7 +23,7 @@ Code reaches `wt` through the `worktrunk@worktrunk` plugin's `WorktreeCreate` an
 - `-w` with no name works through the hook: Claude picks a name (`clever-hatching-russell`)
   used for both folder and branch.
 - No trust prompt in a worktree of a trusted repo, even though `~/.claude.json` has no
-  entry for the worktree path (`-snapshotClaude` on `plug-hub.worktrees/one-agent`).
+  entry for the worktree path (`-snapshotClaude` on `acme-web.worktrees/one-agent`).
 - A subagent with `isolation: worktree` goes through `wt`: `<repo>.worktrees/agent-<id>`,
   branch `agent-<id>`. It stays behind once it commits; Claude fires no `WorktreeRemove`
   for subagents.
@@ -86,7 +86,7 @@ subagents; remove one once its branch is pushed.":
   once it is gone, `originalCwd`, else the folder. Repository roots (PRs, Repository mode)
   resolve from the checkout, so a removed worktree still finds its repo.
 - Custom group rules and Project mode match the checkout, not the worktree (a rule for
-  `…/plug-hub` never matches `plug-hub.worktrees/x`). Project mode groups by checkout, so a repo is one group however many
+  `…/acme-web` never matches `acme-web.worktrees/x`). Project mode groups by checkout, so a repo is one group however many
   sessions it runs. Repository mode is unchanged (it already merges worktrees). Line 2
   shows the branch from the transcript's `gitBranch`, so a renamed branch shows its new
   name; the folder keeps Claude's generated name.

@@ -38,7 +38,7 @@ final class BackgroundTaskModel {
             let previous = activity
             let live = store.liveBySession[source.sessionID]
             let url = source.transcript
-            let claudePID = live?.pid
+            let claudePID = live.map(\.pid).flatMap { $0 > 1 ? $0 : nil }
             let (updated, tasks) = await Task.detached {
                 var activity = previous
                 activity.read(url)
@@ -90,18 +90,44 @@ extension Store {
     }
 
     func canStop(_ task: SessionBackgroundTask) -> Bool {
-        task.kind == .shell && task.status == .running && task.outputFile != nil && sessionTab?.sessionID.flatMap { liveBySession[$0] } != nil
+        guard let sessionID = sessionTab?.sessionID else { return false }
+
+        return canStop(task, in: sessionID)
+    }
+
+    func canStop(_ task: SessionBackgroundTask, in sessionID: String) -> Bool {
+        task.kind == .shell && task.status == .running && task.outputFile != nil && liveBySession[sessionID] != nil
     }
 
     func stopBackgroundTask(_ id: String) {
         let matches = backgroundTasks.filter { $0.id == id || $0.toolUseID == id }
-        guard let task = matches.first(where: { $0.outputFile != nil }) ?? matches.first, canStop(task),
-              let output = task.outputFile, let pid = sessionTab?.sessionID.flatMap({ liveBySession[$0]?.pid }) else { return }
+        guard let task = matches.first(where: { $0.outputFile != nil }) ?? matches.first, let sessionID = sessionTab?.sessionID else { return }
 
-        Task {
-            let stopped = await Task.detached { await ProcessAncestry.stopShell(writing: output, under: pid) }.value
-            if stopped { backgroundTaskModel.stoppedIDs.insert(task.id) }
-        }
+        Task { await stopShell(task, in: sessionID) }
+    }
+
+    @discardableResult
+    func stopShell(_ task: SessionBackgroundTask, in sessionID: String) async -> Bool {
+        guard canStop(task, in: sessionID), let output = task.outputFile, let pid = liveBySession[sessionID]?.pid else { return false }
+
+        let stopped = await Task.detached { await ProcessAncestry.stopShell(writing: output, under: pid) }.value
+        if stopped { backgroundTaskModel.stoppedIDs.insert(task.id) }
+        return stopped
+    }
+
+    func backgroundTasks(ofSession sessionID: String) async -> [SessionBackgroundTask] {
+        if sessionTab?.sessionID == sessionID { return backgroundTasks }
+
+        let agent = tab(forSession: sessionID)?.agent ?? sessionsByID[sessionID]?.agent ?? .claude
+        guard let url = sessionIndex(for: agent).url(ofSession: sessionID) else { return [] }
+
+        let live = liveBySession[sessionID]
+        let claudePID = live?.pid
+        return await Task.detached {
+            var activity = TranscriptActivity(keepsTaskHistory: true)
+            activity.read(url)
+            return activity.backgroundTasks(of: live, in: url, isProcessGone: { output in claudePID.map { ProcessAncestry.isOutputGone(output, under: $0) } ?? false })
+        }.value
     }
 
     func backgroundTask(matching id: String) -> SessionBackgroundTask? {
@@ -109,10 +135,16 @@ extension Store {
     }
 
     func subagentStop(for task: SessionBackgroundTask) -> SubagentStopMode? {
-        guard task.kind == .agent || task.kind == .monitor, task.status == .running, let sessionID = sessionTab?.sessionID, tab(forSession: sessionID) != nil,
+        guard let sessionID = sessionTab?.sessionID else { return nil }
+
+        return subagentStop(for: task, in: sessionID, among: backgroundTasks)
+    }
+
+    func subagentStop(for task: SessionBackgroundTask, in sessionID: String, among tasks: [SessionBackgroundTask]) -> SubagentStopMode? {
+        guard task.kind == .agent || task.kind == .monitor, task.status == .running, tab(forSession: sessionID) != nil,
               let live = liveBySession[sessionID], live.status != "waiting" else { return nil }
 
-        let canDrive = SubagentStop.isSupported(version: live.version) && SubagentStop.keys(stopping: task, among: backgroundTasks) != nil
+        let canDrive = SubagentStop.isSupported(version: live.version) && SubagentStop.keys(stopping: task, among: tasks) != nil
         if canDrive, live.status == "idle" { return task.kind == .monitor ? .monitor : .subagent }
         guard task.kind == .agent else { return nil }
 
@@ -122,8 +154,11 @@ extension Store {
     func stopSubagent(_ task: SessionBackgroundTask) {
         switch subagentStop(for: task) {
         case .subagent, .monitor:
+            guard let sessionID = sessionTab?.sessionID else { return }
+
             Task {
-                if case let .refused(message) = await stopSubagentThroughTasksDialog(task) { subagentStopFailure = message }
+                let outcome = await stopSubagentThroughTasksDialog(task, in: sessionID, among: backgroundTasks) { [self] in backgroundTask(matching: task.id)?.status != .running }
+                if case let .refused(message) = outcome { subagentStopFailure = message }
             }
 
         case .turn:

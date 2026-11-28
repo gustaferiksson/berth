@@ -11,7 +11,7 @@ public struct SessionBackgroundTask: Identifiable, Equatable, Sendable {
 
     public let id: String
     public let kind: Kind
-    public let title: String
+    public var title: String
     public let started: Date
     public let toolUseID: String?
     public let agentID: String?

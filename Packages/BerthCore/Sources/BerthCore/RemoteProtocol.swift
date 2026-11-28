@@ -47,8 +47,9 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
     public let agent: RemoteAgent?
     public let pullRequestWatch: PullRequestWatch?
     public let isPinned: Bool?
+    public let isFlagged: Bool?
 
-    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil, pullRequestWatch: PullRequestWatch? = nil, isPinned: Bool? = nil) {
+    public init(id: String, title: String, folder: String, branch: String?, lastActivity: Date, status: String?, waitingFor: String?, waitingSince: Double?, isOpen: Bool, isLocked: Bool, lastPrompt: Date? = nil, pullRequest: RemotePullRequest? = nil, isUnread: Bool? = nil, turnStartedAt: Date? = nil, agent: RemoteAgent? = nil, pullRequestWatch: PullRequestWatch? = nil, isPinned: Bool? = nil, isFlagged: Bool? = nil) {
         self.id = id
         self.title = title
         self.folder = folder
@@ -66,6 +67,7 @@ public struct RemoteSession: Codable, Sendable, Hashable, Identifiable {
         self.agent = agent
         self.pullRequestWatch = pullRequestWatch
         self.isPinned = isPinned
+        self.isFlagged = isFlagged
     }
 }
 
@@ -179,6 +181,7 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
     public var imageRefs: [RemoteImageRef]?
     public var shellOutput: String?
     public var shellError: String?
+    public var parentID: String?
 
     public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false, date: Date? = nil, detail: String? = nil, images: [Data]? = nil, imageNumbers: [Int]? = nil, imageRefs: [RemoteImageRef]? = nil) {
         self.id = id
@@ -233,11 +236,13 @@ public struct RemoteActivity: Codable, Sendable, Hashable {
     public let tasks: [RemoteTask]
     public let context: RemoteContext?
     public let approval: RemoteApproval?
+    public let permissionMode: String?
 
-    public init(tasks: [RemoteTask], context: RemoteContext?, approval: RemoteApproval? = nil) {
+    public init(tasks: [RemoteTask], context: RemoteContext?, approval: RemoteApproval? = nil, permissionMode: String? = nil) {
         self.tasks = tasks
         self.context = context
         self.approval = approval
+        self.permissionMode = permissionMode
     }
 }
 
@@ -321,6 +326,21 @@ public struct RemoteTaskDetail: Codable, Sendable, Hashable {
     }
 }
 
+public nonisolated enum RemoteTaskStopFeature {
+    public static let name = "taskStop"
+}
+
+public nonisolated enum SessionHandoff {
+    public static let activityType = "dev.gustaf.berth.session"
+    public static let sessionIDKey = "sessionID"
+
+    public static func sessionID(in activity: NSUserActivity) -> String? {
+        guard activity.activityType == activityType, let id = activity.userInfo?[sessionIDKey] as? String, !id.isEmpty else { return nil }
+
+        return id
+    }
+}
+
 public struct RemoteContext: Codable, Sendable, Hashable {
     public let model: String
     public let tokens: Int?
@@ -373,11 +393,18 @@ public enum RemoteSessionSetting: Codable, Sendable, Hashable {
 }
 
 public enum RemoteKey: String, Codable, Sendable, CaseIterable {
-    case enter, escape, shiftTab, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9
+    case enter, escape, shiftTab, arrowDown, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9
 }
 
 public enum RemoteSessionAction: String, Codable, Sendable {
     case show, pin, unpin, markRead, markUnread, archive, interrupt
+    case flag, unflag, unarchive, snoozeOneHour, snoozeTomorrow, snoozeUntilNeedsYou, unsnooze
+}
+
+public nonisolated enum RemoteTriageFeature {
+    public static let name = "triage"
+    public static let snoozedGroupID = "snoozed"
+    public static let doneGroupID = "archived"
 }
 
 public nonisolated enum RemoteUpload {
@@ -536,6 +563,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
     case commands(sessionID: String)
+    case stopTask(sessionID: String, taskID: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {

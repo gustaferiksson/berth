@@ -74,13 +74,8 @@ extension Store {
             return sessionsByID[id]
         }
         let attention = standalone
-            .compactMap { session -> (session: SessionSummary, rank: Int)? in
-                if case .needsInput = liveBySession[session.id]?.activity { return (session, 0) }
-
-                return hasUndismissedFailure(session) ? (session, 1) : nil
-            }
-            .sorted { ($0.rank, $1.session.lastPrompt, $0.session.id) < ($1.rank, $0.session.lastPrompt, $1.session.id) }
-            .map(\.session)
+            .filter { if case .needsInput = liveBySession[$0.id]?.activity { true } else { false } }
+            .sorted { ($1.lastPrompt, $0.id) < ($0.lastPrompt, $1.id) }
         guard showsTriage else { return SidebarSources(active: active, groups: groups, attention: attention, working: [], unread: []) }
 
         let attentionIDs = Set(attention.map(\.id))
@@ -91,18 +86,6 @@ extension Store {
             unread: Set(rest.filter(hasUnseenActivity).map(\.id))
         )
         return SidebarSources(active: active, groups: groups, attention: attention, working: triage.working, unread: triage.unread)
-    }
-
-    func hasUndismissedFailure(_ session: SessionSummary) -> Bool {
-        guard let pullRequest = pullRequest(for: session), [.open, .draft].contains(pullRequest.state), pullRequest.checks == .failed, pullRequest.viewerDidAuthor else { return false }
-
-        return pullRequest.headSHA.map { dismissedFailures[session.id] != $0 } ?? true
-    }
-
-    func canDismissAttention(_ session: SessionSummary) -> Bool {
-        if case .needsInput = liveBySession[session.id]?.activity { return false }
-
-        return hasUndismissedFailure(session) && pullRequest(for: session)?.headSHA != nil
     }
 
     var sidebarLayout: SidebarLayout { sidebarLayout(filter: sidebarFilter, status: sidebarStatus) }
