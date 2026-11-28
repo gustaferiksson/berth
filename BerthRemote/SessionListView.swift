@@ -17,6 +17,7 @@ struct SessionListView: View {
     @State private var isShowingSettings = UserDefaults.standard.bool(forKey: "snapshotSettings")
     @State private var isShowingUsage = UserDefaults.standard.bool(forKey: "snapshotUsageSheet")
     @State private var feedback = ActionFeedback(count: 0, action: nil)
+    @State private var status = SessionStatusFilter.allCases.first { "\($0)" == UserDefaults.standard.string(forKey: "snapshotFilter") } ?? .all
 
     var body: some View {
         let pinned = Set(client.groups.first { $0.id == "pinned" }?.sessions.map(\.id) ?? [])
@@ -26,14 +27,14 @@ struct SessionListView: View {
 
         NavigationStack(path: $path) {
             List {
-                if let version = updates.available, query.isEmpty {
+                if let version = updates.available, !isFiltering {
                     Section {
                         Link(destination: UpdateCheck.installURL) {
                             Label("Install Berth Remote \(version)", systemImage: "arrow.down.circle")
                         }
                     }
                 }
-                if query.isEmpty {
+                if !isFiltering {
                     let usageGroups = client.usageGroups(at: .now)
                     if !usageGroups.isEmpty {
                         Section {
@@ -45,13 +46,13 @@ struct SessionListView: View {
                 }
                 ForEach(groups) { group in
                     let isCollapsed = group.isCollapsed ?? (group.id == "recent:older")
-                    let expansion = if query.isEmpty {
+                    let expansion = if !isFiltering {
                         Binding { expandedGroups[group.id, default: !isCollapsed] } set: { expandedGroups[group.id] = $0 }
                     } else {
                         Binding.constant(true)
                     }
                     let count = group.sessions.count
-                    let limit = query.isEmpty ? max(0, group.visibleCount ?? count) : count
+                    let limit = !isFiltering ? max(0, group.visibleCount ?? count) : count
                     let hiddenCount = max(0, count - limit)
                     let showsAll = groupsShowingAll.contains(group.id)
                     Section {
@@ -83,7 +84,7 @@ struct SessionListView: View {
                             }
                         }
                     } header: {
-                        if query.isEmpty {
+                        if !isFiltering {
                             SessionSectionHeader(title: group.title, count: count, isExpanded: expansion)
                         } else {
                             Text(group.title)
@@ -120,6 +121,15 @@ struct SessionListView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Settings", systemImage: "gearshape") { isShowingSettings = true }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu("Filter", systemImage: status == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill") {
+                        Picker("Filter", selection: $status) {
+                            ForEach(SessionStatusFilter.allCases.filter { $0 != .flagged || client.features.contains(RemoteTriageFeature.name) }) { filter in
+                                Label(filter.title, systemImage: filter.symbol).tag(filter)
+                            }
+                        }
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button("New Session", systemImage: "plus") { isStartingSession = true }
                         .disabled(client.folders.isEmpty || client.state != .connected)
@@ -143,17 +153,58 @@ struct SessionListView: View {
         }
     }
 
-    private var visibleGroups: [RemoteGroup] {
-        guard !query.isEmpty else { return client.groups.filter { !$0.sessions.isEmpty } }
+    private var isFiltering: Bool { !query.isEmpty || status != .all }
 
+    private var visibleGroups: [RemoteGroup] {
+        guard isFiltering else { return client.groups.filter { !$0.sessions.isEmpty } }
+
+        let hiddenGroupIDs = status == .all ? [] : [RemoteTriageFeature.snoozedGroupID, RemoteTriageFeature.doneGroupID]
         let matches = { (session: RemoteSession) in
-            [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) }
+            status.matches(session) && (query.isEmpty || [session.title, session.folder, session.branch ?? ""].contains { $0.localizedStandardContains(query) })
         }
         return client.groups.compactMap { group in
+            guard !hiddenGroupIDs.contains(group.id) else { return nil }
+
             let sessions = group.sessions.filter(matches)
             guard !sessions.isEmpty else { return nil }
 
             return RemoteGroup(id: group.id, title: group.title, sessions: sessions, isCollapsed: group.isCollapsed, visibleCount: group.visibleCount)
+        }
+    }
+}
+
+private enum SessionStatusFilter: CaseIterable, Identifiable {
+    case all, needsYou, working, unread, flagged
+
+    var id: Self { self }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .all: "All"
+        case .needsYou: "Needs You"
+        case .working: "Working"
+        case .unread: "Unread"
+        case .flagged: "Flagged"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: "tray"
+        case .needsYou: "exclamationmark.circle"
+        case .working: "ellipsis.circle"
+        case .unread: "circlebadge"
+        case .flagged: "flag"
+        }
+    }
+
+    func matches(_ session: RemoteSession) -> Bool {
+        switch self {
+        case .all: true
+        case .needsYou: session.status == "waiting"
+        case .working: session.status == "busy"
+        case .unread: session.isUnread == true
+        case .flagged: session.isFlagged == true
         }
     }
 }
