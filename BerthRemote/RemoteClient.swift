@@ -66,6 +66,7 @@ final class RemoteClient {
 
             activity = [:]
             launchOptions = nil
+            inbox = nil
             pullRequests = [:]
             changes = [:]
             diffs = [:]
@@ -80,6 +81,7 @@ final class RemoteClient {
     private(set) var groups: [RemoteGroup] = []
     private(set) var folders: [String] = []
     private(set) var launchOptions: RemoteLaunchOptions?
+    private(set) var inbox: RemoteInbox?
     private(set) var entries: [String: [RemoteEntry]] = [:]
     private(set) var queued: [String: [String]] = [:]
     private(set) var pending: [String: [PendingPrompt]] = [:]
@@ -152,6 +154,7 @@ final class RemoteClient {
     #if DEBUG
     private static let demoSectionsFile = UserDefaults.standard.string(forKey: "snapshotDemoSectionsFile")
     static let isDemo = UserDefaults.standard.bool(forKey: "snapshotDemo") || demoSectionsFile != nil
+    static let demoNewSessionScope = UserDefaults.standard.string(forKey: "snapshotDemoNewSessionScope")
     static let showsDemoNewSession = UserDefaults.standard.bool(forKey: "snapshotDemoNewSession")
     static let showsDemoList = UserDefaults.standard.bool(forKey: "snapshotDemoList") || demoSectionsFile != nil
 
@@ -168,6 +171,19 @@ final class RemoteClient {
                 ],
                 defaultAgent: "claude",
                 startsInWorktree: true
+            )
+            features.append(RemoteInbox.feature)
+            let updated = Date.now.addingTimeInterval(-3600)
+            inbox = RemoteInbox(
+                pullRequests: [
+                    RemoteInboxItem(kind: .pullRequest, repository: "acme/fieldnotes", number: 142, title: "Keep the activity feed anchored when a new entry arrives", group: "Review Requested", isOpenable: true, updatedAt: updated, author: "mara", branch: "fix/anchor-feed", isDraft: false, checks: "passed"),
+                    RemoteInboxItem(kind: .pullRequest, repository: "acme/atlas-api", number: 67, title: "Sketch the offline cache", group: "Review Requested", isOpenable: false, updatedAt: updated, author: "jun", branch: "draft/offline-cache", isDraft: true, checks: "running"),
+                    RemoteInboxItem(kind: .pullRequest, repository: "acme/fieldnotes", number: 139, title: "Rank journal search by tag", group: "Mine", isOpenable: true, updatedAt: updated, author: "you", branch: "feature/rank-search", isDraft: false, checks: "failed"),
+                ],
+                issues: [
+                    RemoteInboxItem(kind: .issue, repository: "acme/fieldnotes", number: 377, title: "Export fails for entries with attachments", group: "Assigned to you", isOpenable: true, updatedAt: updated, author: "mara"),
+                    RemoteInboxItem(kind: .issue, repository: "acme/tidewater", number: 21, title: "Tide chart labels overlap", group: "Mentioned", isOpenable: true, updatedAt: updated, author: "jun"),
+                ]
             )
         }
         if let file = Self.demoSectionsFile {
@@ -360,6 +376,12 @@ final class RemoteClient {
         guard features.contains(RemoteLaunchOptions.feature) else { return }
 
         send(.launchOptions)
+    }
+
+    func loadInbox() {
+        guard features.contains(RemoteInbox.feature) else { return }
+
+        send(.inbox)
     }
 
     func loadSlashCommands(for sessionID: String) {
@@ -612,6 +634,9 @@ final class RemoteClient {
 
         case let .launchOptions(options):
             launchOptions = options
+
+        case let .inbox(inbox):
+            self.inbox = inbox
 
         case let .codexUsage(usage):
             if features.contains(RemoteCodexUsageFeature.name) { codexUsage = usage }

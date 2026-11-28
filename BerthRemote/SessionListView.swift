@@ -504,6 +504,17 @@ private struct NewSessionView: View {
     @State private var prompt = ""
     @State private var agentID: String?
     @State private var usesWorktree = false
+    @State private var scope = Scope.folder
+
+    private enum Scope: String, CaseIterable {
+        case folder = "Folder"
+        case pullRequests = "Pull Requests"
+        case issues = "Issues"
+    }
+
+    private var offersInbox: Bool {
+        client.features.contains(RemoteInbox.feature)
+    }
 
     private var agent: RemoteLaunchAgent? {
         guard let options = client.launchOptions else { return nil }
@@ -517,40 +528,22 @@ private struct NewSessionView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                if let options = client.launchOptions, options.agents.count > 1 {
-                    Section {
-                        Picker("Agent", selection: Binding(get: { agent?.id ?? "" }, set: { agentID = $0 })) {
-                            ForEach(options.agents) { Text($0.name).tag($0.id) }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                    } header: {
-                        Text("Agent")
-                    }
+            Group {
+                if scope == .folder {
+                    sessionForm
+                } else {
+                    InboxList(kind: scope == .issues ? .issue : .pullRequest, dismiss: dismiss)
                 }
-                Picker("Folder", selection: $folder) {
-                    ForEach(client.folders, id: \.self) { folder in
-                        VStack(alignment: .leading) {
-                            Text(URL(filePath: folder).lastPathComponent)
-                            Text(folder)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .monospaced()
-                        .tag(folder)
+            }
+            .safeAreaInset(edge: .top) {
+                if offersInbox {
+                    Picker("Start from", selection: $scope) {
+                        ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
                 }
-                .pickerStyle(.navigationLink)
-                if offersWorktree {
-                    Section {
-                        Toggle("Worktree", isOn: $usesWorktree)
-                    } footer: {
-                        Text("A worktree gets its own branch. Turn it off to work in the main checkout.")
-                    }
-                }
-                TextField("What should \(agent?.name ?? "Claude") do?", text: $prompt, axis: .vertical)
-                    .lineLimit(3...8)
             }
             .navigationTitle("New Session")
             .navigationBarTitleDisplayMode(.inline)
@@ -558,18 +551,63 @@ private struct NewSessionView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Start", action: start)
-                        .disabled(folder.isEmpty)
+                if scope == .folder {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Start", action: start)
+                            .disabled(folder.isEmpty)
+                    }
                 }
             }
             .onAppear {
                 if folder.isEmpty { folder = client.folders.first ?? "" }
                 client.loadLaunchOptions()
+                client.loadInbox()
+                #if DEBUG
+                if RemoteClient.demoNewSessionScope == "pullRequests" { scope = .pullRequests }
+                if RemoteClient.demoNewSessionScope == "issues" { scope = .issues }
+                #endif
             }
             .onChange(of: client.launchOptions, initial: true) {
                 usesWorktree = client.launchOptions?.startsInWorktree ?? false
             }
+        }
+    }
+
+    private var sessionForm: some View {
+        Form {
+            if let options = client.launchOptions, options.agents.count > 1 {
+                Section {
+                    Picker("Agent", selection: Binding(get: { agent?.id ?? "" }, set: { agentID = $0 })) {
+                        ForEach(options.agents) { Text($0.name).tag($0.id) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                } header: {
+                    Text("Agent")
+                }
+            }
+            Picker("Folder", selection: $folder) {
+                ForEach(client.folders, id: \.self) { folder in
+                    VStack(alignment: .leading) {
+                        Text(URL(filePath: folder).lastPathComponent)
+                        Text(folder)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .monospaced()
+                    .tag(folder)
+                }
+            }
+            .pickerStyle(.navigationLink)
+            if offersWorktree {
+                Section {
+                    Toggle("Worktree", isOn: $usesWorktree)
+                } footer: {
+                    Text("A worktree gets its own branch. Turn it off to work in the main checkout.")
+                }
+            }
+            TextField("What should \(agent?.name ?? "Claude") do?", text: $prompt, axis: .vertical)
+                .lineLimit(3...8)
         }
     }
 
@@ -581,6 +619,80 @@ private struct NewSessionView: View {
 
         let checkout: RemoteCheckout? = offersWorktree ? (usesWorktree ? .worktree : .main) : nil
         client.send(.startSession(RemoteSessionStart(folder: folder, prompt: prompt, agent: agent.id, checkout: checkout)))
+        dismiss()
+    }
+}
+
+private struct InboxList: View {
+    @Environment(RemoteClient.self) private var client
+    let kind: RemoteInboxItem.Kind
+    let dismiss: DismissAction
+
+    private var items: [RemoteInboxItem]? {
+        kind == .pullRequest ? client.inbox?.pullRequests : client.inbox?.issues
+    }
+
+    private var groups: [(title: String, items: [RemoteInboxItem])] {
+        (items ?? []).reduce(into: []) { groups, item in
+            if let index = groups.firstIndex(where: { $0.title == item.group }) {
+                groups[index].items.append(item)
+            } else {
+                groups.append((item.group, [item]))
+            }
+        }
+    }
+
+    var body: some View {
+        if client.inbox == nil {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if items == nil {
+            ContentUnavailableView(kind == .pullRequest ? "Couldn’t List Pull Requests" : "Couldn’t List Issues", systemImage: "exclamationmark.circle", description: Text("Your Mac couldn’t reach GitHub with the GitHub CLI (gh)."))
+        } else if groups.isEmpty {
+            ContentUnavailableView(kind == .pullRequest ? "No Pull Requests" : "No Issues", systemImage: kind == .pullRequest ? "arrow.triangle.pull" : "circle.dotted")
+        } else {
+            List {
+                ForEach(groups, id: \.title) { group in
+                    Section(group.title) {
+                        ForEach(group.items) { item in
+                            Button { start(item) } label: { row(item) }
+                                .buttonStyle(.plain)
+                                .disabled(!item.isOpenable)
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+        }
+    }
+
+    private func row(_ item: RemoteInboxItem) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+            HStack(spacing: 4) {
+                Text("\(item.repository) #\(String(item.number))")
+                if let author = item.author { Text("by \(author)") }
+                if item.isDraft == true { Text("Draft") }
+                if let checks = item.checks {
+                    Image(systemName: ChecksStyle.symbol(checks))
+                        .foregroundStyle(ChecksStyle.color(checks))
+                        .accessibilityLabel(ChecksStyle.title(checks))
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if !item.isOpenable {
+                Text("No local checkout of \(item.repository)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func start(_ item: RemoteInboxItem) {
+        client.send(.startItem(kind: item.kind, repository: item.repository, number: item.number))
         dismiss()
     }
 }
