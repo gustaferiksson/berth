@@ -47,6 +47,7 @@ struct APNsTests {
         #expect(body["sessionID"] as? String == "s1")
         #expect(body["status"] as? String == "waiting")
         #expect(alert == ["title": "Repair the import checks", "body": "Needs you"])
+        #expect(aps["content-available"] as? Int == 1)
     }
 
     @Test func requestRefusesATokenThatCouldEscapeThePath() {

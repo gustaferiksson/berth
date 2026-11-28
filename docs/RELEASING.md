@@ -83,17 +83,26 @@ Pages is deployed.
    profile made before the capability was enabled fails the archive. Regenerate it after enabling the capability.
    For push, also create an APNs auth key (Keys > +, Apple Push Notifications service) and keep the `.p8` on the Mac
    (Settings > Remote). It is not a CI secret.
+   The Home Screen widget needs two more things: register the App Group `group.dev.gustaf.berth.remote`
+   (Identifiers > App Groups) and register an explicit App ID `dev.gustaf.berth.remote.widget`. Enable App Groups on
+   both App IDs and assign the group to each. Changing the app's capabilities invalidates its profile too.
 2. Profiles > +: **Ad Hoc** for `dev.gustaf.berth.remote` with the Apple Distribution certificate and all devices,
-   named exactly `Berth Remote Ad Hoc`. Download it.
-3. 1Password: add `Berth_Remote_Ad_Hoc.mobileprovision` next to Crew's `AppleDistribution.p12` and its password (the
-   same Apple Distribution certificate signs both apps).
+   named exactly `Berth Remote Ad Hoc`, and a second one for `dev.gustaf.berth.remote.widget` named exactly
+   `Berth Remote Widget Ad Hoc`. Download both.
+3. 1Password: add `Berth_Remote_Ad_Hoc.mobileprovision` and `Berth_Remote_Widget_Ad_Hoc.mobileprovision` next to
+   Crew's `AppleDistribution.p12` and its password (the same Apple Distribution certificate signs both apps).
 4. Secrets in the berth repo:
 
    ```sh
    gh secret set IOS_DIST_P12 < <(base64 -i AppleDistribution.p12)
    gh secret set IOS_DIST_P12_PASSWORD
    gh secret set IOS_ADHOC_PROFILE < <(base64 -i Berth_Remote_Ad_Hoc.mobileprovision)
+   gh secret set IOS_WIDGET_ADHOC_PROFILE < <(base64 -i Berth_Remote_Widget_Ad_Hoc.mobileprovision)
    ```
+
+   `release.yml`'s `ios` job must also pass `IOS_WIDGET_ADHOC_PROFILE` to its preflight loop and its import step
+   (decoded to `$RUNNER_TEMP/Berth_Remote_Widget_Ad_Hoc.mobileprovision`) and set `IOS_WIDGET_ADHOC_PROFILE_PATH` to that
+   file for `./package-ios.sh`.
 
    The `ios` job fails its preflight if any is empty.
 5. Settings > Pages > Source: **GitHub Actions**. Settings > Environments > `github-pages` > Deployment branches and
