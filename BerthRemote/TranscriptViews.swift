@@ -429,7 +429,7 @@ private struct MarkdownBlockView: View {
     let block: MarkdownBlock
 
     var body: some View {
-        let text = Text(MarkdownBlock.inline(block.lines.joined(separator: "\n")))
+        let text = Text(MarkdownBlock.linkedInline(block.lines.joined(separator: "\n")))
 
         switch block.kind {
         case .paragraph:
@@ -473,7 +473,7 @@ private struct MarkdownTable: View {
                 ForEach(rows.enumerated(), id: \.offset) { index, row in
                     GridRow {
                         ForEach(row.enumerated(), id: \.offset) { _, cell in
-                            Text(MarkdownBlock.inline(cell))
+                            Text(MarkdownBlock.linkedInline(cell))
                                 .bold(index == 0)
                         }
                     }

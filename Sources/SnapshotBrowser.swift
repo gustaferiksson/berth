@@ -38,6 +38,15 @@ extension Snapshot {
         print("incoming url \(text): session \(session != nil), browser tabs \(before) -> \(tabs.count), newest \(tabs.last?.url?.absoluteString ?? "-"), pane \(store.shownPane?.rawValue ?? "hidden"), launcher \(store.launcherMode.map { "\($0)" } ?? "closed"), pending \(store.pendingIncomingURL?.absoluteString ?? "-")")
     }
 
+    static func probeContinuedSession(_ id: String, store: Store) {
+        let activity = NSUserActivity(activityType: SessionHandoff.activityType)
+        activity.userInfo = [SessionHandoff.sessionIDKey: id]
+        let foreign = NSUserActivity(activityType: "example.invalid.other")
+        foreign.userInfo = [SessionHandoff.sessionIDKey: id]
+        let continued = store.continueHandoff(activity)
+        print("continued session \(id): accepted \(continued), selected \(store.selectedSessionID ?? "-"), foreign type accepted \(store.continueHandoff(foreign))")
+    }
+
     static func captureBrowserApproval(store: Store, window: NSWindow, output: URL) async {
         let access = store.browser.access
         var session = SessionSummary(id: "fixture-approval", cwd: "/Users/dev/acme-billing.worktrees/export-invoices-csv", title: "Export the invoice list as CSV with the new billing service headers and a download button", lastActivity: .now, branch: "feat/invoice-export")
@@ -167,6 +176,7 @@ extension Snapshot {
         }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserNewTab") { await probeNewTabKeyViewLoop(store: store, window: window) }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserTabFocus") { await probeTabFocus(store: store, window: window) }
+        if let directory = UserDefaults.standard.string(forKey: "snapshotBrowserDrag") { await probeTabDrag(store: store, window: window, directory: URL(fileURLWithPath: directory)) }
         let shown = store.browser.shownTab
         if showsError { print("browser error \(shown?.loadError?.title ?? "unavailable")") }
         if UserDefaults.standard.bool(forKey: "snapshotBrowserInspector"), let shown {

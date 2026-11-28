@@ -116,6 +116,8 @@ extension Store {
     }
 
     func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, since waitingSince: Double?) -> InputOutcome {
+        if key == .shiftTab, waitingFor == nil { return cycleMode(sessionID) }
+
         refreshLive()
         let tab = tab(forSession: sessionID)
         let harness = (tab?.agent ?? sessionsByID[sessionID]?.agent ?? .claude).harness
@@ -133,6 +135,7 @@ extension Store {
         case .enter: TerminalKeyPress(.enter)
         case .escape: TerminalKeyPress(.escape)
         case .shiftTab: TerminalKeyPress(.tab, modifiers: .shift)
+        case .arrowDown: TerminalKeyPress(.arrowDown)
         case .digit1: TerminalKeyPress(.digit1)
         case .digit2: TerminalKeyPress(.digit2)
         case .digit3: TerminalKeyPress(.digit3)
@@ -245,9 +248,9 @@ extension Store {
         return .sent
     }
 
-    func stopSubagentThroughTasksDialog(_ task: SessionBackgroundTask) async -> InputOutcome {
+    func stopSubagentThroughTasksDialog(_ task: SessionBackgroundTask, in sessionID: String, among tasks: [SessionBackgroundTask], isStopped: () -> Bool) async -> InputOutcome {
         let noun = task.kind == .monitor ? "monitor" : "subagent"
-        guard let sessionID = sessionTab?.sessionID, let stop = TerminalKeyPress(typing: "x") else { return .refused("Claude isn’t running in a Berth tab for this session") }
+        guard let stop = TerminalKeyPress(typing: "x") else { return .refused("Claude isn’t running in a Berth tab for this session") }
         guard !submittingSessions.contains(sessionID) else { return .refused("The previous message is still being sent, so the \(noun) wasn’t stopped") }
 
         submittingSessions.insert(sessionID)
@@ -256,7 +259,7 @@ extension Store {
         refreshLive()
         guard let terminal = tab(forSession: sessionID)?.terminal, let live = liveBySession[sessionID] else { return .refused("Claude isn’t running in a Berth tab for this session") }
         guard live.status == "idle" else { return .refused("Claude is busy or waiting, so the \(noun) wasn’t stopped") }
-        guard SubagentStop.isSupported(version: live.version), let keys = SubagentStop.keys(stopping: task, among: backgroundTasks) else { return .refused("This version of Claude isn’t known to show the task list the same way, so the \(noun) wasn’t stopped") }
+        guard SubagentStop.isSupported(version: live.version), let keys = SubagentStop.keys(stopping: task, among: tasks) else { return .refused("This version of Claude isn’t known to show the task list the same way, so the \(noun) wasn’t stopped") }
 
         for key in keys {
             refreshLive()
@@ -288,7 +291,7 @@ extension Store {
         }
 
         for _ in 0..<25 {
-            if backgroundTask(matching: task.id)?.status != .running { return .sent }
+            if isStopped() { return .sent }
 
             try? await Task.sleep(for: .milliseconds(200))
         }

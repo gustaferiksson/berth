@@ -65,6 +65,7 @@ struct ConversationPrompt: View {
     var selectionID: String?
     var expansionID: String?
     var isShellRunning = false
+    var isShellQueued = false
 
     @Environment(\.ghosttyTheme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -294,7 +295,7 @@ struct ConversationPrompt: View {
                         .frame(width: markerWidth - 8, alignment: .leading)
                         .accessibilityHidden(true)
                     HStack(spacing: 0) {
-                        Text(verbatim: "Running… ")
+                        Text(verbatim: isShellQueued ? "Queued" : "Running… ")
                         if let started = entry.date {
                             Text(verbatim: "(")
                             ConversationElapsed(since: started)

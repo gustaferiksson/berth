@@ -70,6 +70,7 @@ final class RemoteClient {
             changes = [:]
             diffs = [:]
             taskDetails = [:]
+            subagentTranscripts = [:]
             slashCommands = [:]
             requestedSlashCommands = []
             images = images.filter { if case .loaded = $0.value { true } else { false } }
@@ -89,12 +90,14 @@ final class RemoteClient {
     private(set) var changes: [String: ChangesLoad] = [:]
     private(set) var diffs: [ChangeKey: DiffLoad] = [:]
     private(set) var taskDetails: [String: RemoteTaskDetail] = [:]
+    private(set) var subagentTranscripts: [String: [RemoteEntry]] = [:]
     private(set) var features: [String] = []
     private(set) var slashCommands: [String: [SlashCommand]] = [:]
     private(set) var usage: PlanUsage?
     private(set) var codexUsage: CodexUsage?
     private(set) var images: [ImageKey: ImageLoad] = [:]
     private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
+    var searchJump: (sessionID: String, snippet: RemoteSnippet)?
     private(set) var uploads: [String: UploadState] = [:]
     var draftTexts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:] {
         didSet {
@@ -157,10 +160,11 @@ final class RemoteClient {
 
     func seedDemo() {
         state = .connected
+        features = [RemoteTriageFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name]
         if Self.showsDemoNewSession {
             let folders = ["/Projects/fieldnotes", "/Projects/atlas-api", "/Projects/tidewater"]
             self.folders = folders
-            features = [RemoteLaunchOptions.feature]
+            features.append(RemoteLaunchOptions.feature)
             launchOptions = RemoteLaunchOptions(
                 agents: [
                     RemoteLaunchAgent(id: "claude", name: "Claude", asset: "HarnessClaude", worktreeFolders: Array(folders.prefix(2))),
@@ -180,7 +184,8 @@ final class RemoteClient {
         }
 
         let now = Date.now
-        let session = RemoteSession(id: "demo", title: "Refine the activity feed", folder: "/Projects/fieldnotes", branch: "main", lastActivity: now, status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, agent: .legacyClaude)
+        let isAsking = UserDefaults.standard.bool(forKey: "snapshotDemoQuestions")
+        let session = RemoteSession(id: "demo", title: "Refine the activity feed", folder: "/Projects/fieldnotes", branch: "main", lastActivity: now, status: isAsking ? "waiting" : "idle", waitingFor: isAsking ? "permission prompt" : nil, waitingSince: isAsking ? now.addingTimeInterval(-45).timeIntervalSince1970 * 1000 : nil, isOpen: true, isLocked: false, agent: .legacyClaude)
         groups = Self.showsDemoList ? demoListGroups(session: session, now: now) : [RemoteGroup(id: "recent:active", title: "Active", sessions: [session])]
         entries[session.id] = [
             RemoteEntry(id: "prompt-1", kind: .prompt, text: "Find out why the activity feed jumps when a new entry arrives."),
@@ -215,7 +220,32 @@ final class RemoteClient {
             }
             entries[session.id]?.append(RemoteEntry(id: "prompt-image", kind: .prompt, text: "[Image #1]", images: [image], imageNumbers: [1]))
         }
-        activity[session.id] = RemoteActivity(tasks: [], context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"))
+        let agentTasks = UserDefaults.standard.bool(forKey: "snapshotDemoSubagent") ? [RemoteTask(id: "demo-agent", kind: RemoteTask.agent, title: "Audit the feed rows", started: now.addingTimeInterval(-95), agentType: "Explore", toolCount: 3, tokens: 18_400)] : []
+        if !agentTasks.isEmpty {
+            taskDetails["demo-agent"] = RemoteTaskDetail(calls: [RemoteToolCall(name: "Grep", summary: "ForEach in Sources/Feed"), RemoteToolCall(name: "Read", summary: "Sources/Feed/FeedRow.swift")], reply: "Rows are keyed by position.")
+            subagentTranscripts["demo-agent"] = [
+                RemoteEntry(id: "sub-prompt", kind: .prompt, text: "Audit how the feed rows are identified and report anything that depends on their position."),
+                RemoteEntry(id: "sub-use-1", kind: .toolUse, text: "{\"pattern\":\"ForEach\"}", toolID: "t1", name: "Grep", detail: "ForEach in Sources/Feed"),
+                RemoteEntry(id: "sub-result-1", kind: .toolResult, text: "Sources/Feed/EntryList.swift:42:    ForEach(entries.indices, id: \\.self) { index in", toolID: "t1"),
+                RemoteEntry(id: "sub-use-2", kind: .toolUse, text: "{\"file_path\":\"Sources/Feed/FeedRow.swift\"}", toolID: "t2", name: "Read", filePath: "Sources/Feed/FeedRow.swift"),
+                RemoteEntry(id: "sub-result-2", kind: .toolResult, text: "struct FeedRow: View { let index: Int }", toolID: "t2"),
+                RemoteEntry(id: "sub-reply", kind: .reply, text: "Rows are identified by their index in EntryList.swift, so inserting an entry at the top gives every visible row a new identity. FeedRow also stores its index, which would need to become the entry ID."),
+            ]
+        }
+        let tasks = UserDefaults.standard.bool(forKey: "snapshotDemoTasks") ? [
+            RemoteTask(id: "bg-shell", kind: RemoteTask.shell, title: "Watch the build", started: now.addingTimeInterval(-340), command: "npm run watch"),
+            RemoteTask(id: "bg-agent", kind: RemoteTask.agent, title: "Audit the import checks", started: now.addingTimeInterval(-95), agentType: "Explore", toolCount: 12, tokens: 31_400, call: RemoteToolCall(name: "Grep", summary: "validateImport")),
+            RemoteTask(id: "bg-monitor", kind: RemoteTask.monitor, title: "Tail the deploy log", started: now.addingTimeInterval(-600)),
+        ] : []
+        if !tasks.isEmpty { features.append(RemoteTaskStopFeature.name) }
+        if isAsking {
+            let questions = #"{"questions":[{"header":"Format","question":"Which format should the export use?","multiSelect":false,"options":[{"label":"CSV","description":"Opens in any spreadsheet"},{"label":"JSON","description":"Keeps nested fields"}]},{"header":"Fields","question":"Which fields should it include?","multiSelect":true,"options":[{"label":"Name","description":"The display name"},{"label":"Email","description":"The contact address"},{"label":"Plan","description":"The subscription tier"}]}]}"#
+            entries[session.id]?.append(RemoteEntry(id: "tool-questions", kind: .toolUse, text: questions, toolID: "toolu_questions", name: "AskUserQuestion"))
+            features.append(RemoteQuestionsFeature.name)
+        }
+        let mode = UserDefaults.standard.string(forKey: "snapshotDemoMode")
+        if mode != nil { features.append(RemotePermissionModeFeature.name) }
+        activity[session.id] = RemoteActivity(tasks: tasks + agentTasks, context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"), permissionMode: mode)
         let resets = Date.now.addingTimeInterval(3 * 3600)
         usage = PlanUsage(windows: [
             UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: resets),
@@ -232,7 +262,20 @@ final class RemoteClient {
             ]
             draftTexts[session.id] = "/co"
         }
+        if UserDefaults.standard.bool(forKey: "snapshotSearchJump") {
+            searchJump = (session.id, RemoteSnippet(text: "…The feed rebuilds every row when a new entry arrives…", highlights: []))
+        }
+        changes[session.id] = .loaded(RemoteChanges(branch: "main", base: "origin/main", uncommitted: [
+            RemoteChangedFile(path: "Sources/Feed/FeedRow.swift", oldPath: nil, status: "M", additions: 12, deletions: 4),
+            RemoteChangedFile(path: "Sources/Feed/EntryList.swift", oldPath: "Sources/Feed/ActivityList.swift", status: "R", additions: 3, deletions: 3),
+            RemoteChangedFile(path: "Sources/Timeline/EntryList.swift", oldPath: "Sources/Feed/EntryList.swift", status: "R", additions: 0, deletions: 0),
+        ], committed: [], isTruncated: false))
         if !Self.showsDemoList { openedSessionID = session.id }
+        if let id = UserDefaults.standard.string(forKey: "snapshotContinueSession") {
+            let activity = NSUserActivity(activityType: SessionHandoff.activityType)
+            activity.userInfo = [SessionHandoff.sessionIDKey: id]
+            continueHandoff(activity)
+        }
     }
 
     private func demoListGroups(session: RemoteSession, now: Date) -> [RemoteGroup] {
@@ -253,7 +296,7 @@ final class RemoteClient {
         ]
         let unread = [
             RemoteSession(id: "demo-unread-feed", title: "Keep the feed anchored", folder: fieldnotes, branch: "feature/anchor-the-activity-feed-scroll-position-for-large-text", lastActivity: now.addingTimeInterval(-9 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, pullRequest: RemotePullRequest(number: 139, state: "Open", url: pullRequests.appending(path: "fieldnotes/pull/139"), checks: "passed"), isUnread: true),
-            RemoteSession(id: "demo-unread-routes", title: "Review route naming", folder: atlasAPI, branch: "feature/route-names", lastActivity: now.addingTimeInterval(-12 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, isUnread: true),
+            RemoteSession(id: "demo-unread-routes", title: "Review route naming", folder: atlasAPI, branch: "feature/route-names", lastActivity: now.addingTimeInterval(-12 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, isUnread: true, isFlagged: true),
         ]
         let pinned = [
             RemoteSession(id: "demo-pinned", title: "Add a printable harbor log", folder: harborLog, branch: "feature/print-log", lastActivity: now.addingTimeInterval(-18 * 60), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, pullRequest: RemotePullRequest(number: 28, state: "Merged", url: pullRequests.appending(path: "harbor-log/pull/28")), isPinned: true),
@@ -276,6 +319,12 @@ final class RemoteClient {
             RemoteSession(id: "demo-older-pagination", title: "Document pagination limits", folder: atlasAPI, branch: "docs/pagination", lastActivity: now.addingTimeInterval(-9 * 86_400), status: nil, waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false),
             RemoteSession(id: "demo-older-fixtures", title: "Refresh the harbor fixtures", folder: harborLog, branch: "main", lastActivity: now.addingTimeInterval(-16 * 86_400), status: nil, waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false),
         ]
+        let snoozed = [
+            RemoteSession(id: "demo-snoozed", title: "Plan the schema migration", folder: atlasAPI, branch: "feature/schema-migration", lastActivity: now.addingTimeInterval(-3 * 3600), status: "idle", waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false),
+        ]
+        let done = [
+            RemoteSession(id: "demo-done", title: "Ship the harbor log export", folder: harborLog, branch: "feature/export", lastActivity: yesterday, status: nil, waitingFor: nil, waitingSince: nil, isOpen: false, isLocked: false, pullRequest: RemotePullRequest(number: 25, state: "Merged", url: pullRequests.appending(path: "harbor-log/pull/25")), isFlagged: true),
+        ]
         return [
             RemoteGroup(id: "attention", title: "Needs You", sessions: attention),
             RemoteGroup(id: "working", title: "Working", sessions: working),
@@ -284,6 +333,8 @@ final class RemoteClient {
             RemoteGroup(id: "recent:today", title: "Today", sessions: today, isCollapsed: false, visibleCount: 6),
             RemoteGroup(id: "recent:yesterday", title: "Yesterday", sessions: previous, isCollapsed: false),
             RemoteGroup(id: "recent:older", title: "Older", sessions: older, isCollapsed: true),
+            RemoteGroup(id: RemoteTriageFeature.snoozedGroupID, title: "Snoozed", sessions: snoozed, isCollapsed: false),
+            RemoteGroup(id: RemoteTriageFeature.doneGroupID, title: "Done", sessions: done, isCollapsed: false),
         ]
     }
     #endif
@@ -335,10 +386,28 @@ final class RemoteClient {
         send(.subscribe(sessionID: sessionID))
     }
 
+    func continueHandoff(_ activity: NSUserActivity) {
+        guard let id = SessionHandoff.sessionID(in: activity) else { return }
+
+        openedSessionID = id
+    }
+
     func requestTaskDetail(_ taskID: String, in sessionID: String) {
         guard features.contains(RemoteTaskDetail.feature) else { return }
 
         send(.taskDetail(sessionID: sessionID, taskID: taskID))
+    }
+
+    func requestSubagentTranscript(_ taskID: String, in sessionID: String) {
+        guard features.contains(RemoteSubagentTranscriptFeature.name) else { return }
+
+        send(.subagentTranscript(sessionID: sessionID, taskID: taskID))
+    }
+
+    func stopTask(_ taskID: String, in sessionID: String) {
+        guard features.contains(RemoteTaskStopFeature.name) else { return }
+
+        send(.stopTask(sessionID: sessionID, taskID: taskID))
     }
 
     func loadPullRequest(of sessionID: String) {
@@ -378,6 +447,14 @@ final class RemoteClient {
 
     func loadDiff(_ key: ChangeKey) {
         send(.changeDiff(sessionID: key.sessionID, path: key.path, isCommitted: key.isCommitted))
+    }
+
+    func press(_ keys: [RemoteKey], in session: RemoteSession) async {
+        for key in keys {
+            guard send(.key(sessionID: session.id, key: key, waitingFor: session.waitingFor, waitingSince: session.waitingSince)) else { return }
+
+            try? await Task.sleep(for: .milliseconds(250))
+        }
     }
 
     @discardableResult
@@ -585,6 +662,9 @@ final class RemoteClient {
 
         case let .taskDetail(_, taskID, detail):
             taskDetails[taskID] = detail
+
+        case let .subagentTranscript(_, taskID, entries):
+            subagentTranscripts[taskID] = entries ?? []
 
         case let .uploaded(id, error):
             uploads[id] = error.map(UploadState.failed) ?? .done

@@ -302,7 +302,11 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(seenAt, forKey: "seenSessions") } }
     }
 
-    @ObservationIgnored private var listedIDs = Dictionary(uniqueKeysWithValues: Agent.allCases.map { ($0, Set(UserDefaults.standard.stringArray(forKey: "\($0.rawValue)SessionIDs") ?? [])) }) {
+    @ObservationIgnored var pullRequestMemory = PullRequestMemory(storage: UserDefaults.standard.string(forKey: "sessionPullRequests")) {
+        didSet { if persistsTabs, pullRequestMemory != oldValue { UserDefaults.standard.set(pullRequestMemory.storage, forKey: "sessionPullRequests") } }
+    }
+
+    @ObservationIgnored private(set) var listedIDs = Dictionary(uniqueKeysWithValues: Agent.allCases.map { ($0, Set(UserDefaults.standard.stringArray(forKey: "\($0.rawValue)SessionIDs") ?? [])) }) {
         didSet {
             guard persistsTabs else { return }
 
@@ -377,10 +381,6 @@ final class Store {
     @ObservationIgnored private var cloneScan: Task<Void, Never>?
     @ObservationIgnored private var archivedAt = UserDefaults.standard.dictionary(forKey: "archivedSessions") as? [String: Date] ?? [:] {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
-    }
-
-    private(set) var dismissedFailures = UserDefaults.standard.dictionary(forKey: "dismissedFailures") as? [String: String] ?? [:] {
-        didSet { if persistsTabs { UserDefaults.standard.set(dismissedFailures, forKey: "dismissedFailures") } }
     }
 
     @ObservationIgnored private var snoozes = (UserDefaults.standard.dictionary(forKey: "snoozedSessions") ?? [:]).compactMapValues(SessionSnooze.init(stored:)) {
@@ -1027,7 +1027,7 @@ final class Store {
             catalogModels = catalog
             let listed = Set(summaries.map(\.id))
             let continued = Dictionary(summaries.compactMap { summary in summary.continuedIn.flatMap { listed.contains($0) ? (summary.id, $0) : nil } }) { first, _ in first }
-            self.summaries = summaries.filter { continued[$0.id] == nil }
+            self.summaries = rememberingPullRequests(in: summaries.filter { continued[$0.id] == nil }, continued: continued, listed: listed)
             for index in tabs.indices {
                 guard let target = tabs[index].sessionID.flatMap({ continued[$0] }) else { continue }
 
@@ -1638,6 +1638,7 @@ final class Store {
         }
 
         shownReviewPullRequests[sessionID, default: [:]][link] = entry
+        pullRequestMemory.add(link, root: location.root, to: sessionID)
         model.expansionOverrides["otherPullRequests"] = true
         model.expandedPullRequests.insert(link)
         model.open(document, loaded: contents)
@@ -1686,18 +1687,6 @@ final class Store {
             return ReviewPullRequestLocation(link: link, root: clone)
         }
         throw .init(message: "No local clone of \(repository). Pass --repo <path> or clone the repository")
-    }
-
-    func sessionReviewPullRequests(of sessionID: String, changes: ReviewChanges?, excluding branchNumber: Int?) -> [ReviewPullRequest] {
-        var entries = shownReviewPullRequests[sessionID] ?? [:]
-        if let changes, let root = repositoryRoot(ofSession: sessionID),
-           let repository = pullRequestBranch(inRoot: root, branch: changes.branch)?.repository.lowercased() {
-            for pullRequest in pullRequests(inRoot: nil, of: sessionID, branch: changes.branch) where pullRequest.number != branchNumber {
-                let link = PullRequestLink(repository: repository, number: pullRequest.number)
-                if entries[link] == nil { entries[link] = ReviewPullRequest(location: ReviewPullRequestLocation(link: link, root: changes.root), pullRequest: pullRequest) }
-            }
-        }
-        return entries.values.sorted { ($0.id.number, $0.id.repository) < ($1.id.number, $1.id.repository) }
     }
 
     func showChanges(opening paths: [String]) {
@@ -2217,10 +2206,6 @@ final class Store {
         browser.discard(sessionID)
     }
 
-    func dismissAttention(_ sessionID: String) {
-        dismissedFailures[sessionID] = sessionsByID[sessionID].flatMap { pullRequest(for: $0)?.headSHA }
-    }
-
     func unarchive(_ sessionID: String) {
         archivedAt[sessionID] = nil
         applyGroups()
@@ -2443,6 +2428,12 @@ final class Store {
 }
 
 extension Store {
+    func continueHandoff(_ activity: NSUserActivity) -> Bool {
+        guard let id = SessionHandoff.sessionID(in: activity) else { return false }
+
+        return activate(.session(id))
+    }
+
     func showBrowserPane() {
         guard let session = sessionTab else { return }
 
