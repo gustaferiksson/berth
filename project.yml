@@ -159,7 +159,10 @@ targets:
     platform: iOS
     sources:
       - path: BerthRemote
+        excludes: [Widget/**]
       - path: Packages/BerthCore/Sources/BerthCore/RemoteProtocol.swift
+      - path: Packages/BerthCore/Sources/BerthCore/WidgetSnapshot.swift
+      - path: Packages/BerthCore/Sources/BerthCore/WidgetSnapshot+Groups.swift
       - path: Packages/BerthCore/Sources/BerthCore/RemotePairing.swift
       - path: Packages/BerthCore/Sources/BerthCore/RemoteQuestions.swift
       - path: Packages/BerthCore/Sources/BerthCore/SlashCommands.swift
@@ -175,6 +178,7 @@ targets:
       - path: Resources/highlights-typescript.scm
         buildPhase: resources
     dependencies:
+      - target: BerthRemoteWidget
       - package: SwiftTreeSitter
       - package: TreeSitterSwift
       - package: TreeSitterTypeScript
@@ -188,6 +192,7 @@ targets:
       path: Resources/BerthRemote.entitlements
       properties:
         aps-environment: $(APS_ENVIRONMENT)
+        com.apple.security.application-groups: [group.dev.gustaf.berth.remote]
     settings:
       base:
         APS_ENVIRONMENT: development
@@ -210,3 +215,35 @@ targets:
           PROVISIONING_PROFILE_SPECIFIER: Berth Remote Ad Hoc
           CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
     scheme: {}
+
+  BerthRemoteWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BerthRemote/Widget
+      - path: BerthRemote/WidgetViews
+      - path: Packages/BerthCore/Sources/BerthCore/WidgetSnapshot.swift
+    entitlements:
+      path: Resources/BerthRemoteWidget.entitlements
+      properties:
+        com.apple.security.application-groups: [group.dev.gustaf.berth.remote]
+    info:
+      path: Resources/BerthRemoteWidget-Info.plist
+      properties:
+        CFBundleDisplayName: Berth Remote
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_NAME: BerthRemoteWidget
+        PRODUCT_BUNDLE_IDENTIFIER: dev.gustaf.berth.remote.widget
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+      configs:
+        Release:
+          DEVELOPMENT_TEAM: 82K3YC8HVF
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: Berth Remote Widget Ad Hoc
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO

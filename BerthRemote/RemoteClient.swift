@@ -5,6 +5,7 @@ import os
 import Security
 import UIKit
 import UserNotifications
+import WidgetKit
 
 private let log = Logger(subsystem: "dev.gustaf.berth.remote", category: "remote")
 
@@ -83,7 +84,16 @@ final class RemoteClient {
         }
     }
 
-    private(set) var groups: [RemoteGroup] = []
+    private(set) var groups: [RemoteGroup] = [] {
+        didSet {
+            let snapshot = WidgetSnapshot(groups: groups)
+            guard snapshot != WidgetSnapshot.load() else { return }
+
+            snapshot.save()
+            WidgetCenter.shared.reloadTimelines(ofKind: WidgetSnapshot.widgetKind)
+        }
+    }
+
     private(set) var folders: [String] = []
     private(set) var launchOptions: RemoteLaunchOptions?
     private(set) var inbox: RemoteInbox?
