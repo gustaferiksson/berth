@@ -259,6 +259,42 @@ final class RemoteServer {
 
         case let .commands(sessionID):
             Task { await sendCommands(of: sessionID, to: connection) }
+
+        case let .subagentTranscript(sessionID, taskID):
+            Task { await sendSubagentTranscript(taskID, in: sessionID, to: id) }
+
+        case let .stopTask(sessionID, taskID):
+            Task { await stopTask(taskID, in: sessionID, from: id) }
+        }
+    }
+
+    private func stopTask(_ taskID: String, in sessionID: String, from id: ObjectIdentifier) async {
+        guard let connection = clients[id]?.connection, clients[id]?.sessionID == sessionID else { return }
+
+        let notify = { (message: String) in self.send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection) }
+        let agent = store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude
+        guard agent.harness.usesTranscriptActivity else { return notify("Tasks can’t be stopped from here for \(agent.harness.name) sessions") }
+
+        let tasks = await store.backgroundTasks(ofSession: sessionID)
+        guard let task = tasks.first(where: { ($0.id == taskID || $0.toolUseID == taskID) && $0.status == .running }) else { return notify("That task already finished") }
+
+        if task.kind == .shell {
+            guard await store.stopShell(task, in: sessionID) else { return notify("Berth can’t identify this shell’s process, so it wasn’t stopped") }
+
+            return
+        }
+        switch store.subagentStop(for: task, in: sessionID, among: tasks) {
+        case .subagent, .monitor:
+            let isStopped = { self.clients[id]?.sentActivity?.tasks.contains { $0.id == task.id || $0.toolUseID == task.id } != true }
+            guard case let .refused(message) = await store.stopSubagentThroughTasksDialog(task, in: sessionID, among: tasks, isStopped: isStopped) else { return }
+
+            notify(message)
+
+        case .turn:
+            notify("Claude is working, so this can’t be stopped on its own. Interrupt the session to stop the whole turn.")
+
+        case nil:
+            notify("This \(task.kind == .monitor ? "monitor" : "subagent") can’t be stopped from here right now")
         }
     }
 
@@ -412,6 +448,28 @@ final class RemoteServer {
         send(try? JSONEncoder().encode(RemoteServerMessage.taskDetail(sessionID: sessionID, taskID: taskID, detail: detail)), to: connection)
     }
 
+    private func sendSubagentTranscript(_ taskID: String, in sessionID: String, to id: ObjectIdentifier) async {
+        guard let client = clients[id], client.sessionID == sessionID, let transcript = client.transcript else { return }
+
+        let agent = store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude
+        let harness = agent.harness
+        let root = store.sessionIndex(for: agent).root
+        let entries = await Task.detached { () -> [RemoteEntry]? in
+            guard let subagent = harness.locateSubagent(root, transcript, taskID, nil),
+                  let chunk = harness.readSubagentTranscript(subagent.url, nil, [])
+            else { return nil }
+
+            return RemoteSubagentTranscriptFeature.fitting(chunk.entries.map { entry in
+                var entry = entry
+                entry.imageRefs = nil
+                return entry
+            })
+        }.value
+        guard let connection = clients[id]?.connection else { return }
+
+        send(try? JSONEncoder().encode(RemoteServerMessage.subagentTranscript(sessionID: sessionID, taskID: taskID, entries: entries)), to: connection)
+    }
+
     private func receiveUpload(_ uploadID: String, name: String, offset: Int, chunk: Data, isLast: Bool, from connection: NWConnection) {
         let fail = { (message: String) in self.send(try? JSONEncoder().encode(RemoteServerMessage.uploaded(id: uploadID, error: message)), to: connection) }
         guard let id = UUID(uuidString: uploadID)?.uuidString else { return fail("The upload had an invalid id") }
@@ -530,7 +588,7 @@ final class RemoteServer {
             RemoteGroup(id: RemoteTriageFeature.doneGroupID, title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
         ]
         let groups = [attention] + active + triage + layout.groups.map(section) + hidden
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTriageFeature.name] + usageFeatures)
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTaskStopFeature.name, RemoteTriageFeature.name, RemoteQuestionsFeature.name, RemotePermissionModeFeature.name] + usageFeatures)
     }
 
     #if DEBUG
@@ -671,7 +729,8 @@ final class RemoteServer {
 
     private func press(_ key: RemoteKey, in sessionID: String, answering waitingFor: String?, since waitingSince: Double?, from connection: NWConnection) {
         let harness = (store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude).harness
-        guard harness.supports(.approvals) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: "Answer \(harness.name) on your Mac")), to: connection) }
+        let isModeChange = key == .shiftTab && waitingFor == nil
+        guard harness.supports(isModeChange ? .permissionModes : .approvals) else { return send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: isModeChange ? "\(harness.name) has no permission modes to switch" : "Answer \(harness.name) on your Mac")), to: connection) }
         guard case let .refused(message) = store.press(key, in: sessionID, answering: waitingFor, since: waitingSince) else { return }
 
         send(try? JSONEncoder().encode(RemoteServerMessage.notice(message: message)), to: connection)

@@ -2,6 +2,7 @@ import AppKit
 import BerthCore
 import os
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 
 let browserFocusLog = Logger(subsystem: "dev.gustaf.berth", category: "browser-focus")
@@ -83,6 +84,8 @@ private struct BrowserHeader: View {
     @State private var width: CGFloat = 0
     @State private var pinnedViewportWidth: CGFloat = 0
     @State private var editingTabID: UUID?
+    @State private var isTargetingPinZone = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let pinned = browser.pinned
@@ -111,6 +114,9 @@ private struct BrowserHeader: View {
                         }
                         if !sessionTabs.isEmpty {
                             BrowserSessionTabs(browser: browser, tabs: sessionTabs, selection: selectedSession, isCompact: isCompact, editingTabID: $editingTabID, select: select, dropAtEnd: dropIntoSession)
+                                .overlay(alignment: .leading) {
+                                    if pinned.isEmpty { pinZone }
+                                }
                         }
                     }
                 }
@@ -135,6 +141,16 @@ private struct BrowserHeader: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 
+    private var pinZone: some View {
+        Color.clear
+            .frame(width: 10)
+            .contentShape(.rect)
+            .overlay(alignment: .leading) {
+                if isTargetingPinZone { BrowserDropIndicator() }
+            }
+            .dropDestination(for: String.self, action: pinDropped, isTargeted: { isTargetingPinZone = $0 })
+    }
+
     private func expandedPinnedTabs(_ pinned: [BrowserTab], spacing: CGFloat, isCompact: Bool) -> some View {
         let circlesWidth = CGFloat(pinned.count - 1) * (Self.controlSize + spacing)
         let activeWidth = min(BrowserSessionTabs.maximumTabWidth, max(BrowserSessionTabs.minimumActiveWidth, pinnedViewportWidth - circlesWidth))
@@ -149,8 +165,10 @@ private struct BrowserHeader: View {
                             .id(pinnedTab.id)
                     }
                 }
+                .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: pinned.map(\.id))
             }
             .scrollIndicators(.hidden)
+            .scrollClipDisabled()
             .frame(minWidth: BrowserSessionTabs.minimumActiveWidth, maxWidth: circlesWidth + BrowserSessionTabs.maximumTabWidth)
             .frame(height: Self.controlSize)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pinnedViewportWidth = $0 }
@@ -170,17 +188,10 @@ private struct BrowserHeader: View {
                             .id(pinnedTab.id)
                     }
                 }
-                .background {
-                    Color.clear
-                        .contentShape(.rect)
-                        .dropDestination(for: String.self) { ids, _ in
-                            let dropped = ids.compactMap(browser.tab)
-                            dropped.forEach { browser.pin($0) }
-                            return !dropped.isEmpty
-                        }
-                }
+                .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: pinned.map(\.id))
             }
             .scrollIndicators(.hidden)
+            .scrollClipDisabled()
             .frame(height: Self.controlSize)
             .onChange(of: selection, initial: true) {
                 if let selection { proxy.scrollTo(selection) }
@@ -297,6 +308,12 @@ private struct BrowserHeader: View {
         }
     }
 
+    private func pinDropped(_ ids: [String], at _: CGPoint) -> Bool {
+        let dropped = ids.compactMap(browser.tab)
+        dropped.forEach { browser.pin($0) }
+        return !dropped.isEmpty
+    }
+
     private func dropIntoSession(_ ids: [String], at _: CGPoint) -> Bool {
         guard let key = browser.sessionKey else { return false }
 
@@ -326,6 +343,7 @@ private struct BrowserSessionTabs: View {
     @State private var frozenTabWidth: CGFloat?
     @State private var hasTrailingOverflow = false
     @State private var hoveredTabID: UUID?
+    @State private var isTargetingEnd = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.ghosttyTheme) private var theme
 
@@ -351,7 +369,10 @@ private struct BrowserSessionTabs: View {
                 Color.clear
                     .frame(width: Self.dropWidth)
                     .contentShape(.rect)
-                    .dropDestination(for: String.self, action: dropAtEnd)
+                    .overlay(alignment: .trailing) {
+                        if isTargetingEnd { BrowserDropIndicator() }
+                    }
+                    .dropDestination(for: String.self, action: dropAtEnd, isTargeted: { isTargetingEnd = $0 })
             }
             .clipShape(.capsule)
             .background {
@@ -402,6 +423,7 @@ private struct BrowserSessionTabs: View {
                             .id(tab.id)
                     }
                 }
+                .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: tabs.map(\.id))
             }
             .scrollIndicators(.hidden)
             .frame(width: width, height: BrowserHeader.controlSize - 2)
@@ -508,9 +530,12 @@ private struct BrowserHeaderTab: View {
     @Binding var editingTabID: UUID?
     let select: () -> Void
     @State private var isHovering = false
+    @State private var width: CGFloat = 0
+    @State private var dropEdge: HorizontalEdge?
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
+        let indicatorEdge = dropEdge ?? Snapshot.forcedDropEdge(for: tab.displayTitle)
         Group {
             if isPinned, !isSelected {
                 pinnedButton
@@ -529,8 +554,15 @@ private struct BrowserHeaderTab: View {
             }
         }
         .help(tab.displayTitle)
+        .onGeometryChange(for: CGRect.self) { proxy in proxy.frame(in: .global) } action: { frame in
+            width = frame.width
+            Snapshot.recordTabFrame(frame, for: tab.displayTitle)
+        }
         .draggable(tab.id.uuidString)
-        .dropDestination(for: String.self, action: drop)
+        .onDrop(of: [.plainText], delegate: BrowserTabDrop(browser: browser, target: tab, width: width, edge: $dropEdge))
+        .overlay(alignment: indicatorEdge == .trailing ? .trailing : .leading) {
+            if indicatorEdge != nil { BrowserDropIndicator().offset(x: isPinned ? (indicatorEdge == .trailing ? 5 : -5) : 0) }
+        }
         .contextMenu {
             if let key = browser.sessionKey {
                 if isPinned {
@@ -622,17 +654,59 @@ private struct BrowserHeaderTab: View {
             editingTabID = nil
         }
     }
+}
 
-    private func drop(_ ids: [String], at _: CGPoint) -> Bool {
+private struct BrowserDropIndicator: View {
+    @Environment(\.ghosttyTheme) private var theme
+
+    var body: some View {
+        Capsule()
+            .fill(theme.foreground.opacity(0.85))
+            .frame(width: 3, height: 20)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct BrowserTabDrop: DropDelegate {
+    let browser: BrowserModel
+    let target: BrowserTab
+    let width: CGFloat
+    @Binding var edge: HorizontalEdge?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.plainText])
+    }
+
+    func dropEntered(info: DropInfo) {
+        edge = info.location.x < width / 2 ? .leading : .trailing
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        edge = info.location.x < width / 2 ? .leading : .trailing
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info _: DropInfo) {
+        edge = nil
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let side = edge ?? .trailing
+        edge = nil
         guard let key = browser.sessionKey else { return false }
 
-        let siblings = isPinned ? browser.pinned : browser.tabs(in: key)
-        let index = siblings.firstIndex { $0 === tab }
-        let dropped = ids.compactMap(browser.tab)
-        for item in dropped where item !== tab {
-            if isPinned { browser.pin(item, at: index) } else { browser.unpin(item, into: key, at: index) }
+        let providers = info.itemProviders(for: [.plainText])
+        for provider in providers {
+            _ = provider.loadObject(ofClass: String.self) { id, _ in
+                Task { @MainActor in
+                    guard let id, let dropped = browser.tab(withID: id) else { return }
+
+                    browser.move(dropped, beside: target, edge: side, in: key)
+                }
+            }
         }
-        return !dropped.isEmpty
+        return !providers.isEmpty
     }
 }
 

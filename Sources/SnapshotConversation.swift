@@ -491,7 +491,7 @@ extension Snapshot {
     }
 
     private static func queuedRecords(base: (String, TimeInterval, [String: Any]) -> [String: Any]) -> [[String: Any]] {
-        guard let text = UserDefaults.standard.string(forKey: "snapshotConversationQueued") else { return [] }
+        guard let text = UserDefaults.standard.string(forKey: "snapshotConversationQueued") ?? UserDefaults.standard.string(forKey: "snapshotConversationQueuedShellRemount") else { return [] }
 
         return [base("queue-operation", 1, [:]).merging(["operation": "enqueue", "content": text]) { $1 }]
     }
@@ -803,6 +803,15 @@ extension Snapshot {
         if let command = UserDefaults.standard.string(forKey: "snapshotConversationQueuedShell") {
             store.conversationModels[tab.id]?.show(pending: "!\(command)", sentAt: .now)
             try? await Task.sleep(for: .seconds(1))
+        }
+        if UserDefaults.standard.string(forKey: "snapshotConversationQueuedShellRemount") != nil, let model = store.conversationModels[tab.id] {
+            let command = UserDefaults.standard.string(forKey: "snapshotConversationQueuedShellRemount") ?? ""
+            model.show(pending: "!\(command)", sentAt: .now)
+            try? await Task.sleep(for: .seconds(1))
+            model.stop()
+            model.start()
+            try? await Task.sleep(for: .seconds(1))
+            print("queued shell rows \(model.queued.count { PendingPrompts.queuedShellCommand($0, pending: model.pending) != nil }) of \(model.queued.count) queued")
         }
         if UserDefaults.standard.bool(forKey: "snapshotConversationOverlappingShells") {
             store.conversationModels[tab.id]?.show(pending: "!rm -rf ~/Library/Caches/org.swift.swiftpm ~/.cache/huggingface", sentAt: .now.addingTimeInterval(-7))

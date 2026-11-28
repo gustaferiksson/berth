@@ -236,11 +236,13 @@ public struct RemoteActivity: Codable, Sendable, Hashable {
     public let tasks: [RemoteTask]
     public let context: RemoteContext?
     public let approval: RemoteApproval?
+    public let permissionMode: String?
 
-    public init(tasks: [RemoteTask], context: RemoteContext?, approval: RemoteApproval? = nil) {
+    public init(tasks: [RemoteTask], context: RemoteContext?, approval: RemoteApproval? = nil, permissionMode: String? = nil) {
         self.tasks = tasks
         self.context = context
         self.approval = approval
+        self.permissionMode = permissionMode
     }
 }
 
@@ -324,6 +326,35 @@ public struct RemoteTaskDetail: Codable, Sendable, Hashable {
     }
 }
 
+public nonisolated enum RemoteSubagentTranscriptFeature {
+    public static let name = "subagentTranscript"
+    public static let byteBudget = 8 << 20
+
+    public static func fitting(_ entries: [RemoteEntry]) -> [RemoteEntry] {
+        var used = 0
+        let kept = entries.reversed().prefix { entry in
+            used += entry.text.utf8.count + (entry.images ?? []).reduce(0) { $0 + $1.count }
+            return used <= byteBudget
+        }
+        return kept.reversed()
+    }
+}
+
+public nonisolated enum RemoteTaskStopFeature {
+    public static let name = "taskStop"
+}
+
+public nonisolated enum SessionHandoff {
+    public static let activityType = "dev.gustaf.berth.session"
+    public static let sessionIDKey = "sessionID"
+
+    public static func sessionID(in activity: NSUserActivity) -> String? {
+        guard activity.activityType == activityType, let id = activity.userInfo?[sessionIDKey] as? String, !id.isEmpty else { return nil }
+
+        return id
+    }
+}
+
 public struct RemoteContext: Codable, Sendable, Hashable {
     public let model: String
     public let tokens: Int?
@@ -376,7 +407,7 @@ public enum RemoteSessionSetting: Codable, Sendable, Hashable {
 }
 
 public enum RemoteKey: String, Codable, Sendable, CaseIterable {
-    case enter, escape, shiftTab, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9
+    case enter, escape, shiftTab, arrowDown, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9
 }
 
 public enum RemoteSessionAction: String, Codable, Sendable {
@@ -546,6 +577,8 @@ public enum RemoteClientMessage: Codable, Sendable {
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
     case commands(sessionID: String)
+    case subagentTranscript(sessionID: String, taskID: String)
+    case stopTask(sessionID: String, taskID: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
@@ -564,4 +597,5 @@ public enum RemoteServerMessage: Codable, Sendable {
     case taskDetail(sessionID: String, taskID: String, detail: RemoteTaskDetail?)
     case image(sessionID: String, id: String, variant: RemoteImageVariant, data: Data?)
     case commands(sessionID: String, commands: [RemoteSlashCommand])
+    case subagentTranscript(sessionID: String, taskID: String, entries: [RemoteEntry]?)
 }

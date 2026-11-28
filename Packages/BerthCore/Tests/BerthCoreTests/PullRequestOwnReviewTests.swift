@@ -3,16 +3,16 @@ import Foundation
 import Testing
 
 struct PullRequestOwnReviewTests {
-    private func output(viewer: String = "margo", reviews: String) -> Data {
+    private func output(viewer: String = "nora", reviews: String) -> Data {
         Data(#"{"data":{"viewer":{"login":"\#(viewer)"},"repository":{"pullRequest":{"reviews":{"nodes":[\#(reviews)]}}}}}"#.utf8)
     }
 
     @Test func takesTheViewersLatestSubmittedReviewCommit() {
         let reviews = """
-        {"submittedAt":"2026-11-20T09:00:00Z","author":{"login":"margo"},"commit":{"oid":"1111111111111111111111111111111111111111"}},
+        {"submittedAt":"2026-11-20T09:00:00Z","author":{"login":"nora"},"commit":{"oid":"1111111111111111111111111111111111111111"}},
         {"submittedAt":"2026-11-25T09:00:00Z","author":{"login":"lee"},"commit":{"oid":"3333333333333333333333333333333333333333"}},
-        {"submittedAt":"2026-11-22T12:30:00Z","author":{"login":"margo"},"commit":{"oid":"2222222222222222222222222222222222222222"}},
-        {"submittedAt":null,"author":{"login":"margo"},"commit":{"oid":"4444444444444444444444444444444444444444"}},
+        {"submittedAt":"2026-11-22T12:30:00Z","author":{"login":"nora"},"commit":{"oid":"2222222222222222222222222222222222222222"}},
+        {"submittedAt":null,"author":{"login":"nora"},"commit":{"oid":"4444444444444444444444444444444444444444"}},
         {"submittedAt":"2026-11-26T08:00:00Z","author":null,"commit":null},
         null
         """

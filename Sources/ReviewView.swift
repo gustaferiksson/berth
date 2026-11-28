@@ -1498,7 +1498,7 @@ struct ReviewFileList: View {
         let count = groups.reduce(0) { $0 + $1.entries.count }
         return SidebarSection(isExpanded: count == 0 ? .constant(false) : expansion(of: "otherPullRequests", defaultExpanded: false)) {
             ForEach(groups, id: \.root) { group in
-                ReviewOtherPullRequests(entries: group.entries, model: group.model, changesAsTree: changesAsTree)
+                ReviewOtherPullRequests(entries: group.entries, model: group.model, changesAsTree: changesAsTree) { expansion(of: "pullRequests." + $0, defaultExpanded: $0 != RecentBucket.older.rawValue, root: group.root) }
             }
         } header: { expansion in
             SidebarSectionHeader(title: "Session pull requests", help: "Pull requests linked to this session or added to Review", count: count == 0 ? nil : count, isExpanded: expansion) {
