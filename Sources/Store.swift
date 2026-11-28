@@ -302,6 +302,10 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(seenAt, forKey: "seenSessions") } }
     }
 
+    @ObservationIgnored private var pullRequestMemory = PullRequestMemory(storage: UserDefaults.standard.string(forKey: "sessionPullRequests")) {
+        didSet { if persistsTabs, pullRequestMemory != oldValue { UserDefaults.standard.set(pullRequestMemory.storage, forKey: "sessionPullRequests") } }
+    }
+
     @ObservationIgnored private var listedIDs = Dictionary(uniqueKeysWithValues: Agent.allCases.map { ($0, Set(UserDefaults.standard.stringArray(forKey: "\($0.rawValue)SessionIDs") ?? [])) }) {
         didSet {
             guard persistsTabs else { return }
@@ -1027,7 +1031,15 @@ final class Store {
             catalogModels = catalog
             let listed = Set(summaries.map(\.id))
             let continued = Dictionary(summaries.compactMap { summary in summary.continuedIn.flatMap { listed.contains($0) ? (summary.id, $0) : nil } }) { first, _ in first }
-            self.summaries = summaries.filter { continued[$0.id] == nil }
+            var memory = pullRequestMemory
+            for (old, new) in continued { memory.move(old, to: new) }
+            self.summaries = summaries.filter { continued[$0.id] == nil }.map { summary in
+                var summary = summary
+                summary.pullRequests = memory.merged(summary.pullRequests, of: summary.id)
+                return summary
+            }
+            if !summaries.isEmpty { memory.prune(keeping: listed.union(Agent.allCases.filter { !Self.isEnabled($0) }.flatMap { listedIDs[$0] ?? [] })) }
+            if memory != pullRequestMemory { pullRequestMemory = memory }
             for index in tabs.indices {
                 guard let target = tabs[index].sessionID.flatMap({ continued[$0] }) else { continue }
 
@@ -1638,6 +1650,7 @@ final class Store {
         }
 
         shownReviewPullRequests[sessionID, default: [:]][link] = entry
+        pullRequestMemory.add(link, root: location.root, to: sessionID)
         model.expansionOverrides["otherPullRequests"] = true
         model.expandedPullRequests.insert(link)
         model.open(document, loaded: contents)
@@ -1690,6 +1703,11 @@ final class Store {
 
     func sessionReviewPullRequests(of sessionID: String, changes: ReviewChanges?, excluding branchNumber: Int?) -> [ReviewPullRequest] {
         var entries = shownReviewPullRequests[sessionID] ?? [:]
+        for remembered in pullRequestMemory.rooted(of: sessionID) where entries[remembered.link] == nil {
+            guard let root = remembered.root, let pullRequest = linkedPullRequests[remembered.link] else { continue }
+
+            entries[remembered.link] = ReviewPullRequest(location: ReviewPullRequestLocation(link: remembered.link, root: root), pullRequest: pullRequest)
+        }
         if let changes, let root = repositoryRoot(ofSession: sessionID),
            let repository = pullRequestBranch(inRoot: root, branch: changes.branch)?.repository.lowercased() {
             for pullRequest in pullRequests(inRoot: nil, of: sessionID, branch: changes.branch) where pullRequest.number != branchNumber {
