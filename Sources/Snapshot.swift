@@ -446,7 +446,7 @@ enum Snapshot {
             ("agent-logs", "automation", "Summarize the nightly run failures"),
         ]
         let pullRequestStates: [String: (PullRequestState, PullRequestChecks.State?)] = [
-            "rounding": (.open, .failed), "passed": (.open, .passed), "draft": (.draft, .running),
+            "rounding": (.open, .failed), "ledger-index": (.open, .failed), "passed": (.open, .passed), "draft": (.draft, .running),
             "merged": (.merged, nil), "closed": (.closed, nil),
         ]
         var repositories: [String: String?] = [:]
