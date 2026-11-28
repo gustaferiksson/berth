@@ -1,9 +1,13 @@
+import BerthCore
+import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 struct RemoteSettings: View {
     @AppStorage(RemoteServer.enabledKey) private var isRemoteEnabled = false
     @AppStorage(RemoteServer.tokenKey) private var remoteToken = ""
+    @AppStorage("remotePairAddress") private var pairAddress = ""
     @State private var isTokenShown = false
+    @State private var isPairing = Self.startsPairing
     @Environment(Store.self) private var store
 
     var body: some View {
@@ -19,11 +23,15 @@ struct RemoteSettings: View {
                             .labelStyle(.iconOnly)
                             .buttonStyle(.borderless)
                     }
+                    Button("Pair iPhone", systemImage: "qrcode") { isPairing.toggle() }
                     Button("Regenerate Token") { remoteToken = Data((0..<24).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString() }
                     if let failure = store.remote.failure {
                         Text(failure)
                             .foregroundStyle(.red)
                     }
+                }
+                if isRemoteEnabled, isPairing {
+                    pairing
                 }
             } header: {
                 Text("Remote Control")
@@ -32,11 +40,57 @@ struct RemoteSettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: isRemoteEnabled ? 420 : 280)
+        .frame(height: isRemoteEnabled ? (isPairing ? 760 : 460) : 280)
         .onChange(of: isRemoteEnabled) {
             if remoteToken.isEmpty { remoteToken = Data((0..<24).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString() }
             store.remote.update()
         }
-        .onChange(of: remoteToken) { store.remote.update() }
+        .onChange(of: remoteToken) {
+            isPairing = false
+            store.remote.update()
+        }
+        .onDisappear { isPairing = false }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in isPairing = false }
+    }
+
+    @ViewBuilder private var pairing: some View {
+        TextField("Address", text: $pairAddress, prompt: Text("wss://mac.tailnet.ts.net"))
+            .autocorrectionDisabled()
+            .monospaced()
+        if let payload = RemotePairing.payload(address: pairAddress, token: remoteToken), let qr = Self.qrCode(payload) {
+            Image(nsImage: qr)
+                .interpolation(.none)
+                .resizable()
+                .frame(width: 220, height: 220)
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel("Pairing QR code")
+            Text("Scan it with Berth Remote on your iPhone. Anyone who sees this code can control your sessions, so hide it when you are done.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            Text("Enter the wss:// address from tailscale serve to show the code.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private static func qrCode(_ payload: String) -> NSImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(payload.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)) else { return nil }
+
+        let rep = NSCIImageRep(ciImage: output)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        return image
+    }
+
+    private static var startsPairing: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "snapshotPairShown")
+        #else
+        false
+        #endif
     }
 }
