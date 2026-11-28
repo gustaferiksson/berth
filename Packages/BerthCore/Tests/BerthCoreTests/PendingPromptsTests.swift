@@ -264,4 +264,9 @@ struct PendingPromptsTests {
 
         #expect(PendingPrompts.reconcile(pending, entries: [human], queued: [], now: sent.addingTimeInterval(2)) == pending)
     }
+
+    @Test func readsABangQueuedCommandAsShellWithoutPendingPrompt() {
+        #expect(PendingPrompts.queuedShellCommand("! git status", pending: []) == "git status")
+        #expect(PendingPrompts.queuedShellCommand("git status", pending: []) == nil)
+    }
 }

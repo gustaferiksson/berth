@@ -340,6 +340,21 @@ public nonisolated enum RemoteSubagentTranscriptFeature {
     }
 }
 
+public nonisolated enum RemoteTaskStopFeature {
+    public static let name = "taskStop"
+}
+
+public nonisolated enum SessionHandoff {
+    public static let activityType = "dev.gustaf.berth.session"
+    public static let sessionIDKey = "sessionID"
+
+    public static func sessionID(in activity: NSUserActivity) -> String? {
+        guard activity.activityType == activityType, let id = activity.userInfo?[sessionIDKey] as? String, !id.isEmpty else { return nil }
+
+        return id
+    }
+}
+
 public struct RemoteContext: Codable, Sendable, Hashable {
     public let model: String
     public let tokens: Int?
@@ -563,6 +578,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
     case commands(sessionID: String)
     case subagentTranscript(sessionID: String, taskID: String)
+    case stopTask(sessionID: String, taskID: String)
 }
 
 public enum RemoteServerMessage: Codable, Sendable {
