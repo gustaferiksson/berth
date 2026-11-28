@@ -558,6 +558,7 @@ private struct Composer: View {
                 .frame(height: ComposerLayout.controlSize)
                 .background(controlFill, in: .capsule)
                 .frame(minWidth: ComposerLayout.hitSize)
+                .padding(.trailing, ComposerLayout.hitPadding)
                 .frame(height: ComposerLayout.hitSize)
                 .contentShape(.rect)
         }
@@ -758,7 +759,12 @@ struct ComposerLayout: Layout {
     static let tileRadius = cornerRadius - expandedInset
 
     private static let textGap: CGFloat = 8
-    private static let hitPadding = (hitSize - controlSize) / 2
+    static let hitPadding = (hitSize - controlSize) / 2
+
+    private static var textLeading: CGFloat {
+        let font = UIFont.preferredFont(forTextStyle: .body)
+        return font.ascender - font.capHeight
+    }
 
     private var controlInset: CGFloat { isExpanded ? Self.expandedInset : Self.compactInset }
     private var controlsHeight: CGFloat { Self.controlSize + 2 * controlInset }
@@ -800,7 +806,7 @@ struct ComposerLayout: Layout {
         }
 
         let tilesHeight = subviews.count > 3 ? subviews[3].sizeThatFits(ProposedViewSize(width: width, height: nil)).height : 0
-        let field = CGRect(x: fieldLeading, y: tilesHeight > 0 ? tilesHeight + Self.textGap : Self.expandedInset, width: fieldWidth, height: fieldHeight)
+        let field = CGRect(x: fieldLeading, y: tilesHeight > 0 ? tilesHeight + Self.textGap : Self.expandedInset - Self.textLeading, width: fieldWidth, height: fieldHeight)
         return (field.maxY + Self.textGap + Self.controlSize + controlInset, field, trailing, tilesHeight)
     }
 }
