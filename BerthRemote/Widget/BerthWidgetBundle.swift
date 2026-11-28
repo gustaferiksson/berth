@@ -46,5 +46,6 @@ private struct NeedsYouWidget: Widget {
 struct BerthWidgetBundle: WidgetBundle {
     var body: some Widget {
         NeedsYouWidget()
+        SessionLiveActivity()
     }
 }

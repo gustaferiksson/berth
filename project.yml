@@ -163,6 +163,7 @@ targets:
       - path: Packages/BerthCore/Sources/BerthCore/RemoteProtocol.swift
       - path: Packages/BerthCore/Sources/BerthCore/WidgetSnapshot.swift
       - path: Packages/BerthCore/Sources/BerthCore/WidgetSnapshot+Groups.swift
+      - path: Packages/BerthCore/Sources/BerthCore/LiveActivity.swift
       - path: Packages/BerthCore/Sources/BerthCore/RemotePairing.swift
       - path: Packages/BerthCore/Sources/BerthCore/RemoteQuestions.swift
       - path: Packages/BerthCore/Sources/BerthCore/SlashCommands.swift
@@ -223,6 +224,7 @@ targets:
       - path: BerthRemote/Widget
       - path: BerthRemote/WidgetViews
       - path: Packages/BerthCore/Sources/BerthCore/WidgetSnapshot.swift
+      - path: Packages/BerthCore/Sources/BerthCore/LiveActivity.swift
     entitlements:
       path: Resources/BerthRemoteWidget.entitlements
       properties:
