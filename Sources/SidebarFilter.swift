@@ -88,18 +88,6 @@ extension Store {
         return SidebarSources(active: active, groups: groups, attention: attention, working: triage.working, unread: triage.unread)
     }
 
-    func hasUndismissedFailure(_ session: SessionSummary) -> Bool {
-        guard let pullRequest = pullRequest(for: session), [.open, .draft].contains(pullRequest.state), pullRequest.checks == .failed, pullRequest.viewerDidAuthor else { return false }
-
-        return pullRequest.headSHA.map { dismissedFailures[session.id] != $0 } ?? true
-    }
-
-    func canDismissAttention(_ session: SessionSummary) -> Bool {
-        if case .needsInput = liveBySession[session.id]?.activity { return false }
-
-        return hasUndismissedFailure(session) && pullRequest(for: session)?.headSHA != nil
-    }
-
     var sidebarLayout: SidebarLayout { sidebarLayout(filter: sidebarFilter, status: sidebarStatus) }
 
     func sidebarLayout(filter: String, status: SidebarStatus) -> SidebarLayout {

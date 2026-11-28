@@ -6,7 +6,7 @@ import WebKit
 extension AppAction {
     static let paletteOnlyActions: [Self] = [
         .closeTerminal, .copyTerminal, .pasteTerminal, .selectAllInTerminal, .nextTab, .previousTab,
-        .pinSession, .unpinSession, .snoozeHour, .snoozeTomorrow, .snoozeUntilNeeded, .unsnoozeSession, .unloadSession, .reopenSession, .copySessionID, .markSessionRead, .markSessionUnread, .dismissSessionAttention, .stopWatchingSession, .newTaskFromSessions, .removeSessionFromTask, .reopenSessionTask, .acceptTaskSuggestion, .dismissTaskSuggestion,
+        .pinSession, .unpinSession, .snoozeHour, .snoozeTomorrow, .snoozeUntilNeeded, .unsnoozeSession, .unloadSession, .reopenSession, .copySessionID, .markSessionRead, .markSessionUnread, .stopWatchingSession, .newTaskFromSessions, .removeSessionFromTask, .reopenSessionTask, .acceptTaskSuggestion, .dismissTaskSuggestion,
         .stopConversation, .closeSubagentConversation,
         .findInReview, .refreshReview, .toggleReviewTree, .toggleReviewComments, .collapseAllComments, .expandAllComments, .clearReviewMarks, .sendReviewComments, .closeReviewTab, .closeOtherReviewTabs, .closeReviewPreview, .revealReviewFile, .copyReviewPath, .copyReviewRelativePath, .openReviewFile,
         .stopBrowserLoading, .copyBrowserURL, .openInDefaultBrowser,
@@ -31,7 +31,7 @@ extension AppAction {
     func isAvailableInContext(in store: Store) -> Bool {
         switch self {
         case .pinSession, .unpinSession, .reopenSession, .snoozeHour, .snoozeTomorrow, .snoozeUntilNeeded, .unsnoozeSession,
-             .markSessionRead, .markSessionUnread, .dismissSessionAttention, .removeSessionFromTask, .reopenSessionTask, .stopWatchingSession,
+             .markSessionRead, .markSessionUnread, .removeSessionFromTask, .reopenSessionTask, .stopWatchingSession,
              .acceptTaskSuggestion, .dismissTaskSuggestion:
             !sessionIDs(in: store).isEmpty
 
@@ -149,8 +149,6 @@ extension AppAction {
         case .markSessionRead: for id in sessionIDs(in: store) { store.markRead(id) }
 
         case .markSessionUnread: for id in sessionIDs(in: store) { store.markUnread(id) }
-
-        case .dismissSessionAttention: for id in sessionIDs(in: store) { store.dismissAttention(id) }
 
         case .stopWatchingSession:
             let ids = sessionIDs(in: store)

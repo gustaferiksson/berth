@@ -872,7 +872,6 @@ private struct SessionItem: View {
             Button("Mark as Unread") { store.markUnread(id) }
         }
         flagButton
-        if place == .triage, store.canDismissAttention(session) { Button("Dismiss") { store.dismissAttention(id) } }
         Button("Mark as Done") { store.archive(id) }
         Menu("Snooze") {
             Button("1 Hour") { store.snooze(id, .until(.now.addingTimeInterval(3600))) }

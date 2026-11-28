@@ -383,10 +383,6 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(archivedAt, forKey: "archivedSessions") } }
     }
 
-    private(set) var dismissedFailures = UserDefaults.standard.dictionary(forKey: "dismissedFailures") as? [String: String] ?? [:] {
-        didSet { if persistsTabs { UserDefaults.standard.set(dismissedFailures, forKey: "dismissedFailures") } }
-    }
-
     @ObservationIgnored private var snoozes = (UserDefaults.standard.dictionary(forKey: "snoozedSessions") ?? [:]).compactMapValues(SessionSnooze.init(stored:)) {
         didSet {
             if persistsTabs { UserDefaults.standard.set(snoozes.mapValues(\.stored), forKey: "snoozedSessions") }
@@ -2208,10 +2204,6 @@ final class Store {
         applyGroups()
         if let tab = tab(forSession: sessionID) { close(tab.id) }
         browser.discard(sessionID)
-    }
-
-    func dismissAttention(_ sessionID: String) {
-        dismissedFailures[sessionID] = sessionsByID[sessionID].flatMap { pullRequest(for: $0)?.headSHA }
     }
 
     func unarchive(_ sessionID: String) {
