@@ -137,6 +137,9 @@ struct SessionListView: View {
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()
             }
+            .onChange(of: path) {
+                UserDefaults.standard.set(path.last, forKey: "remoteSession")
+            }
             .onChange(of: client.openedSessionID, initial: true) {
                 guard let id = client.openedSessionID else { return }
 

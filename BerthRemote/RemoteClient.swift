@@ -221,6 +221,11 @@ final class RemoteClient {
         if UserDefaults.standard.bool(forKey: "snapshotSearchJump") {
             searchJump = (session.id, RemoteSnippet(text: "…The feed rebuilds every row when a new entry arrives…", highlights: []))
         }
+        changes[session.id] = .loaded(RemoteChanges(branch: "main", base: "origin/main", uncommitted: [
+            RemoteChangedFile(path: "Sources/Feed/FeedRow.swift", oldPath: nil, status: "M", additions: 12, deletions: 4),
+            RemoteChangedFile(path: "Sources/Feed/EntryList.swift", oldPath: "Sources/Feed/ActivityList.swift", status: "R", additions: 3, deletions: 3),
+            RemoteChangedFile(path: "Sources/Timeline/EntryList.swift", oldPath: "Sources/Feed/EntryList.swift", status: "R", additions: 0, deletions: 0),
+        ], committed: [], isTruncated: false))
         if !Self.showsDemoList { openedSessionID = session.id }
     }
 
