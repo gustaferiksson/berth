@@ -72,6 +72,7 @@ struct SessionView: View {
             if atBottom { hasNewMessages = false }
         }
         .onChange(of: entries?.last?.id) {
+            guard client.searchJump?.sessionID != sessionID else { return }
             guard isAtBottom else {
                 hasNewMessages = true
                 return
@@ -223,6 +224,15 @@ struct SessionView: View {
                     }
                 }
             }
+        }
+        .task(id: turns.isEmpty) {
+            guard let jump = client.searchJump, jump.sessionID == sessionID, !turns.isEmpty else { return }
+
+            client.searchJump = nil
+            try? await Task.sleep(for: .milliseconds(150)) // an earlier scrollTo loses to defaultScrollAnchor(.bottom) on first layout
+            guard let id = Turn.id(matching: jump.snippet, in: turns) else { return }
+
+            position.scrollTo(id: id, anchor: .top)
         }
         .task {
             client.subscribe(to: sessionID)

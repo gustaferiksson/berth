@@ -93,6 +93,7 @@ final class RemoteClient {
     private(set) var codexUsage: CodexUsage?
     private(set) var images: [ImageKey: ImageLoad] = [:]
     private(set) var transcriptSearch: (query: String, hits: [RemoteSearchHit], isIndexing: Bool)?
+    var searchJump: (sessionID: String, snippet: RemoteSnippet)?
     private(set) var uploads: [String: UploadState] = [:]
     var draftTexts: [String: String] = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:] {
         didSet {
@@ -224,6 +225,9 @@ final class RemoteClient {
                 SlashCommand(RemoteSlashCommand(name: "/coverage", summary: "Generate a coverage report", source: "user", requiresArguments: false, argumentHint: nil)),
             ]
             draftTexts[session.id] = "/co"
+        }
+        if UserDefaults.standard.bool(forKey: "snapshotSearchJump") {
+            searchJump = (session.id, RemoteSnippet(text: "…The feed rebuilds every row when a new entry arrives…", highlights: []))
         }
         changes[session.id] = .loaded(RemoteChanges(branch: "main", base: "origin/main", uncommitted: [
             RemoteChangedFile(path: "Sources/Feed/FeedRow.swift", oldPath: nil, status: "M", additions: 12, deletions: 4),
