@@ -286,7 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         #if DEBUG
         Snapshot.seedConversationFixture()
-        store.persistsTabs = Snapshot.persistsPullRequests
+        store.persistsTabs = SnapshotPullRequests.persists
         #else
         store.persistsTabs = false
         #endif
