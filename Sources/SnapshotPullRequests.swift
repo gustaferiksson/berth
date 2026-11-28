@@ -13,6 +13,14 @@ enum SnapshotPullRequests {
         return true
     }()
 
+    static func merged(in repository: String) -> [PullRequestLink: PullRequest] {
+        let count = max(UserDefaults.standard.integer(forKey: "snapshotMergedPullRequests"), 0)
+        return Dictionary(uniqueKeysWithValues: (0..<count).map { index in
+            let number = 4810 + index
+            return (PullRequestLink(repository: repository, number: number), PullRequest(number: number, url: URL(string: "https://github.com/\(repository)/pull/\(number)")!, title: "Settlement export step \(index + 1)", state: .merged, headRefName: "feature/settlement-step-\(index + 1)", closedAt: Date.now.addingTimeInterval(-Double(index + 1) * 24 * 3600)))
+        })
+    }
+
     static func many(in repository: String) -> [PullRequestLink: PullRequest] {
         let count = max(UserDefaults.standard.integer(forKey: "snapshotManyPullRequests"), 0)
         let hoursAgo = [0, 0, 0, 1, 4, 8, 26, 30, 50, 60, 72, 84, 96, 108, 120, 132, 144] + (0..<count).map { 200 + $0 * 37 }

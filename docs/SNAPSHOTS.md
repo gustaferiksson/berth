@@ -386,7 +386,7 @@ It also runs `open-session --cwd <dir> --background -- "hello"` with the system 
 
 ### Tasks
 
-`-snapshotTasksReview YES` builds scratch repos under `.build/tasks-review` (`-snapshotTasksReviewSession`, default `task-usage-api`, the only one that forms the task card; `-snapshotReviewRepoTab <repo name|all>`, `-snapshotTasksReviewDefaults "key=value|…"` flips argument-domain keys mid-run and saves a shot per step, `-snapshotTasksReviewCollapse "billing|web|infra"` collapses those repo sections, `-snapshotTasksReviewTransition YES` drops a repo while its tab is selected, `-snapshotLinkedPullRequests YES` gives fixture sessions linked PRs in two repos).
+`-snapshotTasksReview YES` builds scratch repos under `.build/tasks-review` (`-snapshotTasksReviewSession`, default `task-usage-api`, the only one that forms the task card; `-snapshotReviewRepoTab <repo name|all>`, `-snapshotTasksReviewDefaults "key=value|…"` flips argument-domain keys mid-run and saves a shot per step, `-snapshotTasksReviewCollapse "billing|web|infra"` collapses those repo sections, `-snapshotTasksReviewTransition YES` drops a repo while its tab is selected, `-snapshotLinkedPullRequests YES` gives fixture sessions linked PRs in two repos, `-snapshotMergedPullRequests <n>` adds <n> merged `acme/billing` PRs to them; with `-snapshotReviewRepoTab all` the billing header shows the open PRs as chips and the merged ones as a count).
 
 `-snapshotTasks YES` seeds eight fixture sessions across acme/billing, acme/web and acme/infra and prints the formed tasks, stored state, suggestions and entries; `-snapshotSoleTask YES` marks one member of the second task as done so it shows as a single session row.
 

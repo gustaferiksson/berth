@@ -31,7 +31,7 @@ enum Snapshot {
         PullRequestLink(repository: "acme/web", number: 77): PullRequest(number: 77, url: URL(string: "https://github.com/acme/web/pull/77")!, title: "Show linked pull requests", state: .closed, headRefName: "feature/linked-web"),
         PullRequestLink(repository: "acme/billing", number: 4822): PullRequest(number: 4822, url: URL(string: "https://github.com/acme/billing/pull/4822")!, title: "Reconcile settlement exports, part 2", state: .merged, headRefName: "feature/settlement-part-2"),
         PullRequestLink(repository: "acme/billing", number: 4823): PullRequest(number: 4823, url: URL(string: "https://github.com/acme/billing/pull/4823")!, title: "Export ledger entries", state: .open, headRefName: "feature/ledger-export", checks: .passed, reviewDecision: .approved),
-    ] : [:]
+    ].merging(SnapshotPullRequests.merged(in: "acme/billing")) { first, _ in first } : [:]
     private static let linkedFixtureLinks = linkedFixtures.keys.sorted { $0.number > $1.number }
     private static let showsReviewSessionPullRequests = UserDefaults.standard.bool(forKey: "snapshotReviewSessionPullRequests")
     private static let reviewSessionPullRequests: [PullRequestLink: PullRequest] = showsReviewSessionPullRequests ? [

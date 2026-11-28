@@ -393,6 +393,7 @@ struct ReviewRepositoryHeader<Accessory: View>: View {
             HStack(spacing: 4) {
                 Text(title)
                     .lineLimit(1)
+                    .layoutPriority(1)
                 Spacer(minLength: 4)
                 accessory()
             }
@@ -412,6 +413,8 @@ struct ReviewRepositoryAccessory: View {
     @Environment(\.ghosttyTheme) private var theme
 
     var body: some View {
+        let shown = pullRequests.filter { $0.number != hiding }
+        let merged = shown.filter { $0.state == .merged }
         HStack(spacing: 6) {
             if let branch {
                 Text(base.map { "\(branch) → \($0)" } ?? branch)
@@ -422,11 +425,21 @@ struct ReviewRepositoryAccessory: View {
                     .layoutPriority(-1)
                     .transaction { $0.animation = nil }
             }
-            ForEach(pullRequests, id: \.number) { pullRequest in
-                PullRequestTag(pullRequest: pullRequest)
-                    .fixedSize()
-                    .opacity(pullRequest.number == hiding ? 0 : 1)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    ForEach(shown.filter { $0.state != .merged }, id: \.number) { pullRequest in
+                        PullRequestTag(pullRequest: pullRequest)
+                            .fixedSize()
+                    }
+                    if !merged.isEmpty {
+                        Text("\(merged.count) merged")
+                            .foregroundStyle(theme.merged)
+                    }
+                }
+                Text("\(shown.count) PRs")
             }
+            .font(.caption)
+            .help(merged.isEmpty ? "" : "Merged pull requests \(merged.map { "#\($0.number)" }.joined(separator: ", "))")
         }
         .animation(.easeInOut(duration: 0.2), value: hiding)
     }
