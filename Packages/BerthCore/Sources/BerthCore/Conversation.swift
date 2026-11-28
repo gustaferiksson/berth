@@ -292,6 +292,23 @@ public struct Turn: Identifiable, Sendable {
         return turns
     }
 
+    public static func id(matching snippet: RemoteSnippet, in turns: [Self]) -> String? {
+        let normalised = { (text: String) in
+            text.replacing(/\*\*|`/, with: "").replacing(/\s+/, with: " ").trimmingCharacters(in: CharacterSet(charactersIn: "… "))
+        }
+        let needle = normalised(snippet.text)
+        guard !needle.isEmpty else { return nil }
+
+        return turns.last { turn in
+            let replies = turn.parts.compactMap { part -> String? in
+                guard case let .reply(entry) = part else { return nil }
+
+                return entry.text
+            }
+            return (replies + [turn.prompt?.text].compactMap(\.self)).contains { normalised($0).contains(needle) }
+        }?.id
+    }
+
     public static func continuing(_ turns: [Self], with entries: [RemoteEntry]) -> [Self]? {
         // Tool records can change earlier turns by resolving a result or revealing a script's inner calls.
         guard entries.allSatisfy({ $0.kind == .prompt || $0.kind == .reply }) else { return nil }

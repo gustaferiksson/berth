@@ -28,6 +28,23 @@ import Testing
     #expect(Turn.continuing(updated, with: [RemoteEntry(id: "late", kind: .toolResult, text: "updated", toolID: "tool")]) == nil)
 }
 
+@Test func searchSnippetFindsTheNewestTurnWithThatText() {
+    let turns = Turn.turns(from: [
+        RemoteEntry(id: "p1", kind: .prompt, text: "Why does the feed jump?"),
+        RemoteEntry(id: "r1", kind: .reply, text: "The feed rebuilds **every row** when a new entry arrives."),
+        RemoteEntry(id: "p2", kind: .prompt, text: "Fix it"),
+        RemoteEntry(id: "r2", kind: .reply, text: "Rows now use entry IDs.\n\nThe feed rebuilds every row only once."),
+    ])
+    let snippet = { RemoteSnippet(text: $0, highlights: []) }
+
+    #expect(Turn.id(matching: snippet("…feed rebuilds every row when a new…"), in: turns) == "p1")
+    #expect(Turn.id(matching: snippet("Rows now use entry IDs. The feed rebuilds every row"), in: turns) == "p2")
+    #expect(Turn.id(matching: snippet("feed rebuilds every row"), in: turns) == "p2")
+    #expect(Turn.id(matching: snippet("Fix it"), in: turns) == "p2")
+    #expect(Turn.id(matching: snippet("not in the transcript"), in: turns) == nil)
+    #expect(Turn.id(matching: snippet("…"), in: turns) == nil)
+}
+
 @Test func pollIsNotATurnPartAndReplyKeepsItsPlace() {
     let entries = [
         RemoteEntry(id: "p", kind: .prompt, text: "go"),
