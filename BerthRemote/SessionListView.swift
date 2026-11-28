@@ -17,7 +17,7 @@ struct SessionListView: View {
     @State private var isShowingSettings = UserDefaults.standard.bool(forKey: "snapshotSettings")
     @State private var isShowingUsage = UserDefaults.standard.bool(forKey: "snapshotUsageSheet")
     @State private var feedback = ActionFeedback(count: 0, action: nil)
-    @State private var status = SessionStatusFilter.allCases.first { "\($0)" == UserDefaults.standard.string(forKey: "snapshotFilter") } ?? .all
+    @State private var status = SessionStatusFilter.allCases.first { UserDefaults.standard.string(forKey: "snapshotFilter") == "\($0)" } ?? .all
 
     var body: some View {
         let pinned = Set(client.groups.first { $0.id == "pinned" }?.sessions.map(\.id) ?? [])
