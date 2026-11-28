@@ -36,7 +36,7 @@ enum Snapshot {
     private static let showsReviewSessionPullRequests = UserDefaults.standard.bool(forKey: "snapshotReviewSessionPullRequests")
     private static let reviewSessionPullRequests: [PullRequestLink: PullRequest] = showsReviewSessionPullRequests ? [
         PullRequestLink(repository: fixtureRepository, number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/\(fixtureRepository)/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: UserDefaults.standard.string(forKey: "snapshotReviewPullRequestBase"), headRefName: "feature/approved-reviewers"),
-    ] : [:]
+    ].merging(SnapshotPullRequests.many(in: fixtureRepository)) { first, _ in first } : [:]
 
     static let fixtureShownPullRequests: [PullRequestLink: PullRequest] = [
         PullRequestLink(repository: "acme/billing", number: 1445): PullRequest(number: 1445, url: URL(string: "https://github.com/acme/billing/pull/1445")!, title: "Let Margo switch between approved reviewers", state: .open, baseRefName: "main", headRefName: "feature/approved-reviewers"),
@@ -878,6 +878,10 @@ enum Snapshot {
     }
 
     private static func prepareSessionProbes(store: Store) async {
+        if SnapshotPullRequests.persists {
+            for session in store.activeSessions { print("session \(session.id) pull requests \(session.pullRequests.map { "\($0.repository)#\($0.number)" })") }
+            exit(0)
+        }
         if store.selection == nil, let forced = forcedSelection(in: store.groups) { store.sidebarCursor = forced }
         if UserDefaults.standard.bool(forKey: "snapshotArchiveTab") {
             for _ in 0..<2 { store.openShell(cwd: FileManager.default.homeDirectoryForCurrentUser.path) }
