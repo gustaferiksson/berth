@@ -231,6 +231,11 @@ final class RemoteClient {
             RemoteChangedFile(path: "Sources/Timeline/EntryList.swift", oldPath: "Sources/Feed/EntryList.swift", status: "R", additions: 0, deletions: 0),
         ], committed: [], isTruncated: false))
         if !Self.showsDemoList { openedSessionID = session.id }
+        if let id = UserDefaults.standard.string(forKey: "snapshotContinueSession") {
+            let activity = NSUserActivity(activityType: SessionHandoff.activityType)
+            activity.userInfo = [SessionHandoff.sessionIDKey: id]
+            continueHandoff(activity)
+        }
     }
 
     private func demoListGroups(session: RemoteSession, now: Date) -> [RemoteGroup] {
@@ -339,6 +344,12 @@ final class RemoteClient {
         }
         subscribedSessionID = sessionID
         send(.subscribe(sessionID: sessionID))
+    }
+
+    func continueHandoff(_ activity: NSUserActivity) {
+        guard let id = SessionHandoff.sessionID(in: activity) else { return }
+
+        openedSessionID = id
     }
 
     func requestTaskDetail(_ taskID: String, in sessionID: String) {

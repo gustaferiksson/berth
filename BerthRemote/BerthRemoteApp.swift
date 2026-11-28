@@ -21,6 +21,7 @@ struct BerthRemoteApp: App {
                     ConnectionStatus()
                 }
             }
+            .onContinueUserActivity(SessionHandoff.activityType) { client.continueHandoff($0) }
             .environment(client)
             .environment(updates)
             .preferredColorScheme(colorScheme == "light" ? .light : colorScheme == "dark" ? .dark : nil)
