@@ -270,12 +270,14 @@ private struct TaskDetailView: View {
 
     @Environment(RemoteClient.self) private var client
     @State private var expanded: Set<String> = []
+    @State private var isShowingTranscript = false
     @State private var stopping: RemoteTask?
 
     var body: some View {
         let task = client.activity[sessionID]?.tasks.first { $0.id == taskID }
         let detail = client.taskDetails[taskID]
         let canFetch = client.features.contains(RemoteTaskDetail.feature)
+        let hasTranscript = client.features.contains(RemoteSubagentTranscriptFeature.name)
         let rows = ToolRow.rows(detail?.calls ?? [])
         let isShell = task?.kind == RemoteTask.shell || (task == nil && detail?.output != nil)
         let canStop = client.features.contains(RemoteTaskStopFeature.name)
@@ -301,6 +303,19 @@ private struct TaskDetailView: View {
                     Section("Latest Message") {
                         Text(reply)
                             .textSelection(.enabled)
+                    }
+                }
+                if hasTranscript, !isShell, task?.kind != RemoteTask.monitor, detail?.calls != nil {
+                    Section {
+                        Button { isShowingTranscript = true } label: {
+                            LabeledContent("Full Transcript") {
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .foregroundStyle(.primary)
                     }
                 }
                 if !isShell, task?.kind != RemoteTask.monitor, detail?.calls != nil {
@@ -341,12 +356,21 @@ private struct TaskDetailView: View {
                 proxy.scrollTo("end", anchor: .bottom)
             }
         }
+        .navigationDestination(isPresented: $isShowingTranscript) {
+            SubagentTranscriptView(sessionID: sessionID, taskID: taskID, isRunning: task != nil)
+        }
         .navigationTitle(task?.title ?? "Finished")
         .navigationBarTitleDisplayMode(.inline)
         .stopConfirmation($stopping) { client.stopTask($0.id, in: sessionID) }
         #if DEBUG
         .onAppear { if UserDefaults.standard.bool(forKey: "snapshotStopConfirm") { stopping = task } }
         #endif
+        .task {
+            guard UserDefaults.standard.bool(forKey: "snapshotSubagentTranscript") else { return }
+
+            try? await Task.sleep(for: .seconds(2))
+            isShowingTranscript = true
+        }
         .task {
             while !Task.isCancelled, task?.kind != RemoteTask.monitor {
                 client.requestTaskDetail(taskID, in: sessionID)
@@ -400,6 +424,50 @@ private struct TaskDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+}
+
+private struct SubagentTranscriptView: View {
+    let sessionID: String
+    let taskID: String
+    let isRunning: Bool
+
+    @Environment(RemoteClient.self) private var client
+    @State private var position = ScrollPosition(edge: .bottom)
+
+    var body: some View {
+        let entries = client.subagentTranscripts[taskID]
+        let turns = Turn.turns(from: entries ?? [])
+
+        ScrollView {
+            VStack(alignment: .leading, spacing: 32) {
+                ForEach(turns) { turn in
+                    let isLast = turn.id == turns.last?.id
+                    TurnView(sessionID: sessionID, turn: turn, isFinished: !isRunning || !isLast, isWorking: isRunning && isLast, turnStartedAt: nil, liveCall: nil, openChanges: nil)
+                }
+            }
+            .padding()
+            .modifier(ConversationStyle())
+        }
+        .scrollPosition($position)
+        .defaultScrollAnchor(.bottom)
+        .overlay {
+            if turns.isEmpty {
+                if entries == nil {
+                    ProgressView()
+                } else {
+                    ContentUnavailableView("No Transcript", systemImage: "text.bubble", description: Text("This agent’s transcript isn't available on your Mac."))
+                }
+            }
+        }
+        .navigationTitle("Full Transcript")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            repeat {
+                client.requestSubagentTranscript(taskID, in: sessionID)
+                try? await Task.sleep(for: .seconds(5))
+            } while !Task.isCancelled && isRunning
+        }
     }
 }
 

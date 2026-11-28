@@ -260,6 +260,9 @@ final class RemoteServer {
         case let .commands(sessionID):
             Task { await sendCommands(of: sessionID, to: connection) }
 
+        case let .subagentTranscript(sessionID, taskID):
+            Task { await sendSubagentTranscript(taskID, in: sessionID, to: id) }
+
         case let .stopTask(sessionID, taskID):
             Task { await stopTask(taskID, in: sessionID, from: id) }
         }
@@ -445,6 +448,28 @@ final class RemoteServer {
         send(try? JSONEncoder().encode(RemoteServerMessage.taskDetail(sessionID: sessionID, taskID: taskID, detail: detail)), to: connection)
     }
 
+    private func sendSubagentTranscript(_ taskID: String, in sessionID: String, to id: ObjectIdentifier) async {
+        guard let client = clients[id], client.sessionID == sessionID, let transcript = client.transcript else { return }
+
+        let agent = store.sessionsByID[sessionID]?.agent ?? store.tab(forSession: sessionID)?.agent ?? .claude
+        let harness = agent.harness
+        let root = store.sessionIndex(for: agent).root
+        let entries = await Task.detached { () -> [RemoteEntry]? in
+            guard let subagent = harness.locateSubagent(root, transcript, taskID, nil),
+                  let chunk = harness.readSubagentTranscript(subagent.url, nil, [])
+            else { return nil }
+
+            return RemoteSubagentTranscriptFeature.fitting(chunk.entries.map { entry in
+                var entry = entry
+                entry.imageRefs = nil
+                return entry
+            })
+        }.value
+        guard let connection = clients[id]?.connection else { return }
+
+        send(try? JSONEncoder().encode(RemoteServerMessage.subagentTranscript(sessionID: sessionID, taskID: taskID, entries: entries)), to: connection)
+    }
+
     private func receiveUpload(_ uploadID: String, name: String, offset: Int, chunk: Data, isLast: Bool, from connection: NWConnection) {
         let fail = { (message: String) in self.send(try? JSONEncoder().encode(RemoteServerMessage.uploaded(id: uploadID, error: message)), to: connection) }
         guard let id = UUID(uuidString: uploadID)?.uuidString else { return fail("The upload had an invalid id") }
@@ -563,7 +588,7 @@ final class RemoteServer {
             RemoteGroup(id: RemoteTriageFeature.doneGroupID, title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
         ]
         let groups = [attention] + active + triage + layout.groups.map(section) + hidden
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTaskStopFeature.name, RemoteTriageFeature.name, RemoteQuestionsFeature.name, RemotePermissionModeFeature.name] + usageFeatures)
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature, RemoteTaskStopFeature.name, RemoteTriageFeature.name, RemoteQuestionsFeature.name, RemotePermissionModeFeature.name] + usageFeatures)
     }
 
     #if DEBUG

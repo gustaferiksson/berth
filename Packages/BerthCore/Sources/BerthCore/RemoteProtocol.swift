@@ -326,6 +326,20 @@ public struct RemoteTaskDetail: Codable, Sendable, Hashable {
     }
 }
 
+public nonisolated enum RemoteSubagentTranscriptFeature {
+    public static let name = "subagentTranscript"
+    public static let byteBudget = 8 << 20
+
+    public static func fitting(_ entries: [RemoteEntry]) -> [RemoteEntry] {
+        var used = 0
+        let kept = entries.reversed().prefix { entry in
+            used += entry.text.utf8.count + (entry.images ?? []).reduce(0) { $0 + $1.count }
+            return used <= byteBudget
+        }
+        return kept.reversed()
+    }
+}
+
 public nonisolated enum RemoteTaskStopFeature {
     public static let name = "taskStop"
 }
@@ -563,6 +577,7 @@ public enum RemoteClientMessage: Codable, Sendable {
     case image(sessionID: String, id: String, variant: RemoteImageVariant)
     case setting(sessionID: String, setting: RemoteSessionSetting, from: RemoteSessionSetting)
     case commands(sessionID: String)
+    case subagentTranscript(sessionID: String, taskID: String)
     case stopTask(sessionID: String, taskID: String)
 }
 
@@ -582,4 +597,5 @@ public enum RemoteServerMessage: Codable, Sendable {
     case taskDetail(sessionID: String, taskID: String, detail: RemoteTaskDetail?)
     case image(sessionID: String, id: String, variant: RemoteImageVariant, data: Data?)
     case commands(sessionID: String, commands: [RemoteSlashCommand])
+    case subagentTranscript(sessionID: String, taskID: String, entries: [RemoteEntry]?)
 }
