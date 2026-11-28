@@ -472,6 +472,12 @@ private struct Composer: View {
             .animation(.snappy(duration: 0.2), value: showsStop)
             .animation(.snappy(duration: 0.2), value: isAvailable)
         }
+        .focusedSceneValue(\.composerActions, ComposerActions(
+            canSend: client.state == .connected && canSend,
+            canStop: client.state == .connected && showsStop,
+            send: send,
+            stop: stop
+        ))
     }
 
     private func modelMenu(_ context: RemoteContext, openContext: @escaping () -> Void) -> some View {

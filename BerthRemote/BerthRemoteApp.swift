@@ -41,5 +41,6 @@ struct BerthRemoteApp: App {
                 await updates.checkIfDue()
             }
         }
+        .commands { RemoteCommands() }
     }
 }
