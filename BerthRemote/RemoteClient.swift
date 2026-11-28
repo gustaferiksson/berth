@@ -65,6 +65,7 @@ final class RemoteClient {
             guard state != .connected else { return }
 
             activity = [:]
+            launchOptions = nil
             pullRequests = [:]
             changes = [:]
             diffs = [:]
@@ -79,6 +80,7 @@ final class RemoteClient {
 
     private(set) var groups: [RemoteGroup] = []
     private(set) var folders: [String] = []
+    private(set) var launchOptions: RemoteLaunchOptions?
     private(set) var entries: [String: [RemoteEntry]] = [:]
     private(set) var queued: [String: [String]] = [:]
     private(set) var pending: [String: [PendingPrompt]] = [:]
@@ -153,11 +155,25 @@ final class RemoteClient {
     #if DEBUG
     private static let demoSectionsFile = UserDefaults.standard.string(forKey: "snapshotDemoSectionsFile")
     static let isDemo = UserDefaults.standard.bool(forKey: "snapshotDemo") || demoSectionsFile != nil
+    static let showsDemoNewSession = UserDefaults.standard.bool(forKey: "snapshotDemoNewSession")
     static let showsDemoList = UserDefaults.standard.bool(forKey: "snapshotDemoList") || demoSectionsFile != nil
 
     func seedDemo() {
         state = .connected
         features = [RemoteTriageFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name]
+        if Self.showsDemoNewSession {
+            let folders = ["/Projects/fieldnotes", "/Projects/atlas-api", "/Projects/tidewater"]
+            self.folders = folders
+            features.append(RemoteLaunchOptions.feature)
+            launchOptions = RemoteLaunchOptions(
+                agents: [
+                    RemoteLaunchAgent(id: "claude", name: "Claude", asset: "HarnessClaude", worktreeFolders: Array(folders.prefix(2))),
+                    RemoteLaunchAgent(id: "codex", name: "Codex", asset: "HarnessCodex", worktreeFolders: Array(folders.prefix(1))),
+                ],
+                defaultAgent: "claude",
+                startsInWorktree: true
+            )
+        }
         if let file = Self.demoSectionsFile {
             do {
                 groups = try JSONDecoder().decode([RemoteGroup].self, from: Data(contentsOf: URL(filePath: file)))
@@ -407,6 +423,12 @@ final class RemoteClient {
 
     func loadChanges(of sessionID: String) {
         send(.changes(sessionID: sessionID))
+    }
+
+    func loadLaunchOptions() {
+        guard features.contains(RemoteLaunchOptions.feature) else { return }
+
+        send(.launchOptions)
     }
 
     func loadSlashCommands(for sessionID: String) {
@@ -667,6 +689,9 @@ final class RemoteClient {
 
         case let .commands(sessionID, commands):
             slashCommands[sessionID] = commands.map { SlashCommand($0) }
+
+        case let .launchOptions(options):
+            launchOptions = options
 
         case let .codexUsage(usage):
             if features.contains(RemoteCodexUsageFeature.name) { codexUsage = usage }
