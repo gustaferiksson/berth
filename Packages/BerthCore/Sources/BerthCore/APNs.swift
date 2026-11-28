@@ -23,6 +23,11 @@ public enum PushAlert: String, Sendable {
     }
 }
 
+public enum LiveActivityEvent: String, Sendable {
+    case update
+    case end
+}
+
 public enum APNsOutcome: Equatable, Sendable {
     case delivered
     case unregistered
@@ -63,6 +68,26 @@ public enum APNs {
         request.setValue("alert", forHTTPHeaderField: "apns-push-type")
         request.setValue("10", forHTTPHeaderField: "apns-priority")
         request.setValue(sessionID, forHTTPHeaderField: "apns-collapse-id")
+        return request
+    }
+
+    public static func liveActivityRequest(deviceToken: String, isSandbox: Bool, jwt: String, event: LiveActivityEvent, state: LiveActivityState, now: Date) throws -> URLRequest {
+        guard isValidDeviceToken(deviceToken), let url = URL(string: "https://\(isSandbox ? "api.sandbox.push.apple.com" : "api.push.apple.com")/3/device/\(deviceToken)") else { throw URLError(.badURL) }
+
+        let content = try JSONSerialization.jsonObject(with: JSONEncoder().encode(state))
+        let timestamp = Int(now.timeIntervalSince1970)
+        var aps: [String: Any] = ["timestamp": timestamp, "event": event.rawValue, "content-state": content]
+        switch event {
+        case .update: aps["stale-date"] = timestamp + LiveActivityState.staleAfter
+        case .end: aps["dismissal-date"] = timestamp + LiveActivityState.dismissAfter
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["aps": aps], options: .sortedKeys)
+        request.setValue("bearer \(jwt)", forHTTPHeaderField: "authorization")
+        request.setValue("\(topic).push-type.liveactivity", forHTTPHeaderField: "apns-topic")
+        request.setValue("liveactivity", forHTTPHeaderField: "apns-push-type")
+        request.setValue("10", forHTTPHeaderField: "apns-priority")
         return request
     }
 
