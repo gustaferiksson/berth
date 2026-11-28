@@ -4,6 +4,7 @@ import Observation
 import os
 import Security
 import UIKit
+import UserNotifications
 
 private let log = Logger(subsystem: "dev.gustaf.berth.remote", category: "remote")
 
@@ -116,6 +117,10 @@ final class RemoteClient {
     var draftAttachments: [String: [Attachment]] = [:]
     var notice: String?
     var openedSessionID: String?
+    @ObservationIgnored var pushToken: String? {
+        didSet { sendPushToken() }
+    }
+
     @ObservationIgnored private var task: URLSessionWebSocketTask?
     @ObservationIgnored private var retry: Task<Void, Never>?
     @ObservationIgnored private var failures = 0
@@ -387,6 +392,25 @@ final class RemoteClient {
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
         state = .reconnecting
+    }
+
+    private func enablePush() {
+        Task {
+            guard await (try? UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) == true else { return }
+
+            UIApplication.shared.registerForRemoteNotifications()
+        }
+    }
+
+    private func sendPushToken() {
+        guard features.contains(RemotePushFeature.name), let pushToken else { return }
+
+        #if DEBUG
+        let isSandbox = true
+        #else
+        let isSandbox = false
+        #endif
+        send(.pushToken(token: pushToken, isSandbox: isSandbox))
     }
 
     func disconnect() {
@@ -669,12 +693,14 @@ final class RemoteClient {
                 if [RemoteUsageFeature.name, RemoteCodexUsageFeature.name].contains(where: { self.features.contains($0) && !previousFeatures.contains($0) }) {
                     loadUsage()
                 }
+                if self.features.contains(RemotePushFeature.name), !previousFeatures.contains(RemotePushFeature.name) { enablePush() }
                 return
             }
 
             state = .connected
             failures = 0
             loadUsage()
+            if self.features.contains(RemotePushFeature.name) { enablePush() }
             if let subscribedSessionID { send(.subscribe(sessionID: subscribedSessionID)) }
 
         case let .transcript(sessionID, chunk, isContinuation, queued, activity):

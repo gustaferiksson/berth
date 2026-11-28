@@ -6,15 +6,25 @@ enum NeedsYouAlerts {
     static let notifiesKey = "notifiesWhenSessionNeedsYou"
     private static let logsInsteadOfPosting = Snapshot.output != nil
     private static var authorization: Task<Bool, Never>?
+    private static var busy: Set<String>?
 
-    static func update(entered: [LiveSession], needsYouCount: Int, store: Store) {
+    static func update(entered: [LiveSession], live: [LiveSession], needsYouCount: Int, store: Store) {
         let badge = needsYouCount == 0 ? nil : "\(needsYouCount)"
         if NSApp.dockTile.badgeLabel != badge { NSApp.dockTile.badgeLabel = badge }
         if logsInsteadOfPosting { print("badge: \(NSApp.dockTile.badgeLabel ?? "nil")") }
+        let turns = NeedsYou.finished(previousBusy: busy, live: live, inBerth: Set(store.tabs.compactMap(\.sessionID)))
+        busy = turns.busy
+        let selectedSession = store.tabs.first { $0.id == store.selectedTabID }?.sessionID
+        let isUnattended = { (session: LiveSession) in !(NSApp.isActive && session.sessionId == selectedSession) }
+        let pushes = entered.map { ($0, PushAlert.needsYou) } + turns.finished.map { ($0, PushAlert.finished) }
+        for (session, alert) in pushes where isUnattended(session) {
+            let summary = store.sessionsByID[session.sessionId]
+            let title = summary?.title ?? URL(filePath: summary?.checkout ?? session.cwd).lastPathComponent
+            store.remote.push.notify(alert, sessionID: session.sessionId, title: title)
+        }
         guard UserDefaults.standard.object(forKey: notifiesKey) == nil || UserDefaults.standard.bool(forKey: notifiesKey) else { return }
 
-        let selectedSession = store.tabs.first { $0.id == store.selectedTabID }?.sessionID
-        for session in entered where !(NSApp.isActive && session.sessionId == selectedSession) {
+        for session in entered where isUnattended(session) {
             let summary = store.sessionsByID[session.sessionId]
             let project = URL(filePath: summary?.checkout ?? session.cwd).lastPathComponent
             let content = UNMutableNotificationContent()

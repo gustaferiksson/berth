@@ -1125,7 +1125,7 @@ final class Store {
         }
         let needsYou = NeedsYou.update(previous: waitingSessionIDs, live: Array(liveBySession.values), inBerth: Set(tabs.compactMap(\.sessionID)))
         waitingSessionIDs = needsYou.waiting
-        NeedsYouAlerts.update(entered: needsYou.entered, needsYouCount: needsYou.needsYou.count, store: self)
+        NeedsYouAlerts.update(entered: needsYou.entered, live: Array(liveBySession.values), needsYouCount: needsYou.needsYou.count, store: self)
     }
 
     private var unloadIdleThreshold: TimeInterval {

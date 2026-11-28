@@ -78,8 +78,11 @@ Pages is deployed.
 
 ### One-time setup
 
-1. Developer portal: register an explicit App ID `dev.gustaf.berth.remote` (no capabilities) and make sure every
-   iPhone or iPad is registered under Devices.
+1. Developer portal: register an explicit App ID `dev.gustaf.berth.remote` with the Push Notifications capability and
+   make sure every iPhone or iPad is registered under Devices. The app carries `aps-environment` in Release, so a
+   profile made before the capability was enabled fails the archive. Regenerate it after enabling the capability.
+   For push, also create an APNs auth key (Keys > +, Apple Push Notifications service) and keep the `.p8` on the Mac
+   (Settings > Remote). It is not a CI secret.
 2. Profiles > +: **Ad Hoc** for `dev.gustaf.berth.remote` with the Apple Distribution certificate and all devices,
    named exactly `Berth Remote Ad Hoc`. Download it.
 3. 1Password: add `Berth_Remote_Ad_Hoc.mobileprovision` next to Crew's `AppleDistribution.p12` and its password (the

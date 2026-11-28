@@ -12,6 +12,7 @@ private struct RegularWidthSnapshot: ViewModifier {
 
 @main
 struct BerthRemoteApp: App {
+    @UIApplicationDelegateAdaptor(PushDelegate.self) var pushDelegate
     @State private var client = RemoteClient.shared
     @State private var updates = UpdateCheck()
     @AppStorage("colorScheme") private var colorScheme = "system"
@@ -42,6 +43,7 @@ struct BerthRemoteApp: App {
                 #if DEBUG
                 if RemoteClient.isDemo {
                     if scenePhase == .active, client.state != .connected { client.seedDemo() }
+                    if scenePhase == .active { await runSnapshotPushTap() }
                     return
                 }
                 #endif
