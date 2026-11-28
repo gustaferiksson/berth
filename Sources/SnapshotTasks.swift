@@ -15,6 +15,8 @@ extension Snapshot {
         let now = Date.now
         let stamp = { (offset: Double) in (now + offset).formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)) }
         let rows = [
+            #"{"type":"user","timestamp":"\#(stamp(-900))","message":{"content":[{"type":"tool_result","tool_use_id":"repl_1","content":""}]},"toolUseResult":{"backgroundTaskId":"shell-stopped"}}"#,
+            #"{"type":"user","timestamp":"\#(stamp(-700))","message":{"content":[{"type":"tool_result","tool_use_id":"repl_2","content":""}]},"toolUseResult":{"message":"Successfully stopped task: shell-stopped (npm run dev)","task_id":"shell-stopped","task_type":"local_bash","command":"npm run dev"}}"#,
             #"{"type":"assistant","timestamp":"\#(stamp(-520))","message":{"content":[{"type":"tool_use","id":"tool-test","name":"Bash","input":{"command":"swift test --filter ExportTests","description":"Run export tests","run_in_background":true}}]}}"#,
             #"{"type":"user","timestamp":"\#(stamp(-519))","message":{"content":[{"type":"tool_result","tool_use_id":"tool-test","content":"Command running in background with ID: shell-done. Output is being written to: \#(finishedOutput.path)"}]},"toolUseResult":{"backgroundTaskId":"shell-done"}}"#,
             #"{"type":"queue-operation","operation":"enqueue","timestamp":"\#(stamp(-504))","content":"<task-notification><task-id>shell-done</task-id><status>completed</status><summary>Export tests completed with exit code 0</summary></task-notification>"}"#,
@@ -67,6 +69,7 @@ extension Snapshot {
         let id = switch UserDefaults.standard.string(forKey: "snapshotBackgroundTask") {
         case "agent": "retry-review"
         case "finished": "shell-done"
+        case "stopped": "shell-stopped"
         case "terminal": terminal.uuidString
         default: "shell-live"
         }
@@ -82,7 +85,7 @@ extension Snapshot {
             try? await Task.sleep(for: .milliseconds(100))
         }
         let groups = BackgroundTaskGroups(store.backgroundTasks)
-        guard groups.running.count == 3, groups.finished.map(\.status) == [.exit(0)] else {
+        guard groups.running.count == 3, groups.finished.map(\.status) == [.exit(0), .stopped], groups.finished.last?.title == "npm run dev" else {
             fail("background tasks did not load, running \(groups.running.map(\.id)), finished \(groups.finished.map(\.id))")
         }
         guard let selected = store.selectedBackgroundTask(in: store.backgroundTasks) else { fail("background task selection missing") }

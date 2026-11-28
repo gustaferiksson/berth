@@ -167,7 +167,8 @@ final class RemoteClient {
         }
 
         let now = Date.now
-        let session = RemoteSession(id: "demo", title: "Refine the activity feed", folder: "/Projects/fieldnotes", branch: "main", lastActivity: now, status: "idle", waitingFor: nil, waitingSince: nil, isOpen: true, isLocked: false, agent: .legacyClaude)
+        let isAsking = UserDefaults.standard.bool(forKey: "snapshotDemoQuestions")
+        let session = RemoteSession(id: "demo", title: "Refine the activity feed", folder: "/Projects/fieldnotes", branch: "main", lastActivity: now, status: isAsking ? "waiting" : "idle", waitingFor: isAsking ? "permission prompt" : nil, waitingSince: isAsking ? now.addingTimeInterval(-45).timeIntervalSince1970 * 1000 : nil, isOpen: true, isLocked: false, agent: .legacyClaude)
         groups = Self.showsDemoList ? demoListGroups(session: session, now: now) : [RemoteGroup(id: "recent:active", title: "Active", sessions: [session])]
         entries[session.id] = [
             RemoteEntry(id: "prompt-1", kind: .prompt, text: "Find out why the activity feed jumps when a new entry arrives."),
@@ -214,7 +215,14 @@ final class RemoteClient {
                 RemoteEntry(id: "sub-reply", kind: .reply, text: "Rows are identified by their index in EntryList.swift, so inserting an entry at the top gives every visible row a new identity. FeedRow also stores its index, which would need to become the entry ID."),
             ]
         }
-        activity[session.id] = RemoteActivity(tasks: agentTasks, context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"))
+        if isAsking {
+            let questions = #"{"questions":[{"header":"Format","question":"Which format should the export use?","multiSelect":false,"options":[{"label":"CSV","description":"Opens in any spreadsheet"},{"label":"JSON","description":"Keeps nested fields"}]},{"header":"Fields","question":"Which fields should it include?","multiSelect":true,"options":[{"label":"Name","description":"The display name"},{"label":"Email","description":"The contact address"},{"label":"Plan","description":"The subscription tier"}]}]}"#
+            entries[session.id]?.append(RemoteEntry(id: "tool-questions", kind: .toolUse, text: questions, toolID: "toolu_questions", name: "AskUserQuestion"))
+            features.append(RemoteQuestionsFeature.name)
+        }
+        let mode = UserDefaults.standard.string(forKey: "snapshotDemoMode")
+        if mode != nil { features.append(RemotePermissionModeFeature.name) }
+        activity[session.id] = RemoteActivity(tasks: agentTasks, context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"), permissionMode: mode)
         let resets = Date.now.addingTimeInterval(3 * 3600)
         usage = PlanUsage(windows: [
             UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: resets),
@@ -390,6 +398,14 @@ final class RemoteClient {
 
     func loadDiff(_ key: ChangeKey) {
         send(.changeDiff(sessionID: key.sessionID, path: key.path, isCommitted: key.isCommitted))
+    }
+
+    func press(_ keys: [RemoteKey], in session: RemoteSession) async {
+        for key in keys {
+            guard send(.key(sessionID: session.id, key: key, waitingFor: session.waitingFor, waitingSince: session.waitingSince)) else { return }
+
+            try? await Task.sleep(for: .milliseconds(250))
+        }
     }
 
     @discardableResult

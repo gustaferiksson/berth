@@ -117,7 +117,9 @@ public enum TranscriptTail {
                    output.stdout != nil || output.stderr != nil {
                     let stdout = output.stdout?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     let stderr = output.stderr?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    return [RemoteEntry(id: uuid, kind: .toolResult, text: String(stdout.prefix(maxText)), name: "bash-output", date: date, detail: stderr.isEmpty ? nil : String(stderr.prefix(maxDetail)))]
+                    var entry = RemoteEntry(id: uuid, kind: .toolResult, text: String(stdout.prefix(maxText)), name: "bash-output", date: date, detail: stderr.isEmpty ? nil : String(stderr.prefix(maxDetail)))
+                    entry.parentID = object["parentUuid"] as? String
+                    return [entry]
                 }
                 if line.range(of: Data("<command-name>".utf8)) != nil, let slash = slashPrompt(record, id: uuid, date: date) { return [slash] }
 

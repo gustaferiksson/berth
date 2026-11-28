@@ -181,6 +181,7 @@ public struct RemoteEntry: Codable, Sendable, Hashable, Identifiable {
     public var imageRefs: [RemoteImageRef]?
     public var shellOutput: String?
     public var shellError: String?
+    public var parentID: String?
 
     public init(id: String, kind: Kind, text: String, toolID: String? = nil, name: String? = nil, command: String? = nil, filePath: String? = nil, oldText: String? = nil, newText: String? = nil, isError: Bool = false, date: Date? = nil, detail: String? = nil, images: [Data]? = nil, imageNumbers: [Int]? = nil, imageRefs: [RemoteImageRef]? = nil) {
         self.id = id
@@ -235,11 +236,13 @@ public struct RemoteActivity: Codable, Sendable, Hashable {
     public let tasks: [RemoteTask]
     public let context: RemoteContext?
     public let approval: RemoteApproval?
+    public let permissionMode: String?
 
-    public init(tasks: [RemoteTask], context: RemoteContext?, approval: RemoteApproval? = nil) {
+    public init(tasks: [RemoteTask], context: RemoteContext?, approval: RemoteApproval? = nil, permissionMode: String? = nil) {
         self.tasks = tasks
         self.context = context
         self.approval = approval
+        self.permissionMode = permissionMode
     }
 }
 
@@ -389,7 +392,7 @@ public enum RemoteSessionSetting: Codable, Sendable, Hashable {
 }
 
 public enum RemoteKey: String, Codable, Sendable, CaseIterable {
-    case enter, escape, shiftTab, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9
+    case enter, escape, shiftTab, arrowDown, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9
 }
 
 public enum RemoteSessionAction: String, Codable, Sendable {
