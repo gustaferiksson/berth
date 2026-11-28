@@ -57,7 +57,7 @@ struct SessionListView: View {
                     Section {
                         if expansion.wrappedValue {
                             ForEach(group.sessions.prefix(showsAll ? count : limit)) { session in
-                                SessionRow(session: session, isPinned: session.isPinned ?? pinned.contains(session.id)) {
+                                SessionRow(session: session, groupID: group.id, isPinned: session.isPinned ?? pinned.contains(session.id)) {
                                     path.append(session.id)
                                 } didAct: { action in
                                     feedback = ActionFeedback(count: feedback.count + 1, action: action)
@@ -133,6 +133,9 @@ struct SessionListView: View {
             }
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()
+            }
+            .onChange(of: path) {
+                UserDefaults.standard.set(path.last, forKey: "remoteSession")
             }
             .onChange(of: client.openedSessionID, initial: true) {
                 guard let id = client.openedSessionID else { return }
@@ -214,6 +217,7 @@ struct ConnectionStatus: View {
 
 private struct SessionRow: View {
     let session: RemoteSession
+    let groupID: String
     let isPinned: Bool
     let open: () -> Void
     let didAct: (RemoteSessionAction) -> Void
@@ -225,6 +229,10 @@ private struct SessionRow: View {
         let toggleRead = session.isUnread == true ? RemoteSessionAction.markRead : .markUnread
         let toggleRule = isPinned ? RemoteSessionAction.unpin : .pin
         let agent = (session.agent ?? .legacyClaude).name
+        let hasTriage = client.features.contains(RemoteTriageFeature.name)
+        let isDone = groupID == RemoteTriageFeature.doneGroupID
+        let isSnoozed = groupID == RemoteTriageFeature.snoozedGroupID
+        let toggleFlag = session.isFlagged == true ? RemoteSessionAction.unflag : .flag
 
         Button(action: open) {
             SessionRowLabel(session: session)
@@ -237,9 +245,16 @@ private struct SessionRow: View {
         .swipeActions(edge: .leading) {
             Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") { perform(toggleRule) }
                 .tint(.yellow)
+            if hasTriage {
+                Button(session.isFlagged == true ? "Unflag" : "Flag", systemImage: session.isFlagged == true ? "flag.slash" : "flag") { perform(toggleFlag) }
+                    .tint(.orange)
+            }
         }
         .swipeActions(edge: .trailing) {
-            if session.status == nil {
+            if isDone, hasTriage {
+                Button("Mark as Not Done", systemImage: "arrow.uturn.backward") { perform(.unarchive) }
+                    .tint(.green)
+            } else if session.status == nil {
                 Button("Mark as Done", systemImage: "checkmark") { perform(.archive) }
                     .tint(.green)
             }
@@ -253,6 +268,18 @@ private struct SessionRow: View {
             Button("Open on Mac", systemImage: "macbook") { perform(.show) }
             Button(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin") { perform(toggleRule) }
             Button(session.isUnread == true ? "Mark as Read" : "Mark as Unread", systemImage: session.isUnread == true ? "envelope.open" : "envelope.badge") { perform(toggleRead) }
+            if hasTriage {
+                Button(session.isFlagged == true ? "Unflag" : "Flag", systemImage: session.isFlagged == true ? "flag.slash" : "flag") { perform(toggleFlag) }
+                if isSnoozed {
+                    Button("Unsnooze", systemImage: "moon.zzz.fill") { perform(.unsnooze) }
+                } else if !isDone {
+                    Menu("Snooze", systemImage: "moon.zzz") {
+                        Button("1 Hour") { perform(.snoozeOneHour) }
+                        Button("Tomorrow") { perform(.snoozeTomorrow) }
+                        Button("Until It Needs You") { perform(.snoozeUntilNeedsYou) }
+                    }
+                }
+            }
             if let pullRequest = session.pullRequest, client.features.contains(RemotePullRequestFeature.name) {
                 Button { isShowingPullRequest = true } label: { Label("Pull Request #\(String(pullRequest.number))", image: Octicon.pullRequest.assetName()) }
             } else if let pullRequest = session.pullRequest, pullRequest.url.scheme == "https" {
@@ -260,7 +287,10 @@ private struct SessionRow: View {
                     Label("Open Pull Request #\(String(pullRequest.number))", image: Octicon.pullRequest.assetName())
                 }
             }
-            if session.status == nil {
+            if isDone, hasTriage {
+                Divider()
+                Button("Mark as Not Done", systemImage: "arrow.uturn.backward") { perform(.unarchive) }
+            } else if session.status == nil {
                 Divider()
                 Button("Mark as Done", systemImage: "checkmark", role: .destructive) { perform(.archive) }
             }
@@ -353,6 +383,12 @@ private struct SessionRowLabel: View {
                             .foregroundStyle(Color.primary)
                             .lineLimit(isAccessibility ? 2 : 1)
                             .fixedSize(horizontal: false, vertical: true)
+                        if session.isFlagged == true {
+                            Image(systemName: "flag.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .accessibilityLabel("Flagged")
+                        }
                         if session.isLocked {
                             Image(systemName: "lock.fill")
                                 .font(.caption)
