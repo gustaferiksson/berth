@@ -22,6 +22,7 @@ struct PermissionModeChip: View {
                 .frame(height: ComposerLayout.controlSize)
                 .background(style.color.opacity(0.14), in: .capsule)
                 .frame(minWidth: ComposerLayout.hitSize)
+                .padding(.trailing, ComposerLayout.hitPadding)
                 .frame(height: ComposerLayout.hitSize)
                 .contentShape(.rect)
         }
