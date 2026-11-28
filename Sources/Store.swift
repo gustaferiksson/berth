@@ -302,11 +302,11 @@ final class Store {
         didSet { if persistsTabs { UserDefaults.standard.set(seenAt, forKey: "seenSessions") } }
     }
 
-    @ObservationIgnored private var pullRequestMemory = PullRequestMemory(storage: UserDefaults.standard.string(forKey: "sessionPullRequests")) {
+    @ObservationIgnored var pullRequestMemory = PullRequestMemory(storage: UserDefaults.standard.string(forKey: "sessionPullRequests")) {
         didSet { if persistsTabs, pullRequestMemory != oldValue { UserDefaults.standard.set(pullRequestMemory.storage, forKey: "sessionPullRequests") } }
     }
 
-    @ObservationIgnored private var listedIDs = Dictionary(uniqueKeysWithValues: Agent.allCases.map { ($0, Set(UserDefaults.standard.stringArray(forKey: "\($0.rawValue)SessionIDs") ?? [])) }) {
+    @ObservationIgnored private(set) var listedIDs = Dictionary(uniqueKeysWithValues: Agent.allCases.map { ($0, Set(UserDefaults.standard.stringArray(forKey: "\($0.rawValue)SessionIDs") ?? [])) }) {
         didSet {
             guard persistsTabs else { return }
 
@@ -1031,15 +1031,7 @@ final class Store {
             catalogModels = catalog
             let listed = Set(summaries.map(\.id))
             let continued = Dictionary(summaries.compactMap { summary in summary.continuedIn.flatMap { listed.contains($0) ? (summary.id, $0) : nil } }) { first, _ in first }
-            var memory = pullRequestMemory
-            for (old, new) in continued { memory.move(old, to: new) }
-            self.summaries = summaries.filter { continued[$0.id] == nil }.map { summary in
-                var summary = summary
-                summary.pullRequests = memory.merged(summary.pullRequests, of: summary.id)
-                return summary
-            }
-            if !summaries.isEmpty { memory.prune(keeping: listed.union(Agent.allCases.filter { !Self.isEnabled($0) }.flatMap { listedIDs[$0] ?? [] })) }
-            if memory != pullRequestMemory { pullRequestMemory = memory }
+            self.summaries = rememberingPullRequests(in: summaries.filter { continued[$0.id] == nil }, continued: continued, listed: listed)
             for index in tabs.indices {
                 guard let target = tabs[index].sessionID.flatMap({ continued[$0] }) else { continue }
 
@@ -1699,23 +1691,6 @@ final class Store {
             return ReviewPullRequestLocation(link: link, root: clone)
         }
         throw .init(message: "No local clone of \(repository). Pass --repo <path> or clone the repository")
-    }
-
-    func sessionReviewPullRequests(of sessionID: String, changes: ReviewChanges?, excluding branchNumber: Int?) -> [ReviewPullRequest] {
-        var entries = shownReviewPullRequests[sessionID] ?? [:]
-        for remembered in pullRequestMemory.rooted(of: sessionID) where entries[remembered.link] == nil {
-            guard let root = remembered.root, let pullRequest = linkedPullRequests[remembered.link] else { continue }
-
-            entries[remembered.link] = ReviewPullRequest(location: ReviewPullRequestLocation(link: remembered.link, root: root), pullRequest: pullRequest)
-        }
-        if let changes, let root = repositoryRoot(ofSession: sessionID),
-           let repository = pullRequestBranch(inRoot: root, branch: changes.branch)?.repository.lowercased() {
-            for pullRequest in pullRequests(inRoot: nil, of: sessionID, branch: changes.branch) where pullRequest.number != branchNumber {
-                let link = PullRequestLink(repository: repository, number: pullRequest.number)
-                if entries[link] == nil { entries[link] = ReviewPullRequest(location: ReviewPullRequestLocation(link: link, root: changes.root), pullRequest: pullRequest) }
-            }
-        }
-        return entries.values.sorted { ($0.id.number, $0.id.repository) < ($1.id.number, $1.id.repository) }
     }
 
     func showChanges(opening paths: [String]) {
