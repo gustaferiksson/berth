@@ -217,6 +217,8 @@ public struct FileChanges: Sendable {
 }
 
 public struct Turn: Identifiable, Sendable {
+    var shellDate: Date? { prompt?.name == "bash" ? prompt?.date : nil }
+
     public let id: String
     public var prompt: RemoteEntry?
     public var parts: [TurnPart] = []
