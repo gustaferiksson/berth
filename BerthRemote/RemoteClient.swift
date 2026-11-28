@@ -69,6 +69,7 @@ final class RemoteClient {
             changes = [:]
             diffs = [:]
             taskDetails = [:]
+            subagentTranscripts = [:]
             slashCommands = [:]
             requestedSlashCommands = []
             images = images.filter { if case .loaded = $0.value { true } else { false } }
@@ -87,6 +88,7 @@ final class RemoteClient {
     private(set) var changes: [String: ChangesLoad] = [:]
     private(set) var diffs: [ChangeKey: DiffLoad] = [:]
     private(set) var taskDetails: [String: RemoteTaskDetail] = [:]
+    private(set) var subagentTranscripts: [String: [RemoteEntry]] = [:]
     private(set) var features: [String] = []
     private(set) var slashCommands: [String: [SlashCommand]] = [:]
     private(set) var usage: PlanUsage?
@@ -154,7 +156,7 @@ final class RemoteClient {
 
     func seedDemo() {
         state = .connected
-        features = [RemoteTriageFeature.name]
+        features = [RemoteTriageFeature.name, RemoteTaskDetail.feature, RemoteSubagentTranscriptFeature.name]
         if let file = Self.demoSectionsFile {
             do {
                 groups = try JSONDecoder().decode([RemoteGroup].self, from: Data(contentsOf: URL(filePath: file)))
@@ -200,7 +202,19 @@ final class RemoteClient {
             }
             entries[session.id]?.append(RemoteEntry(id: "prompt-image", kind: .prompt, text: "[Image #1]", images: [image], imageNumbers: [1]))
         }
-        activity[session.id] = RemoteActivity(tasks: [], context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"))
+        let agentTasks = UserDefaults.standard.bool(forKey: "snapshotDemoSubagent") ? [RemoteTask(id: "demo-agent", kind: RemoteTask.agent, title: "Audit the feed rows", started: now.addingTimeInterval(-95), agentType: "Explore", toolCount: 3, tokens: 18_400)] : []
+        if !agentTasks.isEmpty {
+            taskDetails["demo-agent"] = RemoteTaskDetail(calls: [RemoteToolCall(name: "Grep", summary: "ForEach in Sources/Feed"), RemoteToolCall(name: "Read", summary: "Sources/Feed/FeedRow.swift")], reply: "Rows are keyed by position.")
+            subagentTranscripts["demo-agent"] = [
+                RemoteEntry(id: "sub-prompt", kind: .prompt, text: "Audit how the feed rows are identified and report anything that depends on their position."),
+                RemoteEntry(id: "sub-use-1", kind: .toolUse, text: "{\"pattern\":\"ForEach\"}", toolID: "t1", name: "Grep", detail: "ForEach in Sources/Feed"),
+                RemoteEntry(id: "sub-result-1", kind: .toolResult, text: "Sources/Feed/EntryList.swift:42:    ForEach(entries.indices, id: \\.self) { index in", toolID: "t1"),
+                RemoteEntry(id: "sub-use-2", kind: .toolUse, text: "{\"file_path\":\"Sources/Feed/FeedRow.swift\"}", toolID: "t2", name: "Read", filePath: "Sources/Feed/FeedRow.swift"),
+                RemoteEntry(id: "sub-result-2", kind: .toolResult, text: "struct FeedRow: View { let index: Int }", toolID: "t2"),
+                RemoteEntry(id: "sub-reply", kind: .reply, text: "Rows are identified by their index in EntryList.swift, so inserting an entry at the top gives every visible row a new identity. FeedRow also stores its index, which would need to become the entry ID."),
+            ]
+        }
+        activity[session.id] = RemoteActivity(tasks: agentTasks, context: RemoteContext(model: "claude-opus-5-5", tokens: 48_000, window: 200_000, date: .now, compactions: 0, lastCompaction: nil, effort: "medium"))
         let resets = Date.now.addingTimeInterval(3 * 3600)
         usage = PlanUsage(windows: [
             UsageWindow(id: "five_hour", title: "Session", length: 5 * 3600, used: 0.42, resetsAt: resets),
@@ -337,6 +351,12 @@ final class RemoteClient {
         guard features.contains(RemoteTaskDetail.feature) else { return }
 
         send(.taskDetail(sessionID: sessionID, taskID: taskID))
+    }
+
+    func requestSubagentTranscript(_ taskID: String, in sessionID: String) {
+        guard features.contains(RemoteSubagentTranscriptFeature.name) else { return }
+
+        send(.subagentTranscript(sessionID: sessionID, taskID: taskID))
     }
 
     func loadPullRequest(of sessionID: String) {
@@ -577,6 +597,9 @@ final class RemoteClient {
 
         case let .taskDetail(_, taskID, detail):
             taskDetails[taskID] = detail
+
+        case let .subagentTranscript(_, taskID, entries):
+            subagentTranscripts[taskID] = entries ?? []
 
         case let .uploaded(id, error):
             uploads[id] = error.map(UploadState.failed) ?? .done
