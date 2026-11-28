@@ -4,9 +4,23 @@ import Foundation
 public enum PushAlert: String, Sendable {
     case needsYou
     case finished
+    case test
 
-    public var status: String { self == .needsYou ? "waiting" : "idle" }
-    public var body: String { self == .needsYou ? "Needs you" : "Finished" }
+    public var status: String {
+        switch self {
+        case .needsYou: "waiting"
+        case .finished: "idle"
+        case .test: "test"
+        }
+    }
+
+    public var body: String {
+        switch self {
+        case .needsYou: "Needs you"
+        case .finished: "Finished"
+        case .test: "Test notification"
+        }
+    }
 }
 
 public enum APNsOutcome: Equatable, Sendable {
@@ -62,6 +76,6 @@ public enum APNs {
     }
 
     private static func base64URL(_ data: Data) -> String {
-        data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        data.base64EncodedString().replacing("+", with: "-").replacing("/", with: "_").replacing("=", with: "")
     }
 }

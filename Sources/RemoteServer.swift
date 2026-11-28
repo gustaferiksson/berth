@@ -45,6 +45,8 @@ final class RemoteServer {
 
     private(set) var failure: String?
     private var usageFeatures: [String] = []
+    private var isPushConfigured = false
+    @ObservationIgnored let push: RemotePush
     @ObservationIgnored private unowned let store: Store
     @ObservationIgnored private var listener: NWListener?
     @ObservationIgnored private var watcher: FileWatcher?
@@ -64,6 +66,7 @@ final class RemoteServer {
 
     init(store: Store) {
         self.store = store
+        push = RemotePush(store: store)
         imageCache.totalCostLimit = 64 << 20
     }
 
@@ -118,9 +121,9 @@ final class RemoteServer {
         let paths = [Store.claudeDirectory.appending(path: "projects"), Store.codexDirectory.appending(path: "sessions")]
         watcher = FileWatcher(paths: paths.map(\.path), latency: 0.3) { [weak self] _ in self?.streamTranscripts() }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: nil) { [weak self] _ in
-            Task { @MainActor in self?.updateUsageFeatures() }
+            Task { @MainActor in self?.updateOptionalFeatures() }
         }
-        updateUsageFeatures()
+        updateOptionalFeatures()
         observeSessions()
         observeUsage()
     }
@@ -256,6 +259,9 @@ final class RemoteServer {
 
         case let .image(sessionID, imageID, variant):
             Task { await sendImage(imageID, variant: variant, in: sessionID, to: connection) }
+
+        case let .pushToken(token, isSandbox):
+            push.register(token: token, isSandbox: isSandbox)
 
         case let .commands(sessionID):
             Task { await sendCommands(of: sessionID, to: connection) }
@@ -458,13 +464,14 @@ final class RemoteServer {
         try? FileManager.default.removeItem(at: upload.file.deletingLastPathComponent())
     }
 
-    private func updateUsageFeatures() {
+    private func updateOptionalFeatures() {
         guard listener != nil else { return }
 
         let features = UserDefaults.standard.bool(forKey: PlanUsageFetch.enabledKey)
             ? [RemoteUsageFeature.name] + (store.isCodexEnabled ? [RemoteCodexUsageFeature.name] : [])
             : []
         if features != usageFeatures { usageFeatures = features }
+        if push.isConfigured != isPushConfigured { isPushConfigured = push.isConfigured }
     }
 
     private var sessionsMessage: RemoteServerMessage {
@@ -528,7 +535,7 @@ final class RemoteServer {
             RemoteGroup(id: "archived", title: "Done", sessions: sessions(layout.archivedIDs), isCollapsed: true),
         ]
         let groups = [attention] + active + triage + layout.groups.map(section) + hidden
-        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature] + usageFeatures)
+        return .sessions(groups: groups.filter { !$0.sessions.isEmpty }, folders: store.knownFolders.prefix(30).map(\.path), features: [RemoteUpload.feature, RemotePullRequestFeature.name, RemoteSearchFeature.name, RemoteChangesFeature.name, RemoteTaskDetail.feature, RemoteImagesFeature.name, RemoteSessionSettingsFeature.name, RemoteSlashCommand.feature] + usageFeatures + (isPushConfigured ? [RemotePushFeature.name] : []))
     }
 
     #if DEBUG
