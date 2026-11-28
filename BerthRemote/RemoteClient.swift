@@ -218,6 +218,9 @@ final class RemoteClient {
             ]
             draftTexts[session.id] = "/co"
         }
+        if UserDefaults.standard.bool(forKey: "snapshotSearchJump") {
+            searchJump = (session.id, RemoteSnippet(text: "…The feed rebuilds every row when a new entry arrives…", highlights: []))
+        }
         if !Self.showsDemoList { openedSessionID = session.id }
     }
 
