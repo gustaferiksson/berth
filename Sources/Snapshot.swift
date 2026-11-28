@@ -35,8 +35,8 @@ enum Snapshot {
     private static let linkedFixtureLinks = linkedFixtures.keys.sorted { $0.number > $1.number }
     static let persistsPullRequests: Bool = {
         guard UserDefaults.standard.bool(forKey: "snapshotSessionPullRequestLinks") else { return false }
-        guard ProcessInfo.processInfo.environment["CFFIXED_USER_HOME"] != nil else {
-            FileHandle.standardError.write(Data("snapshot: -snapshotSessionPullRequestLinks needs CFFIXED_USER_HOME\n".utf8))
+        guard ProcessInfo.processInfo.environment["CFFIXED_USER_HOME"] != nil, Bundle.main.bundleIdentifier != "dev.gustaf.berth" else {
+            FileHandle.standardError.write(Data("snapshot: -snapshotSessionPullRequestLinks needs CFFIXED_USER_HOME and a copy of Berth.app with another bundle identifier, because CFFIXED_USER_HOME does not move UserDefaults\n".utf8))
             exit(1)
         }
 
