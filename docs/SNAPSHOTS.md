@@ -232,6 +232,8 @@ Add `-snapshotDemoCode YES` to append a fenced code block with one long line and
 
 On the Mac, run Berth with `-snapshotRemoteSections /abs/out.json -snapshotBusySidebar YES` to write the seeded sidebar sections as wire-format JSON and exit. In the iOS simulator, launch Berth Remote with `-snapshotDemoSectionsFile /abs/in.json` pointing to the exported file to open it in the demo session list.
 
+Add `-snapshotPairPayload "<berthremote://pair?url=…&token=…>"` in Berth Remote to feed a pairing payload to the Connect screen's scan handler (the simulator has no camera). On the Mac, `-settingsSnapshot /abs/out.png -settingsTab remote -remoteEnabled YES -remoteToken <token> -remotePairAddress wss://mac.acme.example.invalid -snapshotPairShown YES` shows the Pair iPhone QR code.
+
 Add `-snapshotDemoSlashCommands YES` to seed `/co` and sample project and user commands. Capture each appearance with `xcrun simctl io booted screenshot /abs/out.png` after setting it with `xcrun simctl ui booted appearance light|dark`.
 
 ### Glass (see docs/adr/0005)
