@@ -51,7 +51,7 @@ public enum APNs {
         guard isValidDeviceToken(deviceToken), let url = URL(string: "https://\(isSandbox ? "api.sandbox.push.apple.com" : "api.push.apple.com")/3/device/\(deviceToken)") else { throw URLError(.badURL) }
 
         let payload: [String: Any] = [
-            "aps": ["alert": ["title": String(title.prefix(120)), "body": alert.body], "sound": "default", "thread-id": sessionID],
+            "aps": ["alert": ["title": String(title.prefix(120)), "body": alert.body], "sound": "default", "thread-id": sessionID, "content-available": 1],
             "sessionID": sessionID,
             "status": alert.status,
         ]
