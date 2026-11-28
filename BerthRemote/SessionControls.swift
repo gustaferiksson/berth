@@ -394,6 +394,11 @@ private struct Composer: View {
         }
         #if DEBUG
         .task { await attachForSnapshot() }
+        .task {
+            guard let text = UserDefaults.standard.string(forKey: "snapshotDemoDraft") else { return }
+
+            draft = text
+        }
         #if DEBUG
         .task {
             guard UserDefaults.standard.bool(forKey: "snapshotDemoFocus") else { return }
